@@ -7,17 +7,17 @@ Based on: https://clickhouse.com/blog/llm-observability-clickstack-mcp
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐
-│   LibreChat     │────▶│  ClickHouse MCP  │
-│  (Port 3080)    │     │   (Port 8001)    │
-└────────┬────────┘     └────────┬─────────┘
-         │                       │
-         │  OTel Traces          │  OTel Traces
-         ▼                       ▼
-┌─────────────────────────────────────────────┐
-│           ClickStack / HyperDX              │
-│  UI: 8080 | OTLP: 4317/4318                │
-└─────────────────────────────────────────────┘
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   LibreChat     │────▶│  ClickHouse MCP  │◀────│   Python RAG    │
+│  (Port 3080)    │     │   (Port 8001)    │     │  (Port 8002)    │
+└────────┬────────┘     └────────┬─────────┘     └────────┬────────┘
+         │                       │                        │
+         │  OTel Traces          │  OTel Traces           │ OTel + TruLens
+         ▼                       ▼                        ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                      ClickStack / HyperDX                            │
+│                   UI: 8080 | OTLP: 4317/4318                        │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
@@ -113,3 +113,58 @@ To also remove data volumes:
 docker compose down -v
 rm -rf data-node meili_data logs mcp-logs uploads images
 ```
+
+---
+
+## Python RAG Demo with TruLens & OpenLLMetry
+
+In addition to LibreChat, this repo includes a Python RAG application that demonstrates:
+- **OpenLLMetry** - Automatic capture of prompts, completions, and token usage
+- **TruLens** - LLM quality evaluation (relevance, coherence scores)
+
+> **Detailed guide**: See [docs/QUICKSTART.md](docs/QUICKSTART.md) for full walkthrough
+
+### Quick Start
+
+```bash
+# 1. Ensure ClickStack is running and connected
+docker network connect clickhouse-llm-observability_default clickstack
+
+# 2. Build and start the demo
+docker compose build python-rag
+docker compose up -d python-rag
+
+# 3. Watch the demo run
+docker logs -f python-rag
+```
+
+### Generate More Data
+
+```bash
+docker compose exec python-rag python /scripts/generate_load.py -n 10
+```
+
+### Access Points
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| TruLens Dashboard | http://localhost:8501 | LLM evaluation scores |
+| HyperDX | http://localhost:8080 | Traces, tokens, latency |
+| LibreChat | http://localhost:3080 | Chat UI with MCP |
+
+### What Gets Captured
+
+| Data | Tool | Where to See |
+|------|------|--------------|
+| Prompts & Completions | OpenLLMetry | HyperDX → Traces |
+| Token Usage | OpenLLMetry | HyperDX → Span attributes |
+| Answer Relevance | TruLens | TruLens Dashboard |
+| Coherence Score | TruLens | TruLens Dashboard |
+
+### Sample SQL Queries
+
+See `queries/` directory for ClickHouse analytics:
+- `token_usage.sql` - Token counts by service
+- `cost_estimation.sql` - Estimated API costs
+- `latency_analysis.sql` - P50/P95/P99 latencies
+- `error_analysis.sql` - Error rates over time

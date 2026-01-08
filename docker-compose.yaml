@@ -100,3 +100,32 @@ services:
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
     volumes:
       - ./mcp-logs:/app/logs
+
+  # =============================================================================
+  # NEW: Python RAG Application with TruLens + OpenLLMetry
+  # =============================================================================
+  python-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile.rag
+    container_name: python-rag
+    ports:
+      - "${RAG_APP_PORT:-8002}:8000"
+      - "8501:8501"  # TruLens Dashboard
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
+      - OTEL_SERVICE_NAME=python-rag-demo
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
+    depends_on:
+      - mcp-clickhouse
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - rag  # Optional: only starts with --profile rag
+    volumes:
+      - ./python-rag:/app
