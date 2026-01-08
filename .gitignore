@@ -1,0 +1,24 @@
+# Environment files
+.env
+
+# Data directories
+data-node/
+meili_data/
+
+# Logs
+logs/
+*.log
+
+# Uploads and images
+uploads/
+images/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

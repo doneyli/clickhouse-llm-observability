@@ -1,0 +1,16 @@
+# LibreChat Configuration
+version: "1.2.1"
+
+# Enable caching
+cache: true
+
+# MCP Servers Configuration
+mcpServers:
+  clickhouse-playground:
+    type: sse
+    url: http://host.docker.internal:8001/sse
+
+# Agent Configuration
+endpoints:
+  agents:
+    recursionLimit: 50
