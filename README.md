@@ -187,6 +187,37 @@ docker compose run --rm trace-evaluator python main.py \
 2. Look for `librechat-conversations-eval` in the app list
 3. View quality scores and judge reasoning
 
+### Step 6: Correlate Conversations with Evaluations in HyperDX
+
+The trace-evaluator emits OTEL spans showing both the **generation model** and the **judge model** for each evaluation:
+
+| Attribute | Description |
+|-----------|-------------|
+| `gen_ai.request.model` | Judge model (e.g., `claude-3-5-haiku`) |
+| `eval.source_model` | Generation model being evaluated |
+| `eval.source_trace_id` | Links back to original conversation |
+| `eval.relevance_score` | Relevance score (0.0-1.0) |
+| `eval.coherence_score` | Coherence score (0.0-1.0) |
+
+**To find evaluations in HyperDX:**
+1. Search: `service:trace-evaluator` to see all evaluations
+2. To find evaluation for a specific conversation: `eval.source_trace_id:<conversation-trace-id>`
+
+**SQL Query to join conversations with their evaluations:**
+```sql
+SELECT
+    e.SpanAttributes['eval.source_model'] as generation_model,
+    e.SpanAttributes['gen_ai.request.model'] as judge_model,
+    e.SpanAttributes['eval.relevance_score'] as relevance,
+    substring(e.SpanAttributes['eval.input'], 1, 50) as prompt
+FROM otel_traces e
+WHERE e.ServiceName = 'trace-evaluator'
+  AND e.SpanName = 'llm.evaluation'
+ORDER BY e.Timestamp DESC
+```
+
+> **Note:** Each evaluation shows 3-4 spans in HyperDX: 1 `llm.evaluation` parent span + 2-3 `ChatAnthropic.chat` child spans (the judge LLM calls). See [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) for details.
+
 ---
 
 ## Service Reference
