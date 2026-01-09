@@ -6,314 +6,148 @@ Based on: https://clickhouse.com/blog/llm-observability-clickstack-mcp
 
 ---
 
-## Why LLM Observability?
+## Quick Demo Walkthrough
 
-Traditional application monitoring tracks requests, errors, and latency. But LLM applications have unique challenges:
-
-| Challenge | Why It Matters |
-|-----------|----------------|
-| **Non-deterministic outputs** | Same prompt can produce different responses |
-| **Quality is subjective** | "Good" output is hard to measure automatically |
-| **Cost scales with usage** | Token usage directly impacts your bill |
-| **Latency varies widely** | Response time depends on output length |
-| **Debugging is hard** | What prompt led to that bad response? |
-
-**LLM Observability** solves this by capturing:
-1. **What happened** - Prompts, completions, tokens, latency (OpenLLMetry)
-2. **How good was it** - Quality scores, relevance, accuracy (TruLens)
-
----
-
-## Understanding the Observability Stack
-
-This demo uses three complementary technologies:
-
-### OpenLLMetry (Operational Observability)
-
-[OpenLLMetry](https://github.com/traceloop/openllmetry) is an open-source project that auto-instruments LLM frameworks (LangChain, OpenAI, Anthropic, etc.) using OpenTelemetry.
-
-**What it captures:**
-```
-┌─────────────────────────────────────────────────────────┐
-│                   LLM API Call                          │
-├─────────────────────────────────────────────────────────┤
-│  gen_ai.prompt          → "What is ClickHouse?"         │
-│  gen_ai.completion      → "ClickHouse is a fast..."     │
-│  gen_ai.usage.input_tokens   → 12                       │
-│  gen_ai.usage.output_tokens  → 156                      │
-│  gen_ai.request.model   → "claude-sonnet-4-20250514"    │
-│  duration_ms            → 1847                          │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Use cases:**
-- Track token usage and costs
-- Monitor latency percentiles (p50, p95, p99)
-- Debug specific requests by viewing full prompts/completions
-- Alert on errors or anomalies
-
-### TruLens (Quality Evaluation)
-
-[TruLens](https://www.trulens.org/) evaluates LLM output quality using "LLM-as-a-Judge" - a smaller, cheaper LLM scores your outputs.
-
-**What it evaluates:**
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Quality Scores (0.0 - 1.0)            │
-├─────────────────────────────────────────────────────────┤
-│  Answer Relevance  → Does the answer address the question? │
-│  Coherence         → Is the response well-structured?      │
-│  Groundedness      → Is it supported by retrieved context? │
-│  Context Relevance → Was the right context retrieved?      │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Use cases:**
-- Catch quality regressions before users complain
-- Compare model versions objectively
-- Identify which types of questions perform poorly
-- Validate RAG retrieval quality
-
-### ClickStack/HyperDX (Unified Backend)
-
-[ClickStack](https://github.com/hyperdxio/hyperdx) (powered by HyperDX) is a self-hosted observability platform with ClickHouse backend.
-
-**What it provides:**
-- Trace visualization with span trees
-- Log aggregation and search
-- Custom dashboards and alerts
-- SQL-based analytics on observability data
-
----
-
-## How They Work Together
+This demo shows the complete LLM observability pipeline in action:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Your LLM Application                                  │
-│                  (text-to-sql or vector-rag demo)                           │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-                                  │ Every LLM call
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         OpenLLMetry Auto-Instrumentation                     │
-│                        (LangchainInstrumentor)                               │
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           DEMO ARCHITECTURE                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│   Captures: prompts, completions, tokens, latency, model name               │
-└──────────────────────────────────┬──────────────────────────────────────────┘
-                                   │
-          ┌────────────────────────┴────────────────────────┐
-          │                                                 │
-          ▼                                                 ▼
-┌───────────────────────────┐                 ┌───────────────────────────┐
-│   Main LLM Calls          │                 │   Judge LLM Calls         │
-│   (Claude Sonnet)         │                 │   (Claude Haiku)          │
-│                           │                 │                           │
-│   Your app's responses    │                 │   TruLens evaluations     │
-└───────────┬───────────────┘                 └───────────┬───────────────┘
-            │                                             │
-            │              OTLP Protocol                  │
-            └──────────────────┬──────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         ClickStack / HyperDX                                 │
-│                        http://localhost:8080                                 │
+│   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                   │
+│   │ Text-to-SQL │     │ Vector RAG  │     │  LibreChat  │                   │
+│   │    Demo     │     │    Demo     │     │   (Chat)    │                   │
+│   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘                   │
+│          │                   │                   │                          │
+│          │ OpenLLMetry       │ OpenLLMetry       │ librechat-exporter       │
+│          │ (auto)            │ (auto)            │ (polls MongoDB)          │
+│          │                   │                   │                          │
+│          └───────────────────┴───────────────────┘                          │
+│                              │                                              │
+│                              ▼                                              │
+│          ┌───────────────────────────────────────┐                          │
+│          │         ClickStack / HyperDX          │                          │
+│          │         http://localhost:8080         │                          │
+│          │                                       │                          │
+│          │  • All LLM traces with gen_ai.*       │                          │
+│          │  • Prompts, completions, tokens       │                          │
+│          │  • Latency metrics                    │                          │
+│          └───────────────────┬───────────────────┘                          │
+│                              │                                              │
+│                              ▼                                              │
+│          ┌───────────────────────────────────────┐                          │
+│          │          trace-evaluator              │                          │
+│          │      (run manually or scheduled)      │                          │
+│          │                                       │                          │
+│          │  • Queries traces from ClickHouse     │                          │
+│          │  • Runs TruLens LLM-as-judge evals    │                          │
+│          └───────────────────┬───────────────────┘                          │
+│                              │                                              │
+│                              ▼                                              │
+│          ┌───────────────────────────────────────┐                          │
+│          │         TruLens Dashboard             │                          │
+│          │         http://localhost:8501         │                          │
+│          │                                       │                          │
+│          │  • Quality scores (relevance, etc.)   │                          │
+│          │  • Judge reasoning                    │                          │
+│          └───────────────────────────────────────┘                          │
 │                                                                              │
-│   • All traces (main LLM + judge LLM)    • Token analytics                  │
-│   • Latency percentiles                   • Cost estimation                  │
-│   • Error tracking                        • Custom dashboards                │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                               +
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         TruLens Dashboard                                    │
-│                        http://localhost:8501                                 │
-│                                                                              │
-│   • Quality scores per record             • Judge reasoning (chain-of-thought)│
-│   • App leaderboard                       • Feedback history                 │
-│   • Regression detection                  • Export for analysis              │
-└─────────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key insight:** TruLens judge calls are ALSO captured by OpenLLMetry. This means:
-- HyperDX shows **all** LLM calls (both your app and the evaluations)
-- You can filter by model to see just evaluation calls
-- You get full cost/latency visibility into your evaluation pipeline
-
 ---
 
-## Two Demo Applications
+## Step-by-Step Demo Flow
 
-| Demo | Description | Use Case |
-|------|-------------|----------|
-| **Text-to-SQL** | Natural language → SQL queries against ClickHouse | Structured data Q&A |
-| **Vector RAG** | Proper RAG with embeddings + vector similarity search | Unstructured document Q&A |
-
-### Text-to-SQL Demo (`text-to-sql/`)
-- Converts natural language questions to SQL queries
-- Queries ClickHouse databases (UK property, GitHub, flights, etc.)
-- Uses MCP (Model Context Protocol) for database access
-- **Not RAG** - no vectors, no embeddings, no semantic retrieval
-
-### Vector RAG Demo (`vector-rag/`)
-- **Proper RAG architecture** with all components:
-  - Document chunking and indexing
-  - Vector embeddings (sentence-transformers)
-  - ChromaDB vector store
-  - Semantic similarity retrieval
-  - LLM generation from retrieved context
-- Includes **Groundedness** evaluation (is the answer supported by context?)
-
----
-
-## Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- Anthropic API key
-
-### Step 1: Start ClickStack (Observability Backend)
+### Phase 1: Start the Infrastructure
 
 ```bash
+# 1. Start ClickStack (observability backend)
 docker run -d --name clickstack \
   -p 8080:8080 -p 4317:4317 -p 4318:4318 \
   docker.hyperdx.io/hyperdx/hyperdx-all-in-one
 
-# Wait for ready
+# 2. Wait for it to be ready
 until curl -s http://localhost:8080 > /dev/null; do sleep 2; done
-```
+echo "ClickStack ready!"
 
-### Step 2: Get API Key
+# 3. Get API key: Open http://localhost:8080 → Register → Team Settings → Copy Ingestion Key
 
-1. Open http://localhost:8080
-2. Register an account
-3. Go to **Team Settings** → copy **Ingestion API Key**
-
-### Step 3: Configure Environment
-
-```bash
+# 4. Configure environment
 cp .env.example .env
-# Edit .env and set:
-# ANTHROPIC_API_KEY=sk-ant-...
-# CLICKSTACK_API_KEY=<from step 2>
-```
+# Edit .env and set ANTHROPIC_API_KEY and CLICKSTACK_API_KEY
 
-### Step 4: Connect Networks
-
-```bash
+# 5. Connect networks
 docker network create clickhouse-llm-observability_default 2>/dev/null || true
 docker network connect clickhouse-llm-observability_default clickstack
 ```
 
-### Step 5: Run the Demos
+### Phase 2: Run the Demo Apps
 
 ```bash
-# Build and run both demos + unified TruLens dashboard
+# Build and start the demos + TruLens dashboard
 docker compose build text-to-sql vector-rag trulens-dashboard
-docker compose up text-to-sql vector-rag trulens-dashboard
+docker compose up -d text-to-sql vector-rag trulens-dashboard
 ```
 
-Or run individually:
+### Phase 3: Generate Some LLM Traffic
 
+**Option A: Use the Text-to-SQL API**
 ```bash
-# Text-to-SQL only
-docker compose up text-to-sql trulens-dashboard
-
-# Vector RAG only
-docker compose up vector-rag trulens-dashboard
+curl -X POST http://localhost:8002/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How many houses were sold in London in 2020?"}'
 ```
+
+**Option B: Use the Vector RAG API**
+```bash
+curl -X POST http://localhost:8003/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is ClickHouse?"}'
+```
+
+**Option C: Use LibreChat (if running)**
+1. Open http://localhost:3080
+2. Ask: "What are the main use cases for ClickHouse?"
+
+### Phase 4: View Traces in HyperDX
+
+1. Open http://localhost:8080
+2. Go to **Search** → **Traces**
+3. You'll see LLM calls with:
+   - `gen_ai.prompt.0.content` - The user's question
+   - `gen_ai.completion.0.content` - The LLM's response
+   - `gen_ai.usage.input_tokens` / `output_tokens` - Token counts
+   - `gen_ai.request.model` - Model used
+
+### Phase 5: View Quality Scores in TruLens
+
+1. Open http://localhost:8501
+2. See the **Leaderboard** with apps:
+   - `text-to-sql-demo` - Text-to-SQL evaluations
+   - `vector-rag-demo` - RAG evaluations
+3. Click **Records** to see individual queries with scores
+4. Click a feedback badge to see the judge's reasoning
 
 ---
 
-## Access Points
+## Adding LibreChat to the Pipeline
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| **HyperDX** | http://localhost:8080 | Traces, logs, token usage, latency |
-| **TruLens Dashboard** | http://localhost:8501 | Quality scores, judge reasoning |
-| **Text-to-SQL API** | http://localhost:8002 | Demo application |
-| **Vector RAG API** | http://localhost:8003 | Demo application |
-| **LibreChat** | http://localhost:3080 | Chat UI with Claude + MCP |
+LibreChat stores conversations in MongoDB, not via OpenTelemetry. To include LibreChat conversations in the observability pipeline:
 
----
-
-## Exporting LibreChat Conversations
-
-LibreChat stores conversations in MongoDB, but we want to:
-1. View them in HyperDX alongside other LLM traces
-2. Run TruLens quality evaluations on them
-
-The **librechat-exporter** service bridges this gap by reading conversations from MongoDB and exporting them to ClickHouse via OTLP with proper `gen_ai.*` semantic conventions.
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        LibreChat (Chat UI)                                   │
-│                        http://localhost:3080                                 │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-                                  │ Stores conversations
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        MongoDB (messages collection)                         │
-│                                                                              │
-│  { conversationId, user_text, assistant_text, model, tokens, ... }          │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-                                  │ librechat-exporter reads
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        librechat-exporter                                    │
-│                                                                              │
-│  • Pairs user questions with assistant responses                            │
-│  • Converts to OpenTelemetry spans with gen_ai.* attributes                 │
-│  • Exports via OTLP protocol                                                │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-                                  │ OTLP
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        ClickHouse (otel_traces)                              │
-│                        (HyperDX Backend)                                     │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │
-          ┌───────────────────────┴───────────────────────┐
-          ▼                                               ▼
-┌───────────────────────────┐               ┌───────────────────────────┐
-│   HyperDX Dashboard       │               │   trace-evaluator         │
-│   (View conversations)    │               │   (TruLens evaluations)   │
-│                           │               │                           │
-│   Filter by service:      │               │   Run quality evals on    │
-│   librechat-conversations │               │   exported traces         │
-└───────────────────────────┘               └───────────────────────────┘
-```
-
-### Running the LibreChat Exporter
+### Step 1: Start the LibreChat Exporter
 
 ```bash
 # Build the exporter
 docker compose build librechat-exporter
 
-# List recent conversations
-docker compose run --rm librechat-exporter python main.py --list-conversations
-
-# Export last 24 hours of conversations (one-time)
-docker compose run --rm librechat-exporter python main.py --hours 24
-```
-
-### Continuous Export (Recommended)
-
-For ongoing monitoring, run the exporter as a background watcher that polls every 10 seconds:
-
-```bash
+# Start continuous export (polls every 10 seconds)
 source .env
 docker run -d --name librechat-exporter-watcher \
   --network librechat_default \
   --add-host=host.docker.internal:host-gateway \
+  -v librechat-exporter-state:/tmp \
   -e MONGO_URI=mongodb://chat-mongodb:27017/LibreChat \
   -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces \
   -e CLICKSTACK_API_KEY="${CLICKSTACK_API_KEY}" \
@@ -321,170 +155,147 @@ docker run -d --name librechat-exporter-watcher \
   python main.py --watch --interval 10
 ```
 
-**Note**: Adjust `--network` and `MONGO_URI` based on your LibreChat MongoDB container name.
+**Note**: Adjust `--network` and `MONGO_URI` based on your LibreChat setup. Common variations:
+- `librechat_default` network with `chat-mongodb` container
+- `clickhouse-llm-observability_default` network with `librechat-mongodb` container
 
-**Useful commands:**
+### Step 2: Send Messages in LibreChat
+
+1. Open LibreChat at http://localhost:3080
+2. Send a message like "What is ClickHouse?"
+3. Wait ~10 seconds for the exporter to pick it up
+
+### Step 3: Verify in HyperDX
+
+1. Open http://localhost:8080
+2. Filter by `ServiceName = librechat-conversations`
+3. You should see your conversation with `gen_ai.*` attributes
+
+### Step 4: Run Quality Evaluations
+
 ```bash
-# View live export logs
+# Evaluate LibreChat conversations
+docker compose run --rm trace-evaluator python main.py \
+  --service librechat-conversations \
+  --hours 24 \
+  --limit 20
+```
+
+### Step 5: View in TruLens
+
+1. Open http://localhost:8501
+2. Look for `librechat-conversations-eval` in the app list
+3. View quality scores and judge reasoning
+
+---
+
+## Service Reference
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| **HyperDX** | http://localhost:8080 | Traces, logs, metrics |
+| **TruLens Dashboard** | http://localhost:8501 | Quality scores, evaluations |
+| **Text-to-SQL API** | http://localhost:8002 | Demo: Natural language → SQL |
+| **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings |
+| **LibreChat** | http://localhost:3080 | Chat UI (if running) |
+
+---
+
+## Why LLM Observability?
+
+Traditional monitoring tracks requests, errors, and latency. LLM applications need more:
+
+| Challenge | Solution |
+|-----------|----------|
+| **Non-deterministic outputs** | Capture every prompt/completion pair |
+| **Quality is subjective** | LLM-as-judge automated scoring |
+| **Cost scales with tokens** | Track token usage per request |
+| **Debugging is hard** | Full trace visibility |
+
+**This demo shows two complementary approaches:**
+1. **Operational Observability** (OpenLLMetry → HyperDX) - What happened?
+2. **Quality Evaluation** (TruLens) - How good was it?
+
+---
+
+## Understanding the Stack
+
+### OpenLLMetry (Operational Data)
+Auto-instruments LLM frameworks to capture:
+- Prompts and completions
+- Token counts
+- Latency
+- Model information
+
+### TruLens (Quality Data)
+LLM-as-judge evaluation:
+- Answer relevance
+- Coherence
+- Groundedness (for RAG)
+- Custom metrics
+
+### ClickStack/HyperDX (Storage & Visualization)
+Self-hosted observability platform:
+- ClickHouse backend for traces
+- Search and filter
+- Dashboards
+
+---
+
+## Useful Commands
+
+### Exporter Management
+```bash
+# View exporter logs
 docker logs -f librechat-exporter-watcher
 
-# Stop the watcher
+# Stop exporter
 docker rm -f librechat-exporter-watcher
 
-# Check watcher status
-docker ps | grep exporter
+# Restart exporter with different interval
+docker rm -f librechat-exporter-watcher
+source .env
+docker run -d --name librechat-exporter-watcher \
+  --network librechat_default \
+  --add-host=host.docker.internal:host-gateway \
+  -v librechat-exporter-state:/tmp \
+  -e MONGO_URI=mongodb://chat-mongodb:27017/LibreChat \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces \
+  -e CLICKSTACK_API_KEY="${CLICKSTACK_API_KEY}" \
+  clickhouse-llm-observability-librechat-exporter \
+  python main.py --watch --interval 5
 ```
 
-### LibreChat Exporter Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--list-conversations` | - | List recent conversations and exit |
-| `--hours` | `24` | How far back to look |
-| `--limit` | `100` | Max conversations to export |
-| `--conversation-id` | - | Export specific conversation |
-| `--watch` | - | Continuous export mode |
-| `--interval` | `60` | Seconds between polls (watch mode) |
-
-### Viewing Exported Conversations
-
-After exporting, conversations appear in:
-- **HyperDX** (http://localhost:8080) → Filter by `ServiceName = librechat-conversations`
-- **trace-evaluator** can now evaluate them with TruLens
-
----
-
-## Evaluating LibreChat Conversations
-
-The trace-evaluator service enables **async quality evaluation** of LLM traces by:
-1. Querying LLM traces from ClickHouse (HyperDX backend)
-2. Extracting prompt/completion pairs
-3. Running TruLens LLM-as-judge evaluations
-4. Storing results in the shared TruLens database
-
-### Running the Trace Evaluator
-
+### Trace Evaluator
 ```bash
-# Build the evaluator
-docker compose build trace-evaluator
+# List services with LLM traces
+docker compose run --rm trace-evaluator python main.py --list-services
 
-# List available services with LLM traces
-docker compose run --rm trace-evaluator --list-services
+# Evaluate specific service
+docker compose run --rm trace-evaluator python main.py \
+  --service librechat-conversations \
+  --hours 24
 
-# Evaluate LibreChat conversations (last 24 hours)
-docker compose run --rm trace-evaluator --service librechat-api --hours 24
-
-# Evaluate with 5% sampling (for high-traffic production)
-docker compose run --rm trace-evaluator --service librechat-api --sample-rate 0.05
-
-# Evaluate specific service with custom app name
-docker compose run --rm trace-evaluator --service mcp-clickhouse --app-name mcp-eval
+# Evaluate with sampling (for high volume)
+docker compose run --rm trace-evaluator python main.py \
+  --service librechat-conversations \
+  --sample-rate 0.1
 ```
 
-### Trace Evaluator Options
+### Debugging
+```bash
+# Check what's in ClickHouse
+docker exec clickstack clickhouse-client --user api --password api \
+  --query "SELECT ServiceName, COUNT(*) FROM otel_traces GROUP BY ServiceName"
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--service` | `librechat-api` | Service name to evaluate |
-| `--hours` | `24` | How far back to look |
-| `--limit` | `100` | Max traces to fetch |
-| `--sample-rate` | `1.0` | Fraction to evaluate (0.0-1.0) |
-| `--app-name` | `{service}-eval` | Name in TruLens dashboard |
-| `--list-services` | - | Show available services |
-
-### Viewing Results
-
-After running the evaluator, view results in:
-- **TruLens Dashboard** (http://localhost:8501) - Quality scores and judge reasoning
-- **HyperDX** (http://localhost:8080) - Evaluator traces (judge LLM calls)
-
-Filter by app name (e.g., `librechat-api-eval`) in TruLens to see LibreChat evaluations.
-
----
-
-## Exploring the Data
-
-### In HyperDX (Operational Data)
-
-1. Go to http://localhost:8080 → **Search** → **Traces**
-2. Filter by service: `ServiceName = text-to-sql-demo`
-3. Click any trace to see:
-   - Full prompt text (`gen_ai.prompt`)
-   - Complete response (`gen_ai.completion`)
-   - Token counts (`gen_ai.usage.*`)
-   - Model used (`gen_ai.request.model`)
-   - Latency breakdown
-
-**Pro tip:** Filter `gen_ai.request.model = claude-3-5-haiku-20241022` to see only TruLens judge calls.
-
-### In TruLens Dashboard (Quality Data)
-
-1. Go to http://localhost:8501
-2. **Leaderboard** tab → Compare apps by average scores
-3. **Records** tab → View individual queries
-4. Click a record → Click feedback badge → See judge's reasoning
-
----
-
-## TruLens Evaluations
-
-### Text-to-SQL Evaluations
-| Metric | Description |
-|--------|-------------|
-| **Answer Relevance** | Does the answer address the question? |
-| **Coherence** | Is the response well-structured? |
-
-### Vector RAG Evaluations
-| Metric | Description |
-|--------|-------------|
-| **Answer Relevance** | Does the answer address the question? |
-| **Groundedness** | Is the answer supported by retrieved context? |
-| **Context Relevance** | Is the retrieved context relevant to the question? |
-
-### How LLM-as-a-Judge Works
-
-TruLens uses a smaller, cheaper LLM (Claude Haiku by default) to evaluate outputs:
-
+# Check MongoDB for conversations
+docker exec chat-mongodb mongosh --quiet --eval "
+  db = db.getSiblingDB('LibreChat');
+  db.messages.find({}).sort({createdAt: -1}).limit(5).forEach(doc => {
+    print(doc.createdAt + ' | ' + (doc.text || 'N/A').substring(0, 50));
+  });
+"
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Your App's Output                                               │
-│  ─────────────────                                               │
-│  Question: "What is ClickHouse?"                                 │
-│  Answer: "ClickHouse is a column-oriented database..."           │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Judge LLM (Claude Haiku) Evaluation                             │
-│  ───────────────────────────────────                             │
-│  Prompt: "Rate how relevant this answer is to the question..."   │
-│                                                                  │
-│  Response:                                                       │
-│  {                                                               │
-│    "score": 0.92,                                                │
-│    "reasoning": "The answer directly addresses what ClickHouse   │
-│                  is and provides accurate technical details..."  │
-│  }                                                               │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Viewing Judge Reasoning (Chain-of-Thought)
-
-TruLens captures the judge's reasoning for each evaluation:
-
-1. Open TruLens Dashboard at http://localhost:8501
-2. Navigate to **Records** tab
-3. Click on any record to expand it
-4. Click on a **feedback badge** (e.g., "Answer Relevance: 0.85")
-5. The judge's **chain-of-thought explanation** appears in the expanded view
-
-### Where to Find Judge Model Info
-
-| Location | What You'll See |
-|----------|-----------------|
-| **Config** | `TRULENS_MODEL` env var in docker-compose.yaml (default: `claude-3-5-haiku-20241022`) |
-| **Code** | `trulens_config.py` - `ChatAnthropic(model=config.model)` |
-| **HyperDX** | Filter traces by `gen_ai.request.model` to see all judge LLM calls |
 
 ---
 
@@ -495,83 +306,23 @@ TruLens captures the judge's reasoning for each evaluation:
 | `ANTHROPIC_API_KEY` | - | **Required.** Your Anthropic API key |
 | `CLICKSTACK_API_KEY` | - | **Required.** From HyperDX Team Settings |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Model for generation |
-| `TRULENS_MODEL` | `claude-3-5-haiku-20241022` | Model for TruLens evals (cheaper) |
-| `TEMPERATURE` | `0.7` | LLM temperature |
-
----
-
-## Generating Test Data
-
-### Text-to-SQL Demo
-```bash
-docker compose exec text-to-sql python /scripts/generate_load.py -n 10
-```
-
-### Vector RAG Demo
-```bash
-docker compose exec vector-rag python -c "
-import sys; sys.path.insert(0, '/app')
-from main import create_app
-
-QUESTIONS = [
-    'What is ClickHouse?',
-    'How does RAG work?',
-    'What is TruLens?',
-]
-
-pipeline, tru_app, _ = create_app()
-for q in QUESTIONS:
-    print(f'Query: {q}')
-    with tru_app:
-        pipeline.query(q)
-    print('Done')
-"
-```
+| `TRULENS_MODEL` | `claude-3-5-haiku-20241022` | Model for evaluations |
 
 ---
 
 ## File Structure
 
 ```
-├── text-to-sql/                # Text-to-SQL demo application
-│   ├── main.py                 # Entry point
-│   ├── instrumentation.py      # OpenLLMetry setup
-│   ├── sql_pipeline.py         # LangChain SQL pipeline
-│   ├── trulens_config.py       # TruLens feedback functions
-│   ├── mcp_client.py           # ClickHouse MCP client
-│   └── requirements.txt
-│
-├── vector-rag/                 # Vector RAG demo application
-│   ├── main.py                 # Entry point
-│   ├── instrumentation.py      # OpenLLMetry setup
-│   ├── rag_pipeline.py         # RAG with ChromaDB
-│   ├── trulens_config.py       # TruLens with groundedness
-│   ├── documents.py            # Sample knowledge base
-│   └── requirements.txt
-│
-├── trace-evaluator/            # Async trace evaluation service
-│   ├── main.py                 # CLI entry point
-│   ├── clickhouse_client.py    # Query traces from ClickHouse
-│   ├── trulens_evaluator.py    # Run TruLens evaluations
-│   ├── instrumentation.py      # OpenTelemetry for evaluator
-│   └── requirements.txt
-│
-├── librechat-exporter/         # Export LibreChat conversations to ClickHouse
-│   ├── main.py                 # CLI entry point
-│   ├── mongodb_client.py       # Read conversations from MongoDB
-│   ├── otel_exporter.py        # Export as OTLP spans with gen_ai.*
-│   └── requirements.txt
-│
-├── docs/                       # Documentation
-│   └── EVALUATION_ARCHITECTURE.md  # Evaluation strategy guide
-│
-├── Dockerfile.text-to-sql
-├── Dockerfile.vector-rag
-├── Dockerfile.trace-evaluator
-├── Dockerfile.librechat-exporter
-├── Dockerfile.trulens-dashboard
-├── docker-compose.yaml
-└── .env.example
+├── text-to-sql/                # Text-to-SQL demo (OpenLLMetry + TruLens)
+├── vector-rag/                 # Vector RAG demo (OpenLLMetry + TruLens)
+├── trace-evaluator/            # Async evaluation from ClickHouse traces
+├── librechat-exporter/         # MongoDB → ClickHouse exporter
+├── docs/
+│   ├── EVALUATION_ARCHITECTURE.md   # Evaluation strategy deep-dive
+│   └── QUICKSTART.md                # Quick setup guide
+├── Dockerfile.*                # Container definitions
+├── docker-compose.yaml         # Service orchestration
+└── .env.example               # Environment template
 ```
 
 ---
@@ -580,29 +331,33 @@ for q in QUESTIONS:
 
 ### Traces not appearing in HyperDX?
 ```bash
-# Check API key is set
-docker compose exec text-to-sql env | grep CLICKSTACK
+# Check ClickStack is running
+curl http://localhost:8080
+
+# Check API key
+echo $CLICKSTACK_API_KEY
 
 # Check network connectivity
-docker compose exec text-to-sql curl -s http://clickstack:4318
+docker exec clickstack clickhouse-client --user api --password api \
+  --query "SELECT COUNT(*) FROM otel_traces"
 ```
 
 ### TruLens dashboard empty?
 ```bash
-# Check shared database has data
+# Check database exists
 docker compose exec trulens-dashboard ls -la /trulens-data/
 
-# Check app logs
-docker logs text-to-sql 2>&1 | tail -20
+# Run some evaluations first
+docker compose run --rm trace-evaluator python main.py --service text-to-sql-demo --hours 24
 ```
 
-### Container keeps exiting?
+### LibreChat exporter not finding conversations?
 ```bash
-# Check logs for errors
-docker logs text-to-sql
+# Check MongoDB container name
+docker ps | grep mongo
 
-# Rebuild from scratch
-docker compose build text-to-sql --no-cache
+# Test MongoDB connection
+docker exec <mongo-container> mongosh --eval "db.getSiblingDB('LibreChat').messages.countDocuments({})"
 ```
 
 ---
@@ -613,36 +368,22 @@ docker compose build text-to-sql --no-cache
 # Stop demo services
 docker compose down
 
+# Stop exporter
+docker rm -f librechat-exporter-watcher
+
 # Stop ClickStack
 docker stop clickstack && docker rm clickstack
 
-# Clean up volumes (removes TruLens data)
+# Clean up volumes
 docker compose down -v
+docker volume rm librechat-exporter-state
 ```
-
----
-
-## Evaluation Architecture
-
-For production LLM applications, we recommend a **layered evaluation strategy**:
-
-| Layer | Purpose | Timing |
-|-------|---------|--------|
-| **Real-time Guardrails** | Safety (PII, toxicity, prompt injection) | Before response |
-| **Async Quality Evaluation** | Quality scores (relevance, coherence) | After response |
-| **Human Feedback** | Ground truth signal | User-driven |
-
-**Why async for quality?** Real-time LLM-as-judge adds 5-10 seconds latency. Quality scores inform improvements but don't need to block responses.
-
-See [docs/EVALUATION_ARCHITECTURE.md](docs/EVALUATION_ARCHITECTURE.md) for detailed architecture and implementation phases.
 
 ---
 
 ## Learn More
 
-- [OpenLLMetry Documentation](https://github.com/traceloop/openllmetry)
-- [TruLens Documentation](https://www.trulens.org/docs/)
-- [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx)
-- [OpenTelemetry](https://opentelemetry.io/)
-- [ClickHouse Blog: LLM Observability](https://clickhouse.com/blog/llm-observability-clickstack-mcp)
-- [Evaluation Architecture Guide](docs/EVALUATION_ARCHITECTURE.md)
+- [OpenLLMetry](https://github.com/traceloop/openllmetry) - LLM auto-instrumentation
+- [TruLens](https://www.trulens.org/) - LLM evaluation framework
+- [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx) - Observability platform
+- [Evaluation Architecture Guide](docs/EVALUATION_ARCHITECTURE.md) - Production evaluation strategies
