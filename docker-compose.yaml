@@ -210,6 +210,30 @@ services:
       - tools
 
   # =============================================================================
+  # Test Scenarios - Export synthetic conversations for evaluation demos
+  # =============================================================================
+  # Exports pre-crafted prompt/response pairs that demonstrate evaluation failures:
+  # - Low Relevance: Off-topic responses
+  # - Low Coherence: Contradictory responses
+  # - Hallucination: Fabricated information
+  #
+  # Run: docker compose run test-scenarios
+  # List: docker compose run test-scenarios --list
+  # =============================================================================
+  test-scenarios:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-scenarios
+    container_name: test-scenarios
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - tools
+
+  # =============================================================================
   # LibreChat Exporter - Export conversations to ClickHouse via OTLP
   # =============================================================================
   # This service reads LibreChat conversations from MongoDB and exports them
