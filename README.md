@@ -277,10 +277,22 @@ docker compose run --rm trace-evaluator python main.py \
   --hours 24
 
 # Watch mode - continuously evaluate new traces (recommended)
-docker compose run --rm trace-evaluator python main.py \
-  --watch \
-  --interval 60 \
-  --service librechat-conversations
+# Run as background container:
+source .env
+docker run -d --name trace-evaluator-watcher \
+  --network clickhouse-llm-observability_default \
+  -v clickhouse-llm-observability_trulens-data:/trulens-data \
+  -v trace-evaluator-state:/tmp \
+  -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+  -e TRULENS_DATABASE_URL="sqlite:////trulens-data/trulens.sqlite" \
+  -e TRULENS_OTEL_TRACING=0 \
+  -e CLICKHOUSE_TRACE_USER=api \
+  -e CLICKHOUSE_TRACE_PASSWORD=api \
+  clickhouse-llm-observability-trace-evaluator \
+  python main.py --watch --interval 60 --service librechat-conversations
+
+# View evaluator logs
+docker logs -f trace-evaluator-watcher
 
 # Evaluate with sampling (for high volume)
 docker compose run --rm trace-evaluator python main.py \
