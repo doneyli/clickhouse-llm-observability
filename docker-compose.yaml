@@ -208,5 +208,37 @@ services:
     profiles:
       - tools
 
+  # =============================================================================
+  # LibreChat Exporter - Export conversations to ClickHouse via OTLP
+  # =============================================================================
+  # This service reads LibreChat conversations from MongoDB and exports them
+  # as OpenTelemetry traces with gen_ai.* semantic conventions.
+  # Run manually: docker compose run librechat-exporter --help
+  #
+  # Examples:
+  #   docker compose run librechat-exporter --list-conversations
+  #   docker compose run librechat-exporter --hours 24
+  #   docker compose run librechat-exporter --watch --interval 60
+  # =============================================================================
+  librechat-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile.librechat-exporter
+    container_name: librechat-exporter
+    environment:
+      # MongoDB connection (LibreChat's database)
+      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
+      # OTLP endpoint (ClickStack/HyperDX)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_SERVICE_NAME=librechat-conversations
+      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+    depends_on:
+      - mongodb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Don't auto-start - run manually with docker compose run
+    profiles:
+      - tools
+
 volumes:
   trulens-data:

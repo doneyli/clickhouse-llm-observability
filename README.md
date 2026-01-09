@@ -240,9 +240,123 @@ docker compose up vector-rag trulens-dashboard
 
 ---
 
-## Evaluating LibreChat Conversations (Phase 1)
+## Exporting LibreChat Conversations
 
-The trace-evaluator service enables **async quality evaluation** of LibreChat conversations by:
+LibreChat stores conversations in MongoDB, but we want to:
+1. View them in HyperDX alongside other LLM traces
+2. Run TruLens quality evaluations on them
+
+The **librechat-exporter** service bridges this gap by reading conversations from MongoDB and exporting them to ClickHouse via OTLP with proper `gen_ai.*` semantic conventions.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        LibreChat (Chat UI)                                   │
+│                        http://localhost:3080                                 │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │
+                                  │ Stores conversations
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        MongoDB (messages collection)                         │
+│                                                                              │
+│  { conversationId, user_text, assistant_text, model, tokens, ... }          │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │
+                                  │ librechat-exporter reads
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        librechat-exporter                                    │
+│                                                                              │
+│  • Pairs user questions with assistant responses                            │
+│  • Converts to OpenTelemetry spans with gen_ai.* attributes                 │
+│  • Exports via OTLP protocol                                                │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │
+                                  │ OTLP
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ClickHouse (otel_traces)                              │
+│                        (HyperDX Backend)                                     │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+                                  │
+          ┌───────────────────────┴───────────────────────┐
+          ▼                                               ▼
+┌───────────────────────────┐               ┌───────────────────────────┐
+│   HyperDX Dashboard       │               │   trace-evaluator         │
+│   (View conversations)    │               │   (TruLens evaluations)   │
+│                           │               │                           │
+│   Filter by service:      │               │   Run quality evals on    │
+│   librechat-conversations │               │   exported traces         │
+└───────────────────────────┘               └───────────────────────────┘
+```
+
+### Running the LibreChat Exporter
+
+```bash
+# Build the exporter
+docker compose build librechat-exporter
+
+# List recent conversations
+docker compose run --rm librechat-exporter python main.py --list-conversations
+
+# Export last 24 hours of conversations (one-time)
+docker compose run --rm librechat-exporter python main.py --hours 24
+```
+
+### Continuous Export (Recommended)
+
+For ongoing monitoring, run the exporter as a background watcher that polls every 10 seconds:
+
+```bash
+source .env
+docker run -d --name librechat-exporter-watcher \
+  --network librechat_default \
+  --add-host=host.docker.internal:host-gateway \
+  -e MONGO_URI=mongodb://chat-mongodb:27017/LibreChat \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces \
+  -e CLICKSTACK_API_KEY="${CLICKSTACK_API_KEY}" \
+  clickhouse-llm-observability-librechat-exporter \
+  python main.py --watch --interval 10
+```
+
+**Note**: Adjust `--network` and `MONGO_URI` based on your LibreChat MongoDB container name.
+
+**Useful commands:**
+```bash
+# View live export logs
+docker logs -f librechat-exporter-watcher
+
+# Stop the watcher
+docker rm -f librechat-exporter-watcher
+
+# Check watcher status
+docker ps | grep exporter
+```
+
+### LibreChat Exporter Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--list-conversations` | - | List recent conversations and exit |
+| `--hours` | `24` | How far back to look |
+| `--limit` | `100` | Max conversations to export |
+| `--conversation-id` | - | Export specific conversation |
+| `--watch` | - | Continuous export mode |
+| `--interval` | `60` | Seconds between polls (watch mode) |
+
+### Viewing Exported Conversations
+
+After exporting, conversations appear in:
+- **HyperDX** (http://localhost:8080) → Filter by `ServiceName = librechat-conversations`
+- **trace-evaluator** can now evaluate them with TruLens
+
+---
+
+## Evaluating LibreChat Conversations
+
+The trace-evaluator service enables **async quality evaluation** of LLM traces by:
 1. Querying LLM traces from ClickHouse (HyperDX backend)
 2. Extracting prompt/completion pairs
 3. Running TruLens LLM-as-judge evaluations
@@ -442,12 +556,19 @@ for q in QUESTIONS:
 │   ├── instrumentation.py      # OpenTelemetry for evaluator
 │   └── requirements.txt
 │
+├── librechat-exporter/         # Export LibreChat conversations to ClickHouse
+│   ├── main.py                 # CLI entry point
+│   ├── mongodb_client.py       # Read conversations from MongoDB
+│   ├── otel_exporter.py        # Export as OTLP spans with gen_ai.*
+│   └── requirements.txt
+│
 ├── docs/                       # Documentation
 │   └── EVALUATION_ARCHITECTURE.md  # Evaluation strategy guide
 │
 ├── Dockerfile.text-to-sql
 ├── Dockerfile.vector-rag
 ├── Dockerfile.trace-evaluator
+├── Dockerfile.librechat-exporter
 ├── Dockerfile.trulens-dashboard
 ├── docker-compose.yaml
 └── .env.example
