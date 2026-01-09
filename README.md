@@ -138,6 +138,36 @@ curl -X POST http://localhost:8003/query \
 3. Click **Records** to see individual queries with scores
 4. Click a feedback badge to see the judge's reasoning
 
+### Phase 6: Demonstrate Evaluation Failure Modes (Optional)
+
+Export synthetic conversations that show what low-quality LLM responses look like:
+
+```bash
+# Build and export test scenarios
+docker compose build test-scenarios
+docker compose run --rm test-scenarios
+```
+
+This exports 4 pre-crafted scenarios:
+| Scenario | Issue | Expected Scores |
+|----------|-------|-----------------|
+| Off-Topic Response | Answers wrong question | Relevance: 0.0, Coherence: 1.0 |
+| Contradictory Response | Self-contradicting | Relevance: 0.0, Coherence: 0.0 |
+| Fabricated Information | Hallucinated facts | Relevance: 0.0, Coherence: 0.3 |
+| Good Response (Control) | Correct answer | Relevance: 1.0, Coherence: 1.0 |
+
+Run evaluations on them:
+```bash
+docker compose run --rm trace-evaluator python main.py \
+  --service test-scenarios --hours 1
+```
+
+View results:
+- **HyperDX**: Search `service:test-scenarios` to see traces
+- **TruLens**: Look for `test-scenarios-eval` to compare scores
+
+See [Evaluation Scenarios Documentation](docs/EVALUATION_SCENARIOS.md) for details on each failure mode.
+
 ---
 
 ## Adding LibreChat to the Pipeline
