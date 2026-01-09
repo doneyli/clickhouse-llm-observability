@@ -182,6 +182,95 @@ Add thumbs up/down feedback to LibreChat and link to evaluation pipeline.
 - Feedback linked to trace IDs
 - Priority evaluation for negative feedback
 
+### Evaluation OTEL Span Structure
+
+Each evaluation emits OpenTelemetry spans to HyperDX/ClickHouse, providing full traceability between the original LLM call and its quality evaluation.
+
+#### Span Hierarchy
+
+For each evaluated conversation, the trace-evaluator creates:
+
+```
+llm.evaluation (root span)
+├── gen_ai.request.model = "claude-3-5-haiku-20241022"  (judge model)
+├── eval.source_model = "claude-sonnet-4-20250514"      (generation model)
+├── eval.source_trace_id = "abc123..."                  (link to original)
+├── eval.relevance_score = 0.95
+├── eval.coherence_score = 0.88
+│
+├── ChatAnthropic.chat (child span - relevance evaluation)
+│   └── gen_ai.request.model = "claude-3-5-haiku-20241022"
+│
+├── ChatAnthropic.chat (child span - coherence evaluation)
+│   └── gen_ai.request.model = "claude-3-5-haiku-20241022"
+│
+└── ChatAnthropic.chat (child span - additional judge call if needed)
+```
+
+#### Key Attributes
+
+| Attribute | Location | Description |
+|-----------|----------|-------------|
+| `gen_ai.request.model` | `llm.evaluation` span | The judge/evaluator model (e.g., claude-3-5-haiku) |
+| `eval.source_model` | `llm.evaluation` span | The original model that generated the response |
+| `eval.source_trace_id` | `llm.evaluation` span | TraceId of the original LLM conversation |
+| `eval.source_span_id` | `llm.evaluation` span | SpanId of the original LLM conversation |
+| `eval.source_service` | `llm.evaluation` span | Service name (e.g., librechat-conversations) |
+| `eval.relevance_score` | `llm.evaluation` span | Answer relevance score (0.0-1.0) |
+| `eval.coherence_score` | `llm.evaluation` span | Coherence score (0.0-1.0) |
+| `eval.input` | `llm.evaluation` span | Original prompt (truncated to 1000 chars) |
+| `eval.output` | `llm.evaluation` span | Original completion (truncated to 1000 chars) |
+
+#### Correlating Conversations with Evaluations
+
+**In HyperDX UI:**
+1. Find a `librechat-conversations` trace, copy its TraceId
+2. Search: `eval.source_trace_id:<trace-id>` to find its evaluation
+
+**SQL Query - Join conversations with evaluations:**
+```sql
+SELECT
+    o.TraceId as conversation_trace,
+    e.TraceId as evaluation_trace,
+    o.SpanAttributes['gen_ai.request.model'] as generation_model,
+    e.SpanAttributes['gen_ai.request.model'] as judge_model,
+    e.SpanAttributes['eval.relevance_score'] as relevance,
+    e.SpanAttributes['eval.coherence_score'] as coherence,
+    substring(o.SpanAttributes['gen_ai.prompt.0.content'], 1, 50) as prompt
+FROM otel_traces o
+JOIN otel_traces e ON o.TraceId = e.SpanAttributes['eval.source_trace_id']
+WHERE o.ServiceName = 'librechat-conversations'
+  AND e.ServiceName = 'trace-evaluator'
+  AND e.SpanName = 'llm.evaluation'
+ORDER BY e.Timestamp DESC
+```
+
+**SQL Query - View all evaluations with model attribution:**
+```sql
+SELECT
+    SpanAttributes['eval.source_trace_id'] as conversation_trace_id,
+    substring(SpanAttributes['eval.input'], 1, 40) as prompt,
+    SpanAttributes['eval.source_model'] as generation_model,
+    SpanAttributes['gen_ai.request.model'] as judge_model,
+    SpanAttributes['eval.relevance_score'] as relevance,
+    SpanAttributes['eval.coherence_score'] as coherence
+FROM otel_traces
+WHERE ServiceName = 'trace-evaluator'
+  AND SpanName = 'llm.evaluation'
+ORDER BY Timestamp DESC
+LIMIT 20
+```
+
+#### Why Multiple Spans Per Evaluation?
+
+Each evaluation generates 3-4 spans:
+- **1 `llm.evaluation` span**: Parent span with all metadata and scores
+- **2-3 `ChatAnthropic.chat` spans**: Actual LLM calls to the judge model (one per feedback function)
+
+This is expected behavior - TruLens runs separate LLM calls for each feedback function (relevance, coherence), and OpenLLMetry auto-instruments these as child spans.
+
+---
+
 ### Phase 3: Real-Time Safety Guardrails (Future, Optional)
 
 Add input/output guardrails for safety-critical applications.
