@@ -6,6 +6,11 @@ and stores results in TruLens database for dashboard viewing.
 
 Uses TruVirtual to ingest pre-existing prompt/completion pairs as
 virtual records for evaluation.
+
+Emits OTEL spans for each evaluation with clear model attribution:
+- gen_ai.request.model: The evaluator/judge model (e.g., claude-3-5-haiku)
+- eval.source_model: The original generation model being evaluated
+- eval.source_trace_id: Link back to the original trace
 """
 
 import os
@@ -13,12 +18,15 @@ from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
+from opentelemetry.trace import Status, StatusCode
+
 from trulens.core import TruSession, Feedback
 from trulens.apps.virtual import TruVirtual, VirtualRecord, VirtualApp
 from trulens.providers.langchain import Langchain
 from langchain_anthropic import ChatAnthropic
 
 from clickhouse_client import LLMTrace
+from instrumentation import get_tracer, create_span_link
 
 
 @dataclass
@@ -109,44 +117,93 @@ class TraceEvaluator:
         """
         Evaluate a single LLM trace and store in TruLens.
 
+        Emits an OTEL span with:
+        - Link to the original trace being evaluated
+        - gen_ai.request.model: The judge model used for evaluation
+        - eval.source_model: The original model that generated the response
+        - eval.* scores: The evaluation results
+
         Args:
             trace: LLMTrace object with prompt and completion
 
         Returns:
             EvaluationResult with scores
         """
-        # Create a virtual record from the trace
-        # calls={} is required but can be empty for simple input/output evaluation
-        virtual_record = VirtualRecord(
-            main_input=trace.prompt,
-            main_output=trace.completion,
-            calls={},
-        )
+        tracer = get_tracer()
 
-        # Add the record to TruVirtual - this runs feedback evaluations
-        record = self._virtual_recorder.add_record(virtual_record)
+        # Create span link to original trace
+        links = []
+        span_link = create_span_link(trace.trace_id, trace.span_id)
+        if span_link:
+            links.append(span_link)
 
-        # Wait for feedback to complete and extract scores
-        relevance_score = None
-        coherence_score = None
+        # Start evaluation span with link to original trace
+        with tracer.start_as_current_span(
+            "llm.evaluation",
+            links=links,
+        ) as span:
+            # Set model attribution attributes
+            # gen_ai.request.model = the judge/evaluator model
+            span.set_attribute("gen_ai.request.model", self.model)
+            span.set_attribute("gen_ai.system", "anthropic")
 
-        for feedback, result in record.wait_for_feedback_results().items():
-            if "Relevance" in feedback.name:
-                relevance_score = result.result
-            elif "Coherence" in feedback.name:
-                coherence_score = result.result
+            # eval.source_* = info about what's being evaluated
+            span.set_attribute("eval.source_trace_id", trace.trace_id)
+            span.set_attribute("eval.source_span_id", trace.span_id)
+            span.set_attribute("eval.source_service", trace.service_name)
+            if trace.model:
+                span.set_attribute("eval.source_model", trace.model)
 
-        return EvaluationResult(
-            trace_id=trace.trace_id,
-            span_id=trace.span_id,
-            timestamp=trace.timestamp,
-            service_name=trace.service_name,
-            prompt=trace.prompt,
-            completion=trace.completion,
-            relevance_score=relevance_score,
-            coherence_score=coherence_score,
-            evaluated_at=datetime.now(),
-        )
+            # Store prompt/completion being evaluated (truncated for span size)
+            span.set_attribute("eval.input", trace.prompt[:1000] if len(trace.prompt) > 1000 else trace.prompt)
+            span.set_attribute("eval.output", trace.completion[:1000] if len(trace.completion) > 1000 else trace.completion)
+
+            try:
+                # Create a virtual record from the trace
+                # calls={} is required but can be empty for simple input/output evaluation
+                virtual_record = VirtualRecord(
+                    main_input=trace.prompt,
+                    main_output=trace.completion,
+                    calls={},
+                )
+
+                # Add the record to TruVirtual - this runs feedback evaluations
+                record = self._virtual_recorder.add_record(virtual_record)
+
+                # Wait for feedback to complete and extract scores
+                relevance_score = None
+                coherence_score = None
+
+                for feedback, result in record.wait_for_feedback_results().items():
+                    if "Relevance" in feedback.name:
+                        relevance_score = result.result
+                    elif "Coherence" in feedback.name:
+                        coherence_score = result.result
+
+                # Add scores to span
+                if relevance_score is not None:
+                    span.set_attribute("eval.relevance_score", relevance_score)
+                if coherence_score is not None:
+                    span.set_attribute("eval.coherence_score", coherence_score)
+
+                span.set_status(Status(StatusCode.OK))
+
+                return EvaluationResult(
+                    trace_id=trace.trace_id,
+                    span_id=trace.span_id,
+                    timestamp=trace.timestamp,
+                    service_name=trace.service_name,
+                    prompt=trace.prompt,
+                    completion=trace.completion,
+                    relevance_score=relevance_score,
+                    coherence_score=coherence_score,
+                    evaluated_at=datetime.now(),
+                )
+
+            except Exception as e:
+                span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.record_exception(e)
+                raise
 
     def evaluate_traces(
         self,

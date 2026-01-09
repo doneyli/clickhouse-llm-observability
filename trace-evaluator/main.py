@@ -4,6 +4,11 @@ Trace Evaluator - Async LLM Quality Evaluation from HyperDX Traces
 This service queries LLM traces from ClickHouse (HyperDX backend) and runs
 TruLens quality evaluations on them asynchronously.
 
+Emits OTEL spans for each evaluation showing:
+- gen_ai.request.model: The judge model (e.g., claude-3-5-haiku)
+- eval.source_model: The original generation model being evaluated
+- eval.source_trace_id: Link back to the original LLM trace
+
 Usage:
     python main.py                              # One-time evaluation
     python main.py --watch --interval 60        # Continuous watch mode
@@ -16,6 +21,8 @@ Environment Variables:
     TRULENS_DATABASE_URL      - TruLens SQLite URL
     TRULENS_MODEL             - Model for evaluations (default: claude-3-5-haiku-20241022)
     ANTHROPIC_API_KEY         - Anthropic API key
+    CLICKSTACK_API_KEY        - API key for OTEL export
+    OTEL_EXPORTER_OTLP_ENDPOINT - OTLP endpoint (default: http://clickstack:4318/v1/traces)
 """
 
 import os
@@ -37,6 +44,11 @@ try:
     Feature.OTEL_TRACING.disable()
 except Exception:
     pass
+
+# Initialize OTEL instrumentation for evaluation spans
+# Must be done before importing trulens_evaluator
+from instrumentation import setup_instrumentation, shutdown as shutdown_instrumentation
+setup_instrumentation()
 
 from clickhouse_client import ClickHouseTraceClient
 from trulens_evaluator import TraceEvaluator
@@ -331,6 +343,7 @@ def watch_mode(
         save_evaluated_ids(evaluated_ids)
     finally:
         ch_client.close()
+        shutdown_instrumentation()
 
 
 def main():
@@ -425,13 +438,17 @@ Examples:
         return
 
     # One-time evaluation
-    run_once(
-        service_name=args.service,
-        hours_ago=args.hours,
-        limit=args.limit,
-        sample_rate=args.sample_rate,
-        app_name=args.app_name,
-    )
+    try:
+        run_once(
+            service_name=args.service,
+            hours_ago=args.hours,
+            limit=args.limit,
+            sample_rate=args.sample_rate,
+            app_name=args.app_name,
+        )
+    finally:
+        # Ensure all spans are flushed before exit
+        shutdown_instrumentation()
 
 
 if __name__ == "__main__":
