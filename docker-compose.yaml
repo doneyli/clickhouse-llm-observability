@@ -166,6 +166,7 @@ services:
       - "8501:8501"
     environment:
       - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
+      - TRULENS_OTEL_TRACING=0
     volumes:
       - trulens-data:/trulens-data
 
