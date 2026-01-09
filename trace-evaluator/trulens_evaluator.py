@@ -1,15 +1,20 @@
 """
 TruLens Evaluator for LLM traces.
 
-Runs quality evaluations on extracted LLM traces using LLM-as-a-Judge.
+Runs quality evaluations on extracted LLM traces using LLM-as-a-Judge
+and stores results in TruLens database for dashboard viewing.
+
+Uses TruVirtual to ingest pre-existing prompt/completion pairs as
+virtual records for evaluation.
 """
 
 import os
-from typing import List, Dict, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
 from trulens.core import TruSession, Feedback
+from trulens.apps.virtual import TruVirtual, VirtualRecord, VirtualApp
 from trulens.providers.langchain import Langchain
 from langchain_anthropic import ChatAnthropic
 
@@ -26,9 +31,7 @@ class EvaluationResult:
     prompt: str
     completion: str
     relevance_score: Optional[float] = None
-    relevance_reason: Optional[str] = None
     coherence_score: Optional[float] = None
-    coherence_reason: Optional[str] = None
     evaluated_at: Optional[datetime] = None
 
 
@@ -37,7 +40,7 @@ class TraceEvaluator:
 
     def __init__(
         self,
-        app_name: str = "librechat-eval",
+        app_name: str = "trace-eval",
         app_version: str = "1.0.0",
         model: str = None,
         database_url: str = None,
@@ -51,7 +54,8 @@ class TraceEvaluator:
 
         self._session = None
         self._provider = None
-        self._feedback_functions = None
+        self._feedbacks = None
+        self._virtual_recorder = None
 
     def initialize(self):
         """Initialize TruLens session and feedback functions."""
@@ -68,63 +72,81 @@ class TraceEvaluator:
         self._provider = Langchain(chain=llm)
 
         # Create feedback functions
-        self._feedback_functions = self._create_feedback_functions()
+        self._feedbacks = self._create_feedbacks()
 
-        print(f"TraceEvaluator initialized with {len(self._feedback_functions)} feedback functions")
+        # Create virtual app for recording traces
+        virtual_app = VirtualApp()
+
+        # Create virtual recorder - will be used to ingest all traces
+        self._virtual_recorder = TruVirtual(
+            app=virtual_app,
+            app_name=self.app_name,
+            app_version=self.app_version,
+            feedbacks=self._feedbacks,
+        )
+
+        print(f"TraceEvaluator initialized with {len(self._feedbacks)} feedback functions")
         return self
 
-    def _create_feedback_functions(self) -> Dict[str, callable]:
-        """Create TruLens feedback functions for evaluation."""
-        return {
-            "relevance": self._provider.relevance_with_cot_reasons,
-            "coherence": self._provider.coherence_with_cot_reasons,
-        }
+    def _create_feedbacks(self) -> List[Feedback]:
+        """Create TruLens Feedback objects for evaluation."""
+        # Answer Relevance: Does the response address the question?
+        # on_input() = main_input (prompt), on_output() = main_output (completion)
+        f_relevance = Feedback(
+            self._provider.relevance_with_cot_reasons,
+            name="Answer Relevance"
+        ).on_input().on_output()
+
+        # Coherence: Is the response well-structured and coherent?
+        f_coherence = Feedback(
+            self._provider.coherence_with_cot_reasons,
+            name="Coherence"
+        ).on_output()
+
+        return [f_relevance, f_coherence]
 
     def evaluate_trace(self, trace: LLMTrace) -> EvaluationResult:
         """
-        Evaluate a single LLM trace.
+        Evaluate a single LLM trace and store in TruLens.
 
         Args:
             trace: LLMTrace object with prompt and completion
 
         Returns:
-            EvaluationResult with scores and reasoning
+            EvaluationResult with scores
         """
-        result = EvaluationResult(
+        # Create a virtual record from the trace
+        # calls={} is required but can be empty for simple input/output evaluation
+        virtual_record = VirtualRecord(
+            main_input=trace.prompt,
+            main_output=trace.completion,
+            calls={},
+        )
+
+        # Add the record to TruVirtual - this runs feedback evaluations
+        record = self._virtual_recorder.add_record(virtual_record)
+
+        # Wait for feedback to complete and extract scores
+        relevance_score = None
+        coherence_score = None
+
+        for feedback, result in record.wait_for_feedback_results().items():
+            if "Relevance" in feedback.name:
+                relevance_score = result.result
+            elif "Coherence" in feedback.name:
+                coherence_score = result.result
+
+        return EvaluationResult(
             trace_id=trace.trace_id,
             span_id=trace.span_id,
             timestamp=trace.timestamp,
             service_name=trace.service_name,
             prompt=trace.prompt,
             completion=trace.completion,
+            relevance_score=relevance_score,
+            coherence_score=coherence_score,
             evaluated_at=datetime.now(),
         )
-
-        # Evaluate relevance (does the answer address the question?)
-        try:
-            relevance_result = self._feedback_functions["relevance"](
-                trace.prompt, trace.completion
-            )
-            if isinstance(relevance_result, tuple):
-                result.relevance_score = relevance_result[0]
-                result.relevance_reason = relevance_result[1].get("reason", "") if len(relevance_result) > 1 else ""
-            else:
-                result.relevance_score = float(relevance_result)
-        except Exception as e:
-            print(f"  Warning: Relevance evaluation failed: {e}")
-
-        # Evaluate coherence (is the response well-structured?)
-        try:
-            coherence_result = self._feedback_functions["coherence"](trace.completion)
-            if isinstance(coherence_result, tuple):
-                result.coherence_score = coherence_result[0]
-                result.coherence_reason = coherence_result[1].get("reason", "") if len(coherence_result) > 1 else ""
-            else:
-                result.coherence_score = float(coherence_result)
-        except Exception as e:
-            print(f"  Warning: Coherence evaluation failed: {e}")
-
-        return result
 
     def evaluate_traces(
         self,
@@ -152,56 +174,18 @@ class TraceEvaluator:
         results = []
         for i, trace in enumerate(traces, 1):
             print(f"\nEvaluating trace {i}/{len(traces)}: {trace.trace_id[:16]}...")
-            result = self.evaluate_trace(trace)
-            results.append(result)
+            try:
+                result = self.evaluate_trace(trace)
+                results.append(result)
 
-            # Print summary
-            rel_score = f"{result.relevance_score:.2f}" if result.relevance_score else "N/A"
-            coh_score = f"{result.coherence_score:.2f}" if result.coherence_score else "N/A"
-            print(f"  Relevance: {rel_score}, Coherence: {coh_score}")
+                # Print summary
+                rel_score = f"{result.relevance_score:.2f}" if result.relevance_score is not None else "N/A"
+                coh_score = f"{result.coherence_score:.2f}" if result.coherence_score is not None else "N/A"
+                print(f"  Relevance: {rel_score}, Coherence: {coh_score}")
+            except Exception as e:
+                print(f"  Error evaluating trace: {e}")
 
         return results
-
-    def store_results(self, results: List[EvaluationResult]):
-        """
-        Store evaluation results in TruLens database.
-
-        This creates records that appear in the TruLens dashboard.
-        """
-        from trulens.core.schema.record import Record
-        from trulens.core.schema.feedback import FeedbackResult
-
-        for result in results:
-            # Create a record for this trace
-            record_data = {
-                "app_name": self.app_name,
-                "app_version": self.app_version,
-                "input": result.prompt,
-                "output": result.completion,
-                "record_id": f"{result.trace_id}_{result.span_id}",
-                "ts": result.timestamp,
-                "meta": {
-                    "trace_id": result.trace_id,
-                    "span_id": result.span_id,
-                    "service_name": result.service_name,
-                    "evaluated_at": result.evaluated_at.isoformat() if result.evaluated_at else None,
-                },
-            }
-
-            # Note: TruLens record storage API may vary by version
-            # This is a simplified approach - full integration would use TruApp
-            print(f"  Stored evaluation for trace {result.trace_id[:16]}")
-
-    def get_evaluated_trace_ids(self) -> List[str]:
-        """Get list of trace IDs that have already been evaluated."""
-        # Query TruLens database for existing evaluations
-        # This helps avoid re-evaluating the same traces
-        try:
-            # This is a simplified check - full implementation would query the DB
-            return []
-        except Exception as e:
-            print(f"Warning: Could not get evaluated trace IDs: {e}")
-            return []
 
     def print_summary(self, results: List[EvaluationResult]):
         """Print summary statistics of evaluation results."""
@@ -234,15 +218,6 @@ class TraceEvaluator:
             print(f"  Average: {avg_coh:.2f}")
             print(f"  Min: {min_coh:.2f}, Max: {max_coh:.2f}")
 
-        # Flag low-scoring traces
-        low_scoring = [r for r in results
-                       if (r.relevance_score and r.relevance_score < 0.5) or
-                          (r.coherence_score and r.coherence_score < 0.5)]
-        if low_scoring:
-            print(f"\nLow-scoring traces ({len(low_scoring)}):")
-            for r in low_scoring[:5]:  # Show first 5
-                print(f"  - {r.trace_id[:16]}... Rel={r.relevance_score:.2f if r.relevance_score else 'N/A'}")
-
         print("=" * 60)
 
 
@@ -258,7 +233,7 @@ if __name__ == "__main__":
         timestamp=datetime.now(),
         service_name="test-service",
         prompt="What is ClickHouse?",
-        completion="ClickHouse is a fast, open-source columnar database management system designed for online analytical processing (OLAP). It is optimized for high-performance queries on large datasets.",
+        completion="ClickHouse is a fast, open-source columnar database management system designed for online analytical processing (OLAP).",
     )
 
     print("Testing evaluation on mock trace...")

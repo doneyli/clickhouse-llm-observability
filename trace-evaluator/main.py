@@ -23,9 +23,17 @@ import sys
 import argparse
 from datetime import datetime
 
-# Setup instrumentation before other imports
-from instrumentation import setup_instrumentation
-setup_instrumentation()
+# Disable TruLens OTEL tracing - it's incompatible with TruVirtual
+# Must be done before importing trulens
+import os
+os.environ["TRULENS_OTEL_TRACING"] = "false"
+
+# Try to disable via the Feature API as well
+try:
+    from trulens.core.experimental import Feature
+    Feature.OTEL_TRACING.disable()
+except Exception:
+    pass
 
 from clickhouse_client import ClickHouseTraceClient
 from trulens_evaluator import TraceEvaluator
