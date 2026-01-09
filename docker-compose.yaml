@@ -102,22 +102,22 @@ services:
       - ./mcp-logs:/app/logs
 
   # =============================================================================
-  # NEW: Python RAG Application with TruLens + OpenLLMetry
+  # Text-to-SQL Demo with TruLens + OpenLLMetry
   # =============================================================================
-  python-rag:
+  text-to-sql:
     build:
       context: .
-      dockerfile: Dockerfile.rag
-    container_name: python-rag
+      dockerfile: Dockerfile.text-to-sql
+    container_name: text-to-sql
     ports:
-      - "${RAG_APP_PORT:-8002}:8000"
+      - "${TEXT_TO_SQL_PORT:-8002}:8000"
       - "8501:8501"  # TruLens Dashboard
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
       - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
-      - OTEL_SERVICE_NAME=python-rag-demo
+      - OTEL_SERVICE_NAME=text-to-sql-demo
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
@@ -125,7 +125,29 @@ services:
       - mcp-clickhouse
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    profiles:
-      - rag  # Optional: only starts with --profile rag
     volumes:
-      - ./python-rag:/app
+      - ./text-to-sql:/app
+
+  # =============================================================================
+  # Vector RAG Demo - Proper RAG with embeddings and vector search
+  # =============================================================================
+  vector-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile.vector-rag
+    container_name: vector-rag
+    ports:
+      - "${VECTOR_RAG_PORT:-8003}:8000"
+      - "8502:8502"  # TruLens Dashboard
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_SERVICE_NAME=vector-rag-demo
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./vector-rag:/app

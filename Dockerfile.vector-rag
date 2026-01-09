@@ -4,16 +4,15 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl gcc python3-dev && rm -rf /var/lib/apt/lists/*
 
-COPY python-rag/requirements.txt .
+COPY vector-rag/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY python-rag/ .
-COPY scripts/ /scripts/
+COPY vector-rag/ .
 
 ENV PYTHONUNBUFFERED=1
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Default: run demo then start TruLens dashboard

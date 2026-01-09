@@ -1,7 +1,7 @@
 """
-ClickHouse RAG Demo with TruLens & OpenLLMetry
+ClickHouse Text-to-SQL Demo with TruLens & OpenLLMetry
 
-Entry point for the Python RAG application.
+Entry point for the Text-to-SQL application.
 """
 
 import os
@@ -14,8 +14,8 @@ from instrumentation import setup_instrumentation
 setup_instrumentation()
 
 # Now safe to import LangChain and other modules
-from rag_pipeline import create_pipeline
-from trulens_config import TruLensConfig, create_feedback_functions, InstrumentedRAGPipeline
+from sql_pipeline import create_pipeline
+from trulens_config import TruLensConfig, create_feedback_functions, InstrumentedSQLPipeline
 from trulens.core import TruSession
 from trulens.apps.app import TruApp
 
@@ -28,14 +28,14 @@ DEMO_QUESTIONS = [
 
 
 def create_app():
-    """Create the RAG application with full instrumentation."""
+    """Create the Text-to-SQL application with full instrumentation."""
 
     # 1. Create base pipeline
     base_pipeline = create_pipeline()
 
     # 2. Wrap with TruLens instrumentation
     trulens_config = TruLensConfig()
-    instrumented = InstrumentedRAGPipeline(base_pipeline, trulens_config)
+    instrumented = InstrumentedSQLPipeline(base_pipeline, trulens_config)
 
     # 3. Create TruLens session and feedback functions
     session = TruSession()
@@ -56,7 +56,7 @@ def run_demo(pipeline, tru_app):
     """Run demo queries with evaluation."""
 
     print("\n" + "="*60)
-    print("ClickHouse RAG Demo with TruLens & OpenLLMetry")
+    print("ClickHouse Text-to-SQL Demo with TruLens & OpenLLMetry")
     print("="*60)
 
     for i, question in enumerate(DEMO_QUESTIONS, 1):
@@ -114,7 +114,7 @@ def run_interactive(pipeline, tru_app):
 def main():
     print("""
     ╔═══════════════════════════════════════════════════════════╗
-    ║   ClickHouse RAG Demo with TruLens & OpenLLMetry          ║
+    ║   ClickHouse Text-to-SQL Demo with TruLens & OpenLLMetry  ║
     ║                                                           ║
     ║   - OpenLLMetry: Auto-captures prompts, tokens            ║
     ║   - TruLens: Evaluates relevance, coherence               ║

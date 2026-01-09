@@ -16,7 +16,7 @@ from opentelemetry.instrumentation.langchain import LangchainInstrumentor
 def setup_instrumentation():
     """Initialize OpenTelemetry with OpenLLMetry for LangChain."""
 
-    service_name = os.getenv("OTEL_SERVICE_NAME", "python-rag-demo")
+    service_name = os.getenv("OTEL_SERVICE_NAME", "vector-rag-demo")
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318/v1/traces")
     api_key = os.getenv("CLICKSTACK_API_KEY", "")
     debug = os.getenv("DEBUG", "false").lower() == "true"
@@ -39,24 +39,23 @@ def setup_instrumentation():
         tracer_provider.add_span_processor(
             BatchSpanProcessor(otlp_exporter, max_export_batch_size=512)
         )
-        print(f"✅ OTLP export enabled: {otlp_endpoint}")
+        print(f"OTLP export enabled: {otlp_endpoint}")
     else:
-        print("⚠️  CLICKSTACK_API_KEY not set - traces will not be exported")
+        print("CLICKSTACK_API_KEY not set - traces will not be exported")
 
     # Console exporter for debugging
     if debug:
         tracer_provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
-        print("✅ Console span export enabled (DEBUG mode)")
+        print("Console span export enabled (DEBUG mode)")
 
     trace.set_tracer_provider(tracer_provider)
 
     # Enable OpenLLMetry auto-instrumentation for LangChain
-    # This captures: gen_ai.prompt.*, gen_ai.completion.*, gen_ai.usage.*
     LangchainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-    print(f"✅ OpenLLMetry instrumentation enabled for: {service_name}")
+    print(f"OpenLLMetry instrumentation enabled for: {service_name}")
     return tracer_provider
 
 
-def get_tracer(name: str = "python-rag"):
+def get_tracer(name: str = "vector-rag"):
     return trace.get_tracer(name)

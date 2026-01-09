@@ -2,10 +2,36 @@
 
 A comprehensive demo for LLM observability showing:
 - **OpenTelemetry/OpenLLMetry** - Trace prompts, completions, token usage, latency
-- **TruLens** - Evaluate LLM output quality (relevance, coherence)
+- **TruLens** - Evaluate LLM output quality (relevance, groundedness, coherence)
 - **ClickStack/HyperDX** - Unified observability UI with ClickHouse backend
 
 Based on: https://clickhouse.com/blog/llm-observability-clickstack-mcp
+
+---
+
+## Two Demo Applications
+
+This repo includes **two distinct demo applications** to showcase different LLM patterns:
+
+| Demo | Description | Use Case |
+|------|-------------|----------|
+| **Text-to-SQL** | Natural language → SQL queries against ClickHouse | Structured data Q&A |
+| **Vector RAG** | Proper RAG with embeddings + vector similarity search | Unstructured document Q&A |
+
+### Text-to-SQL Demo (`text-to-sql/`)
+- Converts natural language questions to SQL queries
+- Queries ClickHouse databases (UK property, GitHub, flights, etc.)
+- Uses MCP (Model Context Protocol) for database access
+- **Not RAG** - no vectors, no embeddings, no semantic retrieval
+
+### Vector RAG Demo (`vector-rag/`)
+- **Proper RAG architecture** with all components:
+  - Document chunking and indexing
+  - Vector embeddings (sentence-transformers)
+  - ChromaDB vector store
+  - Semantic similarity retrieval
+  - LLM generation from retrieved context
+- Includes **Groundedness** evaluation (is the answer supported by context?)
 
 ---
 
@@ -13,20 +39,19 @@ Based on: https://clickhouse.com/blog/llm-observability-clickstack-mcp
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────────────┐
-│   LibreChat     │────▶│  ClickHouse MCP  │◀────│      Python RAG App         │
+│   LibreChat     │────▶│  ClickHouse MCP  │◀────│     Text-to-SQL Demo        │
 │  (Port 3080)    │     │   (Port 8001)    │     │      (Port 8002)            │
-│                 │     │                  │     │                             │
-│  Chat UI with   │     │  SQL Playground  │     │  ┌─────────────────────┐   │
-│  Claude + MCP   │     │  35+ datasets    │     │  │ LangChain + Claude  │   │
-└────────┬────────┘     └────────┬─────────┘     │  └──────────┬──────────┘   │
-         │                       │               │             │              │
-         │                       │               │  ┌──────────▼──────────┐   │
-         │                       │               │  │      TruLens        │   │
-         │                       │               │  │  ────────────────   │   │
-         │                       │               │  │  • Relevance eval   │   │
-         │                       │               │  │  • Coherence eval   │   │
-         │                       │               │  └──────────┬──────────┘   │
-         │                       │               └─────────────┼──────────────┘
+│                 │     │                  │     │  NL → SQL → ClickHouse      │
+│  Chat UI with   │     │  SQL Playground  │     │  TruLens: 8501              │
+│  Claude + MCP   │     │  35+ datasets    │     └─────────────────────────────┘
+└────────┬────────┘     └────────┬─────────┘
+         │                       │               ┌─────────────────────────────┐
+         │                       │               │      Vector RAG Demo        │
+         │                       │               │      (Port 8003)            │
+         │                       │               │  Embeddings → ChromaDB      │
+         │                       │               │  → Semantic Search → LLM    │
+         │                       │               │  TruLens: 8502              │
+         │                       │               └─────────────┬───────────────┘
          │ OTel Traces           │ OTel Traces                 │ OTel + TruLens
          ▼                       ▼                             ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -36,89 +61,61 @@ Based on: https://clickhouse.com/blog/llm-observability-clickstack-mcp
 │  • Trace visualization    • Token analytics    • Latency percentiles        │
 │  • Log aggregation        • Cost estimation    • Error tracking             │
 └──────────────────────────────────────────────────────────────────────────────┘
-
-                    ┌─────────────────────────────┐
-                    │    TruLens Dashboard        │
-                    │    (Port 8501)              │
-                    │  ─────────────────────────  │
-                    │  • Evaluation leaderboard   │
-                    │  • Feedback details + CoT   │
-                    │  • Record browser           │
-                    └─────────────────────────────┘
 ```
 
 ---
 
-## Choose Your Path
+## Quick Start
 
-### Scenario A: Full Demo (LibreChat + Python RAG + All Observability)
+### Prerequisites
+- Docker & Docker Compose
+- Anthropic API key
 
-Best for: Exploring all components together
+### Step 1: Start ClickStack (Observability Backend)
 
 ```bash
-# 1. Start ClickStack
 docker run -d --name clickstack \
   -p 8080:8080 -p 4317:4317 -p 4318:4318 \
   docker.hyperdx.io/hyperdx/hyperdx-all-in-one
 
-# 2. Get API key from http://localhost:8080 → Team Settings
-
-# 3. Configure environment
-cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY and CLICKSTACK_API_KEY
-
-# 4. Generate secrets for LibreChat
-echo "CREDS_KEY=$(openssl rand -hex 32)" >> .env
-echo "CREDS_IV=$(openssl rand -hex 16)" >> .env
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
-echo "JWT_REFRESH_SECRET=$(openssl rand -hex 32)" >> .env
-
-# 5. Connect ClickStack to network and start everything
-docker network create clickhouse-llm-observability_default 2>/dev/null || true
-docker network connect clickhouse-llm-observability_default clickstack
-docker compose up -d
-docker compose up -d python-rag  # Start RAG with TruLens
+# Wait for ready
+until curl -s http://localhost:8080 > /dev/null; do sleep 2; done
 ```
 
-### Scenario B: Python RAG Only (TruLens + OpenLLMetry Demo)
+### Step 2: Get API Key
 
-Best for: Focused LLM evaluation demo without LibreChat
+1. Open http://localhost:8080
+2. Register an account
+3. Go to **Team Settings** → copy **Ingestion API Key**
+
+### Step 3: Configure Environment
 
 ```bash
-# 1. Start ClickStack
-docker run -d --name clickstack \
-  -p 8080:8080 -p 4317:4317 -p 4318:4318 \
-  docker.hyperdx.io/hyperdx/hyperdx-all-in-one
-
-# 2. Get API key from http://localhost:8080 → Team Settings
-
-# 3. Configure environment
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY and CLICKSTACK_API_KEY
-
-# 4. Connect and build
-docker network create clickhouse-llm-observability_default 2>/dev/null || true
-docker network connect clickhouse-llm-observability_default clickstack
-docker compose build python-rag
-
-# 5. Run the demo
-docker compose up python-rag
+# Edit .env and set:
+# ANTHROPIC_API_KEY=sk-ant-...
+# CLICKSTACK_API_KEY=<from step 2>
 ```
 
-### Scenario C: Add TruLens to Existing Setup
-
-Best for: You already have LibreChat + ClickStack running
+### Step 4: Connect Networks
 
 ```bash
-# 1. Connect ClickStack to your compose network
+docker network create clickhouse-llm-observability_default 2>/dev/null || true
 docker network connect clickhouse-llm-observability_default clickstack
+```
 
-# 2. Build and start Python RAG
-docker compose build python-rag
-docker compose up -d python-rag
+### Step 5: Run a Demo
 
-# 3. Generate evaluation data
-docker compose exec python-rag python /scripts/generate_load.py -n 10
+**Option A: Text-to-SQL Demo** (queries ClickHouse structured data)
+```bash
+docker compose build text-to-sql
+docker compose up text-to-sql
+```
+
+**Option B: Vector RAG Demo** (proper RAG with embeddings)
+```bash
+docker compose build vector-rag
+docker compose up vector-rag
 ```
 
 ---
@@ -127,73 +124,35 @@ docker compose exec python-rag python /scripts/generate_load.py -n 10
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **TruLens Dashboard** | http://localhost:8501 | LLM evaluation scores and details |
 | **HyperDX** | http://localhost:8080 | Traces, logs, token usage, latency |
+| **Text-to-SQL TruLens** | http://localhost:8501 | Evaluation scores for Text-to-SQL |
+| **Vector RAG TruLens** | http://localhost:8502 | Evaluation scores for Vector RAG |
 | **LibreChat** | http://localhost:3080 | Chat UI with Claude + MCP |
 
 ---
 
-## What is TruLens?
+## TruLens Evaluations
 
-[TruLens](https://www.trulens.org/) is an LLM evaluation framework that measures the quality of your AI application's outputs.
+### Text-to-SQL Evaluations
+| Metric | Description |
+|--------|-------------|
+| **Answer Relevance** | Does the answer address the question? |
+| **Coherence** | Is the response well-structured? |
 
-### How It Works in This Demo
+### Vector RAG Evaluations
+| Metric | Description |
+|--------|-------------|
+| **Answer Relevance** | Does the answer address the question? |
+| **Groundedness** | Is the answer supported by retrieved context? |
+| **Context Relevance** | Is the retrieved context relevant to the question? |
 
-```
-User Question
-     │
-     ▼
-┌─────────────────────────────────────────────────────┐
-│              RAG Pipeline                           │
-│  Question → Analysis Chain → Response Chain → Answer│
-└─────────────────────────────────────────────────────┘
-     │                                            │
-     │ input                                      │ output
-     ▼                                            ▼
-┌─────────────────────────────────────────────────────┐
-│              TruLens Evaluation                     │
-│                                                     │
-│  ┌─────────────────┐    ┌─────────────────┐        │
-│  │ Answer Relevance│    │    Coherence    │        │
-│  │ ───────────────│    │ ───────────────│        │
-│  │ "Does the answer│    │ "Is the response│        │
-│  │  address the    │    │  well-structured│        │
-│  │  question?"     │    │  and logical?"  │        │
-│  │                 │    │                 │        │
-│  │ Score: 0.0-1.0  │    │ Score: 0.0-1.0  │        │
-│  └─────────────────┘    └─────────────────┘        │
-│                                                     │
-│  Evaluated by: Claude Haiku (cost-efficient)       │
-└─────────────────────────────────────────────────────┘
-     │
-     ▼
-TruLens Dashboard (http://localhost:8501)
-```
-
-### TruLens Dashboard Features
-
-1. **Leaderboard** - Compare app versions by average scores
-2. **Evaluations** - See individual feedback with chain-of-thought reasoning
-3. **Records** - Browse each query with full input/output/scores
-
-### Extending TruLens Evaluations
-
-Edit `python-rag/trulens_config.py` to add more feedback functions:
-
-```python
-# Available evaluations from Langchain provider:
-provider.relevance_with_cot_reasons      # Answer relevance
-provider.coherence_with_cot_reasons      # Response coherence
-provider.groundedness_measure_with_cot_reasons  # Grounded in context
-provider.conciseness_with_cot_reasons    # Response brevity
-provider.helpfulness_with_cot_reasons    # User helpfulness
-```
+All evaluations use **LLM-as-a-Judge** with Claude Haiku for cost efficiency.
 
 ---
 
 ## What is OpenLLMetry?
 
-[OpenLLMetry](https://github.com/traceloop/openllmetry) automatically instruments LLM frameworks (LangChain, OpenAI, Anthropic) to capture:
+[OpenLLMetry](https://github.com/traceloop/openllmetry) automatically instruments LLM frameworks to capture:
 
 - **Prompts** - Full text sent to the model
 - **Completions** - Model's response
@@ -201,96 +160,44 @@ provider.helpfulness_with_cot_reasons    # User helpfulness
 - **Latency** - Time per operation
 - **Model info** - Which model was called
 
-### Captured Span Attributes
-
-```
-gen_ai.system = "anthropic"
-gen_ai.request.model = "claude-sonnet-4-20250514"
-gen_ai.prompt.0.content = "You are a data analyst..."
-gen_ai.completion.0.content = "Based on the UK property data..."
-gen_ai.usage.prompt_tokens = 1234
-gen_ai.usage.completion_tokens = 567
-gen_ai.usage.total_tokens = 1801
-```
-
 ### Viewing in HyperDX
 
 1. Go to http://localhost:8080
 2. **Search** → **Traces** tab
-3. Filter: `ServiceName = python-rag-demo`
+3. Filter: `ServiceName = text-to-sql-demo` or `ServiceName = vector-rag-demo`
 4. Click any trace to see span tree with attributes
 
 ---
 
 ## Generating Test Data
 
-### Run Demo Queries
-
+### Text-to-SQL Demo
 ```bash
-# Automatic demo (3 questions, then starts TruLens dashboard)
-docker compose up python-rag
-
-# Or generate specific number of queries
-docker compose exec python-rag python /scripts/generate_load.py -n 10
+docker compose exec text-to-sql python /scripts/generate_load.py -n 10
 ```
 
-### Interactive Mode
-
+### Vector RAG Demo
 ```bash
-docker compose exec -it python-rag python -c "
+docker compose exec vector-rag python -c "
 import sys; sys.path.insert(0, '/app')
 from main import create_app
 
-pipeline, tru_app, _ = create_app()
-print('Interactive mode. Type quit to exit.\n')
+QUESTIONS = [
+    'What is ClickHouse?',
+    'How does RAG work?',
+    'What is TruLens?',
+    'Explain vector embeddings',
+    'What is OpenTelemetry?',
+]
 
-while True:
-    q = input('Question: ').strip()
-    if q.lower() in ('quit', 'exit', 'q'):
-        break
-    if not q:
-        continue
+pipeline, tru_app, _ = create_app()
+for q in QUESTIONS:
+    print(f'Query: {q}')
     with tru_app:
-        response = pipeline.query(q)
-    print(f'\nAnswer: {response}\n')
+        pipeline.query(q)
+    print('Done')
 "
 ```
-
----
-
-## SQL Analytics (HyperDX)
-
-Use these queries in HyperDX SQL editor or connect directly to ClickHouse:
-
-### Token Usage by Service
-```sql
-SELECT
-    ServiceName,
-    count() AS requests,
-    sum(toUInt32OrZero(SpanAttributes['gen_ai.usage.prompt_tokens'])) AS input_tokens,
-    sum(toUInt32OrZero(SpanAttributes['gen_ai.usage.completion_tokens'])) AS output_tokens
-FROM otel_traces
-WHERE Timestamp > now() - INTERVAL 1 HOUR
-  AND SpanAttributes['gen_ai.system'] != ''
-GROUP BY ServiceName
-```
-
-### Cost Estimation (Claude Pricing)
-```sql
-SELECT
-    toDate(Timestamp) AS date,
-    count() AS requests,
-    sum(toUInt32OrZero(SpanAttributes['gen_ai.usage.prompt_tokens'])) AS input_tokens,
-    sum(toUInt32OrZero(SpanAttributes['gen_ai.usage.completion_tokens'])) AS output_tokens,
-    -- Claude Sonnet: $3/1M input, $15/1M output
-    round((input_tokens * 3.0 + output_tokens * 15.0) / 1000000, 4) AS estimated_cost_usd
-FROM otel_traces
-WHERE SpanAttributes['gen_ai.system'] = 'anthropic'
-GROUP BY date
-ORDER BY date DESC
-```
-
-See `queries/` directory for more examples.
 
 ---
 
@@ -300,7 +207,7 @@ See `queries/` directory for more examples.
 |----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | - | **Required.** Your Anthropic API key |
 | `CLICKSTACK_API_KEY` | - | **Required.** From HyperDX Team Settings |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Model for RAG pipeline |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Model for generation |
 | `TRULENS_MODEL` | `claude-3-5-haiku-20241022` | Model for TruLens evals (cheaper) |
 | `TEMPERATURE` | `0.7` | LLM temperature |
 
@@ -309,65 +216,63 @@ See `queries/` directory for more examples.
 ## File Structure
 
 ```
-├── python-rag/                  # Python RAG application
-│   ├── main.py                  # Entry point - demo + dashboard
-│   ├── instrumentation.py       # OpenTelemetry/OpenLLMetry setup
-│   ├── rag_pipeline.py          # LangChain RAG pipeline
-│   ├── trulens_config.py        # TruLens feedback functions
-│   ├── mcp_client.py            # ClickHouse MCP client
-│   └── requirements.txt         # Python dependencies
+├── text-to-sql/                # Text-to-SQL application
+│   ├── main.py                 # Entry point
+│   ├── instrumentation.py      # OpenTelemetry setup
+│   ├── sql_pipeline.py         # LangChain SQL pipeline
+│   ├── trulens_config.py       # TruLens feedback functions
+│   ├── mcp_client.py           # ClickHouse MCP client
+│   └── requirements.txt        # Python dependencies
 │
-├── queries/                     # SQL analytics for HyperDX
+├── vector-rag/                 # Vector RAG application
+│   ├── main.py                 # Entry point
+│   ├── instrumentation.py      # OpenTelemetry setup
+│   ├── rag_pipeline.py         # RAG with ChromaDB
+│   ├── trulens_config.py       # TruLens with groundedness
+│   ├── documents.py            # Sample knowledge base
+│   └── requirements.txt        # Python dependencies
+│
+├── queries/                    # SQL analytics for HyperDX
 │   ├── token_usage.sql
 │   ├── cost_estimation.sql
-│   ├── latency_analysis.sql
-│   └── error_analysis.sql
+│   └── latency_analysis.sql
 │
-├── scripts/                     # Utility scripts
-│   ├── generate_load.py         # Generate test queries
-│   ├── validate.py              # Validate deployment
-│   └── setup.sh                 # Setup helper
+├── scripts/                    # Utility scripts
+│   └── generate_load.py        # Generate test queries
 │
-├── docs/
-│   └── QUICKSTART.md            # Detailed walkthrough
-│
-├── Dockerfile.rag               # Python RAG container
-├── docker-compose.yaml          # All services
-└── .env.example                 # Environment template
+├── Dockerfile.text-to-sql      # Text-to-SQL container
+├── Dockerfile.vector-rag       # Vector RAG container
+├── docker-compose.yaml         # All services
+└── .env.example                # Environment template
 ```
 
 ---
 
 ## Troubleshooting
 
-### TruLens dashboard not loading (port 8501)?
+### TruLens dashboard not loading?
 ```bash
-docker logs python-rag 2>&1 | tail -20
-# Should see "Dashboard started at http://localhost:8501"
+docker logs text-to-sql 2>&1 | tail -20
+# or
+docker logs vector-rag 2>&1 | tail -20
 ```
 
 ### Traces not appearing in HyperDX?
 ```bash
-# Check CLICKSTACK_API_KEY is set
-docker compose exec python-rag env | grep CLICKSTACK
+# Check API key is set
+docker compose exec text-to-sql env | grep CLICKSTACK
 
 # Check network connectivity
-docker compose exec python-rag curl -s http://clickstack:4318
+docker compose exec text-to-sql curl -s http://clickstack:4318
 ```
 
 ### Container keeps exiting?
 ```bash
-# Check for errors
-docker logs python-rag
+# Check logs for errors
+docker logs text-to-sql
 
 # Rebuild from scratch
-docker compose build python-rag --no-cache
-```
-
-### TruLens evaluations not running?
-```bash
-# Check ANTHROPIC_API_KEY is set (TruLens uses it for evals)
-docker compose exec python-rag env | grep ANTHROPIC
+docker compose build text-to-sql --no-cache
 ```
 
 ---

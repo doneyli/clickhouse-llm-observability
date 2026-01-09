@@ -6,7 +6,7 @@ Usage (from inside container):
     python /scripts/generate_load.py -n 10
 
 Usage (from host):
-    docker compose exec python-rag python /scripts/generate_load.py -n 10
+    docker compose exec text-to-sql python /scripts/generate_load.py -n 10
 """
 
 import sys
@@ -14,7 +14,7 @@ import os
 import random
 import argparse
 
-# Add /app to path (where python-rag code lives in container)
+# Add /app to path (where text-to-sql code lives in container)
 sys.path.insert(0, '/app')
 
 QUESTIONS = [

@@ -1,4 +1,4 @@
-"""RAG Pipeline with ClickHouse MCP Integration"""
+"""Text-to-SQL Pipeline with ClickHouse MCP Integration"""
 
 import os
 from typing import Optional, Dict, Any
@@ -9,7 +9,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 
 @dataclass
-class RAGConfig:
+class SQLConfig:
     model_name: str = "claude-sonnet-4-20250514"
     temperature: float = 0.7
     max_tokens: int = 2000
@@ -34,11 +34,11 @@ Available databases include:
 """
 
 
-class ClickHouseRAGPipeline:
-    """RAG pipeline that queries ClickHouse via MCP."""
+class ClickHouseSQLPipeline:
+    """Text-to-SQL pipeline that queries ClickHouse via MCP."""
 
-    def __init__(self, config: Optional[RAGConfig] = None):
-        self.config = config or RAGConfig(
+    def __init__(self, config: Optional[SQLConfig] = None):
+        self.config = config or SQLConfig(
             model_name=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
             temperature=float(os.getenv("TEMPERATURE", "0.7")),
         )
@@ -89,7 +89,7 @@ class ClickHouseRAGPipeline:
             return self._context
 
     def query(self, question: str) -> str:
-        """Execute the full RAG pipeline."""
+        """Execute the full Text-to-SQL pipeline."""
         analysis = self.analysis_chain.invoke({"question": question})
         context = self.retrieve_context(question, analysis)
         answer = self.response_chain.invoke({
@@ -105,5 +105,5 @@ class ClickHouseRAGPipeline:
         return self._context
 
 
-def create_pipeline(config: Optional[RAGConfig] = None) -> ClickHouseRAGPipeline:
-    return ClickHouseRAGPipeline(config)
+def create_pipeline(config: Optional[SQLConfig] = None) -> ClickHouseSQLPipeline:
+    return ClickHouseSQLPipeline(config)

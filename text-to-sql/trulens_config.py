@@ -11,7 +11,7 @@ from langchain_anthropic import ChatAnthropic
 class TruLensConfig:
     def __init__(
         self,
-        app_name: str = "clickhouse-rag-demo",
+        app_name: str = "text-to-sql-demo",
         app_version: str = "1.0.0",
         model: str = None,
     ):
@@ -22,7 +22,7 @@ class TruLensConfig:
 
 def create_feedback_functions(config: TruLensConfig = None) -> List[Feedback]:
     """
-    Create TruLens feedback functions for RAG evaluation.
+    Create TruLens feedback functions for Text-to-SQL evaluation.
 
     These evaluate:
     - Answer Relevance: Does the answer address the question?
@@ -47,9 +47,9 @@ def create_feedback_functions(config: TruLensConfig = None) -> List[Feedback]:
     return feedbacks
 
 
-class InstrumentedRAGPipeline:
+class InstrumentedSQLPipeline:
     """
-    RAG Pipeline wrapper with TruLens instrumentation.
+    Text-to-SQL Pipeline wrapper with TruLens instrumentation.
 
     The @instrument decorator marks methods for TruLens tracking.
     """
@@ -75,7 +75,7 @@ class InstrumentedRAGPipeline:
 
     @instrument
     def query(self, question: str) -> str:
-        """Full RAG query - main TruLens entry point."""
+        """Full Text-to-SQL query - main TruLens entry point."""
         context = self.retrieve(question)
         return self.generate(question, context)
 
