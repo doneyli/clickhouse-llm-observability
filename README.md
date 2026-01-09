@@ -236,6 +236,55 @@ docker compose up vector-rag trulens-dashboard
 | **TruLens Dashboard** | http://localhost:8501 | Quality scores, judge reasoning |
 | **Text-to-SQL API** | http://localhost:8002 | Demo application |
 | **Vector RAG API** | http://localhost:8003 | Demo application |
+| **LibreChat** | http://localhost:3080 | Chat UI with Claude + MCP |
+
+---
+
+## Evaluating LibreChat Conversations (Phase 1)
+
+The trace-evaluator service enables **async quality evaluation** of LibreChat conversations by:
+1. Querying LLM traces from ClickHouse (HyperDX backend)
+2. Extracting prompt/completion pairs
+3. Running TruLens LLM-as-judge evaluations
+4. Storing results in the shared TruLens database
+
+### Running the Trace Evaluator
+
+```bash
+# Build the evaluator
+docker compose build trace-evaluator
+
+# List available services with LLM traces
+docker compose run --rm trace-evaluator --list-services
+
+# Evaluate LibreChat conversations (last 24 hours)
+docker compose run --rm trace-evaluator --service librechat-api --hours 24
+
+# Evaluate with 5% sampling (for high-traffic production)
+docker compose run --rm trace-evaluator --service librechat-api --sample-rate 0.05
+
+# Evaluate specific service with custom app name
+docker compose run --rm trace-evaluator --service mcp-clickhouse --app-name mcp-eval
+```
+
+### Trace Evaluator Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--service` | `librechat-api` | Service name to evaluate |
+| `--hours` | `24` | How far back to look |
+| `--limit` | `100` | Max traces to fetch |
+| `--sample-rate` | `1.0` | Fraction to evaluate (0.0-1.0) |
+| `--app-name` | `{service}-eval` | Name in TruLens dashboard |
+| `--list-services` | - | Show available services |
+
+### Viewing Results
+
+After running the evaluator, view results in:
+- **TruLens Dashboard** (http://localhost:8501) - Quality scores and judge reasoning
+- **HyperDX** (http://localhost:8080) - Evaluator traces (judge LLM calls)
+
+Filter by app name (e.g., `librechat-api-eval`) in TruLens to see LibreChat evaluations.
 
 ---
 
@@ -370,7 +419,7 @@ for q in QUESTIONS:
 ## File Structure
 
 ```
-├── text-to-sql/                # Text-to-SQL application
+├── text-to-sql/                # Text-to-SQL demo application
 │   ├── main.py                 # Entry point
 │   ├── instrumentation.py      # OpenLLMetry setup
 │   ├── sql_pipeline.py         # LangChain SQL pipeline
@@ -378,7 +427,7 @@ for q in QUESTIONS:
 │   ├── mcp_client.py           # ClickHouse MCP client
 │   └── requirements.txt
 │
-├── vector-rag/                 # Vector RAG application
+├── vector-rag/                 # Vector RAG demo application
 │   ├── main.py                 # Entry point
 │   ├── instrumentation.py      # OpenLLMetry setup
 │   ├── rag_pipeline.py         # RAG with ChromaDB
@@ -386,8 +435,19 @@ for q in QUESTIONS:
 │   ├── documents.py            # Sample knowledge base
 │   └── requirements.txt
 │
+├── trace-evaluator/            # Async trace evaluation service
+│   ├── main.py                 # CLI entry point
+│   ├── clickhouse_client.py    # Query traces from ClickHouse
+│   ├── trulens_evaluator.py    # Run TruLens evaluations
+│   ├── instrumentation.py      # OpenTelemetry for evaluator
+│   └── requirements.txt
+│
+├── docs/                       # Documentation
+│   └── EVALUATION_ARCHITECTURE.md  # Evaluation strategy guide
+│
 ├── Dockerfile.text-to-sql
 ├── Dockerfile.vector-rag
+├── Dockerfile.trace-evaluator
 ├── Dockerfile.trulens-dashboard
 ├── docker-compose.yaml
 └── .env.example
@@ -441,6 +501,22 @@ docker compose down -v
 
 ---
 
+## Evaluation Architecture
+
+For production LLM applications, we recommend a **layered evaluation strategy**:
+
+| Layer | Purpose | Timing |
+|-------|---------|--------|
+| **Real-time Guardrails** | Safety (PII, toxicity, prompt injection) | Before response |
+| **Async Quality Evaluation** | Quality scores (relevance, coherence) | After response |
+| **Human Feedback** | Ground truth signal | User-driven |
+
+**Why async for quality?** Real-time LLM-as-judge adds 5-10 seconds latency. Quality scores inform improvements but don't need to block responses.
+
+See [docs/EVALUATION_ARCHITECTURE.md](docs/EVALUATION_ARCHITECTURE.md) for detailed architecture and implementation phases.
+
+---
+
 ## Learn More
 
 - [OpenLLMetry Documentation](https://github.com/traceloop/openllmetry)
@@ -448,3 +524,4 @@ docker compose down -v
 - [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx)
 - [OpenTelemetry](https://opentelemetry.io/)
 - [ClickHouse Blog: LLM Observability](https://clickhouse.com/blog/llm-observability-clickstack-mcp)
+- [Evaluation Architecture Guide](docs/EVALUATION_ARCHITECTURE.md)

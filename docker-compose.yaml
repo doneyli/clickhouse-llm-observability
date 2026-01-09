@@ -169,5 +169,44 @@ services:
     volumes:
       - trulens-data:/trulens-data
 
+  # =============================================================================
+  # Trace Evaluator - Async quality evaluation from HyperDX traces
+  # =============================================================================
+  # This service queries LLM traces from ClickHouse and runs TruLens evaluations.
+  # Run manually: docker compose run trace-evaluator --help
+  #
+  # Examples:
+  #   docker compose run trace-evaluator --list-services
+  #   docker compose run trace-evaluator --service librechat-api --hours 24
+  #   docker compose run trace-evaluator --sample-rate 0.05
+  # =============================================================================
+  trace-evaluator:
+    build:
+      context: .
+      dockerfile: Dockerfile.trace-evaluator
+    container_name: trace-evaluator
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+      # ClickHouse connection (ClickStack uses 'api' user with password 'api')
+      - CLICKHOUSE_TRACE_HOST=clickstack
+      - CLICKHOUSE_TRACE_PORT=8123
+      - CLICKHOUSE_TRACE_DATABASE=default
+      - CLICKHOUSE_TRACE_USER=api
+      - CLICKHOUSE_TRACE_PASSWORD=api
+      # TruLens configuration
+      - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
+      - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
+      # OpenTelemetry for evaluator traces
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_SERVICE_NAME=trace-evaluator
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - trulens-data:/trulens-data
+    # Don't auto-start - run manually with docker compose run
+    profiles:
+      - tools
+
 volumes:
   trulens-data:
