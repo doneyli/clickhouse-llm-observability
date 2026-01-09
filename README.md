@@ -33,8 +33,10 @@ This demo shows the complete LLM observability pipeline in action:
 │          │  • All LLM traces with gen_ai.*       │                          │
 │          │  • Prompts, completions, tokens       │                          │
 │          │  • Latency metrics                    │                          │
+│          │  • Evaluation spans with eval.*       │                          │
 │          └───────────────────┬───────────────────┘                          │
 │                              │                                              │
+│                              │ queries traces                               │
 │                              ▼                                              │
 │          ┌───────────────────────────────────────┐                          │
 │          │          trace-evaluator              │                          │
@@ -42,16 +44,22 @@ This demo shows the complete LLM observability pipeline in action:
 │          │                                       │                          │
 │          │  • Queries traces from ClickHouse     │                          │
 │          │  • Runs TruLens LLM-as-judge evals    │                          │
-│          └───────────────────┬───────────────────┘                          │
-│                              │                                              │
-│                              ▼                                              │
-│          ┌───────────────────────────────────────┐                          │
-│          │         TruLens Dashboard             │                          │
-│          │         http://localhost:8501         │                          │
+│          │  • Emits eval spans back to ClickStack│                          │
+│          └──────────┬────────────────┬───────────┘                          │
+│                     │                │                                      │
+│      eval spans     │                │  scores & reasoning                  │
+│      (OTEL)         │                │                                      │
+│          ┌──────────┘                └───────────┐                          │
 │          │                                       │                          │
-│          │  • Quality scores (relevance, etc.)   │                          │
-│          │  • Judge reasoning                    │                          │
-│          └───────────────────────────────────────┘                          │
+│          ▼                                       ▼                          │
+│   ┌─────────────────────┐          ┌─────────────────────┐                  │
+│   │  ClickStack/HyperDX │          │  TruLens Dashboard  │                  │
+│   │                     │          │  http://localhost:  │                  │
+│   │ • eval.source_model │          │       8501          │                  │
+│   │ • eval.*_score      │          │                     │                  │
+│   │ • gen_ai.request.   │          │ • Quality scores    │                  │
+│   │   model (judge)     │          │ • Judge reasoning   │                  │
+│   └─────────────────────┘          └─────────────────────┘                  │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
