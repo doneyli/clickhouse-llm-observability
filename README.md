@@ -271,10 +271,16 @@ docker run -d --name librechat-exporter-watcher \
 # List services with LLM traces
 docker compose run --rm trace-evaluator python main.py --list-services
 
-# Evaluate specific service
+# One-time evaluation
 docker compose run --rm trace-evaluator python main.py \
   --service librechat-conversations \
   --hours 24
+
+# Watch mode - continuously evaluate new traces (recommended)
+docker compose run --rm trace-evaluator python main.py \
+  --watch \
+  --interval 60 \
+  --service librechat-conversations
 
 # Evaluate with sampling (for high volume)
 docker compose run --rm trace-evaluator python main.py \
