@@ -125,8 +125,7 @@ docker compose up vector-rag
 | Service | URL | Description |
 |---------|-----|-------------|
 | **HyperDX** | http://localhost:8080 | Traces, logs, token usage, latency |
-| **Text-to-SQL TruLens** | http://localhost:8501 | Evaluation scores for Text-to-SQL |
-| **Vector RAG TruLens** | http://localhost:8502 | Evaluation scores for Vector RAG |
+| **TruLens Dashboard** | http://localhost:8501 | Unified evaluation dashboard (all apps) |
 | **LibreChat** | http://localhost:3080 | Chat UI with Claude + MCP |
 
 ---
@@ -147,6 +146,34 @@ docker compose up vector-rag
 | **Context Relevance** | Is the retrieved context relevant to the question? |
 
 All evaluations use **LLM-as-a-Judge** with Claude Haiku for cost efficiency.
+
+### Viewing Judge Reasoning (Chain-of-Thought)
+
+TruLens captures the judge's reasoning for each evaluation. To view it:
+
+1. Open TruLens Dashboard at http://localhost:8501
+2. Navigate to **Records** tab
+3. Click on any record to expand it
+4. Click on a **feedback badge** (e.g., "Answer Relevance: 0.85")
+5. The judge's **chain-of-thought explanation** appears in the expanded view
+
+The `_with_cot_reasons` feedback functions capture:
+- **Score**: Numeric evaluation (0.0 - 1.0)
+- **Explanation**: Judge's reasoning for the score
+- **Supporting criteria**: What the judge looked for
+
+### Where to Find Judge Model Info
+
+| Location | What You'll See |
+|----------|-----------------|
+| **Config** | `TRULENS_MODEL` env var in docker-compose.yaml (default: `claude-3-5-haiku-20241022`) |
+| **Code** | `trulens_config.py` - `ChatAnthropic(model=config.model)` |
+| **HyperDX** | Filter traces by `gen_ai.request.model` to see all judge LLM calls with full request/response details |
+
+To trace judge calls in HyperDX:
+1. Go to http://localhost:8080 → Search → Traces
+2. Filter: `gen_ai.request.model = claude-3-5-haiku-20241022`
+3. See token usage, latency, and full prompt/completion for each evaluation
 
 ---
 

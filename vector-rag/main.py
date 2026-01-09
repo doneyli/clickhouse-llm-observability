@@ -41,8 +41,9 @@ def create_app():
     trulens_config = TruLensConfig()
     instrumented = InstrumentedRAGPipeline(base_pipeline, trulens_config)
 
-    # 3. Create TruLens session and feedback functions
-    session = TruSession()
+    # 3. Create TruLens session with shared database
+    database_url = os.getenv("TRULENS_DATABASE_URL", "sqlite:///default.sqlite")
+    session = TruSession(database_url=database_url)
     feedbacks = create_feedback_functions(trulens_config)
 
     # 4. Create TruApp wrapper
@@ -77,6 +78,7 @@ def run_demo(pipeline, tru_app):
     print("\n" + "="*60)
     print("Demo complete!")
     print("   View traces: http://localhost:8080 (HyperDX)")
+    print("   View evals:  http://localhost:8501 (TruLens)")
     print("="*60 + "\n")
 
 

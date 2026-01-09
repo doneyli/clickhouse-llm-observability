@@ -111,7 +111,6 @@ services:
     container_name: text-to-sql
     ports:
       - "${TEXT_TO_SQL_PORT:-8002}:8000"
-      - "8501:8501"  # TruLens Dashboard
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
@@ -121,12 +120,14 @@ services:
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
+      - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
     depends_on:
       - mcp-clickhouse
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./text-to-sql:/app
+      - trulens-data:/trulens-data
 
   # =============================================================================
   # Vector RAG Demo - Proper RAG with embeddings and vector search
@@ -138,7 +139,6 @@ services:
     container_name: vector-rag
     ports:
       - "${VECTOR_RAG_PORT:-8003}:8000"
-      - "8502:8502"  # TruLens Dashboard
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
@@ -147,7 +147,27 @@ services:
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
+      - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./vector-rag:/app
+      - trulens-data:/trulens-data
+
+  # =============================================================================
+  # TruLens Dashboard - Unified dashboard for all apps
+  # =============================================================================
+  trulens-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.trulens-dashboard
+    container_name: trulens-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
+    volumes:
+      - trulens-data:/trulens-data
+
+volumes:
+  trulens-data:
