@@ -253,6 +253,28 @@ services:
   #   docker compose run librechat-exporter --hours 24
   #   docker compose run librechat-exporter --watch --interval 60
   # =============================================================================
+  # LibreChat Exporter Watcher - Continuous export of conversations
+  # =============================================================================
+  librechat-exporter-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile.librechat-exporter
+    container_name: librechat-exporter-watcher
+    restart: unless-stopped
+    command: ["python", "main.py", "--watch", "--interval", "10"]
+    environment:
+      # MongoDB connection (LibreChat's database)
+      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
+      # OTLP endpoint (ClickStack)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_SERVICE_NAME=librechat-conversations
+      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+    depends_on:
+      - mongodb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =============================================================================
   librechat-exporter:
     build:
       context: .

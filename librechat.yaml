@@ -5,6 +5,8 @@ version: "1.2.1"
 cache: true
 
 # MCP Servers Configuration
+# Note: stdio-based MCP servers using mcp-clickhouse require glibc (chdb dependency).
+# Alpine Linux uses musl, so we use SSE transport via the mcp-clickhouse container instead.
 mcpServers:
   clickhouse-playground:
     type: sse
