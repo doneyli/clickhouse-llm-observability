@@ -62,8 +62,13 @@ def get_langfuse_handler(
     Get Langfuse callback handler for LangChain.
     Returns None if Langfuse is not configured.
 
+    Note: Langfuse SDK v3 uses environment variables for authentication:
+    - LANGFUSE_PUBLIC_KEY
+    - LANGFUSE_SECRET_KEY
+    - LANGFUSE_HOST (defaults to cloud, set to local for self-hosted)
+
     Args:
-        user_id: Optional user identifier for the trace
+        user_id: Optional user identifier for the trace (set via update_current_trace)
         session_id: Optional session identifier for grouping traces
         tags: Optional list of tags for filtering
         metadata: Optional metadata dict to attach to trace
@@ -74,15 +79,10 @@ def get_langfuse_handler(
     try:
         from langfuse.langchain import CallbackHandler
 
-        handler = CallbackHandler(
-            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
-            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-            host=os.getenv("LANGFUSE_HOST", "http://localhost:3001"),
-            user_id=user_id,
-            session_id=session_id,
-            tags=tags or ["text-to-sql-demo"],
-            metadata=metadata
-        )
+        # Langfuse SDK v3 uses environment variables for auth
+        # CallbackHandler() reads from LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
+        # Note: v3 API uses no constructor params - auth from env vars
+        handler = CallbackHandler()
         return handler
 
     except ImportError:

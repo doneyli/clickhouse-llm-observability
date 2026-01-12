@@ -353,7 +353,7 @@ services:
 
   # Langfuse Worker (background processing)
   langfuse-worker:
-    image: langfuse/langfuse:latest
+    image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
     restart: unless-stopped
     profiles:
@@ -387,6 +387,8 @@ services:
       - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=langfuse123
       - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
       - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=us-east-1
       # Auth secrets (change in production!)
       - NEXTAUTH_URL=http://localhost:${LANGFUSE_PORT:-3001}
       - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
@@ -429,6 +431,8 @@ services:
       - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=langfuse123
       - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
       - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=us-east-1
       # Auth secrets (change in production!)
       - NEXTAUTH_URL=http://localhost:${LANGFUSE_PORT:-3001}
       - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
