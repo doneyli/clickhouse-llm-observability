@@ -1,6 +1,6 @@
-# LLM Observability with ClickStack, TruLens, and OpenLLMetry
+# LLM Observability with ClickStack, TruLens, Langfuse, and OpenLLMetry
 
-A comprehensive demo for LLM observability showing how to monitor, trace, and evaluate LLM applications in production.
+A comprehensive demo for LLM observability showing how to monitor, trace, and evaluate LLM applications in production. Features dual evaluation platforms (TruLens + Langfuse) both powered by ClickHouse.
 
 Based on: https://clickhouse.com/blog/llm-observability-clickstack-mcp
 
@@ -20,46 +20,38 @@ This demo shows the complete LLM observability pipeline in action:
 │   │    Demo     │     │    Demo     │     │   (Chat)    │                   │
 │   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘                   │
 │          │                   │                   │                          │
-│          │ OpenLLMetry       │ OpenLLMetry       │ librechat-exporter       │
-│          │ (auto)            │ (auto)            │ (polls MongoDB)          │
+│          │ Dual Instrumentation                  │ librechat-exporter       │
+│          │ • OpenLLMetry → ClickStack            │ (polls MongoDB)          │
+│          │ • Langfuse SDK → Langfuse             │                          │
 │          │                   │                   │                          │
-│          └───────────────────┴───────────────────┘                          │
-│                              │                                              │
-│                              ▼                                              │
-│          ┌───────────────────────────────────────┐                          │
-│          │         ClickStack / HyperDX          │                          │
-│          │         http://localhost:8080         │                          │
-│          │                                       │                          │
-│          │  • All LLM traces with gen_ai.*       │                          │
-│          │  • Prompts, completions, tokens       │                          │
-│          │  • Latency metrics                    │                          │
-│          │  • Evaluation spans with eval.*       │                          │
-│          └───────────────────┬───────────────────┘                          │
-│                              │                                              │
-│                              │ queries traces                               │
-│                              ▼                                              │
-│          ┌───────────────────────────────────────┐                          │
-│          │          trace-evaluator              │                          │
-│          │      (run manually or scheduled)      │                          │
-│          │                                       │                          │
-│          │  • Queries traces from ClickHouse     │                          │
-│          │  • Runs TruLens LLM-as-judge evals    │                          │
-│          │  • Emits eval spans back to ClickStack│                          │
-│          └──────────┬────────────────┬───────────┘                          │
-│                     │                │                                      │
-│      eval spans     │                │  scores & reasoning                  │
-│      (OTEL)         │                │                                      │
-│          ┌──────────┘                └───────────┐                          │
-│          │                                       │                          │
-│          ▼                                       ▼                          │
-│   ┌─────────────────────┐          ┌─────────────────────┐                  │
-│   │  ClickStack/HyperDX │          │  TruLens Dashboard  │                  │
-│   │                     │          │  http://localhost:  │                  │
-│   │ • eval.source_model │          │       8501          │                  │
-│   │ • eval.*_score      │          │                     │                  │
-│   │ • gen_ai.request.   │          │ • Quality scores    │                  │
-│   │   model (judge)     │          │ • Judge reasoning   │                  │
-│   └─────────────────────┘          └─────────────────────┘                  │
+│          └─────────┬─────────┴───────────────────┘                          │
+│                    │                                                        │
+│         ┌──────────┴──────────┐                                             │
+│         │                     │                                             │
+│         ▼                     ▼                                             │
+│   ┌───────────────┐    ┌───────────────┐                                    │
+│   │  ClickStack   │    │   Langfuse    │                                    │
+│   │   (HyperDX)   │    │   (Web UI)    │                                    │
+│   │ localhost:8080│    │ localhost:3001│                                    │
+│   └───────┬───────┘    └───────┬───────┘                                    │
+│           │                    │                                            │
+│           └────────┬───────────┘                                            │
+│                    │                                                        │
+│                    ▼                                                        │
+│          ┌───────────────────────┐                                          │
+│          │      ClickHouse       │                                          │
+│          │   (Shared Backend)    │                                          │
+│          │ • otel_traces (HyperDX)                                          │
+│          │ • langfuse_* tables   │                                          │
+│          └───────────────────────┘                                          │
+│                                                                              │
+│   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
+│   │ trace-evaluator │    │langfuse-evaluator│   │ TruLens Dashboard│         │
+│   │   (TruLens)     │    │   (Langfuse)    │    │ localhost:8501  │         │
+│   │                 │    │                 │    │                 │         │
+│   │ • Relevance     │    │ • Relevance     │    │ • Quality scores│         │
+│   │ • Coherence     │    │ • Coherence     │    │ • Judge reasoning│        │
+│   └─────────────────┘    └─────────────────┘    └─────────────────┘         │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -262,7 +254,8 @@ ORDER BY e.Timestamp DESC
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| **HyperDX** | http://localhost:8080 | Traces, logs, metrics |
+| **HyperDX** | http://localhost:8080 | Traces, logs, metrics (OTEL) |
+| **Langfuse** | http://localhost:3001 | Traces, scores, LLM visualization |
 | **TruLens Dashboard** | http://localhost:8501 | Quality scores, evaluations |
 | **Text-to-SQL API** | http://localhost:8002 | Demo: Natural language → SQL |
 | **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings |
@@ -281,9 +274,10 @@ Traditional monitoring tracks requests, errors, and latency. LLM applications ne
 | **Cost scales with tokens** | Track token usage per request |
 | **Debugging is hard** | Full trace visibility |
 
-**This demo shows two complementary approaches:**
+**This demo shows three complementary approaches:**
 1. **Operational Observability** (OpenLLMetry → HyperDX) - What happened?
-2. **Quality Evaluation** (TruLens) - How good was it?
+2. **Quality Evaluation** (TruLens) - How good was it? (SQLite storage)
+3. **Quality Evaluation** (Langfuse) - How good was it? (ClickHouse storage)
 
 ---
 
@@ -308,6 +302,13 @@ Self-hosted observability platform:
 - ClickHouse backend for traces
 - Search and filter
 - Dashboards
+
+### Langfuse (Alternative Evaluation Platform)
+LLM observability with ClickHouse backend:
+- Rich trace timeline visualization
+- Custom numeric scores
+- Native web UI for exploration
+- Shares ClickHouse with HyperDX
 
 ---
 
@@ -469,8 +470,12 @@ docker compose --profile langfuse run --rm langfuse-evaluator --force
 ├── trace-evaluator/            # Async evaluation from ClickHouse traces (TruLens)
 ├── langfuse-evaluator/         # Async evaluation using Langfuse API
 ├── librechat-exporter/         # MongoDB → ClickHouse exporter
+├── scripts/
+│   └── validate-langfuse.sh    # Langfuse setup validation
 ├── docs/
 │   ├── EVALUATION_ARCHITECTURE.md   # Evaluation strategy deep-dive
+│   ├── EVALUATION_SCENARIOS.md      # Test scenarios for failure modes
+│   ├── LANGFUSE_INTEGRATION.md      # Langfuse setup and configuration
 │   └── QUICKSTART.md                # Quick setup guide
 ├── Dockerfile.*                # Container definitions
 ├── docker-compose.yaml         # Service orchestration
@@ -512,6 +517,23 @@ docker ps | grep mongo
 docker exec <mongo-container> mongosh --eval "db.getSiblingDB('LibreChat').messages.countDocuments({})"
 ```
 
+### Langfuse not starting or processing traces?
+```bash
+# Run validation script
+./scripts/validate-langfuse.sh
+
+# Check worker is using correct image (must be langfuse-worker:3)
+docker ps | grep langfuse-worker
+
+# Check queue processing
+docker exec langfuse-redis redis-cli llen bull:ingestion-processing:wait
+
+# View worker logs
+docker logs langfuse-worker
+```
+
+See [Langfuse Integration Guide](docs/LANGFUSE_INTEGRATION.md) for detailed troubleshooting.
+
 ---
 
 ## Stopping Everything
@@ -520,14 +542,17 @@ docker exec <mongo-container> mongosh --eval "db.getSiblingDB('LibreChat').messa
 # Stop demo services
 docker compose down
 
+# Stop Langfuse (if running)
+docker compose --profile langfuse down
+
 # Stop exporter
 docker rm -f librechat-exporter-watcher
 
 # Stop ClickStack
 docker stop clickstack && docker rm clickstack
 
-# Clean up volumes
-docker compose down -v
+# Clean up volumes (including Langfuse data)
+docker compose --profile langfuse down -v
 docker volume rm librechat-exporter-state
 ```
 
@@ -535,8 +560,14 @@ docker volume rm librechat-exporter-state
 
 ## Learn More
 
+**External Resources:**
 - [OpenLLMetry](https://github.com/traceloop/openllmetry) - LLM auto-instrumentation
 - [TruLens](https://www.trulens.org/) - LLM evaluation framework
 - [Langfuse](https://langfuse.com/) - LLM observability platform
 - [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx) - Observability platform
-- [Evaluation Architecture Guide](docs/EVALUATION_ARCHITECTURE.md) - Production evaluation strategies
+
+**Project Documentation:**
+- [Langfuse Integration Guide](docs/LANGFUSE_INTEGRATION.md) - Setup, configuration, and troubleshooting
+- [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) - Production evaluation strategies
+- [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) - Test scenarios for failure modes
+- [Quick Start Guide](docs/QUICKSTART.md) - Fast setup instructions
