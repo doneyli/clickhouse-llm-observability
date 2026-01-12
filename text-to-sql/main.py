@@ -1,7 +1,8 @@
 """
-ClickHouse Text-to-SQL Demo with TruLens & OpenLLMetry
+ClickHouse Text-to-SQL Demo with TruLens, OpenLLMetry & Langfuse
 
 Entry point for the Text-to-SQL application.
+Supports dual instrumentation: OpenLLMetry → ClickStack and Langfuse → Langfuse.
 """
 
 import os
@@ -18,6 +19,9 @@ from sql_pipeline import create_pipeline
 from trulens_config import TruLensConfig, create_feedback_functions, InstrumentedSQLPipeline
 from trulens.core import TruSession
 from trulens.apps.app import TruApp
+
+# Langfuse dual instrumentation (optional - enabled via env vars)
+from langfuse_config import get_langfuse_handler, is_langfuse_enabled, flush as langfuse_flush
 
 # Demo questions covering different databases
 DEMO_QUESTIONS = [
@@ -58,15 +62,24 @@ def run_demo(pipeline, tru_app):
 
     print("\n" + "="*60)
     print("ClickHouse Text-to-SQL Demo with TruLens & OpenLLMetry")
+    if is_langfuse_enabled():
+        print("+ Langfuse dual instrumentation enabled")
     print("="*60)
 
     for i, question in enumerate(DEMO_QUESTIONS, 1):
         print(f"\n[{i}/{len(DEMO_QUESTIONS)}] {question}")
         print("-"*50)
 
+        # Get Langfuse callback if enabled
+        langfuse_handler = get_langfuse_handler(
+            tags=["text-to-sql-demo", "demo-run"],
+            metadata={"question_number": i}
+        )
+        callbacks = [langfuse_handler] if langfuse_handler else None
+
         with tru_app as recording:
             try:
-                response = pipeline.query(question)
+                response = pipeline.query(question, callbacks=callbacks)
                 print(f"Response: {response[:400]}...")
             except Exception as e:
                 print(f"Error: {e}")
@@ -82,10 +95,15 @@ def run_demo(pipeline, tru_app):
         except Exception:
             pass
 
+    # Flush Langfuse events
+    langfuse_flush()
+
     print("\n" + "="*60)
     print("Demo complete!")
     print("   View traces: http://localhost:8080 (HyperDX)")
     print("   View evals:  http://localhost:8501 (TruLens)")
+    if is_langfuse_enabled():
+        print("   View traces: http://localhost:3001 (Langfuse)")
     print("="*60 + "\n")
 
 
@@ -103,8 +121,14 @@ def run_interactive(pipeline, tru_app):
             if not question:
                 continue
 
+            # Get Langfuse callback if enabled
+            langfuse_handler = get_langfuse_handler(
+                tags=["text-to-sql-demo", "interactive"]
+            )
+            callbacks = [langfuse_handler] if langfuse_handler else None
+
             with tru_app as recording:
-                response = pipeline.query(question)
+                response = pipeline.query(question, callbacks=callbacks)
                 print(f"\nResponse: {response}\n")
 
         except KeyboardInterrupt:
@@ -112,17 +136,27 @@ def run_interactive(pipeline, tru_app):
         except Exception as e:
             print(f"Error: {e}\n")
 
+    # Flush Langfuse events on exit
+    langfuse_flush()
+
 
 def main():
-    print("""
+    banner = """
     ╔═══════════════════════════════════════════════════════════╗
-    ║   ClickHouse Text-to-SQL Demo with TruLens & OpenLLMetry  ║
+    ║   ClickHouse Text-to-SQL Demo                             ║
     ║                                                           ║
     ║   - OpenLLMetry: Auto-captures prompts, tokens            ║
     ║   - TruLens: Evaluates relevance, coherence               ║
-    ║   - ClickStack: Unified observability in ClickHouse       ║
+    ║   - ClickStack: Unified observability in ClickHouse       ║"""
+
+    if is_langfuse_enabled():
+        banner += """
+    ║   - Langfuse: Alternative LLM observability (enabled)     ║"""
+
+    banner += """
     ╚═══════════════════════════════════════════════════════════╝
-    """)
+    """
+    print(banner)
 
     # Create app
     pipeline, tru_app, session = create_app()

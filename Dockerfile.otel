@@ -2,7 +2,11 @@ FROM ghcr.io/danny-avila/librechat-dev:latest
 
 USER root
 
-RUN apk add --no-cache git build-base python3-dev
+RUN apk add --no-cache git build-base python3-dev curl libintl gettext-dev gcompat
+
+# Install uv for MCP server support (stdio-based MCP servers)
+# Install to /usr/local/bin so it's available to all users
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 RUN npm install @hyperdx/node-opentelemetry
 

@@ -65,15 +65,26 @@ class InstrumentedRAGPipeline:
         return self.pipeline.retrieve(question)
 
     @instrument
-    def generate(self, question: str, context: str) -> str:
-        """Generate response from context - tracked by TruLens."""
-        return self.pipeline.generate(question, context)
+    def generate(self, question: str, context: str, callbacks: list = None) -> str:
+        """Generate response from context - tracked by TruLens.
+
+        Args:
+            question: The user's question
+            context: Retrieved context
+            callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+        """
+        return self.pipeline.generate(question, context, callbacks)
 
     @instrument
-    def query(self, question: str) -> str:
-        """Full RAG query - main TruLens entry point."""
+    def query(self, question: str, callbacks: list = None) -> str:
+        """Full RAG query - main TruLens entry point.
+
+        Args:
+            question: The user's question
+            callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+        """
         context = self.retrieve(question)
-        return self.generate(question, context)
+        return self.generate(question, context, callbacks)
 
     @property
     def context(self) -> str:
