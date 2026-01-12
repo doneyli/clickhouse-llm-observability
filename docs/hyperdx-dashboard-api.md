@@ -2,6 +2,88 @@
 
 This document describes how to programmatically create dashboards in HyperDX/ClickStack.
 
+## Why MongoDB Direct Insert for LLM Traces?
+
+**TL;DR:** The External API v2 cannot access traces data. For LLM observability dashboards, you must use MongoDB direct insert.
+
+### The Root Cause
+
+The HyperDX External API v2 has a **hardcoded limitation** in its translation layer:
+
+```javascript
+// From /app/packages/api/build/utils/externalApi.js
+const translateExternalSeriesToInternalSeries = (s) => {
+    const { type, dataSource, ... } = s;
+
+    // HARDCODED: Only two options!
+    const table = dataSource === 'metrics' ? 'metrics' : 'logs';
+}
+```
+
+This means:
+- `dataSource: "events"` → `table: "logs"` (queries `otel_logs`)
+- `dataSource: "metrics"` → `table: "metrics"` (queries `otel_metrics_*`)
+- **No option for traces** → Cannot query `otel_traces`
+
+### Why This Matters for LLM Observability
+
+LLM telemetry data (via OpenLLMetry/OpenTelemetry) is stored as **spans in `otel_traces`**, not logs:
+
+| Attribute | Table | API Support |
+|-----------|-------|-------------|
+| `gen_ai.request.model` | otel_traces | :x: Not via API |
+| `gen_ai.usage.input_tokens` | otel_traces | :x: Not via API |
+| `gen_ai.usage.output_tokens` | otel_traces | :x: Not via API |
+| `gen_ai.prompt.0.content` | otel_traces | :x: Not via API |
+
+### How MongoDB Direct Insert Bypasses This
+
+The HyperDX **UI** uses a different internal format that CAN access any source:
+
+```javascript
+// External API v2 format (LIMITED)
+{
+  series: [{
+    dataSource: "events",  // Can only be "events" or "metrics"
+    // ...
+  }]
+}
+
+// Internal/UI format (FULL ACCESS)
+{
+  config: {
+    source: "696018e0111b88a75f8b3677",  // Direct source ID - can be traces!
+    // ...
+  }
+}
+```
+
+By inserting directly into MongoDB's `hyperdx.dashboards` collection using the internal `config` format, we bypass the API's translation layer and its limitations.
+
+### Method Comparison
+
+| Aspect | External API v2 | MongoDB Direct |
+|--------|-----------------|----------------|
+| Method | REST POST to `/api/v2/dashboards` | `db.dashboards.insertOne()` |
+| Format | `series` array | `config` object |
+| Data Sources | logs, metrics only | **All sources** |
+| LLM Traces | :x: Cannot access | :white_check_mark: Full access |
+| Authentication | Personal API Key | Container access |
+| Ideal for | Simple log dashboards | **LLM observability** |
+
+### Potential Future Enhancement
+
+This appears to be a limitation rather than intentional design. HyperDX could add:
+```javascript
+const table = dataSource === 'metrics' ? 'metrics'
+            : dataSource === 'traces' ? 'traces'   // NEW
+            : 'logs';
+```
+
+This would allow the External API v2 to properly support trace-based dashboards.
+
+---
+
 ## Two Dashboard Formats
 
 HyperDX has **two different internal formats** for dashboard tiles:
