@@ -574,6 +574,134 @@ docker volume rm librechat-exporter-state
 
 ---
 
+## Creating Dashboards Programmatically
+
+HyperDX/ClickStack supports programmatic dashboard creation. This section documents the working approach for LLM observability dashboards.
+
+### Quick Start
+
+```bash
+# Create the LLM Observability Dashboard
+./scripts/create-hyperdx-dashboard-mongo.sh --create
+
+# List existing dashboards
+./scripts/create-hyperdx-dashboard-mongo.sh --list
+
+# Recreate (delete and create new)
+./scripts/create-hyperdx-dashboard-mongo.sh --recreate
+```
+
+### Two Dashboard APIs
+
+| Method | Data Sources | Use Case |
+|--------|--------------|----------|
+| External API v2 (`/api/v2/dashboards`) | logs, metrics only | Simple dashboards |
+| MongoDB Direct Insert | **All sources including traces** | LLM observability |
+
+> **Important:** LLM observability data is stored in **traces** (`otel_traces`), which is only accessible via MongoDB direct insert method.
+
+### Dashboard Tile Format (config)
+
+```javascript
+{
+  id: "unique-tile-id",
+  x: 0, y: 0, w: 6, h: 3,  // Grid position (12 units wide)
+  config: {
+    name: "Tile Name",
+    source: "TRACES_SOURCE_ID",  // From db.sources.find()
+    select: [{
+      aggFn: "count",            // count, sum, avg, min, max, count_distinct
+      aggCondition: "",
+      aggConditionLanguage: "sql",
+      valueExpression: ""        // Field/expression to aggregate
+    }],
+    where: "SpanAttributes['gen_ai.request.model'] != ''",
+    whereLanguage: "sql",        // Always use "sql" for SpanAttributes
+    displayType: "line",         // number, line, stacked_bar, bar
+    granularity: "auto"
+  }
+}
+```
+
+### Common Expressions for LLM Metrics
+
+| Metric | valueExpression |
+|--------|-----------------|
+| Count | `""` (empty) |
+| Input Tokens | `"SpanAttributes['gen_ai.usage.input_tokens']"` |
+| Output Tokens | `"SpanAttributes['gen_ai.usage.output_tokens']"` |
+| Latency (ms) | `"Duration / 1000000"` |
+| Cost (USD) | `"toFloat64OrZero(SpanAttributes['gen_ai.usage.input_tokens']) * 0.00000025 + toFloat64OrZero(SpanAttributes['gen_ai.usage.output_tokens']) * 0.00000125"` |
+| Unique Traces | Use `aggFn: "count_distinct"` with `valueExpression: "TraceId"` |
+
+### Known Limitations
+
+| Feature | Status | Workaround |
+|---------|--------|------------|
+| Percentiles (p50, p95, p99) | ❌ Not supported | Use `avg` or `max` |
+| groupBy in config format | ⚠️ Limited | Use External API v2 for logs |
+| Lucene for SpanAttributes | ❌ Doesn't work | Use `whereLanguage: "sql"` |
+| Donut/pie charts | ❌ Not available | Use bar charts |
+
+### Getting Source IDs
+
+```bash
+# List all sources
+docker exec clickstack mongo --quiet --eval '
+db = db.getSiblingDB("hyperdx");
+db.sources.find({}, {_id: 1, name: 1, kind: 1}).forEach(function(s) {
+  print(s.kind + ": " + s._id.str + " (" + s.name + ")");
+});
+'
+```
+
+Default source IDs:
+- **Traces**: `696018e0111b88a75f8b3677` (for LLM data)
+- **Logs**: `696018e0111b88a75f8b3675`
+- **Metrics**: `696018e0111b88a75f8b3679`
+
+### Example: Creating a Custom Dashboard
+
+```bash
+docker exec clickstack mongo --quiet --eval '
+db = db.getSiblingDB("hyperdx");
+
+var dashboard = {
+  name: "My Custom Dashboard",
+  team: db.teams.findOne({})._id,
+  tags: ["custom"],
+  filters: [],
+  tiles: [{
+    id: "tile-1",
+    x: 0, y: 0, w: 6, h: 3,
+    config: {
+      name: "LLM Request Count",
+      source: "696018e0111b88a75f8b3677",
+      select: [{
+        aggFn: "count",
+        aggCondition: "",
+        aggConditionLanguage: "sql",
+        valueExpression: ""
+      }],
+      where: "SpanAttributes['"'"'gen_ai.request.model'"'"'] != '"'"''"'"'",
+      whereLanguage: "sql",
+      displayType: "line",
+      granularity: "auto"
+    }
+  }],
+  createdAt: new Date(),
+  updatedAt: new Date()
+};
+
+var result = db.dashboards.insertOne(dashboard);
+print("Dashboard URL: http://localhost:8080/dashboards/" + result.insertedId.str);
+'
+```
+
+For complete API documentation, see [docs/hyperdx-dashboard-api.md](docs/hyperdx-dashboard-api.md).
+
+---
+
 ## Learn More
 
 **External Resources:**
@@ -583,6 +711,7 @@ docker volume rm librechat-exporter-state
 - [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx) - Observability platform
 
 **Project Documentation:**
+- [HyperDX Dashboard API](docs/hyperdx-dashboard-api.md) - Programmatic dashboard creation
 - [Langfuse Integration Guide](docs/LANGFUSE_INTEGRATION.md) - Setup, configuration, and troubleshooting
 - [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) - Production evaluation strategies
 - [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) - Test scenarios for failure modes

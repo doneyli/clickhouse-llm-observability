@@ -95,9 +95,17 @@ create_dashboard() {
         -d "$payload"
 }
 
+# Get the Traces source ID from MongoDB
+get_traces_source_id() {
+    # Default traces source ID - override with --source-id if different
+    echo "${TRACES_SOURCE_ID:-696018e0111b88a75f8b3677}"
+}
+
 # LLM Observability Dashboard definition
+# Requires sourceId to link tiles to the correct data source (otel_traces)
 get_dashboard_payload() {
-    cat <<'EOF'
+    local source_id=$(get_traces_source_id)
+    cat <<EOF
 {
   "name": "LLM Observability Dashboard",
   "tags": ["llm", "observability", "gen-ai", "auto-generated"],
@@ -108,6 +116,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": []
@@ -119,6 +128,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "sum",
         "field": "gen_ai.usage.input_tokens",
         "where": "gen_ai.usage.input_tokens:*",
@@ -131,6 +141,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "sum",
         "field": "gen_ai.usage.output_tokens",
         "where": "gen_ai.usage.output_tokens:*",
@@ -143,6 +154,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "avg",
         "field": "duration",
         "where": "gen_ai.request.model:*",
@@ -155,6 +167,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "time",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": []
@@ -167,6 +180,7 @@ get_dashboard_payload() {
         {
           "type": "time",
           "dataSource": "events",
+          "sourceId": "${source_id}",
           "aggFn": "sum",
           "field": "gen_ai.usage.input_tokens",
           "where": "gen_ai.usage.input_tokens:*",
@@ -175,6 +189,7 @@ get_dashboard_payload() {
         {
           "type": "time",
           "dataSource": "events",
+          "sourceId": "${source_id}",
           "aggFn": "sum",
           "field": "gen_ai.usage.output_tokens",
           "where": "gen_ai.usage.output_tokens:*",
@@ -188,6 +203,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "time",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "quantile",
         "field": "duration",
         "where": "gen_ai.request.model:*",
@@ -200,6 +216,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "table",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": ["gen_ai.request.model"]
@@ -211,6 +228,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "table",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": ["service"]
@@ -222,6 +240,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "time",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": ["service"]
@@ -233,6 +252,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "avg",
         "field": "eval.relevance_score",
         "where": "eval.relevance_score:*",
@@ -245,6 +265,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "avg",
         "field": "eval.coherence_score",
         "where": "eval.coherence_score:*",
@@ -257,6 +278,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "number",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "eval.relevance_score:*",
         "groupBy": []
@@ -269,6 +291,7 @@ get_dashboard_payload() {
         {
           "type": "time",
           "dataSource": "events",
+          "sourceId": "${source_id}",
           "aggFn": "avg",
           "field": "eval.relevance_score",
           "where": "eval.relevance_score:*",
@@ -277,6 +300,7 @@ get_dashboard_payload() {
         {
           "type": "time",
           "dataSource": "events",
+          "sourceId": "${source_id}",
           "aggFn": "avg",
           "field": "eval.coherence_score",
           "where": "eval.coherence_score:*",
@@ -290,6 +314,7 @@ get_dashboard_payload() {
       "series": [{
         "type": "search",
         "dataSource": "events",
+        "sourceId": "${source_id}",
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": []

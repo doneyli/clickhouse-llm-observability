@@ -2,8 +2,15 @@
 """
 HyperDX Dashboard Creator for LLM Observability
 
-Creates a comprehensive LLM observability dashboard using the HyperDX API.
-Based on the SQL queries in sql/llm-observability-queries.sql.
+Creates dashboards using the HyperDX External API v2.
+
+IMPORTANT LIMITATION:
+    The External API v2 only supports 'logs' and 'metrics' data sources.
+    It does NOT support 'traces' (otel_traces table) where LLM data is stored.
+
+    For LLM observability dashboards that need traces data, use:
+    - scripts/create-hyperdx-dashboard-mongo.sh (MongoDB direct insert)
+    - See docs/hyperdx-dashboard-api.md for details
 
 Usage (inside ClickStack container):
     docker exec clickstack python3 -c "$(cat scripts/create-hyperdx-dashboard.py)" --list
@@ -19,6 +26,10 @@ Environment Variables:
 The Personal API Key can be found:
     - In HyperDX UI under Team Settings > API Keys
     - In MongoDB: db.users.findOne({}).accessKey
+
+API Reference:
+    - External API v2: https://clickhouse.com/docs/clickstack/api-reference
+    - See docs/hyperdx-dashboard-api.md for internal format details
 """
 
 import os
