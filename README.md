@@ -386,6 +386,68 @@ docker exec chat-mongodb mongosh --quiet --eval "
 
 ---
 
+## Langfuse Integration (Alternative Evaluation Platform)
+
+This demo supports both **TruLens** and **Langfuse** for LLM evaluation, both using ClickHouse as the backend. This demonstrates the power of ClickHouse as a unified observability store.
+
+### Starting Langfuse
+
+```bash
+# 1. Create Langfuse database in ClickStack
+docker exec clickstack clickhouse-client --user api --password api \
+  --query "CREATE DATABASE IF NOT EXISTS langfuse"
+
+# 2. Start Langfuse services (uses docker compose profile)
+docker compose --profile langfuse up -d
+
+# 3. Wait for Langfuse to be ready (~2-3 minutes)
+until curl -s http://localhost:3001 > /dev/null 2>&1; do sleep 5; echo "Waiting for Langfuse..."; done
+echo "Langfuse ready!"
+
+# 4. Create account and get API keys
+# Open http://localhost:3001 → Sign up → Project Settings → API Keys
+
+# 5. Add keys to .env
+echo "LANGFUSE_PUBLIC_KEY=pk-lf-..." >> .env
+echo "LANGFUSE_SECRET_KEY=sk-lf-..." >> .env
+
+# 6. Restart demo apps to enable dual instrumentation
+docker compose restart text-to-sql vector-rag
+```
+
+### Viewing Evaluations in Both Platforms
+
+| Platform | URL | What You'll See |
+|----------|-----|-----------------|
+| **HyperDX** | http://localhost:8080 | Raw OTEL traces, gen_ai.* attributes |
+| **TruLens** | http://localhost:8501 | Relevance, Coherence scores + judge reasoning |
+| **Langfuse** | http://localhost:3001 | Traces, scores, LLM calls visualization |
+
+### Running Langfuse Evaluations
+
+```bash
+# List traces in Langfuse
+docker compose --profile langfuse run --rm langfuse-evaluator --list
+
+# Evaluate recent traces (same metrics as TruLens)
+docker compose --profile langfuse run --rm langfuse-evaluator --hours 24 --limit 50
+
+# Force re-evaluation of already scored traces
+docker compose --profile langfuse run --rm langfuse-evaluator --force
+```
+
+### Platform Comparison
+
+| Feature | TruLens | Langfuse |
+|---------|---------|----------|
+| Storage Backend | SQLite (local) | ClickHouse (shared) |
+| Trace Visualization | Basic table | Rich timeline |
+| Score Types | Pre-built feedbacks | Custom scores |
+| Dashboard | Streamlit | Native web UI |
+| Production Use | Evaluation-focused | Full observability |
+
+---
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -394,15 +456,18 @@ docker exec chat-mongodb mongosh --quiet --eval "
 | `CLICKSTACK_API_KEY` | - | **Required.** From HyperDX Team Settings |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Model for generation |
 | `TRULENS_MODEL` | `claude-3-5-haiku-20241022` | Model for evaluations |
+| `LANGFUSE_PUBLIC_KEY` | - | *Optional.* For Langfuse dual instrumentation |
+| `LANGFUSE_SECRET_KEY` | - | *Optional.* For Langfuse dual instrumentation |
 
 ---
 
 ## File Structure
 
 ```
-├── text-to-sql/                # Text-to-SQL demo (OpenLLMetry + TruLens)
-├── vector-rag/                 # Vector RAG demo (OpenLLMetry + TruLens)
-├── trace-evaluator/            # Async evaluation from ClickHouse traces
+├── text-to-sql/                # Text-to-SQL demo (OpenLLMetry + TruLens + Langfuse)
+├── vector-rag/                 # Vector RAG demo (OpenLLMetry + TruLens + Langfuse)
+├── trace-evaluator/            # Async evaluation from ClickHouse traces (TruLens)
+├── langfuse-evaluator/         # Async evaluation using Langfuse API
 ├── librechat-exporter/         # MongoDB → ClickHouse exporter
 ├── docs/
 │   ├── EVALUATION_ARCHITECTURE.md   # Evaluation strategy deep-dive
@@ -472,5 +537,6 @@ docker volume rm librechat-exporter-state
 
 - [OpenLLMetry](https://github.com/traceloop/openllmetry) - LLM auto-instrumentation
 - [TruLens](https://www.trulens.org/) - LLM evaluation framework
+- [Langfuse](https://langfuse.com/) - LLM observability platform
 - [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx) - Observability platform
 - [Evaluation Architecture Guide](docs/EVALUATION_ARCHITECTURE.md) - Production evaluation strategies

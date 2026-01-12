@@ -1,11 +1,12 @@
 """
-Vector RAG Demo with TruLens & OpenLLMetry
+Vector RAG Demo with TruLens, OpenLLMetry & Langfuse
 
 A proper RAG implementation with:
 - Vector embeddings (sentence-transformers)
 - ChromaDB vector store
 - Semantic similarity retrieval
 - LLM generation from retrieved context
+- Dual instrumentation: OpenLLMetry → ClickStack and Langfuse → Langfuse
 """
 
 import os
@@ -22,6 +23,9 @@ from rag_pipeline import create_pipeline
 from trulens_config import TruLensConfig, create_feedback_functions, InstrumentedRAGPipeline
 from trulens.core import TruSession
 from trulens.apps.app import TruApp
+
+# Langfuse dual instrumentation (optional - enabled via env vars)
+from langfuse_config import get_langfuse_handler, is_langfuse_enabled, flush as langfuse_flush
 
 # Demo questions about ClickHouse & Observability (matches our document corpus)
 DEMO_QUESTIONS = [
@@ -62,23 +66,37 @@ def run_demo(pipeline, tru_app):
 
     print("\n" + "="*60)
     print("Vector RAG Demo with TruLens & OpenLLMetry")
+    if is_langfuse_enabled():
+        print("+ Langfuse dual instrumentation enabled")
     print("="*60)
 
     for i, question in enumerate(DEMO_QUESTIONS, 1):
         print(f"\n[{i}/{len(DEMO_QUESTIONS)}] {question}")
         print("-"*50)
 
+        # Get Langfuse callback if enabled
+        langfuse_handler = get_langfuse_handler(
+            tags=["vector-rag-demo", "demo-run"],
+            metadata={"question_number": i}
+        )
+        callbacks = [langfuse_handler] if langfuse_handler else None
+
         with tru_app as recording:
             try:
-                response = pipeline.query(question)
+                response = pipeline.query(question, callbacks=callbacks)
                 print(f"Response: {response[:400]}...")
             except Exception as e:
                 print(f"Error: {e}")
+
+    # Flush Langfuse events
+    langfuse_flush()
 
     print("\n" + "="*60)
     print("Demo complete!")
     print("   View traces: http://localhost:8080 (HyperDX)")
     print("   View evals:  http://localhost:8501 (TruLens)")
+    if is_langfuse_enabled():
+        print("   View traces: http://localhost:3001 (Langfuse)")
     print("="*60 + "\n")
 
 
@@ -96,8 +114,14 @@ def run_interactive(pipeline, tru_app):
             if not question:
                 continue
 
+            # Get Langfuse callback if enabled
+            langfuse_handler = get_langfuse_handler(
+                tags=["vector-rag-demo", "interactive"]
+            )
+            callbacks = [langfuse_handler] if langfuse_handler else None
+
             with tru_app as recording:
-                response = pipeline.query(question)
+                response = pipeline.query(question, callbacks=callbacks)
                 print(f"\nResponse: {response}\n")
 
         except KeyboardInterrupt:
@@ -105,18 +129,28 @@ def run_interactive(pipeline, tru_app):
         except Exception as e:
             print(f"Error: {e}\n")
 
+    # Flush Langfuse events on exit
+    langfuse_flush()
+
 
 def main():
-    print("""
+    banner = """
     ╔═══════════════════════════════════════════════════════════╗
-    ║   Vector RAG Demo with TruLens & OpenLLMetry              ║
+    ║   Vector RAG Demo                                         ║
     ║                                                           ║
     ║   - ChromaDB: Vector storage & similarity search          ║
     ║   - Sentence-Transformers: Text embeddings                ║
     ║   - TruLens: Relevance, Groundedness, Context Relevance   ║
-    ║   - OpenLLMetry: Prompts, completions, token tracking     ║
+    ║   - OpenLLMetry: Prompts, completions, token tracking     ║"""
+
+    if is_langfuse_enabled():
+        banner += """
+    ║   - Langfuse: Alternative LLM observability (enabled)     ║"""
+
+    banner += """
     ╚═══════════════════════════════════════════════════════════╝
-    """)
+    """
+    print(banner)
 
     # Create app (this indexes documents)
     pipeline, tru_app, session = create_app()

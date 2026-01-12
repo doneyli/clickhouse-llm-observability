@@ -88,15 +88,22 @@ class ClickHouseSQLPipeline:
             self._context = f"[MCP unavailable: {e}]"
             return self._context
 
-    def query(self, question: str) -> str:
-        """Execute the full Text-to-SQL pipeline."""
-        analysis = self.analysis_chain.invoke({"question": question})
+    def query(self, question: str, callbacks: list = None) -> str:
+        """Execute the full Text-to-SQL pipeline.
+
+        Args:
+            question: The user's question
+            callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+        """
+        config = {"callbacks": callbacks} if callbacks else {}
+
+        analysis = self.analysis_chain.invoke({"question": question}, config=config)
         context = self.retrieve_context(question, analysis)
         answer = self.response_chain.invoke({
             "question": question,
             "analysis": analysis,
             "context": context
-        })
+        }, config=config)
         return answer
 
     @property

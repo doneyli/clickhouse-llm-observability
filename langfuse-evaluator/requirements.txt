@@ -1,0 +1,8 @@
+# Langfuse SDK
+langfuse>=2.0.0
+
+# LLM for evaluations (same as TruLens)
+langchain-anthropic>=0.3.0
+
+# Utilities
+python-dotenv>=1.0.0

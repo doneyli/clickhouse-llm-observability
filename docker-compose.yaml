@@ -102,7 +102,7 @@ services:
       - ./mcp-logs:/app/logs
 
   # =============================================================================
-  # Text-to-SQL Demo with TruLens + OpenLLMetry
+  # Text-to-SQL Demo with TruLens + OpenLLMetry + Langfuse (dual instrumentation)
   # =============================================================================
   text-to-sql:
     build:
@@ -121,6 +121,10 @@ services:
       - TEMPERATURE=${TEMPERATURE:-0.7}
       - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
       - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
+      # Langfuse dual instrumentation (optional - set keys to enable)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     depends_on:
       - mcp-clickhouse
     extra_hosts:
@@ -130,7 +134,7 @@ services:
       - trulens-data:/trulens-data
 
   # =============================================================================
-  # Vector RAG Demo - Proper RAG with embeddings and vector search
+  # Vector RAG Demo - RAG with embeddings, vector search + Langfuse (dual instrumentation)
   # =============================================================================
   vector-rag:
     build:
@@ -148,6 +152,10 @@ services:
       - TEMPERATURE=${TEMPERATURE:-0.7}
       - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
       - TRULENS_DATABASE_URL=sqlite:////trulens-data/trulens.sqlite
+      # Langfuse dual instrumentation (optional - set keys to enable)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -265,5 +273,192 @@ services:
     profiles:
       - tools
 
+  # =============================================================================
+  # Langfuse - LLM Observability Platform (Alternative to TruLens)
+  # =============================================================================
+  # Optional: Enable with --profile langfuse
+  # Start: docker compose --profile langfuse up -d
+  #
+  # Langfuse uses ClickStack's ClickHouse for OLAP storage (shared backend)
+  # but requires PostgreSQL, Redis, and MinIO for its own metadata/caching.
+  # =============================================================================
+
+  # PostgreSQL for Langfuse metadata
+  langfuse-postgres:
+    image: postgres:16-alpine
+    container_name: langfuse-postgres
+    restart: unless-stopped
+    profiles:
+      - langfuse
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Langfuse caching/queuing
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: langfuse-redis
+    restart: unless-stopped
+    profiles:
+      - langfuse
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO for S3-compatible blob storage
+  langfuse-minio:
+    image: minio/minio:latest
+    container_name: langfuse-minio
+    restart: unless-stopped
+    profiles:
+      - langfuse
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: langfuse
+      MINIO_ROOT_PASSWORD: langfuse123
+    volumes:
+      - langfuse-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO bucket initialization
+  langfuse-minio-init:
+    image: minio/mc:latest
+    container_name: langfuse-minio-init
+    profiles:
+      - langfuse
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set minio http://langfuse-minio:9000 langfuse langfuse123;
+      mc mb minio/langfuse-events --ignore-existing;
+      mc mb minio/langfuse-media --ignore-existing;
+      exit 0;
+      "
+
+  # Langfuse Worker (background processing)
+  langfuse-worker:
+    image: langfuse/langfuse:latest
+    container_name: langfuse-worker
+    restart: unless-stopped
+    profiles:
+      - langfuse
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
+      # ClickHouse - reuse ClickStack's instance
+      - CLICKHOUSE_URL=http://clickstack:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickstack:9000
+      - CLICKHOUSE_USER=api
+      - CLICKHOUSE_PASSWORD=api
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      # S3/MinIO configuration
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse-media
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=langfuse123
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=langfuse123
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      # Auth secrets (change in production!)
+      - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
+      - SALT=langfuse-salt-min-32-characters-here
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Langfuse Web (UI and API)
+  langfuse-web:
+    image: langfuse/langfuse:latest
+    container_name: langfuse-web
+    restart: unless-stopped
+    profiles:
+      - langfuse
+    ports:
+      - "${LANGFUSE_PORT:-3001}:3000"
+    depends_on:
+      langfuse-worker:
+        condition: service_started
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
+      # ClickHouse - reuse ClickStack's instance
+      - CLICKHOUSE_URL=http://clickstack:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickstack:9000
+      - CLICKHOUSE_USER=api
+      - CLICKHOUSE_PASSWORD=api
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      # S3/MinIO configuration
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse-events
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse-media
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=langfuse123
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=langfuse123
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      # Auth secrets (change in production!)
+      - NEXTAUTH_URL=http://localhost:${LANGFUSE_PORT:-3001}
+      - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
+      - SALT=langfuse-salt-min-32-characters-here
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =============================================================================
+  # Langfuse Evaluator - Async quality evaluation using Langfuse
+  # =============================================================================
+  # Queries traces from Langfuse and runs LLM-as-judge evaluations.
+  # Run: docker compose --profile langfuse run langfuse-evaluator
+  # =============================================================================
+  langfuse-evaluator:
+    build:
+      context: .
+      dockerfile: Dockerfile.langfuse-evaluator
+    container_name: langfuse-evaluator
+    profiles:
+      - langfuse
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=http://langfuse-web:3000
+      - TRULENS_MODEL=${TRULENS_MODEL:-claude-3-5-haiku-20241022}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   trulens-data:
+  langfuse-postgres-data:
+  langfuse-minio-data:

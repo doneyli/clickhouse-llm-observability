@@ -117,17 +117,29 @@ Answer:"""
         self._context = "\n\n---\n\n".join([doc.page_content for doc in docs])
         return self._context
 
-    def generate(self, question: str, context: str) -> str:
-        """Generate response from context."""
+    def generate(self, question: str, context: str, callbacks: list = None) -> str:
+        """Generate response from context.
+
+        Args:
+            question: The user's question
+            context: Retrieved context
+            callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+        """
+        config = {"callbacks": callbacks} if callbacks else {}
         return self.response_chain.invoke({
             "question": question,
             "context": context
-        })
+        }, config=config)
 
-    def query(self, question: str) -> str:
-        """Execute the full RAG pipeline."""
+    def query(self, question: str, callbacks: list = None) -> str:
+        """Execute the full RAG pipeline.
+
+        Args:
+            question: The user's question
+            callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+        """
         context = self.retrieve(question)
-        answer = self.generate(question, context)
+        answer = self.generate(question, context, callbacks)
         return answer
 
     @property

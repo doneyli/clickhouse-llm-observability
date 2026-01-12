@@ -59,25 +59,32 @@ class InstrumentedSQLPipeline:
         self.config = config or TruLensConfig()
 
     @instrument
-    def retrieve(self, question: str) -> str:
+    def query(self, question: str, callbacks: list = None) -> str:
+        """Full Text-to-SQL query - main TruLens entry point.
+
+        Args:
+            question: The user's question
+            callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+        """
+        context = self.retrieve(question, callbacks)
+        return self.generate(question, context, callbacks)
+
+    @instrument
+    def retrieve(self, question: str, callbacks: list = None) -> str:
         """Retrieve context - tracked by TruLens."""
-        analysis = self.pipeline.analysis_chain.invoke({"question": question})
+        config = {"callbacks": callbacks} if callbacks else {}
+        analysis = self.pipeline.analysis_chain.invoke({"question": question}, config=config)
         return self.pipeline.retrieve_context(question, analysis)
 
     @instrument
-    def generate(self, question: str, context: str) -> str:
+    def generate(self, question: str, context: str, callbacks: list = None) -> str:
         """Generate response - tracked by TruLens."""
+        config = {"callbacks": callbacks} if callbacks else {}
         return self.pipeline.response_chain.invoke({
             "question": question,
             "analysis": "",
             "context": context
-        })
-
-    @instrument
-    def query(self, question: str) -> str:
-        """Full Text-to-SQL query - main TruLens entry point."""
-        context = self.retrieve(question)
-        return self.generate(question, context)
+        }, config=config)
 
     @property
     def context(self) -> str:
