@@ -14,9 +14,12 @@ Usage:
 import os
 import sys
 import argparse
+import json
+import re
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
+import httpx
 from langfuse import Langfuse
 from langchain_anthropic import ChatAnthropic
 
@@ -27,6 +30,19 @@ def get_langfuse_client() -> Langfuse:
         public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
         secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
         host=os.getenv("LANGFUSE_HOST", "http://localhost:3001")
+    )
+
+
+def get_langfuse_api_client():
+    """Get HTTP client for Langfuse REST API."""
+    host = os.getenv("LANGFUSE_HOST", "http://localhost:3001")
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+
+    return httpx.Client(
+        base_url=host,
+        auth=(public_key, secret_key),
+        timeout=30.0
     )
 
 
@@ -111,62 +127,75 @@ Example: {{"score": 0.9, "reason": "Well-structured response with clear logical 
         return 0.5, f"Evaluation error: {str(e)}"
 
 
-def get_traces(langfuse: Langfuse, hours: int = 24, limit: int = 100) -> List[Dict[Any, Any]]:
-    """Fetch recent traces from Langfuse."""
+def get_traces(hours: int = 24, limit: int = 100) -> List[Dict[Any, Any]]:
+    """Fetch recent traces from Langfuse REST API."""
     try:
-        # Get traces from the API
-        traces = langfuse.fetch_traces(limit=limit)
-        return traces.data if traces.data else []
+        client = get_langfuse_api_client()
+        response = client.get(f"/api/public/traces?limit={limit}")
+        response.raise_for_status()
+        data = response.json()
+        return data.get("data", [])
     except Exception as e:
         print(f"Error fetching traces: {e}")
         return []
 
 
-def extract_io_from_trace(trace) -> tuple:
-    """Extract input/output from a Langfuse trace."""
+def extract_io_from_trace(trace: Dict) -> tuple:
+    """Extract input/output from a Langfuse trace dict."""
     input_text = None
     output_text = None
 
     # Try to get input/output from trace directly
-    if hasattr(trace, 'input') and trace.input:
-        if isinstance(trace.input, dict):
-            input_text = trace.input.get('question') or trace.input.get('input') or str(trace.input)
+    trace_input = trace.get('input')
+    if trace_input:
+        if isinstance(trace_input, dict):
+            input_text = trace_input.get('question') or trace_input.get('input') or str(trace_input)
+        elif isinstance(trace_input, list):
+            # Handle list of messages
+            for msg in trace_input:
+                if isinstance(msg, dict) and msg.get('role') == 'user':
+                    input_text = msg.get('content', '')
+                    break
+            if not input_text:
+                input_text = str(trace_input)
         else:
-            input_text = str(trace.input)
+            input_text = str(trace_input)
 
-    if hasattr(trace, 'output') and trace.output:
-        if isinstance(trace.output, dict):
-            output_text = trace.output.get('answer') or trace.output.get('output') or str(trace.output)
+    trace_output = trace.get('output')
+    if trace_output:
+        if isinstance(trace_output, dict):
+            output_text = trace_output.get('answer') or trace_output.get('output') or trace_output.get('content') or str(trace_output)
         else:
-            output_text = str(trace.output)
+            output_text = str(trace_output)
 
     return input_text, output_text
 
 
-def has_evaluation_scores(langfuse: Langfuse, trace_id: str) -> bool:
+def has_evaluation_scores(trace: Dict) -> bool:
     """Check if a trace already has evaluation scores."""
-    try:
-        scores = langfuse.fetch_scores(trace_id=trace_id)
-        if scores.data:
-            score_names = [s.name for s in scores.data]
-            return "relevance" in score_names or "coherence" in score_names
-        return False
-    except Exception:
-        return False
+    scores = trace.get('scores', [])
+    if scores:
+        score_names = [s.get('name', '') for s in scores if isinstance(s, dict)]
+        return "relevance" in score_names or "coherence" in score_names
+    return False
 
 
 def evaluate_trace(
-    langfuse: Langfuse,
     llm: ChatAnthropic,
-    trace,
+    trace: Dict,
     skip_evaluated: bool = True
 ) -> Optional[Dict[str, Any]]:
     """Run evaluations on a single trace and store scores in Langfuse."""
 
-    trace_id = trace.id
+    trace_id = trace.get('id')
+    trace_name = trace.get('name', '')
+
+    # Skip eval_root traces (these are TruLens evaluations)
+    if trace_name == 'eval_root':
+        return None
 
     # Skip if already evaluated
-    if skip_evaluated and has_evaluation_scores(langfuse, trace_id):
+    if skip_evaluated and has_evaluation_scores(trace):
         return None
 
     # Extract input/output
@@ -179,25 +208,27 @@ def evaluate_trace(
     relevance_score, relevance_reason = evaluate_relevance(llm, input_text, output_text)
     coherence_score, coherence_reason = evaluate_coherence(llm, output_text)
 
-    # Store scores in Langfuse
+    # Store scores in Langfuse via REST API
     try:
-        langfuse.score(
-            trace_id=trace_id,
-            name="relevance",
-            value=relevance_score,
-            data_type="NUMERIC",
-            comment=relevance_reason
-        )
+        client = get_langfuse_api_client()
 
-        langfuse.score(
-            trace_id=trace_id,
-            name="coherence",
-            value=coherence_score,
-            data_type="NUMERIC",
-            comment=coherence_reason
-        )
+        # Create relevance score
+        client.post("/api/public/scores", json={
+            "traceId": trace_id,
+            "name": "relevance",
+            "value": relevance_score,
+            "dataType": "NUMERIC",
+            "comment": relevance_reason
+        })
 
-        langfuse.flush()
+        # Create coherence score
+        client.post("/api/public/scores", json={
+            "traceId": trace_id,
+            "name": "coherence",
+            "value": coherence_score,
+            "dataType": "NUMERIC",
+            "comment": coherence_reason
+        })
 
     except Exception as e:
         print(f"Error storing scores for {trace_id}: {e}")
@@ -213,11 +244,11 @@ def evaluate_trace(
     }
 
 
-def list_traces(langfuse: Langfuse, limit: int = 20):
+def list_traces(limit: int = 20):
     """List recent traces."""
     print(f"\nFetching up to {limit} recent traces...\n")
 
-    traces = get_traces(langfuse, limit=limit)
+    traces = get_traces(limit=limit)
 
     if not traces:
         print("No traces found.")
@@ -227,9 +258,11 @@ def list_traces(langfuse: Langfuse, limit: int = 20):
     print("-" * 95)
 
     for trace in traces:
-        trace_id = trace.id[:36] + "..." if len(trace.id) > 36 else trace.id
-        name = (trace.name or "N/A")[:28]
-        timestamp = str(trace.timestamp)[:23] if trace.timestamp else "N/A"
+        trace_id = trace.get('id', '')[:36]
+        if len(trace.get('id', '')) > 36:
+            trace_id += "..."
+        name = (trace.get('name') or "N/A")[:28]
+        timestamp = str(trace.get('timestamp', 'N/A'))[:23]
         print(f"{trace_id:<40} {name:<30} {timestamp:<25}")
 
     print(f"\nTotal: {len(traces)} traces")
@@ -255,8 +288,7 @@ def main():
         print("Error: ANTHROPIC_API_KEY must be set for LLM-as-judge evaluations")
         sys.exit(1)
 
-    # Initialize clients
-    langfuse = get_langfuse_client()
+    # Initialize LLM for evaluations
     model = os.getenv("TRULENS_MODEL", "claude-3-5-haiku-20241022")
     llm = ChatAnthropic(model=model, temperature=0.0, max_tokens=500)
 
@@ -273,13 +305,13 @@ def main():
     """)
 
     if args.list:
-        list_traces(langfuse, limit=args.limit)
+        list_traces(limit=args.limit)
         return
 
     # Fetch and evaluate traces
     print(f"Fetching traces from last {args.hours} hours (limit: {args.limit})...")
 
-    traces = get_traces(langfuse, hours=args.hours, limit=args.limit)
+    traces = get_traces(hours=args.hours, limit=args.limit)
 
     if not traces:
         print("No traces found to evaluate.")
@@ -291,10 +323,12 @@ def main():
     skipped = 0
 
     for i, trace in enumerate(traces, 1):
-        print(f"[{i}/{len(traces)}] Evaluating {trace.id[:20]}...", end=" ")
+        trace_id = trace.get('id', '')[:20]
+        trace_name = trace.get('name', '')
+        print(f"[{i}/{len(traces)}] {trace_name[:25]:<25} ({trace_id}...) ", end="")
 
         result = evaluate_trace(
-            langfuse, llm, trace,
+            llm, trace,
             skip_evaluated=not args.force
         )
 
@@ -302,7 +336,7 @@ def main():
             print(f"✓ relevance={result['relevance']:.2f}, coherence={result['coherence']:.2f}")
             evaluated += 1
         else:
-            print("⊘ skipped (already evaluated or no I/O)")
+            print("⊘ skipped")
             skipped += 1
 
     print(f"\n{'='*60}")
