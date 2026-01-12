@@ -21,37 +21,53 @@ This demo shows the complete LLM observability pipeline in action:
 │   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘                   │
 │          │                   │                   │                          │
 │          │ Dual Instrumentation                  │ librechat-exporter       │
-│          │ • OpenLLMetry → ClickStack            │ (polls MongoDB)          │
-│          │ • Langfuse SDK → Langfuse             │                          │
-│          │                   │                   │                          │
-│          └─────────┬─────────┴───────────────────┘                          │
-│                    │                                                        │
-│         ┌──────────┴──────────┐                                             │
-│         │                     │                                             │
-│         ▼                     ▼                                             │
-│   ┌───────────────┐    ┌───────────────┐                                    │
-│   │  ClickStack   │    │   Langfuse    │                                    │
-│   │   (HyperDX)   │    │   (Web UI)    │                                    │
-│   │ localhost:8080│    │ localhost:3001│                                    │
-│   └───────┬───────┘    └───────┬───────┘                                    │
-│           │                    │                                            │
-│           └────────┬───────────┘                                            │
-│                    │                                                        │
-│                    ▼                                                        │
-│          ┌───────────────────────┐                                          │
-│          │      ClickHouse       │                                          │
-│          │   (Shared Backend)    │                                          │
-│          │ • otel_traces (HyperDX)                                          │
-│          │ • langfuse_* tables   │                                          │
-│          └───────────────────────┘                                          │
-│                                                                              │
-│   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐         │
-│   │ trace-evaluator │    │langfuse-evaluator│   │ TruLens Dashboard│         │
-│   │   (TruLens)     │    │   (Langfuse)    │    │ localhost:8501  │         │
-│   │                 │    │                 │    │                 │         │
-│   │ • Relevance     │    │ • Relevance     │    │ • Quality scores│         │
-│   │ • Coherence     │    │ • Coherence     │    │ • Judge reasoning│        │
-│   └─────────────────┘    └─────────────────┘    └─────────────────┘         │
+│          │ • OpenLLMetry (auto) ────────────┐    │ (polls MongoDB)          │
+│          │ • Langfuse SDK (callbacks) ──┐   │    │        │                 │
+│          │                   │          │   │    │        │                 │
+│          └───────────────────┘          │   │    └────────┘                 │
+│                                         │   │             │                 │
+│                                         │   │    ┌────────┘                 │
+│                                         │   │    │                          │
+│                                         ▼   ▼    ▼                          │
+│                              ┌───────────────────────────────┐              │
+│                              │         ClickHouse            │              │
+│                              │    (Unified Data Backend)     │              │
+│                              │                               │              │
+│                              │  • otel_traces (from HyperDX) │              │
+│                              │  • langfuse_* (from Langfuse) │              │
+│                              └───────────────────────────────┘              │
+│                                    ▲               ▲                        │
+│                                    │               │                        │
+│                       ┌────────────┘               └────────────┐           │
+│                       │                                         │           │
+│              ┌────────┴────────┐                    ┌───────────┴───────┐   │
+│              │ ClickStack/     │                    │     Langfuse      │   │
+│              │ HyperDX         │                    │     (Web UI)      │   │
+│              │ localhost:8080  │                    │   localhost:3001  │   │
+│              │                 │                    │                   │   │
+│              │ • OTEL traces   │                    │ • LLM traces      │   │
+│              │ • gen_ai.*      │                    │ • Scores          │   │
+│              │ • Dashboards    │                    │ • Visualization   │   │
+│              └────────┬────────┘                    └─────────┬─────────┘   │
+│                       │                                       │             │
+│                       │ queries                               │ queries     │
+│                       ▼                                       ▼             │
+│              ┌─────────────────┐                    ┌─────────────────┐     │
+│              │ trace-evaluator │                    │langfuse-evaluator│    │
+│              │   (TruLens)     │                    │  (LLM-as-judge) │     │
+│              │                 │                    │                 │     │
+│              │ • Relevance     │                    │ • Relevance     │     │
+│              │ • Coherence     │                    │ • Coherence     │     │
+│              └────────┬────────┘                    └─────────────────┘     │
+│                       │                                                     │
+│                       ▼                                                     │
+│              ┌─────────────────┐                                            │
+│              │TruLens Dashboard│                                            │
+│              │ localhost:8501  │                                            │
+│              │                 │                                            │
+│              │ • Quality scores│                                            │
+│              │ • Judge reasoning                                            │
+│              └─────────────────┘                                            │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
