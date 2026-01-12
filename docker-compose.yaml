@@ -388,6 +388,7 @@ services:
       - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
       - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
       # Auth secrets (change in production!)
+      - NEXTAUTH_URL=http://localhost:${LANGFUSE_PORT:-3001}
       - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
       - SALT=langfuse-salt-min-32-characters-here
       - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
