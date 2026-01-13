@@ -30,6 +30,12 @@ services:
       - ./uploads:/app/client/public/images/uploads
       - ./logs:/app/api/logs
       - ./images:/app/client/public/images
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Nginx reverse proxy
   client:
@@ -45,11 +51,16 @@ services:
 
   # MongoDB database
   mongodb:
-    image: mongo:latest
+    image: mongo:7.0
     container_name: librechat-mongodb
     restart: always
     volumes:
       - ./data-node:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Meilisearch for full-text search
   meilisearch:
@@ -61,10 +72,15 @@ services:
       - MEILI_NO_ANALYTICS=true
     volumes:
       - ./meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # OpenTelemetry Collector for logs and metrics
   otelcol:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.115.0
     container_name: librechat-otelcol
     restart: always
     extra_hosts:
@@ -76,6 +92,11 @@ services:
       - ./logs:/var/log/librechat:ro
       - ./mcp-logs:/var/log/mcp-clickhouse:ro
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ClickHouse MCP Server with OpenTelemetry instrumentation
   mcp-clickhouse:
@@ -339,7 +360,7 @@ services:
 
   # MinIO for S3-compatible blob storage
   langfuse-minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     container_name: langfuse-minio
     restart: unless-stopped
     profiles:
@@ -358,7 +379,7 @@ services:
 
   # MinIO bucket initialization
   langfuse-minio-init:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2024-12-18T10-29-56Z
     container_name: langfuse-minio-init
     profiles:
       - langfuse
@@ -421,7 +442,7 @@ services:
 
   # Langfuse Web (UI and API)
   langfuse-web:
-    image: langfuse/langfuse:latest
+    image: langfuse/langfuse:2
     container_name: langfuse-web
     restart: unless-stopped
     profiles:

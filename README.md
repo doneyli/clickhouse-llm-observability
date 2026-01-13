@@ -487,12 +487,17 @@ docker compose --profile langfuse run --rm langfuse-evaluator --force
 ├── langfuse-evaluator/         # Async evaluation using Langfuse API
 ├── librechat-exporter/         # MongoDB → ClickHouse exporter
 ├── scripts/
-│   └── validate-langfuse.sh    # Langfuse setup validation
+│   ├── validate.py                     # General deployment validation
+│   ├── validate-langfuse.sh            # Langfuse setup validation
+│   ├── generate_load.py                # Load testing utility
+│   └── create-hyperdx-dashboard-mongo.sh  # Dashboard creation
 ├── docs/
+│   ├── QUICKSTART_GUIDE.md          # Get started in 15-30 minutes
+│   ├── TUTORIAL.md                  # Step-by-step learning guide
 │   ├── EVALUATION_ARCHITECTURE.md   # Evaluation strategy deep-dive
 │   ├── EVALUATION_SCENARIOS.md      # Test scenarios for failure modes
 │   ├── LANGFUSE_INTEGRATION.md      # Langfuse setup and configuration
-│   └── QUICKSTART.md                # Quick setup guide
+│   └── PLAN.md                      # Codebase assessment
 ├── Dockerfile.*                # Container definitions
 ├── docker-compose.yaml         # Service orchestration
 └── .env.example               # Environment template
@@ -710,9 +715,15 @@ For complete API documentation, see [docs/hyperdx-dashboard-api.md](docs/hyperdx
 - [Langfuse](https://langfuse.com/) - LLM observability platform
 - [HyperDX/ClickStack](https://github.com/hyperdxio/hyperdx) - Observability platform
 
+**Getting Started:**
+- [Quickstart Guide](docs/QUICKSTART_GUIDE.md) - Get the demo running in 15-30 minutes
+- [Tutorial](docs/TUTORIAL.md) - Step-by-step guide to understanding LLM observability
+
 **Project Documentation:**
-- [HyperDX Dashboard API](docs/hyperdx-dashboard-api.md) - Programmatic dashboard creation
-- [Langfuse Integration Guide](docs/LANGFUSE_INTEGRATION.md) - Setup, configuration, and troubleshooting
 - [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) - Production evaluation strategies
 - [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) - Test scenarios for failure modes
-- [Quick Start Guide](docs/QUICKSTART.md) - Fast setup instructions
+- [Langfuse Integration Guide](docs/LANGFUSE_INTEGRATION.md) - Setup, configuration, and troubleshooting
+- [HyperDX Dashboard API](docs/hyperdx-dashboard-api.md) - Programmatic dashboard creation
+
+**Reference:**
+- [Plan & Assessment](docs/PLAN.md) - Codebase analysis and documentation plan
