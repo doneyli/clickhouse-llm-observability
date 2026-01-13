@@ -4,6 +4,35 @@ Get the LLM Observability demo running end-to-end in 15-30 minutes.
 
 ---
 
+## Easy Setup (Recommended)
+
+Run everything with a single command:
+
+```bash
+git clone https://github.com/your-org/clickhouse-llm-observability.git
+cd clickhouse-llm-observability
+./setup.sh
+```
+
+The setup script will:
+1. Check prerequisites (Docker, Docker Compose)
+2. Start ClickStack (observability backend)
+3. Prompt for API keys (Anthropic, ClickStack)
+4. Generate all required secrets
+5. Build and start all services
+6. Run the demo and show access URLs
+
+**Other commands:**
+```bash
+./setup.sh --status    # Show service status and URLs
+./setup.sh --cleanup   # Stop and remove all containers
+./setup.sh --help      # Show all options
+```
+
+If you prefer step-by-step manual setup, continue below.
+
+---
+
 ## What You'll Build
 
 A complete LLM observability pipeline with:
