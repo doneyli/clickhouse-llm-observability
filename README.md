@@ -2,6 +2,8 @@
 
 **A unified observability platform for AI and LLM applications, powered by ClickHouse.**
 
+> **New to this demo?** Follow the [**Guided User Journey**](docs/USER_JOURNEY.md) for a hands-on walkthrough from setup to insights in ~35 minutes.
+
 ---
 
 ## Why ClickHouse for LLM Observability?
@@ -163,6 +165,23 @@ The setup script handles everything automatically:
 - Running the demo
 
 **Time:** ~10 minutes | **Outcome:** Full demo running with sample traces
+
+---
+
+### Guided User Journey (Recommended for First-Timers)
+
+**Best for:** Experiencing the full demo hands-on, from querying data to viewing traces to evaluating quality.
+
+[**Start the User Journey →**](docs/USER_JOURNEY.md)
+
+What you'll experience:
+1. Launch the demo stack
+2. Ask questions via the Text-to-SQL API
+3. Chat interactively with LibreChat (using the ClickHouse SQL Playground tool)
+4. Explore your traces in HyperDX
+5. Run quality evaluations with TruLens
+
+**Time:** ~35 minutes | **Outcome:** Complete hands-on experience with all components
 
 ---
 
@@ -344,6 +363,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 
 | Document | Description |
 |----------|-------------|
+| [User Journey](docs/USER_JOURNEY.md) | Hands-on walkthrough of the complete demo |
 | [Quickstart Guide](docs/QUICKSTART_GUIDE.md) | Get running in 15-30 minutes |
 | [Tutorial](docs/TUTORIAL.md) | Learn LLM observability step-by-step |
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
