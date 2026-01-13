@@ -7,6 +7,7 @@ meili_data/
 
 # Logs
 logs/
+mcp-logs/
 *.log
 
 # Uploads and images

@@ -280,25 +280,61 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ```
 ├── setup.sh                    # One-click setup script
 ├── docker-compose.yaml         # Service orchestration
-├── .env.example               # Environment template
+├── .env.example                # Environment template
+├── librechat.yaml              # LibreChat configuration
+├── otel-file-collector.yaml    # OpenTelemetry collector config
 │
-├── text-to-sql/               # Text-to-SQL demo app
-├── vector-rag/                # Vector RAG demo app
-├── trace-evaluator/           # Async TruLens evaluation
-├── langfuse-evaluator/        # Async Langfuse evaluation
-├── librechat-exporter/        # MongoDB → OTEL exporter
+├── text-to-sql/                # Text-to-SQL demo app
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
 │
-├── docs/
-│   ├── QUICKSTART_GUIDE.md    # Step-by-step setup
-│   ├── TUTORIAL.md            # Learning guide
+├── vector-rag/                 # Vector RAG demo app
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+│
+├── trace-evaluator/            # Async TruLens evaluation
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+│
+├── trulens-dashboard/          # TruLens dashboard service
+│   └── Dockerfile
+│
+├── langfuse-evaluator/         # Async Langfuse evaluation
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+│
+├── librechat-exporter/         # MongoDB → OTEL exporter
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+│
+├── librechat/                  # LibreChat customizations
+│   ├── Dockerfile.api          # API with OTEL instrumentation
+│   └── nginx.conf              # Nginx reverse proxy config
+│
+├── mcp-clickhouse/             # ClickHouse MCP Server
+│   └── Dockerfile
+│
+├── test-scenarios/             # Evaluation test scenarios
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+│
+├── docs/                       # Documentation
+│   ├── QUICKSTART_GUIDE.md
+│   ├── TUTORIAL.md
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
 │   ├── LANGFUSE_INTEGRATION.md
 │   └── hyperdx-dashboard-api.md
 │
-└── scripts/
-    ├── validate.py            # Deployment validation
-    ├── generate_load.py       # Load testing
+└── scripts/                    # Utility scripts
+    ├── validate.py
+    ├── generate_load.py
     └── create-hyperdx-dashboard-mongo.sh
 ```
 
