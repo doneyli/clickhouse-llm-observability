@@ -51,16 +51,17 @@ services:
 
   # MongoDB database
   mongodb:
-    image: mongo:7.0
+    image: mongo:latest
     container_name: librechat-mongodb
     restart: always
     volumes:
       - ./data-node:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   # Meilisearch for full-text search
   meilisearch:
@@ -80,7 +81,7 @@ services:
 
   # OpenTelemetry Collector for logs and metrics
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.115.0
+    image: otel/opentelemetry-collector-contrib:latest
     container_name: librechat-otelcol
     restart: always
     extra_hosts:
