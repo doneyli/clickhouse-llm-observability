@@ -1,0 +1,233 @@
+{
+  "name": "LLM Observability Dashboard",
+  "tags": [
+    "llm",
+    "observability",
+    "gen-ai"
+  ],
+  "filters": [],
+  "tiles": [
+    {
+      "id": "llm-total-requests",
+      "x": 0,
+      "y": 0,
+      "w": 5,
+      "h": 5,
+      "config": {
+        "name": "Total LLM Requests",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "count",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": ""
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.request.model'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "number",
+        "granularity": "auto",
+        "numberFormat": {
+          "factor": 1,
+          "output": "number",
+          "mantissa": 2,
+          "thousandSeparated": true,
+          "average": false,
+          "decimalBytes": false
+        }
+      }
+    },
+    {
+      "id": "llm-input-tokens",
+      "x": 3,
+      "y": 5,
+      "w": 6,
+      "h": 4,
+      "config": {
+        "name": "Total Input Tokens",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "sum",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "SpanAttributes['gen_ai.usage.input_tokens']"
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.usage.input_tokens'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "number",
+        "granularity": "auto",
+        "numberFormat": {
+          "factor": 1,
+          "output": "number",
+          "mantissa": 2,
+          "thousandSeparated": true,
+          "average": false,
+          "decimalBytes": false
+        }
+      }
+    },
+    {
+      "id": "llm-output-tokens",
+      "x": 9,
+      "y": 0,
+      "w": 7,
+      "h": 4,
+      "config": {
+        "name": "Total Output Tokens",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "sum",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "SpanAttributes['gen_ai.usage.output_tokens']"
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.usage.output_tokens'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "number",
+        "granularity": "auto",
+        "numberFormat": {
+          "factor": 1,
+          "output": "number",
+          "mantissa": 2,
+          "thousandSeparated": true,
+          "average": false,
+          "decimalBytes": false
+        }
+      }
+    },
+    {
+      "id": "llm-avg-latency",
+      "x": 9,
+      "y": 4,
+      "w": 14,
+      "h": 4,
+      "config": {
+        "name": "Avg Latency (ms)",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "avg",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "Duration / 1000000"
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.request.model'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "number",
+        "granularity": "auto",
+        "numberFormat": {
+          "factor": 1,
+          "output": "number",
+          "mantissa": 2,
+          "thousandSeparated": true,
+          "average": false,
+          "decimalBytes": false
+        }
+      }
+    },
+    {
+      "id": "llm-requests-time",
+      "x": 0,
+      "y": 9,
+      "w": 9,
+      "h": 3,
+      "config": {
+        "name": "LLM Requests Over Time",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "count",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": ""
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.request.model'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "line",
+        "granularity": "auto"
+      }
+    },
+    {
+      "id": "llm-tokens-time",
+      "x": 6,
+      "y": 12,
+      "w": 6,
+      "h": 3,
+      "config": {
+        "name": "Token Usage Over Time",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "sum",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "SpanAttributes['gen_ai.usage.input_tokens']"
+          },
+          {
+            "aggFn": "sum",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "SpanAttributes['gen_ai.usage.output_tokens']"
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.usage.input_tokens'] != '' OR SpanAttributes['gen_ai.usage.output_tokens'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "stacked_bar",
+        "granularity": "auto"
+      }
+    },
+    {
+      "id": "llm-latency-avg",
+      "x": 0,
+      "y": 12,
+      "w": 6,
+      "h": 3,
+      "config": {
+        "name": "Avg Latency Over Time (ms)",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "avg",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "Duration / 1000000"
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.request.model'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "line",
+        "granularity": "auto"
+      }
+    },
+    {
+      "id": "llm-latency-max",
+      "x": 6,
+      "y": 15,
+      "w": 6,
+      "h": 3,
+      "config": {
+        "name": "Max Latency Over Time (ms)",
+        "source": "{{TRACES_SOURCE_ID}}",
+        "select": [
+          {
+            "aggFn": "max",
+            "aggCondition": "",
+            "aggConditionLanguage": "sql",
+            "valueExpression": "Duration / 1000000"
+          }
+        ],
+        "where": "SpanAttributes['gen_ai.request.model'] != ''",
+        "whereLanguage": "sql",
+        "displayType": "line",
+        "granularity": "auto"
+      }
+    }
+  ]
+}

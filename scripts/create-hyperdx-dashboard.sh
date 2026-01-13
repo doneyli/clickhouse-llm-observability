@@ -120,7 +120,15 @@ get_dashboard_payload() {
         "aggFn": "count",
         "where": "gen_ai.request.model:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "Total Input Tokens (24h)",
@@ -133,7 +141,15 @@ get_dashboard_payload() {
         "field": "gen_ai.usage.input_tokens",
         "where": "gen_ai.usage.input_tokens:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "Total Output Tokens (24h)",
@@ -146,7 +162,15 @@ get_dashboard_payload() {
         "field": "gen_ai.usage.output_tokens",
         "where": "gen_ai.usage.output_tokens:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "Avg Latency (ms)",
@@ -159,7 +183,15 @@ get_dashboard_payload() {
         "field": "duration",
         "where": "gen_ai.request.model:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "LLM Requests Over Time",
@@ -257,7 +289,15 @@ get_dashboard_payload() {
         "field": "eval.relevance_score",
         "where": "eval.relevance_score:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "Avg Coherence Score",
@@ -270,7 +310,15 @@ get_dashboard_payload() {
         "field": "eval.coherence_score",
         "where": "eval.coherence_score:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "Total Evaluations",
@@ -282,7 +330,15 @@ get_dashboard_payload() {
         "aggFn": "count",
         "where": "eval.relevance_score:*",
         "groupBy": []
-      }]
+      }],
+      "numberFormat": {
+        "factor": 1,
+        "output": "number",
+        "mantissa": 2,
+        "thousandSeparated": true,
+        "average": false,
+        "decimalBytes": false
+      }
     },
     {
       "name": "Evaluation Scores Over Time",

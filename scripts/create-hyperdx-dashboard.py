@@ -124,6 +124,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "gen_ai.request.model:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
         {
             "name": "Total Input Tokens (24h)",
@@ -136,6 +144,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "gen_ai.usage.input_tokens:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
         {
             "name": "Total Output Tokens (24h)",
@@ -148,6 +164,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "gen_ai.usage.output_tokens:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
         {
             "name": "Avg Latency (ms)",
@@ -160,6 +184,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "gen_ai.request.model:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
 
         # =======================================================================
@@ -294,6 +326,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "eval.relevance_score:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
         {
             "name": "Avg Coherence Score",
@@ -306,6 +346,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "eval.coherence_score:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
         {
             "name": "Total Evaluations",
@@ -317,6 +365,14 @@ def create_llm_observability_dashboard() -> dict:
                 "where": "eval.relevance_score:*",
                 "groupBy": [],
             }],
+            "numberFormat": {
+                "factor": 1,
+                "output": "number",
+                "mantissa": 2,
+                "thousandSeparated": True,
+                "average": False,
+                "decimalBytes": False,
+            },
         },
 
         # =======================================================================

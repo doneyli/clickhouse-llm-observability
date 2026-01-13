@@ -179,7 +179,15 @@ create_dashboard() {
                         where: \"SpanAttributes['gen_ai.request.model'] != ''\",
                         whereLanguage: 'sql',
                         displayType: 'number',
-                        granularity: 'auto'
+                        granularity: 'auto',
+                        numberFormat: {
+                            factor: 1,
+                            output: 'number',
+                            mantissa: 2,
+                            thousandSeparated: true,
+                            average: false,
+                            decimalBytes: false
+                        }
                     }
                 },
                 {
@@ -197,7 +205,15 @@ create_dashboard() {
                         where: \"SpanAttributes['gen_ai.usage.input_tokens'] != ''\",
                         whereLanguage: 'sql',
                         displayType: 'number',
-                        granularity: 'auto'
+                        granularity: 'auto',
+                        numberFormat: {
+                            factor: 1,
+                            output: 'number',
+                            mantissa: 2,
+                            thousandSeparated: true,
+                            average: false,
+                            decimalBytes: false
+                        }
                     }
                 },
                 {
@@ -215,7 +231,15 @@ create_dashboard() {
                         where: \"SpanAttributes['gen_ai.usage.output_tokens'] != ''\",
                         whereLanguage: 'sql',
                         displayType: 'number',
-                        granularity: 'auto'
+                        granularity: 'auto',
+                        numberFormat: {
+                            factor: 1,
+                            output: 'number',
+                            mantissa: 2,
+                            thousandSeparated: true,
+                            average: false,
+                            decimalBytes: false
+                        }
                     }
                 },
                 {
@@ -233,7 +257,15 @@ create_dashboard() {
                         where: \"SpanAttributes['gen_ai.request.model'] != ''\",
                         whereLanguage: 'sql',
                         displayType: 'number',
-                        granularity: 'auto'
+                        granularity: 'auto',
+                        numberFormat: {
+                            factor: 1,
+                            output: 'number',
+                            mantissa: 2,
+                            thousandSeparated: true,
+                            average: false,
+                            decimalBytes: false
+                        }
                     }
                 },
                 // Row 2: Time series
