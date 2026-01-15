@@ -7,32 +7,72 @@
 
 ---
 
-## Why ClickHouse for LLM Observability?
+## The Challenge: Why LLM Applications Need Different Observability
 
-Traditional application monitoring tells you *what happened*—request counts, error rates, latency percentiles. But LLM applications are fundamentally different:
+Building LLM applications is easy. Knowing if they're working well in production is hard.
+
+**The core problem:** Traditional monitoring tells you *if* your app responded, but not *if the response was good*. When your LLM confidently returns a wrong answer, your metrics show a successful request.
 
 | Traditional Apps | LLM Applications |
 |------------------|------------------|
 | Deterministic outputs | Non-deterministic outputs |
-| Errors are obvious | "Wrong" answers look like valid responses |
-| Cost is predictable | Cost scales with token usage |
-| Debugging = stack traces | Debugging = understanding prompts & completions |
+| Errors are obvious (exceptions, 500s) | "Wrong" answers look like valid responses |
+| Cost is predictable | Cost scales unpredictably with token usage |
+| Debugging = stack traces | Debugging = understanding full prompt/completion context |
 
-**LLM observability requires capturing, storing, and analyzing every prompt/completion pair—along with quality evaluations that tell you whether the output was actually good.**
+**You need to capture, store, and analyze every prompt/completion pair—plus quality evaluations that tell you whether the output was actually good.** This means:
 
-### Why ClickHouse?
+- **Large payloads**: Full prompts and completions can be 10-100KB per request
+- **High cardinality**: Every interaction is unique (user queries, context, responses)
+- **Real-time queries**: Debugging a production issue means searching through thousands of traces *now*
+- **Quality scoring**: Running LLM-as-judge evaluations on historical data
 
-ClickHouse is the ideal backend for LLM observability because:
+This is an analytics workload, not a transactional one. And that's where ClickHouse comes in.
 
-- **Columnar storage** - Efficient compression for repetitive LLM data (prompts often share structure)
-- **Real-time analytics** - Sub-second queries over billions of traces
-- **SQL interface** - Familiar query language for custom dashboards and analysis
-- **Cost-effective** - 10-100x cheaper than traditional observability vendors at scale
-- **Unified backend** - One database for traces, logs, metrics, and LLM quality scores
+---
 
-### The Value Proposition
+## Why ClickHouse?
 
-With ClickHouse as your centralized observability platform, you can:
+### What is ClickHouse?
+
+[ClickHouse](https://clickhouse.com/) is an open-source columnar database designed for real-time analytics. Unlike row-based databases (PostgreSQL, MySQL) that excel at transactional workloads, ClickHouse is optimized for:
+- Ingesting millions of events per second
+- Running analytical queries across billions of rows in milliseconds
+- Compressing data efficiently (often 10-20x smaller than row stores)
+
+It's the database behind Cloudflare's analytics, Uber's logging infrastructure, and eBay's observability platform.
+
+### Why ClickHouse for LLM Observability?
+
+LLM observability data has specific characteristics that make ClickHouse an ideal fit:
+
+| Characteristic | Why It Matters | How ClickHouse Helps |
+|----------------|----------------|----------------------|
+| **Large text payloads** | Prompts/completions are 10-100KB each | Columnar compression excels at repetitive text (system prompts, templates) |
+| **Append-only writes** | Traces are written once, never updated | ClickHouse is optimized for append-only ingestion |
+| **Analytical queries** | "Show me all slow responses for model X" | Sub-second queries across billions of rows |
+| **Time-series patterns** | Debugging means querying recent data | Native time-series optimizations and partitioning |
+| **High cardinality** | Every trace has unique content | Handles high-cardinality data without index bloat |
+
+### How ClickHouse Compares to Alternatives
+
+| Capability | ClickHouse | PostgreSQL | Elasticsearch | Specialized Observability (Datadog, etc.) |
+|------------|------------|------------|---------------|-------------------------------------------|
+| **Query language** | SQL | SQL | Query DSL | Proprietary |
+| **Analytical query speed** | Sub-second on billions | Slows at millions | Good, but resource-heavy | Good |
+| **Text compression** | Excellent (columnar) | Moderate | Good | Varies |
+| **Self-hosted option** | ✓ Yes | ✓ Yes | ✓ Yes | Limited/None |
+| **Native OpenTelemetry** | ✓ Built-in OTEL schema | Requires setup | Requires setup | ✓ Built-in |
+| **Unified traces/metrics/logs** | ✓ Single backend | Separate systems | Logs only | ✓ Built-in |
+| **Scale without ops burden** | High | Moderate | High ops overhead | N/A (managed) |
+
+**The bottom line:** ClickHouse gives you the analytical power of a data warehouse with the real-time query performance needed for production debugging—using SQL you already know.
+
+---
+
+## The Value Proposition
+
+With ClickHouse as your centralized observability backend, you can:
 
 1. **Instrument** - Automatically capture every LLM interaction with OpenTelemetry
 2. **Observe** - Search, filter, and visualize traces in real-time
