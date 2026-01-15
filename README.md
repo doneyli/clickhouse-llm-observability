@@ -2,7 +2,8 @@
 
 **A unified observability platform for AI and LLM applications, powered by ClickHouse.**
 
-> **New to this demo?** Follow the [**Guided User Journey**](docs/USER_JOURNEY.md) for a hands-on walkthrough from setup to insights in ~35 minutes.
+> **Stack already running?** [Jump to Quick Start](#quick-start) to generate traces in 2 minutes.
+> **New to this demo?** Follow the [**Guided User Journey**](docs/USER_JOURNEY.md) for setup and walkthrough (~35 min).
 
 ---
 
@@ -39,6 +40,47 @@ With ClickHouse as your centralized observability platform, you can:
 4. **Evaluate** - Run LLM-as-judge quality assessments on production data
 
 **One database. Complete visibility. Production-grade LLM observability.**
+
+---
+
+## Quick Start
+
+### Already Have the Stack Running?
+
+**Just want to generate traces?** Run the demo scripts directly:
+
+```bash
+# Check if services are running
+docker compose ps
+
+# Generate Text-to-SQL traces (3 demo queries)
+docker compose run --rm text-to-sql python main.py
+
+# Generate Vector RAG traces (3 demo queries)
+docker compose run --rm vector-rag python main.py
+
+# Run interactive mode (type your own questions)
+docker compose run --rm text-to-sql python main.py --interactive
+docker compose run --rm vector-rag python main.py --interactive
+```
+
+**View your traces:**
+- **HyperDX**: http://localhost:8080 (Traces, logs, dashboards)
+- **TruLens Dashboard**: http://localhost:8501 (Quality scores and evaluations)
+- **Langfuse**: http://localhost:3001 (Alternative trace viewer)
+
+**Time:** 2-3 minutes | **Outcome:** Fresh traces in your observability stack
+
+---
+
+### First Time Setup?
+
+If you haven't set up the observability stack yet, choose one of these paths:
+
+- **[One-Command Setup](#one-command-setup-recommended)** - Fastest way to get everything running (~10 min)
+- **[Guided User Journey](docs/USER_JOURNEY.md)** - Hands-on walkthrough with explanations (~35 min)
+- **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** - Step-by-step manual setup (~15-30 min)
+- **[Tutorial](docs/TUTORIAL.md)** - Deep dive into concepts and implementation (~1-2 hours)
 
 ---
 
@@ -143,7 +185,7 @@ This demo sets up a complete LLM observability pipeline:
 
 ---
 
-## Getting Started
+## Setup Options
 
 Choose your path based on your goals:
 
@@ -242,6 +284,51 @@ After completing the demo, you will have:
 
 ---
 
+## Quick Commands Reference
+
+### Running Demos
+
+```bash
+# Generate traces with demo queries
+docker compose run --rm text-to-sql python main.py
+docker compose run --rm vector-rag python main.py
+
+# Interactive mode - type your own questions
+docker compose run --rm text-to-sql python main.py --interactive
+docker compose run --rm vector-rag python main.py --interactive
+```
+
+### Setup & Management
+
+```bash
+# One-click setup (first time)
+./setup.sh
+
+# Show status and URLs
+./setup.sh --status
+
+# Check which services are running
+docker compose ps
+
+# View logs
+docker compose logs -f [service-name]
+
+# Stop everything
+./setup.sh --cleanup
+```
+
+### Evaluation
+
+```bash
+# Run trace evaluation on recent traces
+docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 1
+
+# List all services with LLM traces
+docker compose run --rm trace-evaluator --list-services
+```
+
+---
+
 ## Service Reference
 
 | Service | URL | Purpose |
@@ -252,30 +339,6 @@ After completing the demo, you will have:
 | **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings |
 | **LibreChat** | http://localhost:3080 | Chat UI for LLM interaction |
 | **Langfuse** | http://localhost:3001 | Alternative evaluation platform (optional) |
-
----
-
-## Quick Commands
-
-```bash
-# One-click setup
-./setup.sh
-
-# Show status and URLs
-./setup.sh --status
-
-# Stop everything
-./setup.sh --cleanup
-
-# View logs
-docker compose logs -f [service-name]
-
-# Run trace evaluation
-docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 1
-
-# List services with LLM traces
-docker compose run --rm trace-evaluator --list-services
-```
 
 ---
 
