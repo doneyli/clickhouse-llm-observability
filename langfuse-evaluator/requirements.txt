@@ -1,7 +1,7 @@
-# Langfuse SDK
-langfuse>=2.0.0,<3.0.0
+# Langfuse SDK v3
+langfuse>=3.0.0,<4.0.0
 
-# LLM for evaluations (same as TruLens)
+# LLM for evaluations
 langchain-anthropic>=0.3.0,<1.0.0
 
 # HTTP client for REST API

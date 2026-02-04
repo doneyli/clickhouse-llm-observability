@@ -33,6 +33,8 @@ from typing import Set
 
 from mongodb_client import LibreChatMongoClient, ConversationPair
 from otel_exporter import LibreChatOTLPExporter
+from langfuse_exporter import LibreChatLangfuseExporter
+from langfuse_config import is_langfuse_enabled
 
 
 # File to persist exported message IDs (prevents duplicates across restarts)
@@ -87,17 +89,19 @@ def list_recent_conversations(client: LibreChatMongoClient, limit: int = 10):
 def export_conversations(
     mongo_client: LibreChatMongoClient,
     otel_exporter: LibreChatOTLPExporter,
+    langfuse_exporter: LibreChatLangfuseExporter = None,
     hours_ago: int = 24,
     limit: int = 100,
     conversation_id: str = None,
     exported_ids: Set[str] = None,
 ) -> int:
     """
-    Export conversations from MongoDB to ClickHouse.
+    Export conversations from MongoDB to ClickHouse and Langfuse.
 
     Args:
         mongo_client: Connected MongoDB client
         otel_exporter: Configured OTLP exporter
+        langfuse_exporter: Configured Langfuse exporter (optional)
         hours_ago: How far back to look for conversations
         limit: Maximum conversations to export
         conversation_id: Specific conversation to export (optional)
@@ -127,30 +131,43 @@ def export_conversations(
 
     # Export each pair
     exported_count = 0
+    langfuse_count = 0
     for pair in new_pairs:
         try:
+            # Export to OTLP/ClickStack
             trace_id = otel_exporter.export_conversation_pair(pair)
             exported_ids.add(pair.message_id)
             exported_count += 1
 
+            # Also export to Langfuse if enabled
+            if langfuse_exporter and langfuse_exporter.is_enabled():
+                langfuse_trace_id = langfuse_exporter.export_conversation_pair(pair)
+                if langfuse_trace_id:
+                    langfuse_count += 1
+
             # Progress indicator
             user_preview = pair.user_text[:50] + "..." if len(pair.user_text) > 50 else pair.user_text
             print(f"  [{exported_count}/{len(new_pairs)}] {user_preview}")
-            print(f"      → Trace: {trace_id[:16]}... Model: {pair.model or 'N/A'}")
+            print(f"      → OTLP Trace: {trace_id[:16]}... Model: {pair.model or 'N/A'}")
 
         except Exception as e:
             print(f"  Error exporting pair {pair.message_id}: {e}")
 
     # Flush to ensure all spans are sent
     otel_exporter.flush()
+    if langfuse_exporter:
+        langfuse_exporter.flush()
 
     print(f"\nExported {exported_count} conversation pairs to ClickHouse")
+    if langfuse_count > 0:
+        print(f"Exported {langfuse_count} conversation pairs to Langfuse")
     return exported_count
 
 
 def watch_mode(
     mongo_client: LibreChatMongoClient,
     otel_exporter: LibreChatOTLPExporter,
+    langfuse_exporter: LibreChatLangfuseExporter = None,
     interval: int = 60,
     hours_ago: int = 1,
 ):
@@ -160,12 +177,15 @@ def watch_mode(
     Args:
         mongo_client: Connected MongoDB client
         otel_exporter: Configured OTLP exporter
+        langfuse_exporter: Configured Langfuse exporter (optional)
         interval: Seconds between polls
         hours_ago: How far back to look each poll
     """
     print(f"\n{'='*60}")
     print(f"Watch Mode - Polling every {interval} seconds")
     print(f"Looking back {hours_ago} hour(s) each poll")
+    if langfuse_exporter and langfuse_exporter.is_enabled():
+        print("Langfuse export: ENABLED")
     print(f"Press Ctrl+C to stop")
     print('='*60)
 
@@ -181,6 +201,7 @@ def watch_mode(
             count = export_conversations(
                 mongo_client=mongo_client,
                 otel_exporter=otel_exporter,
+                langfuse_exporter=langfuse_exporter,
                 hours_ago=hours_ago,
                 limit=100,
                 exported_ids=exported_ids,
@@ -294,12 +315,19 @@ Examples:
     )
     otel_exporter.setup()
 
+    # Initialize Langfuse exporter if configured
+    langfuse_exporter = None
+    if is_langfuse_enabled():
+        langfuse_exporter = LibreChatLangfuseExporter()
+        langfuse_exporter.setup()
+
     try:
         if args.watch:
             # Watch mode - continuous export
             watch_mode(
                 mongo_client=mongo_client,
                 otel_exporter=otel_exporter,
+                langfuse_exporter=langfuse_exporter,
                 interval=args.interval,
                 hours_ago=min(args.hours, 2),  # Cap lookback in watch mode
             )
@@ -308,12 +336,15 @@ Examples:
             export_conversations(
                 mongo_client=mongo_client,
                 otel_exporter=otel_exporter,
+                langfuse_exporter=langfuse_exporter,
                 hours_ago=args.hours,
                 limit=args.limit,
                 conversation_id=args.conversation_id,
             )
     finally:
         otel_exporter.shutdown()
+        if langfuse_exporter:
+            langfuse_exporter.shutdown()
         mongo_client.close()
 
 

@@ -11,13 +11,8 @@ opentelemetry-exporter-otlp-proto-http>=1.25.0,<2.0.0
 # OpenLLMetry - LLM-specific instrumentation
 opentelemetry-instrumentation-langchain>=0.30.0,<1.0.0
 
-# TruLens - LLM evaluation
-trulens-core>=1.0.0,<2.0.0
-trulens-providers-langchain>=1.0.0,<2.0.0
-trulens-dashboard>=1.0.0,<2.0.0
-
-# Langfuse - Alternative LLM observability (optional dual instrumentation)
-langfuse>=2.0.0,<3.0.0
+# Langfuse - LLM observability
+langfuse>=3.0.0,<4.0.0
 
 # MCP client & utilities
 httpx>=0.27.0,<1.0.0

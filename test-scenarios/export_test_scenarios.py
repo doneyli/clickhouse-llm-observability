@@ -32,6 +32,11 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.trace import Status, StatusCode
 
+# Check if Langfuse is configured
+LANGFUSE_ENABLED = bool(
+    os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
+)
+
 
 @dataclass
 class TestScenario:
@@ -186,6 +191,104 @@ datasets.""",
 ]
 
 
+class LangfuseExporter:
+    """Exports test scenarios to Langfuse."""
+
+    def __init__(self):
+        self._client = None
+        self._enabled = LANGFUSE_ENABLED
+
+    def setup(self):
+        """Initialize Langfuse client."""
+        if not self._enabled:
+            print("Langfuse not configured - skipping Langfuse export")
+            return self
+
+        try:
+            from langfuse import get_client
+            self._client = get_client()
+            print(f"Langfuse Exporter initialized: {os.getenv('LANGFUSE_HOST', 'cloud')}")
+        except Exception as e:
+            self._enabled = False
+            print(f"Failed to initialize Langfuse: {e}")
+
+        return self
+
+    def is_enabled(self) -> bool:
+        return self._enabled and self._client is not None
+
+    def export_scenario(self, scenario: TestScenario) -> Optional[str]:
+        """Export a single test scenario as a Langfuse trace with generation."""
+        if not self.is_enabled():
+            return None
+
+        try:
+            from langfuse import propagate_attributes
+
+            session_id = f"test-scenarios-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+
+            with propagate_attributes(session_id=session_id):
+                with self._client.start_as_current_observation(
+                    as_type="span",
+                    name=f"test-scenario-{scenario.id}",
+                    input=scenario.prompt,
+                    metadata={
+                        "scenario_id": scenario.id,
+                        "scenario_name": scenario.name,
+                        "category": scenario.category,
+                        "expected_relevance": scenario.expected_relevance,
+                        "expected_coherence": scenario.expected_coherence,
+                        "why_low": scenario.why_low,
+                        "source": "test-scenarios",
+                    },
+                ) as trace_span:
+                    with self._client.start_as_current_observation(
+                        as_type="generation",
+                        name="chat-completion",
+                        model=scenario.model,
+                        input=[{"role": "user", "content": scenario.prompt}],
+                        metadata={
+                            "scenario_id": scenario.id,
+                            "category": scenario.category,
+                        },
+                    ) as generation:
+                        generation.update(
+                            output=scenario.response,
+                            usage={
+                                "input": len(scenario.prompt.split()),
+                                "output": len(scenario.response.split()),
+                            },
+                        )
+
+                    trace_span.update(output=scenario.response)
+                    trace_id = trace_span.trace_id if hasattr(trace_span, 'trace_id') else str(scenario.id)
+
+            return trace_id
+
+        except Exception as e:
+            print(f"Failed to export scenario {scenario.id} to Langfuse: {e}")
+            return None
+
+    def export_scenarios(self, scenarios: List[TestScenario]) -> List[str]:
+        """Export multiple scenarios to Langfuse."""
+        trace_ids = []
+        for scenario in scenarios:
+            trace_id = self.export_scenario(scenario)
+            if trace_id:
+                trace_ids.append(trace_id)
+                print(f"    Langfuse: [{scenario.id}] {scenario.name}")
+        return trace_ids
+
+    def flush(self):
+        """Flush pending events."""
+        if self._client and hasattr(self._client, 'flush'):
+            self._client.flush()
+
+    def shutdown(self):
+        """Shutdown the client."""
+        self.flush()
+
+
 class TestScenarioExporter:
     """Exports test scenarios as OpenTelemetry spans."""
 
@@ -204,6 +307,7 @@ class TestScenarioExporter:
 
         self._tracer = None
         self._provider = None
+        self._langfuse = LangfuseExporter()
 
     def setup(self):
         """Initialize OpenTelemetry tracer and exporter."""
@@ -230,6 +334,9 @@ class TestScenarioExporter:
         print(f"OTLP Exporter initialized:")
         print(f"  Endpoint: {self.otlp_endpoint}")
         print(f"  Service: {self.service_name}")
+
+        # Also setup Langfuse
+        self._langfuse.setup()
 
         return self
 
@@ -274,17 +381,25 @@ class TestScenarioExporter:
             trace_id = self.export_scenario(scenario)
             trace_ids.append(trace_id)
             print(f"  [{scenario.id}] {scenario.name}: {trace_id}")
+
+        # Also export to Langfuse
+        if self._langfuse.is_enabled():
+            print("\nExporting to Langfuse:")
+            self._langfuse.export_scenarios(scenarios)
+
         return trace_ids
 
     def flush(self):
         """Flush pending spans."""
         if self._provider:
             self._provider.force_flush()
+        self._langfuse.flush()
 
     def shutdown(self):
         """Shutdown the exporter."""
         if self._provider:
             self._provider.shutdown()
+        self._langfuse.shutdown()
 
 
 def list_scenarios():
@@ -366,17 +481,20 @@ Examples:
 
         print("\n" + "-" * 70)
         print(f"Exported {len(trace_ids)} scenarios to ClickStack")
+        if LANGFUSE_ENABLED:
+            print(f"Exported {len(trace_ids)} scenarios to Langfuse")
         print("-" * 70)
 
         print("\nNext steps:")
         print("1. View traces in HyperDX: http://localhost:8080")
         print("   Search: service:test-scenarios")
+        if LANGFUSE_ENABLED:
+            print()
+            print("2. View traces in Langfuse: http://localhost:3001")
+            print("   Filter by: test-scenarios")
         print()
-        print("2. Run evaluations:")
-        print("   docker compose run --rm trace-evaluator python main.py \\")
-        print("     --service test-scenarios --hours 1")
-        print()
-        print("3. View quality scores in TruLens: http://localhost:8501")
+        print("3. Run evaluations in Langfuse:")
+        print("   Use Langfuse's built-in evaluation features")
         print()
 
         print("Expected results:")

@@ -1,21 +1,26 @@
 """
-Langfuse Integration Configuration
+Langfuse Integration Configuration (v3 API)
 
 Provides dual instrumentation alongside OpenLLMetry/TruLens.
 When LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set,
 traces are sent to both ClickStack (via OpenLLMetry) and Langfuse.
+
+Updated for Langfuse SDK v3 (OpenTelemetry-based API).
+Supports session tracking via propagate_attributes.
 """
 
 import os
+import uuid
 from typing import Optional, List
+from contextlib import contextmanager
 
 # Check if Langfuse is configured
 LANGFUSE_ENABLED = bool(
     os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
 )
 
-_langfuse_client = None
-_langfuse_handler = None
+# Default session ID for demo runs (can be overridden)
+_current_session_id = None
 
 
 def is_langfuse_enabled() -> bool:
@@ -25,53 +30,74 @@ def is_langfuse_enabled() -> bool:
 
 def get_langfuse_client():
     """
-    Get Langfuse client for direct API access (scoring, etc.).
+    Get Langfuse client for direct API access (v3 API).
     Returns None if Langfuse is not configured.
     """
-    global _langfuse_client
-
     if not LANGFUSE_ENABLED:
         return None
 
-    if _langfuse_client is None:
-        try:
-            from langfuse import Langfuse
-            _langfuse_client = Langfuse(
-                public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
-                secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-                host=os.getenv("LANGFUSE_HOST", "http://localhost:3001")
-            )
-            print(f"✅ Langfuse client initialized: {os.getenv('LANGFUSE_HOST')}")
-        except ImportError:
-            print("⚠️  Langfuse package not installed")
-            return None
-        except Exception as e:
-            print(f"⚠️  Failed to initialize Langfuse client: {e}")
-            return None
-
-    return _langfuse_client
+    try:
+        from langfuse import get_client
+        client = get_client()
+        return client
+    except ImportError:
+        print("Langfuse package not installed")
+        return None
+    except Exception as e:
+        print(f"Failed to initialize Langfuse client: {e}")
+        return None
 
 
-def get_langfuse_handler(
-    user_id: Optional[str] = None,
-    session_id: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    metadata: Optional[dict] = None
-):
+def set_session_id(session_id: str):
+    """Set the current session ID for subsequent traces."""
+    global _current_session_id
+    _current_session_id = session_id
+
+
+def get_session_id() -> str:
+    """Get the current session ID, creating one if needed."""
+    global _current_session_id
+    if _current_session_id is None:
+        _current_session_id = f"vector-rag-{uuid.uuid4().hex[:8]}"
+    return _current_session_id
+
+
+@contextmanager
+def langfuse_session(session_id: Optional[str] = None):
     """
-    Get Langfuse callback handler for LangChain.
+    Context manager for Langfuse session tracking.
+
+    Usage:
+        with langfuse_session("my-session-123"):
+            # All traces within this block will have the session_id
+            handler = get_langfuse_handler()
+            chain.invoke(..., callbacks=[handler])
+    """
+    if not LANGFUSE_ENABLED:
+        yield
+        return
+
+    try:
+        from langfuse import get_client, propagate_attributes
+
+        sid = session_id or get_session_id()
+        client = get_client()
+
+        with client.start_as_current_observation(as_type="span", name="session-root"):
+            with propagate_attributes(session_id=sid):
+                yield
+    except Exception as e:
+        print(f"Failed to create Langfuse session: {e}")
+        yield
+
+
+def get_langfuse_handler():
+    """
+    Get Langfuse callback handler for LangChain with session support.
     Returns None if Langfuse is not configured.
 
-    Note: Langfuse SDK v3 uses environment variables for authentication:
-    - LANGFUSE_PUBLIC_KEY
-    - LANGFUSE_SECRET_KEY
-    - LANGFUSE_HOST (defaults to cloud, set to local for self-hosted)
-
-    Args:
-        user_id: Optional user identifier for the trace
-        session_id: Optional session identifier for grouping traces
-        tags: Optional list of tags for filtering
-        metadata: Optional metadata dict to attach to trace
+    The handler automatically picks up session_id from propagate_attributes context.
+    For explicit session control, wrap calls in langfuse_session() context manager.
     """
     if not LANGFUSE_ENABLED:
         return None
@@ -79,17 +105,16 @@ def get_langfuse_handler(
     try:
         from langfuse.langchain import CallbackHandler
 
-        # Langfuse SDK v3 uses environment variables for auth
-        # CallbackHandler() reads from LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
-        # Note: v3 API uses no constructor params - auth from env vars
+        # Create handler - v3 API uses different initialization
+        # Session/user context is set via propagate_attributes
         handler = CallbackHandler()
         return handler
 
     except ImportError:
-        print("⚠️  Langfuse package not installed")
+        print("Langfuse LangChain integration not available")
         return None
     except Exception as e:
-        print(f"⚠️  Failed to create Langfuse handler: {e}")
+        print(f"Failed to create Langfuse handler: {e}")
         return None
 
 
@@ -142,16 +167,21 @@ def score_trace(
                 comment=comment
             )
 
-        client.flush()
+        if hasattr(client, 'flush'):
+            client.flush()
     except Exception as e:
-        print(f"⚠️  Failed to score trace {trace_id}: {e}")
+        print(f"Failed to score trace {trace_id}: {e}")
 
 
 def flush():
     """Flush any pending Langfuse events."""
-    client = get_langfuse_client()
-    if client:
-        try:
+    if not LANGFUSE_ENABLED:
+        return
+
+    try:
+        from langfuse import get_client
+        client = get_client()
+        if client and hasattr(client, 'flush'):
             client.flush()
-        except Exception as e:
-            print(f"⚠️  Failed to flush Langfuse: {e}")
+    except Exception as e:
+        print(f"Failed to flush Langfuse: {e}")

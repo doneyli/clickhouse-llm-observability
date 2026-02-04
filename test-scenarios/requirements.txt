@@ -2,3 +2,6 @@
 opentelemetry-api>=1.25.0,<2.0.0
 opentelemetry-sdk>=1.25.0,<2.0.0
 opentelemetry-exporter-otlp-proto-http>=1.25.0,<2.0.0
+
+# Langfuse for LLM observability
+langfuse>=3.0.0,<4.0.0

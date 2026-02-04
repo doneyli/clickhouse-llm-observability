@@ -1,7 +1,7 @@
 """
 Langfuse Evaluator - Async quality evaluation using Langfuse
 
-Queries traces from Langfuse and runs LLM-as-judge evaluations (same as TruLens),
+Queries traces from Langfuse and runs LLM-as-judge evaluations,
 storing scores back in Langfuse.
 
 Usage:
@@ -47,7 +47,7 @@ def get_langfuse_api_client():
 
 
 def evaluate_relevance(llm: ChatAnthropic, question: str, answer: str) -> tuple:
-    """Evaluate answer relevance using LLM-as-judge (same as TruLens)."""
+    """Evaluate answer relevance using LLM-as-judge."""
     prompt = f"""Evaluate how relevant the following answer is to the question.
 
 Question: {question}
@@ -89,7 +89,7 @@ Example: {{"score": 0.85, "reason": "The answer addresses the main question but 
 
 
 def evaluate_coherence(llm: ChatAnthropic, answer: str) -> tuple:
-    """Evaluate answer coherence using LLM-as-judge (same as TruLens)."""
+    """Evaluate answer coherence using LLM-as-judge."""
     prompt = f"""Evaluate the coherence of the following text.
 
 Text: {answer}
@@ -190,7 +190,7 @@ def evaluate_trace(
     trace_id = trace.get('id')
     trace_name = trace.get('name', '')
 
-    # Skip eval_root traces (these are TruLens evaluations)
+    # Skip eval_root traces (these are evaluation traces)
     if trace_name == 'eval_root':
         return None
 
@@ -289,14 +289,14 @@ def main():
         sys.exit(1)
 
     # Initialize LLM for evaluations
-    model = os.getenv("TRULENS_MODEL", "claude-3-5-haiku-20241022")
+    model = os.getenv("EVALUATOR_MODEL", "claude-3-5-haiku-20241022")
     llm = ChatAnthropic(model=model, temperature=0.0, max_tokens=500)
 
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
 ║   Langfuse Evaluator                                      ║
 ║                                                           ║
-║   Running same evaluations as TruLens:                    ║
+║   Evaluations:                                            ║
 ║   - Answer Relevance (LLM-as-judge)                       ║
 ║   - Coherence (LLM-as-judge)                              ║
 ║                                                           ║
