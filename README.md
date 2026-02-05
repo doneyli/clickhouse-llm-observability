@@ -193,8 +193,8 @@ This demo sets up a complete LLM observability pipeline:
    - Build custom dashboards
 
 4. **Quality Evaluation**
-   - LLM-as-judge scoring for relevance and coherence
-   - Async evaluation—doesn't slow down your production apps
+   - Langfuse native LLM-as-a-Judge evaluators (Hallucination, Helpfulness, etc.)
+   - Automatic evaluation on new traces—no manual triggers needed
    - Historical analysis of quality trends
 
 ---
@@ -282,6 +282,36 @@ After completing the demo, you will have:
 
 ## Quick Commands Reference
 
+### First-Time Setup
+
+```bash
+# Clone and enter directory
+git clone https://github.com/doneyli/clickhouse-llm-observability.git
+cd clickhouse-llm-observability
+
+# Interactive setup (handles Langfuse account creation)
+./scripts/setup.sh
+
+# Populate with sample data
+./scripts/seed-demo-data.sh
+```
+
+### Daily Use
+
+```bash
+# Start everything (if already set up)
+docker compose --profile langfuse up -d
+
+# Check which services are running
+docker compose ps
+
+# View logs
+docker compose logs -f [service-name]
+
+# Stop everything (preserves data)
+docker compose --profile langfuse down
+```
+
 ### Running Demos
 
 ```bash
@@ -294,33 +324,35 @@ docker compose run --rm text-to-sql python main.py --interactive
 docker compose run --rm vector-rag python main.py --interactive
 ```
 
-### Setup & Management
-
-```bash
-# One-click setup (first time)
-./setup.sh
-
-# Show status and URLs
-./setup.sh --status
-
-# Check which services are running
-docker compose ps
-
-# View logs
-docker compose logs -f [service-name]
-
-# Stop everything
-./setup.sh --cleanup
-```
-
 ### Evaluation
 
+Langfuse provides native LLM-as-a-Judge evaluators that run automatically on new traces.
+
 ```bash
-# Run LLM-as-judge evaluation on recent traces
-docker compose --profile langfuse run --rm langfuse-evaluator
+# Run test scenarios to generate evaluation test data
+docker compose --profile tools run --rm test-scenarios
 
 # View evaluation results in Langfuse UI
-# http://localhost:3001
+# http://localhost:3001 → Evaluations → LLM-as-a-Judge
+```
+
+**Configure evaluators in Langfuse UI:**
+1. Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge**
+2. Click **+ New Evaluator**
+3. Choose a template (Hallucination, Helpfulness, etc.)
+4. Filter by tag `test-scenario` to evaluate test data
+
+### Reset & Maintenance
+
+```bash
+# Full reset (deletes all data, requires re-setup)
+./scripts/reset.sh
+
+# Re-seed demo data
+./scripts/seed-demo-data.sh
+
+# Validate Langfuse configuration
+./scripts/validate-langfuse.sh
 ```
 
 ---
@@ -371,10 +403,6 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   ├── main.py
 │   └── requirements.txt
 │
-├── langfuse-evaluator/         # Async Langfuse evaluation
-│   ├── Dockerfile
-│   ├── main.py
-│   └── requirements.txt
 │
 ├── librechat-exporter/         # MongoDB → OTEL exporter
 │   ├── Dockerfile
@@ -401,8 +429,10 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   └── hyperdx-dashboard-api.md
 │
 └── scripts/                    # Utility scripts
-    ├── validate.py
-    ├── generate_load.py
+    ├── setup.sh                # First-run setup with Langfuse config
+    ├── seed-demo-data.sh       # Populate demo with sample traces
+    ├── reset.sh                # Full reset (destructive)
+    ├── validate-langfuse.sh    # Validate Langfuse integration
     └── create-hyperdx-dashboard-mongo.sh
 ```
 

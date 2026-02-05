@@ -141,25 +141,37 @@ These are **binary safety decisions** where blocking is required before the user
 
 ## Implementation Phases
 
-### Phase 1: Async Batch Evaluation (Current)
+### Phase 1: Native LLM-as-a-Judge Evaluation (Current)
 
-Evaluate LibreChat conversations by querying traces from HyperDX/ClickHouse.
+Langfuse provides built-in LLM-as-a-Judge evaluators that run automatically on new traces.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  LibreChat  │────▶│  HyperDX    │────▶│  Langfuse   │────▶│  Langfuse   │
-│  (traces)   │     │  ClickHouse │     │  Evaluator  │     │  Dashboard  │
+│  LibreChat  │────▶│  Langfuse   │────▶│  Native     │────▶│  Langfuse   │
+│  (traces)   │     │  Ingestion  │     │  Evaluators │     │  Dashboard  │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
-**Components:**
-- `langfuse-evaluator/` - Python service that queries Langfuse and runs LLM-as-judge evaluations
-- Scheduled job (cron or manual trigger)
-- Results stored in Langfuse (ClickHouse backend)
+**Configuration (via Langfuse UI):**
+1. Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge**
+2. Create evaluators using built-in templates (Hallucination, Helpfulness, etc.)
+3. Configure sampling rate and trace filters
+4. Evaluators run automatically on new traces
+
+**Available Templates:**
+- **Hallucination** - Detects fabricated information
+- **Helpfulness** - Measures response quality
+- **Context-Relevance** - Checks context usage
+- **Toxicity** - Identifies harmful content
 
 **What gets evaluated:**
 - LibreChat conversations (prompts + completions)
-- Sampled at configurable rate (default 100% for demo, 1-5% for production)
+- Demo apps (text-to-sql, vector-rag)
+- Test scenarios (filtered by tags like `test-scenario`, `hallucination-test`)
+
+**Sampling:**
+- 100% for demo/development
+- 10-25% for production (configurable per evaluator)
 
 ### Phase 2: Human Feedback Integration (Future)
 

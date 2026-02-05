@@ -313,21 +313,23 @@ The Langfuse evaluator runs LLM-as-judge evaluation on your traces.
 docker compose --profile langfuse up -d
 ```
 
-### 6.2 Evaluate Recent Traces
+### 6.2 Configure Native Evaluators
 
-```bash
-# Run evaluations on traces in Langfuse
-docker compose --profile langfuse run --rm langfuse-evaluator
-```
+Langfuse provides built-in LLM-as-a-Judge evaluators:
+
+1. Open http://localhost:3001
+2. Go to **Evaluations** → **LLM-as-a-Judge**
+3. Click **+ New Evaluator**
+4. Choose a template (Hallucination, Helpfulness, etc.)
+5. Set sampling to 100% for demo
+6. Save - evaluators run automatically on new traces
 
 ### 6.3 View Results in Langfuse Dashboard
 
 1. Open http://localhost:3001
 2. See **Traces** for all traced requests
 3. Click any trace to see evaluation scores
-4. Each trace shows:
-   - **Answer Relevance** (0-1): Does the response address the question?
-   - **Coherence** (0-1): Is the response well-structured?
+4. Scores are automatically added by native evaluators
 
 ---
 
@@ -382,8 +384,8 @@ The dashboard only shows data after traces have been generated:
 # Generate traces with the demos
 docker compose run --rm text-to-sql python main.py
 
-# Or run the evaluator to add scores
-docker compose --profile langfuse run --rm langfuse-evaluator
+# Run test scenarios for evaluation data
+docker compose --profile tools run --rm test-scenarios
 ```
 
 ---
@@ -432,11 +434,8 @@ docker compose logs -f [service-name]
 # Rebuild a service
 docker compose build [service-name]
 
-# Run Langfuse evaluator
-docker compose --profile langfuse run --rm langfuse-evaluator
-
-# Export test scenarios
-docker compose run --rm test-scenarios
+# Run test scenarios for evaluation data
+docker compose --profile tools run --rm test-scenarios
 ```
 
 ### Ports

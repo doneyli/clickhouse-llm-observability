@@ -163,21 +163,25 @@ fi
 echo ""
 
 # ------------------------------------------------------------------------------
-# 5. Check Langfuse Evaluator
+# 5. Check Test Scenarios (for evaluation)
 # ------------------------------------------------------------------------------
-echo "5. Checking langfuse-evaluator service..."
+echo "5. Checking test-scenarios service..."
 
-if [ -f "langfuse-evaluator/main.py" ]; then
-    pass "langfuse-evaluator/main.py exists"
+if [ -f "test-scenarios/export_test_scenarios.py" ]; then
+    pass "test-scenarios/export_test_scenarios.py exists"
 else
-    fail "langfuse-evaluator/main.py is missing"
+    fail "test-scenarios/export_test_scenarios.py is missing"
 fi
 
-if [ -f "Dockerfile.langfuse-evaluator" ]; then
-    pass "Dockerfile.langfuse-evaluator exists"
+if grep -q "tags" test-scenarios/export_test_scenarios.py 2>/dev/null; then
+    pass "test scenarios include tags for evaluator filtering"
 else
-    fail "Dockerfile.langfuse-evaluator is missing"
+    warn "Test scenarios may not include tags for evaluator filtering"
 fi
+
+echo ""
+echo "Note: Langfuse native LLM-as-a-Judge evaluators replace the custom evaluator."
+echo "      Configure evaluators in Langfuse UI: Evaluations → LLM-as-a-Judge"
 
 echo ""
 

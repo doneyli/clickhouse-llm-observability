@@ -44,12 +44,13 @@ This guide covers the Langfuse integration for LLM observability. Langfuse is th
 │            └───────────────────────┘                                        │
 │                                                                              │
 │                        ┌─────────────────┐                                  │
-│                        │ Langfuse        │                                  │
-│                        │ Evaluations     │                                  │
-│                        │ (in Langfuse UI)│                                  │
+│                        │ Langfuse Native │                                  │
+│                        │ LLM-as-a-Judge  │                                  │
+│                        │ Evaluators      │                                  │
 │                        │                 │                                  │
-│                        │ • Relevance     │                                  │
-│                        │ • Coherence     │                                  │
+│                        │ • Hallucination │                                  │
+│                        │ • Helpfulness   │                                  │
+│                        │ • Toxicity      │                                  │
 │                        └─────────────────┘                                  │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -122,66 +123,71 @@ docker compose restart text-to-sql vector-rag
 
 ---
 
-## Running LLM-as-Judge Evaluations
+## Setting Up Native Evaluators (LLM-as-a-Judge)
 
-The `langfuse-evaluator` service runs LLM-as-judge evaluation metrics (Relevance, Coherence) and stores results in Langfuse.
+Langfuse provides built-in LLM-as-a-Judge evaluators that run **automatically** on new traces. This eliminates the need for a separate evaluation service.
 
-### List Available Traces
+### 1. Open Langfuse Evaluations
 
-```bash
-docker compose --profile langfuse run --rm langfuse-evaluator --list
-```
+1. Go to http://localhost:3001
+2. Navigate to **Evaluations** → **LLM-as-a-Judge**
+3. Click **+ New Evaluator**
 
-### Evaluate Recent Traces
+### 2. Choose an Evaluator Template
 
-```bash
-docker compose --profile langfuse run --rm langfuse-evaluator --hours 24 --limit 50
-```
+Langfuse provides several built-in templates:
 
-### Force Re-evaluate (Skip Cache)
+| Template | Purpose |
+|----------|---------|
+| **Hallucination** | Detects fabricated or unsupported information |
+| **Helpfulness** | Measures overall response quality and usefulness |
+| **Context-Relevance** | Checks if the response appropriately uses provided context |
+| **Toxicity** | Identifies harmful or inappropriate content |
 
-```bash
-docker compose --profile langfuse run --rm langfuse-evaluator --force
-```
+You can also create custom evaluators with your own prompts.
 
-### View Results
+### 3. Configure the Evaluator
+
+When creating an evaluator, configure:
+
+| Setting | Recommendation |
+|---------|----------------|
+| **Model** | Select your LLM provider (e.g., Claude, GPT-4) |
+| **Sampling** | 100% for demo/development, lower (10-25%) for production |
+| **Filters** | Apply to specific trace names or tags (e.g., `test-scenario`) |
+
+### 4. Save and Enable
+
+Once saved, the evaluator runs automatically on new traces that match your filters.
+
+### 5. View Evaluation Results
 
 1. Open http://localhost:3001
 2. Navigate to **Traces**
 3. Click on a trace to see evaluation scores
-4. Scores appear in the **Scores** panel with:
-   - `relevance` - How well the answer addresses the question (0.0-1.0)
-   - `coherence` - How well-structured and logical the answer is (0.0-1.0)
+4. Scores appear in the **Scores** panel
 
----
+### Filtering Test Scenarios
 
-## Evaluation Metrics
+Test scenarios export traces with tags for easy filtering:
+- Tag: `test-scenario` - All test scenario traces
+- Tag: `hallucination-test` - Hallucination test cases
+- Tag: `relevance-test` - Relevance test cases
+- Tag: `coherence-test` - Coherence test cases
 
-The Langfuse evaluator uses an LLM-as-judge approach:
+Configure evaluators to run only on tagged traces for focused testing.
 
-### Relevance Score
+### Why Native Evaluators?
 
-Evaluates how well the answer addresses the question.
+| Aspect | Custom Evaluator | Native Evaluators |
+|--------|------------------|-------------------|
+| Setup | Requires service deployment | UI configuration only |
+| Execution | Manual trigger | Automatic on new traces |
+| Templates | Custom prompts only | Built-in + custom |
+| Maintenance | You maintain code | Langfuse maintains |
+| Cost | Your API credits | Langfuse credits (or BYO key) |
 
-| Score | Meaning |
-|-------|---------|
-| 1.0 | Answer directly and completely addresses the question |
-| 0.7-0.9 | Answer mostly addresses the question with minor gaps |
-| 0.4-0.6 | Answer partially addresses the question |
-| 0.1-0.3 | Answer barely relates to the question |
-| 0.0 | Answer is completely off-topic |
-
-### Coherence Score
-
-Evaluates the logical structure and clarity of the answer.
-
-| Score | Meaning |
-|-------|---------|
-| 1.0 | Well-structured, logically organized, easy to follow |
-| 0.7-0.9 | Mostly coherent with minor issues |
-| 0.4-0.6 | Some coherence issues but understandable |
-| 0.1-0.3 | Difficult to follow, poorly organized |
-| 0.0 | Completely incoherent or self-contradictory |
+**Note**: Creating evaluators via API is not yet supported ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). Use the UI for now.
 
 ---
 
@@ -195,7 +201,6 @@ Evaluates the logical structure and clarity of the answer.
 | `LANGFUSE_SECRET_KEY` | - | Your Langfuse secret key |
 | `LANGFUSE_HOST` | `http://localhost:3001` | Langfuse API endpoint (host) |
 | `LANGFUSE_PORT` | `3001` | Port for Langfuse web UI |
-| `EVALUATOR_MODEL` | `claude-3-5-haiku-20241022` | Model used for LLM-as-judge evaluations |
 
 ### Docker Compose Profile
 
@@ -247,21 +252,6 @@ docker exec langfuse-redis redis-cli llen bull:ingestion-processing:wait
 ```yaml
 langfuse-worker:
   image: langfuse/langfuse-worker:3  # NOT langfuse/langfuse:latest
-```
-
-### Evaluator Can't Connect to Langfuse
-
-**Symptom**: "Connection refused" errors from evaluator.
-
-**Solution**: When running from Docker, use the internal hostname:
-```yaml
-environment:
-  - LANGFUSE_HOST=http://langfuse-web:3000  # Internal Docker network
-```
-
-When running locally:
-```bash
-export LANGFUSE_HOST=http://localhost:3001  # Host machine port
 ```
 
 ### No Traces in Langfuse
@@ -362,15 +352,92 @@ Using the web image for the worker will cause events to queue indefinitely.
 
 ---
 
+## MCP Server Integration (LibreChat Agents)
+
+LibreChat agents can interact with Langfuse prompts directly through the Langfuse MCP server.
+
+### Available Tools
+
+Once configured, agents have access to:
+
+| Tool | Description |
+|------|-------------|
+| `getPrompt` | Fetch a prompt by name (with optional label/version) |
+| `listPrompts` | List all prompts in the project |
+| `createTextPrompt` | Create a text prompt with `{{variable}}` syntax |
+| `createChatPrompt` | Create OpenAI-style chat prompts |
+| `updatePromptLabels` | Manage labels (production, staging, etc.) |
+
+### Setup
+
+#### 1. Generate Auth Token
+
+```bash
+# Source your .env file
+source .env
+
+# Generate base64 token (use -n to avoid trailing newline)
+echo -n "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" | base64
+```
+
+#### 2. Add Token to `.env`
+
+```bash
+LANGFUSE_MCP_AUTH_TOKEN=<your-base64-token>
+```
+
+#### 3. Restart LibreChat API
+
+```bash
+docker compose restart api
+```
+
+### Testing the MCP Server
+
+#### Test Endpoint Directly
+
+```bash
+TOKEN="<your-base64-token>"
+curl -X POST "http://localhost:3001/api/public/mcp" \
+  -H "Authorization: Basic ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+#### Verify in LibreChat UI
+
+1. Open LibreChat at http://localhost:3080
+2. Create a new Agent conversation
+3. Check tools dropdown - "langfuse-prompts" should appear
+4. Enable the tool and test with prompts like:
+   - "List all prompts in Langfuse"
+   - "Get the prompt named 'X' with the production label"
+   - "Create a new text prompt called 'greeting' with content 'Hello {{name}}!'"
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Tools not appearing | Restart api service after config changes |
+| Auth errors | Ensure token uses `-n` flag with echo (no trailing newline) |
+| Connection refused | Verify Langfuse is running (`docker compose --profile langfuse up -d`) |
+| "streamable-http not supported" | Update LibreChat to latest version (requires May 2025+ build) |
+
+### Configuration Notes
+
+- Uses `streamable-http` transport (not SSE)
+- Connects to self-hosted Langfuse at `langfuse-web:3000` (Docker internal network)
+- For Langfuse Cloud, use `https://cloud.langfuse.com/api/public/mcp`
+
+---
+
 ## Files Reference
 
 | File | Purpose |
 |------|---------|
-| `langfuse-evaluator/main.py` | LLM-as-judge evaluator |
-| `langfuse-evaluator/requirements.txt` | Python dependencies |
-| `Dockerfile.langfuse-evaluator` | Container definition |
 | `text-to-sql/langfuse_config.py` | Langfuse SDK wrapper |
 | `vector-rag/langfuse_config.py` | Langfuse SDK wrapper |
+| `test-scenarios/export_test_scenarios.py` | Test scenarios with evaluation tags |
 | `scripts/validate-langfuse.sh` | Setup validation |
 
 ---

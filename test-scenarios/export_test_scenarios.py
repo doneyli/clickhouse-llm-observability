@@ -51,6 +51,11 @@ class TestScenario:
     expected_relevance: str  # e.g., "0.3-0.5"
     expected_coherence: str  # e.g., "0.8-1.0"
     why_low: str  # Explanation of why scores should be low
+    tags: List[str] = None  # Tags for evaluator filtering
+
+    def __post_init__(self):
+        if self.tags is None:
+            self.tags = ["test-scenario"]
 
 
 # =============================================================================
@@ -83,7 +88,8 @@ making it popular for log analysis, time-series data, and business intelligence 
         model="claude-sonnet-4-20250514",
         expected_relevance="0.2-0.4",
         expected_coherence="0.9-1.0",
-        why_low="Response discusses ClickHouse features but completely ignores the pricing question"
+        why_low="Response discusses ClickHouse features but completely ignores the pricing question",
+        tags=["test-scenario", "relevance-test"]
     ),
 
     # -------------------------------------------------------------------------
@@ -112,7 +118,8 @@ PostgreSQL, which is equally unviable and also the best choice.""",
         model="claude-sonnet-4-20250514",
         expected_relevance="0.5-0.7",
         expected_coherence="0.1-0.3",
-        why_low="Response repeatedly contradicts itself, making it impossible to extract a clear answer"
+        why_low="Response repeatedly contradicts itself, making it impossible to extract a clear answer",
+        tags=["test-scenario", "coherence-test"]
     ),
 
     # -------------------------------------------------------------------------
@@ -145,7 +152,8 @@ by a team of over 500 engineers at their headquarters in Boston, Massachusetts."
         model="claude-sonnet-4-20250514",
         expected_relevance="0.8-1.0",
         expected_coherence="0.9-1.0",
-        why_low="Response is relevant and coherent but contains entirely fabricated history (ClickHouse was actually created at Yandex by Alexey Milovidov, open-sourced in 2016)"
+        why_low="Response is relevant and coherent but contains entirely fabricated history (ClickHouse was actually created at Yandex by Alexey Milovidov, open-sourced in 2016)",
+        tags=["test-scenario", "hallucination-test"]
     ),
 
     # -------------------------------------------------------------------------
@@ -186,7 +194,8 @@ datasets.""",
         model="claude-sonnet-4-20250514",
         expected_relevance="0.9-1.0",
         expected_coherence="0.9-1.0",
-        why_low="This is a control scenario - scores should be high"
+        why_low="This is a control scenario - scores should be high",
+        tags=["test-scenario", "control"]
     ),
 ]
 
@@ -241,6 +250,7 @@ class LangfuseExporter:
                         "why_low": scenario.why_low,
                         "source": "test-scenarios",
                     },
+                    tags=scenario.tags,
                 ) as trace_span:
                     with self._client.start_as_current_observation(
                         as_type="generation",

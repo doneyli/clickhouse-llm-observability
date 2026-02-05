@@ -241,24 +241,24 @@ Duration > 5000000000  (nanoseconds = 5 seconds)
 ```bash
 # Start Langfuse first (if not already running)
 docker compose --profile langfuse up -d
+```
 
-# Run evaluations on recent traces
-docker compose --profile langfuse run --rm langfuse-evaluator
+**Configure Native Evaluators:**
+
+1. Open http://localhost:3001
+2. Go to **Evaluations** → **LLM-as-a-Judge**
+3. Click **+ New Evaluator**
+4. Choose a template (Hallucination, Helpfulness, etc.)
+5. Set sampling to 100% for demo
+6. Save - evaluators now run automatically on new traces
+
+**Run test scenarios to generate evaluation data:**
+```bash
+docker compose --profile tools run --rm test-scenarios
 ```
 
 **What you'll see:**
-```
-[INFO] Fetching traces from Langfuse...
-[INFO] Found 5 traces to evaluate
-[INFO] Evaluating trace 1/5...
-  - Answer Relevance: 0.92
-  - Coherence: 0.88
-[INFO] Evaluating trace 2/5...
-  - Answer Relevance: 0.85
-  - Coherence: 0.91
-...
-[OK] Evaluation complete. Results stored in Langfuse.
-```
+Native evaluators automatically score new traces. Check the Traces view to see scores appear.
 
 ### 5.2 View Results in Langfuse Dashboard
 
@@ -393,8 +393,9 @@ docker compose logs text-to-sql --tail=50
 - Check that the MCP server is running: `docker compose logs mcp-clickhouse`
 
 ### Langfuse dashboard empty?
-- Run evaluations first: `docker compose --profile langfuse run --rm langfuse-evaluator`
+- Generate traces first: `docker compose run --rm text-to-sql python main.py`
 - The dashboard only shows data after traces have been generated
+- Configure evaluators in UI: **Evaluations** → **LLM-as-a-Judge**
 
 ---
 

@@ -28,7 +28,9 @@ services:
       # Native Langfuse Integration (real-time tracing)
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASEURL=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_BASE_URL=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # Langfuse MCP Server (prompt management via agents)
+      - LANGFUSE_MCP_AUTH_TOKEN=${LANGFUSE_MCP_AUTH_TOKEN:-}
     volumes:
       - ./librechat.yaml:/app/librechat.yaml:ro
       - ./uploads:/app/client/public/images/uploads
@@ -261,6 +263,104 @@ services:
       - tools
 
   # =============================================================================
+  # ClickStack - Unified Observability Platform (HyperDX)
+  # =============================================================================
+  # Optional: Enable with --profile clickstack
+  # Start: docker compose --profile clickstack up -d
+  #
+  # ClickStack provides unified observability including:
+  # - OTLP trace/log/metric ingestion
+  # - Dashboards and alerting
+  # - Full-text search across all telemetry
+  # =============================================================================
+
+  # ClickHouse for ClickStack OLAP storage
+  clickstack-clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: clickstack-clickhouse
+    restart: unless-stopped
+    profiles:
+      - clickstack
+    environment:
+      - CLICKHOUSE_USER=api
+      - CLICKHOUSE_PASSWORD=api
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    volumes:
+      - clickstack-clickhouse-data:/var/lib/clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "api", "--password", "api", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB for ClickStack state (dashboards, users, alerts)
+  clickstack-mongo:
+    image: mongo:6
+    container_name: clickstack-mongo
+    restart: unless-stopped
+    profiles:
+      - clickstack
+    volumes:
+      - clickstack-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # OpenTelemetry Collector for ClickStack
+  clickstack-otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: clickstack-otel-collector
+    restart: unless-stopped
+    profiles:
+      - clickstack
+    depends_on:
+      clickstack-clickhouse:
+        condition: service_healthy
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./clickstack-otel-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # HyperDX UI and API
+  clickstack:
+    image: ghcr.io/hyperdxio/hyperdx-local:latest
+    container_name: clickstack
+    restart: unless-stopped
+    profiles:
+      - clickstack
+    depends_on:
+      clickstack-clickhouse:
+        condition: service_healthy
+      clickstack-mongo:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      - HYPERDX_LOG_LEVEL=info
+      - MONGO_URI=mongodb://clickstack-mongo:27017/hyperdx
+      - CLICKHOUSE_HOST=http://clickstack-clickhouse:8123
+      - CLICKHOUSE_USER=api
+      - CLICKHOUSE_PASSWORD=api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =============================================================================
   # Langfuse - LLM Observability Platform
   # =============================================================================
   # Optional: Enable with --profile langfuse
@@ -454,28 +554,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # =============================================================================
-  # Langfuse Evaluator - Async quality evaluation using Langfuse
-  # =============================================================================
-  # Queries traces from Langfuse and runs LLM-as-judge evaluations.
-  # Run: docker compose --profile langfuse run langfuse-evaluator
-  # =============================================================================
-  langfuse-evaluator:
-    build:
-      context: ./langfuse-evaluator
-    container_name: langfuse-evaluator
-    profiles:
-      - langfuse
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=http://langfuse-web:3000
-      - EVALUATOR_MODEL=${EVALUATOR_MODEL:-claude-3-5-haiku-20241022}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
 volumes:
+  # ClickStack volumes
+  clickstack-clickhouse-data:
+  clickstack-mongo-data:
+  # Langfuse volumes
   langfuse-postgres-data:
   langfuse-minio-data:
   langfuse-clickhouse-data:
