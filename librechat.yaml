@@ -12,6 +12,14 @@ mcpServers:
     type: sse
     url: http://host.docker.internal:8001/sse
 
+  # Langfuse Prompt Management (MCP Server)
+  # Enables agents to manage Langfuse prompts directly from chat
+  langfuse-prompts:
+    type: streamable-http
+    url: http://langfuse-web:3000/api/public/mcp
+    headers:
+      Authorization: "Basic ${LANGFUSE_MCP_AUTH_TOKEN}"
+
 # Agent Configuration
 endpoints:
   agents:
