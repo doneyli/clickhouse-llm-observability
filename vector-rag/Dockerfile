@@ -15,5 +15,5 @@ ENV PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run demo then keep alive for background TruLens evaluations
+# Run demo then keep alive for background evaluations
 CMD ["sh", "-c", "python main.py && echo 'Waiting for evaluations to complete...' && sleep infinity"]

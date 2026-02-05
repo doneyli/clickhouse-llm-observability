@@ -209,7 +209,7 @@ CLICKHOUSE_PASSWORD=
 
 # LLM Models
 ANTHROPIC_MODEL=claude-sonnet-4-20250514
-TRULENS_MODEL=claude-3-5-haiku-20241022
+EVALUATOR_MODEL=claude-3-5-haiku-20241022
 TEMPERATURE=0.7
 
 # Service Ports
@@ -303,8 +303,7 @@ show_status() {
     echo ""
     echo -e "  ${GREEN}LibreChat (Chat UI):${NC}        http://localhost:3080"
     echo -e "  ${GREEN}HyperDX (Traces):${NC}           http://localhost:8080"
-    echo -e "  ${GREEN}TruLens (Evaluations):${NC}      http://localhost:8501"
-    echo -e "  ${GREEN}Langfuse (Alternative):${NC}     http://localhost:3001"
+    echo -e "  ${GREEN}Langfuse (Evaluations):${NC}     http://localhost:3001"
     echo ""
 
     header "Quick Commands"
@@ -389,7 +388,7 @@ main() {
     echo ""
     echo "Next steps:"
     echo "  1. Open http://localhost:8080 to view traces in HyperDX"
-    echo "  2. Open http://localhost:8501 to view evaluations in TruLens"
+    echo "  2. Open http://localhost:3001 to view evaluations in Langfuse"
     echo "  3. Open http://localhost:3080 to chat via LibreChat"
     echo ""
 }

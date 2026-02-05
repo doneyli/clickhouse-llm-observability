@@ -51,14 +51,8 @@ class LibreChatOTLPExporter:
         self._provider = TracerProvider(resource=resource)
 
         # Configure OTLP exporter
-        headers = {}
-        if self.api_key:
-            headers["Authorization"] = self.api_key
-
-        exporter = OTLPSpanExporter(
-            endpoint=self.otlp_endpoint,
-            headers=headers,
-        )
+        # Local HyperDX doesn't require authentication
+        exporter = OTLPSpanExporter(endpoint=self.otlp_endpoint)
 
         # Add batch processor for efficient export
         self._provider.add_span_processor(BatchSpanProcessor(exporter))

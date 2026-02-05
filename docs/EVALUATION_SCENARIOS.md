@@ -134,8 +134,8 @@ docker compose run --rm trace-evaluator python main.py \
    - Search: `service:test-scenarios`
    - See the traces with `test_scenario.*` attributes
 
-2. **TruLens Dashboard** (http://localhost:8501)
-   - Look for `test-scenarios-eval` app
+2. **Langfuse** (http://localhost:3001)
+   - Look for traces with test scenarios
    - Compare scores across scenarios
 
 ---
@@ -204,8 +204,7 @@ TestScenario(
 
 ## References
 
-- [TruLens RAG Triad](https://www.trulens.org/getting_started/core_concepts/rag_triad/) - Groundedness, relevance, context relevance
+- [Langfuse - LLM Evaluation Best Practices](https://langfuse.com/blog/2025-03-04-llm-evaluation-101-best-practices-and-challenges) - Evaluation challenges
 - [Confident AI - LLM Evaluation Metrics](https://www.confident-ai.com/blog/llm-evaluation-metrics-everything-you-need-for-llm-evaluation) - Comprehensive metrics guide
 - [Evidently AI - LLM Hallucination Examples](https://www.evidentlyai.com/blog/llm-hallucination-examples) - Real-world hallucination patterns
-- [Langfuse - LLM Evaluation Best Practices](https://langfuse.com/blog/2025-03-04-llm-evaluation-101-best-practices-and-challenges) - Evaluation challenges
 - [Arize - LLM Hallucination Examples](https://arize.com/llm-hallucination-examples/) - Hallucination detection

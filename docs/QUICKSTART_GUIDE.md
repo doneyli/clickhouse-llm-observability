@@ -39,7 +39,7 @@ A complete LLM observability pipeline with:
 - **LibreChat** - Chat interface for interacting with LLMs
 - **HyperDX/ClickStack** - Trace visualization and dashboards
 - **Text-to-SQL Demo** - LLM app with automatic instrumentation
-- **TruLens** - LLM quality evaluation (async)
+- **Langfuse** - LLM quality evaluation and observability
 
 ```
 ASCII Architecture:
@@ -64,7 +64,7 @@ ASCII Architecture:
                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    QUALITY EVALUATION                           │
-│     TruLens Dashboard (localhost:8501) ─── Async Evaluator      │
+│     Langfuse (localhost:3001) ─── LLM-as-Judge Evaluator        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,8 +85,8 @@ flowchart TB
     end
 
     subgraph EVAL["Quality Evaluation"]
-        TRU[TruLens Dashboard<br/>localhost:8501]
-        EVL[Async Evaluator]
+        LF[Langfuse<br/>localhost:3001]
+        EVL[LLM-as-Judge Evaluator]
     end
 
     LC --> OTEL
@@ -218,7 +218,6 @@ librechat-otelcol            Up
 librechat-exporter-watcher   Up
 mcp-clickhouse               Up
 text-to-sql                  Up
-trulens-dashboard            Up
 ```
 
 ---
@@ -232,7 +231,7 @@ trulens-dashboard            Up
 | **LibreChat** | http://localhost:3080 | Chat interface |
 | **HyperDX** | http://localhost:8080 | Trace visualization |
 | **Text-to-SQL API** | http://localhost:8002 | Demo API endpoint |
-| **TruLens Dashboard** | http://localhost:8501 | Quality scores |
+| **Langfuse** | http://localhost:3001 | LLM observability & evaluation |
 
 ### 3.2 Quick Health Check
 
@@ -241,7 +240,7 @@ trulens-dashboard            Up
 echo "Checking LibreChat..."    && curl -s -o /dev/null -w "%{http_code}" http://localhost:3080 && echo " OK"
 echo "Checking HyperDX..."      && curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 && echo " OK"
 echo "Checking Text-to-SQL..."  && curl -s -o /dev/null -w "%{http_code}" http://localhost:8002/health && echo " OK"
-echo "Checking TruLens..."      && curl -s -o /dev/null -w "%{http_code}" http://localhost:8501 && echo " OK"
+echo "Checking Langfuse..."     && curl -s -o /dev/null -w "%{http_code}" http://localhost:3001 && echo " OK"
 ```
 
 ---
@@ -268,7 +267,7 @@ curl -X POST http://localhost:8002/query \
 ### Option C: Run Demo Mode
 
 ```bash
-# Run 3 pre-defined queries with TruLens evaluation
+# Run 3 pre-defined queries with Langfuse tracing
 docker compose exec text-to-sql python main.py --demo
 ```
 
@@ -306,30 +305,27 @@ Click on any trace to see:
 
 ## Step 6: Run Quality Evaluation (Optional)
 
-The trace evaluator runs LLM-as-judge evaluation on your traces.
+The Langfuse evaluator runs LLM-as-judge evaluation on your traces.
 
-### 6.1 List Available Services
+### 6.1 Start Langfuse
 
 ```bash
-docker compose run --rm trace-evaluator --list-services
+docker compose --profile langfuse up -d
 ```
 
 ### 6.2 Evaluate Recent Traces
 
 ```bash
-# Evaluate traces from the last hour
-docker compose run --rm trace-evaluator --hours 1
-
-# Or evaluate a specific service
-docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 1
+# Run evaluations on traces in Langfuse
+docker compose --profile langfuse run --rm langfuse-evaluator
 ```
 
-### 6.3 View Results in TruLens Dashboard
+### 6.3 View Results in Langfuse Dashboard
 
-1. Open http://localhost:8501
-2. See the **Leaderboard** for aggregate scores
-3. Click **Records** to see individual evaluations
-4. Each record shows:
+1. Open http://localhost:3001
+2. See **Traces** for all traced requests
+3. Click any trace to see evaluation scores
+4. Each trace shows:
    - **Answer Relevance** (0-1): Does the response address the question?
    - **Coherence** (0-1): Is the response well-structured?
 
@@ -342,7 +338,7 @@ You know the demo is working when you can:
 - [ ] Access LibreChat at http://localhost:3080 and send a message
 - [ ] See traces appear in HyperDX at http://localhost:8080
 - [ ] View trace details with `gen_ai.*` attributes
-- [ ] (Optional) See evaluation scores in TruLens at http://localhost:8501
+- [ ] (Optional) See traces and evaluation scores in Langfuse at http://localhost:3001
 
 ---
 
@@ -378,13 +374,16 @@ grep -E "CREDS_KEY|JWT_SECRET" .env
 docker compose restart api
 ```
 
-### TruLens dashboard is empty
+### Langfuse dashboard is empty
 
-The dashboard only shows data after you run an evaluation:
+The dashboard only shows data after traces have been generated:
 
 ```bash
-# Run evaluation to populate the dashboard
-docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 24
+# Generate traces with the demos
+docker compose run --rm text-to-sql python main.py
+
+# Or run the evaluator to add scores
+docker compose --profile langfuse run --rm langfuse-evaluator
 ```
 
 ---
@@ -409,10 +408,9 @@ docker volume rm $(docker volume ls -q | grep clickhouse-llm-observability)
 
 | Goal | Documentation |
 |------|---------------|
-| Learn how everything works | [Tutorial Guide](./TUTORIAL.md) |
 | Understand evaluation architecture | [Evaluation Architecture](./EVALUATION_ARCHITECTURE.md) |
 | Test evaluation failure modes | [Evaluation Scenarios](./EVALUATION_SCENARIOS.md) |
-| Add Langfuse integration | [Langfuse Integration](./LANGFUSE_INTEGRATION.md) |
+| Learn about Langfuse | [Langfuse Integration](./LANGFUSE_INTEGRATION.md) |
 | Create custom dashboards | [Dashboard API](./hyperdx-dashboard-api.md) |
 
 ---
@@ -434,8 +432,8 @@ docker compose logs -f [service-name]
 # Rebuild a service
 docker compose build [service-name]
 
-# Run trace evaluator
-docker compose run --rm trace-evaluator --help
+# Run Langfuse evaluator
+docker compose --profile langfuse run --rm langfuse-evaluator
 
 # Export test scenarios
 docker compose run --rm test-scenarios
@@ -453,7 +451,7 @@ docker compose run --rm test-scenarios
 | 8002 | Text-to-SQL API |
 | 8003 | Vector RAG API |
 | 8080 | HyperDX/ClickStack |
-| 8501 | TruLens Dashboard |
+| 3001 | Langfuse |
 
 ### Environment Variables (Required)
 

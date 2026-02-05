@@ -6,7 +6,7 @@ This service reads LibreChat conversations from MongoDB and exports them
 as OpenTelemetry spans with gen_ai.* semantic conventions. The traces
 are sent to ClickHouse via OTLP, making them available to:
 - HyperDX for visualization and search
-- trace-evaluator for TruLens quality evaluations
+- langfuse-evaluator for quality evaluations
 
 Usage:
     # List recent conversations

@@ -75,7 +75,7 @@ And because we're capturing token counts, we can calculate costs. Each of these 
 
 **[Switch to Langfuse dashboard or ClickHouse query results]**
 
-We've integrated two evaluation frameworks - Langfuse and TruLens. Let me show you how this works:
+We've integrated Langfuse for evaluation. Let me show you how this works:
 
 Every conversation that goes through LibreChat gets exported to Langfuse. Langfuse is an open source LLM engineering platform - think of it as purpose-built analytics for AI applications.
 
@@ -87,7 +87,7 @@ Here's the same conversation we just looked at, but now with evaluation scores a
 - **Answer Relevance**: Did the response actually answer what the user asked?
 - **Context Relevance**: Was the retrieved context useful for answering the question?
 
-These scores are computed automatically by TruLens using a technique called LLM-as-judge - we use a model to evaluate another model's outputs.
+These scores are computed automatically using a technique called LLM-as-judge - we use a model to evaluate another model's outputs.
 
 **[Show ClickHouse query or dashboard with evaluation trends]**
 

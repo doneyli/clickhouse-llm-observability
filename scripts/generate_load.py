@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate load to populate TruLens and HyperDX dashboards.
+Generate load to populate Langfuse and HyperDX dashboards.
 
 Usage (from inside container):
     python /scripts/generate_load.py -n 10
@@ -32,7 +32,7 @@ QUESTIONS = [
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate queries for TruLens/HyperDX")
+    parser = argparse.ArgumentParser(description="Generate queries for Langfuse/HyperDX")
     parser.add_argument("-n", "--num-queries", type=int, default=5,
                         help="Number of queries to run (default: 5)")
     parser.add_argument("--random", action="store_true",
@@ -44,7 +44,7 @@ def main():
 
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
-║   Load Generator for TruLens & OpenLLMetry                ║
+║   Load Generator for Langfuse & OpenLLMetry               ║
 ╚═══════════════════════════════════════════════════════════╝
     """)
 
@@ -83,7 +83,7 @@ def main():
 ║   Success: {success:3d}  |  Failed: {failed:3d}                          ║
 ║                                                           ║
 ║   View results:                                           ║
-║   • TruLens:  http://localhost:8501                       ║
+║   • Langfuse: http://localhost:3001                       ║
 ║   • HyperDX:  http://localhost:8080                       ║
 ╚═══════════════════════════════════════════════════════════╝
     """)

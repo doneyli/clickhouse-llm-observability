@@ -318,14 +318,8 @@ class TestScenarioExporter:
 
         self._provider = TracerProvider(resource=resource)
 
-        headers = {}
-        if self.api_key:
-            headers["Authorization"] = self.api_key
-
-        exporter = OTLPSpanExporter(
-            endpoint=self.otlp_endpoint,
-            headers=headers,
-        )
+        # Local HyperDX doesn't require authentication
+        exporter = OTLPSpanExporter(endpoint=self.otlp_endpoint)
 
         self._provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(self._provider)

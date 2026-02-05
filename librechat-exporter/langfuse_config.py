@@ -1,9 +1,9 @@
 """
 Langfuse Integration Configuration (v3 API)
 
-Provides dual instrumentation alongside OpenLLMetry/TruLens.
+Provides dual instrumentation alongside OpenLLMetry.
 When LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set,
-traces are sent to both ClickStack (via OpenLLMetry) and Langfuse.
+traces are sent to both ClickStack (via OTLP) and Langfuse.
 
 Updated for Langfuse SDK v3 (OpenTelemetry-based API).
 """

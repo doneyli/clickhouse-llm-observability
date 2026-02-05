@@ -1,6 +1,6 @@
 # Langfuse Integration Guide
 
-This guide covers the Langfuse integration for LLM observability, providing an alternative evaluation platform alongside TruLens. Both platforms share ClickHouse as the backend storage.
+This guide covers the Langfuse integration for LLM observability. Langfuse is the primary evaluation platform for this demo, using ClickHouse as the backend storage.
 
 ---
 
@@ -43,14 +43,14 @@ This guide covers the Langfuse integration for LLM observability, providing an a
 │            │ • langfuse_* (Langfuse tables)                                 │
 │            └───────────────────────┘                                        │
 │                                                                              │
-│   ┌─────────────────┐     ┌─────────────────┐                               │
-│   │ TruLens         │     │ Langfuse        │                               │
-│   │ Dashboard       │     │ Evaluations     │                               │
-│   │ localhost:8501  │     │ (in Langfuse UI)│                               │
-│   │                 │     │                 │                               │
-│   │ • Relevance     │     │ • Relevance     │                               │
-│   │ • Coherence     │     │ • Coherence     │                               │
-│   └─────────────────┘     └─────────────────┘                               │
+│                        ┌─────────────────┐                                  │
+│                        │ Langfuse        │                                  │
+│                        │ Evaluations     │                                  │
+│                        │ (in Langfuse UI)│                                  │
+│                        │                 │                                  │
+│                        │ • Relevance     │                                  │
+│                        │ • Coherence     │                                  │
+│                        └─────────────────┘                                  │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -124,7 +124,7 @@ docker compose restart text-to-sql vector-rag
 
 ## Running LLM-as-Judge Evaluations
 
-The `langfuse-evaluator` service runs the same evaluation metrics as TruLens (Relevance, Coherence) but stores results in Langfuse.
+The `langfuse-evaluator` service runs LLM-as-judge evaluation metrics (Relevance, Coherence) and stores results in Langfuse.
 
 ### List Available Traces
 
@@ -157,7 +157,7 @@ docker compose --profile langfuse run --rm langfuse-evaluator --force
 
 ## Evaluation Metrics
 
-Both TruLens and Langfuse evaluators use the same LLM-as-judge approach:
+The Langfuse evaluator uses an LLM-as-judge approach:
 
 ### Relevance Score
 
@@ -195,7 +195,7 @@ Evaluates the logical structure and clarity of the answer.
 | `LANGFUSE_SECRET_KEY` | - | Your Langfuse secret key |
 | `LANGFUSE_HOST` | `http://localhost:3001` | Langfuse API endpoint (host) |
 | `LANGFUSE_PORT` | `3001` | Port for Langfuse web UI |
-| `TRULENS_MODEL` | `claude-3-5-haiku-20241022` | Model used for evaluations |
+| `EVALUATOR_MODEL` | `claude-3-5-haiku-20241022` | Model used for LLM-as-judge evaluations |
 
 ### Docker Compose Profile
 
@@ -342,31 +342,23 @@ Using the web image for the worker will cause events to queue indefinitely.
 
 ---
 
-## Platform Comparison
+## Langfuse Features
 
-| Feature | TruLens | Langfuse |
-|---------|---------|----------|
-| **Storage** | SQLite (local file) | ClickHouse (shared) |
-| **Trace Visualization** | Basic table view | Rich timeline with spans |
-| **Score Types** | Pre-built feedbacks | Custom numeric scores |
-| **Dashboard** | Streamlit app | Native web UI |
-| **Production Readiness** | Evaluation-focused | Full observability |
-| **Setup Complexity** | Simple (single container) | Complex (5 containers) |
-| **Resource Usage** | ~256MB | ~1.5GB |
+| Feature | Description |
+|---------|-------------|
+| **Storage** | ClickHouse (shared backend) |
+| **Trace Visualization** | Rich timeline with spans |
+| **Score Types** | Custom numeric scores |
+| **Dashboard** | Native web UI |
+| **Production Readiness** | Full observability platform |
 
-### When to Use Each
+### When to Use Langfuse
 
-**Use TruLens when**:
-- You need quick, simple evaluation
-- Running locally for development
-- You want pre-built evaluation metrics
-- Resource-constrained environment
-
-**Use Langfuse when**:
 - You want rich trace visualization
 - You need production-grade observability
 - You want to share dashboards with teams
 - You're already using ClickHouse
+- You need native LibreChat integration
 
 ---
 

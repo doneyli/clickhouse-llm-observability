@@ -105,7 +105,7 @@ These are **binary safety decisions** where blocking is required before the user
 │  │  • 100% of thumbs-down flagged outputs                              │    │
 │  │  • New/changed prompts get higher sampling                          │    │
 │  │                                                                      │    │
-│  │  Evaluations (TruLens LLM-as-Judge):                                │    │
+│  │  Evaluations (LLM-as-Judge via Langfuse):                           │    │
 │  │  • Answer Relevance - Does answer address question?                 │    │
 │  │  • Coherence - Is response well-structured?                         │    │
 │  │  • Groundedness - Is it supported by context? (RAG)                 │    │
@@ -115,7 +115,7 @@ These are **binary safety decisions** where blocking is required before the user
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    DASHBOARDS & ALERTING                             │    │
 │  │                                                                      │    │
-│  │  HyperDX (Operational)          TruLens (Quality)                   │    │
+│  │  HyperDX (Operational)          Langfuse (Quality)                  │    │
 │  │  • Latency percentiles          • Quality score trends              │    │
 │  │  • Token usage & cost           • Low-scoring outputs               │    │
 │  │  • Error rates                  • Judge reasoning                   │    │
@@ -147,15 +147,15 @@ Evaluate LibreChat conversations by querying traces from HyperDX/ClickHouse.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  LibreChat  │────▶│  HyperDX    │────▶│   Trace     │────▶│  TruLens    │
+│  LibreChat  │────▶│  HyperDX    │────▶│  Langfuse   │────▶│  Langfuse   │
 │  (traces)   │     │  ClickHouse │     │  Evaluator  │     │  Dashboard  │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
 **Components:**
-- `trace-evaluator/` - Python service that queries ClickHouse and runs TruLens evaluations
+- `langfuse-evaluator/` - Python service that queries Langfuse and runs LLM-as-judge evaluations
 - Scheduled job (cron or manual trigger)
-- Results stored in shared TruLens SQLite database
+- Results stored in Langfuse (ClickHouse backend)
 
 **What gets evaluated:**
 - LibreChat conversations (prompts + completions)
@@ -267,7 +267,7 @@ Each evaluation generates 3-4 spans:
 - **1 `llm.evaluation` span**: Parent span with all metadata and scores
 - **2-3 `ChatAnthropic.chat` spans**: Actual LLM calls to the judge model (one per feedback function)
 
-This is expected behavior - TruLens runs separate LLM calls for each feedback function (relevance, coherence), and OpenLLMetry auto-instruments these as child spans.
+This is expected behavior - the evaluator runs separate LLM calls for each feedback function (relevance, coherence), and OpenLLMetry auto-instruments these as child spans.
 
 ---
 
@@ -316,7 +316,7 @@ For production systems with high traffic, evaluate a sample:
 - **Cost**: Estimated cost per request/day
 - **Errors**: Failed requests, timeouts
 
-### Quality (TruLens)
+### Quality (Langfuse)
 - **Answer Relevance**: Does the answer address the question?
 - **Coherence**: Is the response well-structured?
 - **Groundedness**: Is it supported by retrieved context? (RAG only)

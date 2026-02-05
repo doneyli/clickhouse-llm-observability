@@ -106,8 +106,7 @@ docker compose run --rm vector-rag python main.py --interactive
 
 **View your traces:**
 - **HyperDX**: http://localhost:8080 (Traces, logs, dashboards)
-- **TruLens Dashboard**: http://localhost:8501 (Quality scores and evaluations)
-- **Langfuse**: http://localhost:3001 (Alternative trace viewer)
+- **Langfuse**: http://localhost:3001 (LLM traces, evaluations, prompt playground)
 
 **Time:** 2-3 minutes | **Outcome:** Fresh traces in your observability stack
 
@@ -120,7 +119,6 @@ If you haven't set up the observability stack yet, choose one of these paths:
 - **[One-Command Setup](#one-command-setup-recommended)** - Fastest way to get everything running (~10 min)
 - **[Guided User Journey](docs/USER_JOURNEY.md)** - Hands-on walkthrough with explanations (~35 min)
 - **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** - Step-by-step manual setup (~15-30 min)
-- **[Tutorial](docs/TUTORIAL.md)** - Deep dive into concepts and implementation (~1-2 hours)
 
 ---
 
@@ -137,54 +135,31 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 │   │    Demo     │     │    Demo     │     │   (Chat)    │                   │
 │   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘                   │
 │          │                   │                   │                          │
+│    OpenLLMetry         OpenLLMetry         Native integrations              │
+│    ├─→ OTLP            ├─→ OTLP            ├─→ OTLP (@hyperdx/node-otel)    │
+│    └─→ Langfuse SDK    └─→ Langfuse SDK    └─→ Langfuse (native)            │
+│          │                   │                   │                          │
 │          └───────────────────┼───────────────────┘                          │
 │                              │                                              │
-│                              ▼                                              │
-│              ┌───────────────────────────────┐                              │
-│              │   OpenTelemetry + OpenLLMetry │  ◄── Automatic LLM tracing   │
-│              └───────────────┬───────────────┘                              │
-│                              │                                              │
 └──────────────────────────────┼──────────────────────────────────────────────┘
-                               │ OTLP (gRPC/HTTP)
-                               ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                            CLICKHOUSE BACKEND                                │
-│                                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                         ClickHouse                                   │   │
-│   │                    (Unified Data Backend)                            │   │
-│   │                                                                      │   │
-│   │  otel_traces         langfuse_*          trulens.sqlite             │   │
-│   │  ├─ gen_ai.prompt    ├─ traces           ├─ app_records             │   │
-│   │  ├─ gen_ai.completion├─ scores           └─ feedback_results        │   │
-│   │  ├─ gen_ai.usage.*   └─ observations                                │   │
-│   │  └─ Duration, Model                                                 │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│   ┌────────────────┐    ┌────────────────┐    ┌────────────────┐           │
-│   │   HyperDX/     │    │    Langfuse    │    │    TruLens     │           │
-│   │   ClickStack   │    │   (Optional)   │    │   Dashboard    │           │
-│   │ localhost:8080 │    │ localhost:3001 │    │ localhost:8501 │           │
-│   │                │    │                │    │                │           │
-│   │ • Trace search │    │ • LLM traces   │    │ • Quality      │           │
-│   │ • Dashboards   │    │ • Score viz    │    │   evaluations  │           │
-│   │ • Alerts       │    │ • Playground   │    │ • Judge reason │           │
-│   └────────────────┘    └────────────────┘    └────────────────┘           │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
                                │
-                               ▼
+         ┌─────────────────────┴─────────────────────┐
+         │ OTLP (gRPC/HTTP)                          │ Langfuse SDK
+         ▼                                           ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                          QUALITY EVALUATION                                   │
+│                            OBSERVABILITY BACKENDS                            │
 │                                                                              │
-│   ┌─────────────────┐                    ┌─────────────────┐                │
-│   │ trace-evaluator │                    │langfuse-evaluator│               │
-│   │   (TruLens)     │                    │  (LLM-as-judge) │                │
-│   │                 │                    │                 │                │
-│   │ Async evaluation│                    │ Async evaluation│                │
-│   │ from ClickHouse │                    │ from Langfuse   │                │
-│   │ traces          │                    │ traces          │                │
-│   └─────────────────┘                    └─────────────────┘                │
+│   ┌────────────────────────────────┐    ┌────────────────────────────────┐  │
+│   │   HyperDX / ClickStack         │    │    Langfuse                    │  │
+│   │   localhost:8080               │    │    localhost:3001              │  │
+│   │                                │    │                                │  │
+│   │   • All traces via OTLP        │    │   • Real-time LLM tracing      │  │
+│   │   • gen_ai.* semantic attrs    │    │   • Score visualization        │  │
+│   │   • Dashboards, alerts         │    │   • Prompt playground          │  │
+│   │   • Unified logs/metrics       │    │   • LLM-as-judge evaluation    │  │
+│   │                                │    │                                │  │
+│   │   Backend: ClickHouse          │    │   Backend: ClickHouse          │  │
+│   └────────────────────────────────┘    └────────────────────────────────┘  │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -195,9 +170,8 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 |-----------|---------|------------|
 | **OpenLLMetry** | Auto-instruments LLM frameworks (LangChain, Anthropic SDK) | → ClickHouse |
 | **HyperDX/ClickStack** | Trace visualization, search, dashboards | ClickHouse |
-| **TruLens** | LLM-as-judge quality evaluation | SQLite (local) |
-| **Langfuse** (optional) | Alternative evaluation platform with rich UI | ClickHouse |
-| **LibreChat** | Chat interface for testing LLM apps | MongoDB |
+| **Langfuse** | LLM observability with native LibreChat integration | ClickHouse |
+| **LibreChat** | Chat interface with native Langfuse + OTLP tracing | MongoDB |
 
 ---
 
@@ -261,7 +235,7 @@ What you'll experience:
 2. Ask questions via the Text-to-SQL API
 3. Chat interactively with LibreChat (using the ClickHouse SQL Playground tool)
 4. Explore your traces in HyperDX
-5. Run quality evaluations with TruLens
+5. Run quality evaluations with Langfuse
 
 **Time:** ~35 minutes | **Outcome:** Complete hands-on experience with all components
 
@@ -281,24 +255,6 @@ What you'll do:
 5. Run quality evaluations
 
 **Time:** 15-30 minutes | **Outcome:** Full understanding of each component
-
----
-
-### Tutorial
-
-**Best for:** Learning how LLM observability works and how to apply it to your own applications.
-
-[**Read the Tutorial →**](docs/TUTORIAL.md)
-
-What you'll learn:
-1. LLM observability concepts and architecture
-2. How OpenTelemetry captures LLM interactions
-3. Building instrumented LLM applications
-4. Implementing LLM-as-judge evaluation
-5. Creating dashboards and alerts
-6. Production deployment patterns
-
-**Time:** 1-2 hours | **Outcome:** Deep understanding + ability to implement in your own apps
 
 ---
 
@@ -360,11 +316,11 @@ docker compose logs -f [service-name]
 ### Evaluation
 
 ```bash
-# Run trace evaluation on recent traces
-docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 1
+# Run LLM-as-judge evaluation on recent traces
+docker compose --profile langfuse run --rm langfuse-evaluator
 
-# List all services with LLM traces
-docker compose run --rm trace-evaluator --list-services
+# View evaluation results in Langfuse UI
+# http://localhost:3001
 ```
 
 ---
@@ -374,11 +330,10 @@ docker compose run --rm trace-evaluator --list-services
 | Service | URL | Purpose |
 |---------|-----|---------|
 | **HyperDX** | http://localhost:8080 | Traces, logs, metrics, dashboards |
-| **TruLens Dashboard** | http://localhost:8501 | Quality scores and judge reasoning |
+| **Langfuse** | http://localhost:3001 | LLM traces, evaluations, prompt playground |
 | **Text-to-SQL API** | http://localhost:8002 | Demo: Natural language → SQL |
 | **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings |
 | **LibreChat** | http://localhost:3080 | Chat UI for LLM interaction |
-| **Langfuse** | http://localhost:3001 | Alternative evaluation platform (optional) |
 
 ---
 
@@ -416,14 +371,6 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   ├── main.py
 │   └── requirements.txt
 │
-├── trace-evaluator/            # Async TruLens evaluation
-│   ├── Dockerfile
-│   ├── main.py
-│   └── requirements.txt
-│
-├── trulens-dashboard/          # TruLens dashboard service
-│   └── Dockerfile
-│
 ├── langfuse-evaluator/         # Async Langfuse evaluation
 │   ├── Dockerfile
 │   ├── main.py
@@ -448,7 +395,6 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │
 ├── docs/                       # Documentation
 │   ├── QUICKSTART_GUIDE.md
-│   ├── TUTORIAL.md
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
 │   ├── LANGFUSE_INTEGRATION.md
@@ -468,10 +414,9 @@ See [`.env.example`](.env.example) for the full configuration reference.
 |----------|-------------|
 | [User Journey](docs/USER_JOURNEY.md) | Hands-on walkthrough of the complete demo |
 | [Quickstart Guide](docs/QUICKSTART_GUIDE.md) | Get running in 15-30 minutes |
-| [Tutorial](docs/TUTORIAL.md) | Learn LLM observability step-by-step |
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
-| [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Alternative evaluation platform |
+| [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
 | [Dashboard API](docs/hyperdx-dashboard-api.md) | Programmatic dashboard creation |
 
 ---
@@ -490,13 +435,6 @@ grep CLICKSTACK_API_KEY .env
 # Check network connectivity
 docker exec clickstack clickhouse-client --user api --password api \
   --query "SELECT COUNT(*) FROM otel_traces"
-```
-
-### TruLens dashboard empty?
-
-```bash
-# Run evaluations to populate the dashboard
-docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 24
 ```
 
 ### Services won't start?
@@ -526,7 +464,6 @@ This demo integrates several open-source projects, each with their own licenses:
 | **ClickHouse** | Apache 2.0 | [github.com/ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse) |
 | **HyperDX/ClickStack** | MIT | [github.com/hyperdxio/hyperdx](https://github.com/hyperdxio/hyperdx) |
 | **OpenLLMetry** | Apache 2.0 | [github.com/traceloop/openllmetry](https://github.com/traceloop/openllmetry) |
-| **TruLens** | MIT | [github.com/truera/trulens](https://github.com/truera/trulens) |
 | **Langfuse** | MIT | [github.com/langfuse/langfuse](https://github.com/langfuse/langfuse) |
 | **LibreChat** | MIT | [github.com/danny-avila/LibreChat](https://github.com/danny-avila/LibreChat) |
 | **OpenTelemetry** | Apache 2.0 | [opentelemetry.io](https://opentelemetry.io) |
@@ -539,8 +476,8 @@ All components are permissively licensed (MIT or Apache 2.0), allowing free use,
 
 **External Resources:**
 - [OpenLLMetry Documentation](https://github.com/traceloop/openllmetry) - LLM auto-instrumentation
-- [TruLens Documentation](https://www.trulens.org/) - LLM evaluation framework
 - [Langfuse Documentation](https://langfuse.com/docs) - LLM observability platform
+- [LibreChat + Langfuse Integration](https://langfuse.com/integrations/other/librechat) - Native tracing integration
 - [HyperDX Documentation](https://www.hyperdx.io/docs) - Observability platform
 - [ClickHouse Documentation](https://clickhouse.com/docs) - Real-time analytics database
 

@@ -21,10 +21,14 @@ services:
       - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/LibreChat}
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-DrhYf7zENyR6AlUCKmnz0eYASOQdl6zxH7s7MKFSfFCt}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
       - CONSOLE_JSON=${CONSOLE_JSON:-true}
       - DEBUG_CONSOLE=${DEBUG_CONSOLE:-true}
+      # Native Langfuse Integration (real-time tracing)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASEURL=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./librechat.yaml:/app/librechat.yaml:ro
       - ./uploads:/app/client/public/images/uploads
@@ -116,7 +120,7 @@ services:
       - CLICKHOUSE_SECURE=true
       - CLICKHOUSE_MCP_SERVER_TRANSPORT=sse
       - CLICKHOUSE_MCP_BIND_HOST=0.0.0.0
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - OTEL_SERVICE_NAME=mcp-clickhouse
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
     volumes:
@@ -134,7 +138,7 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
       - OTEL_SERVICE_NAME=text-to-sql-demo
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
@@ -162,7 +166,7 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - OTEL_SERVICE_NAME=vector-rag-demo
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - TEMPERATURE=${TEMPERATURE:-0.7}
@@ -191,7 +195,7 @@ services:
       context: ./test-scenarios
     container_name: test-scenarios
     environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
       # Langfuse integration
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -203,8 +207,10 @@ services:
       - tools
 
   # =============================================================================
-  # LibreChat Exporter - Export conversations to ClickHouse via OTLP
+  # LibreChat Exporter - Export conversations to HyperDX via OTLP
   # =============================================================================
+  # Note: Langfuse tracing is now handled natively by LibreChat (see api service).
+  # This exporter only sends to HyperDX/ClickStack via OTLP.
   # This service reads LibreChat conversations from MongoDB and exports them
   # as OpenTelemetry traces with gen_ai.* semantic conventions.
   # Run manually: docker compose run librechat-exporter --help
@@ -225,14 +231,10 @@ services:
     environment:
       # MongoDB connection (LibreChat's database)
       - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
-      # OTLP endpoint (ClickStack)
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      # OTLP endpoint (HyperDX/ClickStack)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - OTEL_SERVICE_NAME=librechat-conversations
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      # Langfuse (optional - enable dual instrumentation)
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     depends_on:
       - mongodb
     extra_hosts:
@@ -246,14 +248,10 @@ services:
     environment:
       # MongoDB connection (LibreChat's database)
       - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
-      # OTLP endpoint (ClickStack/HyperDX)
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://clickstack:4318/v1/traces
+      # OTLP endpoint (HyperDX/ClickStack)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - OTEL_SERVICE_NAME=librechat-conversations
       - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      # Langfuse (optional - enable dual instrumentation)
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     depends_on:
       - mongodb
     extra_hosts:

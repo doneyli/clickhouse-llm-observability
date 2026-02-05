@@ -56,7 +56,7 @@ cd clickhouse-llm-observability
 Access URLs:
   LibreChat (Chat UI):        http://localhost:3080
   HyperDX (Traces):           http://localhost:8080
-  TruLens (Evaluations):      http://localhost:8501
+  Langfuse (Evaluations):     http://localhost:3001
 ```
 
 **Verify everything is running:**
@@ -234,18 +234,21 @@ Duration > 5000000000  (nanoseconds = 5 seconds)
 
 ## Step 5: Run Quality Evaluations (5 minutes)
 
-**What you'll do:** Let an LLM judge the quality of your LLM's responses using TruLens.
+**What you'll do:** Let an LLM judge the quality of your LLM's responses using Langfuse.
 
 ### 5.1 Run the Evaluator
 
 ```bash
-# Evaluate traces from the last hour
-docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 1
+# Start Langfuse first (if not already running)
+docker compose --profile langfuse up -d
+
+# Run evaluations on recent traces
+docker compose --profile langfuse run --rm langfuse-evaluator
 ```
 
 **What you'll see:**
 ```
-[INFO] Fetching traces from ClickHouse...
+[INFO] Fetching traces from Langfuse...
 [INFO] Found 5 traces to evaluate
 [INFO] Evaluating trace 1/5...
   - Answer Relevance: 0.92
@@ -254,28 +257,28 @@ docker compose run --rm trace-evaluator --service text-to-sql-demo --hours 1
   - Answer Relevance: 0.85
   - Coherence: 0.91
 ...
-[OK] Evaluation complete. Results stored in TruLens.
+[OK] Evaluation complete. Results stored in Langfuse.
 ```
 
-### 5.2 View Results in TruLens Dashboard
+### 5.2 View Results in Langfuse Dashboard
 
-1. Go to http://localhost:8501
-2. Click **Leaderboard** to see aggregate scores across all evaluations
-3. Click **Records** to see individual evaluation details
+1. Go to http://localhost:3001
+2. Click **Traces** to see all traces with evaluation scores
+3. Click any trace to see individual evaluation details
 
-**What you'll see in the Leaderboard:**
+**What you'll see in the Traces view:**
 
-| App | Answer Relevance (avg) | Coherence (avg) | Records |
-|-----|------------------------|-----------------|---------|
-| text-to-sql-demo | 0.85 | 0.88 | 5 |
+| Trace | Answer Relevance | Coherence | Duration |
+|-------|------------------|-----------|----------|
+| text-to-sql query | 0.85 | 0.88 | 2.3s |
 
-### 5.3 Explore Individual Records
+### 5.3 Explore Individual Traces
 
-Click any record to see:
+Click any trace to see:
 - The original question
 - The LLM's response
 - Scores for each metric
-- **The judge's reasoning** explaining why each score was given
+- Token usage and cost
 
 **Example reasoning:**
 ```
@@ -389,9 +392,9 @@ docker compose logs text-to-sql --tail=50
 - Make sure you enabled "clickhouse-playground" from the tools dropdown
 - Check that the MCP server is running: `docker compose logs mcp-clickhouse`
 
-### TruLens dashboard empty?
-- Run evaluations first: `docker compose run --rm trace-evaluator --hours 24`
-- The dashboard only shows data after evaluations have been run
+### Langfuse dashboard empty?
+- Run evaluations first: `docker compose --profile langfuse run --rm langfuse-evaluator`
+- The dashboard only shows data after traces have been generated
 
 ---
 
@@ -400,10 +403,9 @@ docker compose logs text-to-sql --tail=50
 | Goal | Resource |
 |------|----------|
 | Understand the architecture | [README](../README.md#architecture) |
-| Deep technical tutorial | [Tutorial](./TUTORIAL.md) |
 | Learn evaluation strategies | [Evaluation Architecture](./EVALUATION_ARCHITECTURE.md) |
 | Test failure scenarios | [Evaluation Scenarios](./EVALUATION_SCENARIOS.md) |
-| Add Langfuse integration | [Langfuse Integration](./LANGFUSE_INTEGRATION.md) |
+| Learn about Langfuse | [Langfuse Integration](./LANGFUSE_INTEGRATION.md) |
 | Create custom dashboards | [Dashboard API](./hyperdx-dashboard-api.md) |
 
 ---

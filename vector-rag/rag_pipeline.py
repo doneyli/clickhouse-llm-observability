@@ -144,7 +144,7 @@ Answer:"""
 
     @property
     def context(self) -> str:
-        """Expose context for TruLens groundedness evaluation."""
+        """Expose context for groundedness evaluation."""
         return self._context
 
 

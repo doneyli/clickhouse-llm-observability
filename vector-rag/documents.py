@@ -38,13 +38,13 @@ DOCUMENTS = [
         debug issues in production AI applications."""
     },
     {
-        "title": "TruLens for LLM Evaluation",
-        "content": """TruLens is an open-source framework for evaluating and tracking LLM
-        applications. It provides feedback functions that score LLM outputs on dimensions like:
-        Answer Relevance (does the answer address the question?), Groundedness (is the answer
-        supported by the context?), Coherence (is the response well-structured?), and
-        Harmfulness (does the response contain harmful content?). TruLens uses an
-        LLM-as-a-judge approach where a separate model evaluates the outputs."""
+        "title": "Langfuse for LLM Evaluation",
+        "content": """Langfuse is an open-source LLM observability platform for evaluating and
+        tracking LLM applications. It provides scoring capabilities that evaluate LLM outputs on
+        dimensions like: Answer Relevance (does the answer address the question?), Groundedness
+        (is the answer supported by the context?), and Coherence (is the response well-structured?).
+        Langfuse supports an LLM-as-a-judge approach where a separate model evaluates the outputs,
+        and provides rich visualization of traces, costs, and quality metrics."""
     },
     {
         "title": "RAG Architecture",

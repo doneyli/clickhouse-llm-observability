@@ -17,7 +17,7 @@ def setup_instrumentation():
     """Initialize OpenTelemetry with OpenLLMetry for LangChain."""
 
     service_name = os.getenv("OTEL_SERVICE_NAME", "text-to-sql-demo")
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318/v1/traces")
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
     api_key = os.getenv("CLICKSTACK_API_KEY", "")
     debug = os.getenv("DEBUG", "false").lower() == "true"
 
@@ -30,18 +30,13 @@ def setup_instrumentation():
 
     tracer_provider = trace_sdk.TracerProvider(resource=resource)
 
-    # OTLP exporter for ClickStack
-    if api_key:
-        otlp_exporter = OTLPSpanExporter(
-            endpoint=otlp_endpoint,
-            headers={"authorization": api_key}
-        )
-        tracer_provider.add_span_processor(
-            BatchSpanProcessor(otlp_exporter, max_export_batch_size=512)
-        )
-        print(f"✅ OTLP export enabled: {otlp_endpoint}")
-    else:
-        print("⚠️  CLICKSTACK_API_KEY not set - traces will not be exported")
+    # OTLP exporter for ClickStack/HyperDX
+    # Local HyperDX doesn't require authentication
+    otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
+    tracer_provider.add_span_processor(
+        BatchSpanProcessor(otlp_exporter, max_export_batch_size=512)
+    )
+    print(f"✅ OTLP export enabled: {otlp_endpoint}")
 
     # Console exporter for debugging
     if debug:
