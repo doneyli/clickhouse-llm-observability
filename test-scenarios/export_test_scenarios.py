@@ -25,13 +25,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-from opentelemetry.trace import Status, StatusCode
-
 # Check if Langfuse is configured
 LANGFUSE_ENABLED = bool(
     os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY")
@@ -210,7 +203,7 @@ class LangfuseExporter:
     def setup(self):
         """Initialize Langfuse client."""
         if not self._enabled:
-            print("Langfuse not configured - skipping Langfuse export")
+            print("Langfuse not configured - skipping export")
             return self
 
         try:
@@ -286,7 +279,7 @@ class LangfuseExporter:
             trace_id = self.export_scenario(scenario)
             if trace_id:
                 trace_ids.append(trace_id)
-                print(f"    Langfuse: [{scenario.id}] {scenario.name}")
+                print(f"  [{scenario.id}] {scenario.name}")
         return trace_ids
 
     def flush(self):
@@ -297,113 +290,6 @@ class LangfuseExporter:
     def shutdown(self):
         """Shutdown the client."""
         self.flush()
-
-
-class TestScenarioExporter:
-    """Exports test scenarios as OpenTelemetry spans."""
-
-    def __init__(
-        self,
-        otlp_endpoint: str = None,
-        service_name: str = "test-scenarios",
-        api_key: str = None,
-    ):
-        self.otlp_endpoint = otlp_endpoint or os.getenv(
-            "OTEL_EXPORTER_OTLP_ENDPOINT",
-            "http://localhost:4318/v1/traces"
-        )
-        self.service_name = service_name
-        self.api_key = api_key or os.getenv("CLICKSTACK_API_KEY", "")
-
-        self._tracer = None
-        self._provider = None
-        self._langfuse = LangfuseExporter()
-
-    def setup(self):
-        """Initialize OpenTelemetry tracer and exporter."""
-        resource = Resource.create({
-            SERVICE_NAME: self.service_name,
-            "service.version": "1.0.0",
-        })
-
-        self._provider = TracerProvider(resource=resource)
-
-        # Local HyperDX doesn't require authentication
-        exporter = OTLPSpanExporter(endpoint=self.otlp_endpoint)
-
-        self._provider.add_span_processor(BatchSpanProcessor(exporter))
-        trace.set_tracer_provider(self._provider)
-        self._tracer = trace.get_tracer(__name__, "1.0.0")
-
-        print(f"OTLP Exporter initialized:")
-        print(f"  Endpoint: {self.otlp_endpoint}")
-        print(f"  Service: {self.service_name}")
-
-        # Also setup Langfuse
-        self._langfuse.setup()
-
-        return self
-
-    def export_scenario(self, scenario: TestScenario) -> str:
-        """Export a single test scenario as an OpenTelemetry span."""
-        if not self._tracer:
-            self.setup()
-
-        # Use current time minus a small offset to ensure visibility
-        timestamp = datetime.utcnow() - timedelta(seconds=scenario.id)
-
-        with self._tracer.start_as_current_span(
-            name="chat",
-            kind=trace.SpanKind.CLIENT,
-            start_time=int(timestamp.timestamp() * 1_000_000_000),
-        ) as span:
-            # Gen AI semantic conventions (what trace-evaluator looks for)
-            span.set_attribute("gen_ai.prompt.0.content", scenario.prompt)
-            span.set_attribute("gen_ai.prompt.0.role", "user")
-            span.set_attribute("gen_ai.completion.0.content", scenario.response)
-            span.set_attribute("gen_ai.completion.0.role", "assistant")
-            span.set_attribute("gen_ai.request.model", scenario.model)
-            span.set_attribute("gen_ai.response.model", scenario.model)
-            span.set_attribute("gen_ai.system", "anthropic")
-
-            # Test scenario metadata (for easy identification)
-            span.set_attribute("test_scenario.id", scenario.id)
-            span.set_attribute("test_scenario.name", scenario.name)
-            span.set_attribute("test_scenario.category", scenario.category)
-            span.set_attribute("test_scenario.expected_relevance", scenario.expected_relevance)
-            span.set_attribute("test_scenario.expected_coherence", scenario.expected_coherence)
-
-            span.set_status(Status(StatusCode.OK))
-
-            trace_id = format(span.get_span_context().trace_id, '032x')
-            return trace_id
-
-    def export_scenarios(self, scenarios: List[TestScenario]) -> List[str]:
-        """Export multiple test scenarios."""
-        trace_ids = []
-        for scenario in scenarios:
-            trace_id = self.export_scenario(scenario)
-            trace_ids.append(trace_id)
-            print(f"  [{scenario.id}] {scenario.name}: {trace_id}")
-
-        # Also export to Langfuse
-        if self._langfuse.is_enabled():
-            print("\nExporting to Langfuse:")
-            self._langfuse.export_scenarios(scenarios)
-
-        return trace_ids
-
-    def flush(self):
-        """Flush pending spans."""
-        if self._provider:
-            self._provider.force_flush()
-        self._langfuse.flush()
-
-    def shutdown(self):
-        """Shutdown the exporter."""
-        if self._provider:
-            self._provider.shutdown()
-        self._langfuse.shutdown()
 
 
 def list_scenarios():
@@ -447,11 +333,6 @@ Examples:
         action="store_true",
         help="List available scenarios"
     )
-    parser.add_argument(
-        "--service-name",
-        default="test-scenarios",
-        help="Service name for traces (default: test-scenarios)"
-    )
 
     args = parser.parse_args()
 
@@ -472,33 +353,32 @@ Examples:
     print("\n" + "=" * 70)
     print("TEST SCENARIOS EXPORTER")
     print("=" * 70)
-    print(f"Exporting {len(scenarios_to_export)} scenario(s)...")
+    print(f"Exporting {len(scenarios_to_export)} scenario(s) to Langfuse...")
     print()
 
-    exporter = TestScenarioExporter(service_name=args.service_name)
+    exporter = LangfuseExporter()
 
     try:
         exporter.setup()
+
+        if not exporter.is_enabled():
+            print("\nLangfuse is not configured. Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY.")
+            sys.exit(1)
+
         print("\nExporting scenarios:")
         trace_ids = exporter.export_scenarios(scenarios_to_export)
         exporter.flush()
 
         print("\n" + "-" * 70)
-        print(f"Exported {len(trace_ids)} scenarios to ClickStack")
-        if LANGFUSE_ENABLED:
-            print(f"Exported {len(trace_ids)} scenarios to Langfuse")
+        print(f"Exported {len(trace_ids)} scenarios to Langfuse")
         print("-" * 70)
 
         print("\nNext steps:")
-        print("1. View traces in HyperDX: http://localhost:8080")
-        print("   Search: service:test-scenarios")
-        if LANGFUSE_ENABLED:
-            print()
-            print("2. View traces in Langfuse: http://localhost:3001")
-            print("   Filter by: test-scenarios")
+        print("  1. View traces in Langfuse: http://localhost:3001")
+        print("     Filter by tag: test-scenario")
         print()
-        print("3. Run evaluations in Langfuse:")
-        print("   Use Langfuse's built-in evaluation features")
+        print("  2. Configure LLM-as-a-Judge evaluators:")
+        print("     Langfuse UI -> Evaluations -> LLM-as-a-Judge")
         print()
 
         print("Expected results:")

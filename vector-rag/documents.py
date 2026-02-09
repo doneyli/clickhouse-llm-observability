@@ -88,8 +88,8 @@ DOCUMENTS = [
         "content": """ClickHouse is excellent for storing observability data due to its:
         High ingestion rate (millions of events/second), efficient compression (10-20x),
         fast analytical queries on large datasets, SQL interface for familiar querying,
-        and support for time-series patterns. HyperDX/ClickStack uses ClickHouse as its
-        backend for storing OpenTelemetry traces, logs, and metrics. Common queries include
+        and support for time-series patterns. Langfuse uses ClickHouse as its OLAP
+        backend for storing LLM traces, evaluations, and cost data. Common queries include
         percentile latencies, error rate trends, and token usage aggregations."""
     },
 ]

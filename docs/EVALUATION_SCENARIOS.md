@@ -130,13 +130,10 @@ docker compose run --rm trace-evaluator python main.py \
 
 ### View Results
 
-1. **HyperDX** (http://localhost:8080)
-   - Search: `service:test-scenarios`
-   - See the traces with `test_scenario.*` attributes
-
-2. **Langfuse** (http://localhost:3001)
-   - Look for traces with test scenarios
+1. **Langfuse** (http://localhost:3001)
+   - Look for traces tagged with test scenarios
    - Compare scores across scenarios
+   - Click any trace to see evaluation details
 
 ---
 
@@ -162,7 +159,7 @@ docker compose run --rm trace-evaluator python main.py \
 
 ### Correlating with Traces
 
-In HyperDX, you can filter evaluations by score:
+In Langfuse, you can filter evaluations by score. You can also query ClickHouse directly:
 ```sql
 SELECT
     SpanAttributes['eval.source_trace_id'] as trace_id,

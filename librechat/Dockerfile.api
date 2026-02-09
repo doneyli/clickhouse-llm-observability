@@ -8,9 +8,7 @@ RUN apk add --no-cache git build-base python3-dev curl libintl gettext-dev gcomp
 # Install to /usr/local/bin so it's available to all users
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-RUN npm install @hyperdx/node-opentelemetry
-
 USER node
 EXPOSE 3080
 
-CMD ["sh", "-c", "NODE_ENV=production HDX_NODE_ADVANCED_NETWORK_CAPTURE=true OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_EXPORTER_OTLP_ENDPOINT HYPERDX_API_KEY=$CLICKSTACK_API_KEY OTEL_SERVICE_NAME=librechat-api npx opentelemetry-instrument api/server/index.js >> /app/api/logs/console.log 2>&1"]
+CMD ["node", "api/server/index.js"]

@@ -19,7 +19,7 @@ A hands-on walkthrough from setup to insights. Follow along step-by-step to expe
 │                                                                             │
 │   Launch the     Ask questions   Interactive    See what       Check        │
 │   demo stack     via API         chat with      happened       quality      │
-│                                  LibreChat      in HyperDX     scores       │
+│                                  LibreChat      in Langfuse    scores       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -37,10 +37,9 @@ cd clickhouse-llm-observability
 ```
 
 **What happens:**
-1. ClickStack starts (your observability backend)
-2. You'll be prompted for your Anthropic API key
-3. You'll get a ClickStack API key from http://localhost:8080
-4. All services build and start automatically
+1. You'll be prompted for your Anthropic API key
+2. All services build and start automatically (including Langfuse)
+3. Langfuse initializes with ClickHouse as its analytics backend
 
 **You'll see:**
 ```
@@ -49,14 +48,13 @@ cd clickhouse-llm-observability
 ╚════════════════════════════════════════════════════════════╝
 
 [OK] Docker installed
-[OK] ClickStack is ready
 [OK] Environment configured
 [OK] Services started
+[OK] Langfuse is ready
 
 Access URLs:
   LibreChat (Chat UI):        http://localhost:3080
-  HyperDX (Traces):           http://localhost:8080
-  Langfuse (Evaluations):     http://localhost:3001
+  Langfuse (Observability):   http://localhost:3001
 ```
 
 **Verify everything is running:**
@@ -105,7 +103,7 @@ curl -X POST http://localhost:8002/query \
 2. Claude generates a SQL query
 3. The query runs against ClickHouse's `uk_price_paid` dataset
 4. Claude formats the results into a natural language answer
-5. **Every step is traced and sent to HyperDX**
+5. **Every step is traced and sent to Langfuse**
 
 ---
 
@@ -159,76 +157,41 @@ You: How does OpenTelemetry capture LLM interactions?
 
 ---
 
-## Step 4: Explore Your Traces in HyperDX (5 minutes)
+## Step 4: Explore Your Traces in Langfuse (5 minutes)
 
 **What you'll do:** See exactly what happened during your LLM interactions - every prompt, completion, token count, and latency metric.
 
-### 4.1 Open HyperDX
+### 4.1 Open Langfuse
 
-1. Go to http://localhost:8080
-2. Click **Search** in the left sidebar
-3. Select the **Traces** tab
+1. Go to http://localhost:3001
+2. Click **Traces** in the sidebar
 
-### 4.2 Find Your Traces by Service
+### 4.2 Find Your Traces
 
-Use these filters to find different types of traces:
+Browse traces from different sources:
+- **Text-to-SQL demo** - Your API queries from Step 2
+- **LibreChat** - Conversations from the chat interface
 
-| Filter: `ServiceName =` | What It Shows |
-|-------------------------|---------------|
-| `text-to-sql-demo` | Your API queries from Step 2 |
-| `librechat-api` | LibreChat backend activity |
-| `librechat-conversations` | **Full conversation traces with complete LLM outputs** |
-
-**To see the full LLM prompts and completions from your chat sessions:**
-1. Filter by `ServiceName = librechat-conversations`
-2. These traces contain the complete conversation data exported from LibreChat
-3. Click any trace to see the full prompt/completion pairs
+Click any trace to see the full prompt/completion pairs.
 
 ### 4.3 Explore a Trace
 
-Click on any trace to see the span hierarchy:
+Click on any trace to see the span hierarchy, including:
+- The original user input
+- LLM calls with full prompts and completions
+- Tool calls (e.g., SQL queries via MCP)
+- Token usage and latency for each step
 
-```
-Trace: text-to-sql query
-├── user_request (root span) ─────────────── Duration: 3.2s
-│
-├── analysis_chain
-│   ├── gen_ai.prompt: "Analyze this question about London..."
-│   ├── gen_ai.completion: "This requires querying uk_price_paid..."
-│   └── gen_ai.usage.input_tokens: 245
-│
-├── mcp_query
-│   └── sql: "SELECT district, AVG(price)..."
-│
-└── response_chain
-    ├── gen_ai.prompt: "Based on these results..."
-    ├── gen_ai.completion: "The most expensive areas..."
-    └── gen_ai.usage.output_tokens: 156
-```
+### 4.4 Key Details to Explore
 
-### 4.4 Key Attributes to Explore
-
-| Attribute | What It Shows | Why It Matters |
-|-----------|---------------|----------------|
-| `gen_ai.prompt.0.content` | The exact prompt sent | Debug prompt engineering |
-| `gen_ai.completion.0.content` | The full LLM response | Verify output quality |
-| `gen_ai.usage.input_tokens` | Tokens in the prompt | Cost tracking |
-| `gen_ai.usage.output_tokens` | Tokens in the response | Cost tracking |
-| `gen_ai.request.model` | Which model was used | Model comparison |
-| `Duration` | Time for the operation | Performance analysis |
-
-### 4.5 Try These Searches
-
-```
-# Find all LLM calls
-SpanAttributes['gen_ai.system'] != ''
-
-# Find expensive calls (high token usage)
-SpanAttributes['gen_ai.usage.total_tokens'] > 1000
-
-# Find slow responses
-Duration > 5000000000  (nanoseconds = 5 seconds)
-```
+| Detail | What It Shows | Why It Matters |
+|--------|---------------|----------------|
+| Input | The exact prompt sent | Debug prompt engineering |
+| Output | The full LLM response | Verify output quality |
+| Usage (input tokens) | Tokens in the prompt | Cost tracking |
+| Usage (output tokens) | Tokens in the response | Cost tracking |
+| Model | Which model was used | Model comparison |
+| Latency | Time for the operation | Performance analysis |
 
 ---
 
@@ -335,23 +298,9 @@ done
 ### Query ClickHouse Directly
 
 ```bash
-# See trace counts by service
-docker exec clickstack clickhouse-client --user api --password api \
-  --query "SELECT ServiceName, COUNT(*) as traces
-           FROM otel_traces
-           WHERE Timestamp > now() - INTERVAL 1 HOUR
-           GROUP BY ServiceName
-           ORDER BY traces DESC"
-
-# See token usage summary
-docker exec clickstack clickhouse-client --user api --password api \
-  --query "SELECT
-             ServiceName,
-             SUM(toUInt32OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) as input_tokens,
-             SUM(toUInt32OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) as output_tokens
-           FROM otel_traces
-           WHERE Timestamp > now() - INTERVAL 1 HOUR
-           GROUP BY ServiceName"
+# Connect to ClickHouse and explore Langfuse data
+docker compose exec clickhouse clickhouse-client \
+  --query "SELECT count(*) FROM langfuse.traces"
 ```
 
 ---
@@ -364,8 +313,8 @@ docker exec clickstack clickhouse-client --user api --password api \
 | **Stop demo** | `./setup.sh --cleanup` |
 | **Check status** | `./setup.sh --status` |
 | **Chat UI** | http://localhost:3080 |
-| **View traces** | http://localhost:8080 |
-| **Quality scores** | http://localhost:8501 |
+| **View traces** | http://localhost:3001 |
+| **Quality scores** | http://localhost:3001 |
 | **Text-to-SQL API** | http://localhost:8002/query |
 | **Vector RAG API** | http://localhost:8003/query |
 | **View logs** | `docker compose logs -f [service]` |
@@ -381,8 +330,8 @@ docker exec clickstack clickhouse-client --user api --password api \
 # Check that services are running
 docker compose ps
 
-# Verify ClickStack API key is set
-grep CLICKSTACK_API_KEY .env
+# Verify Langfuse API keys are set
+grep LANGFUSE .env
 
 # Check service logs for errors
 docker compose logs text-to-sql --tail=50
@@ -407,7 +356,6 @@ docker compose logs text-to-sql --tail=50
 | Learn evaluation strategies | [Evaluation Architecture](./EVALUATION_ARCHITECTURE.md) |
 | Test failure scenarios | [Evaluation Scenarios](./EVALUATION_SCENARIOS.md) |
 | Learn about Langfuse | [Langfuse Integration](./LANGFUSE_INTEGRATION.md) |
-| Create custom dashboards | [Dashboard API](./hyperdx-dashboard-api.md) |
 
 ---
 

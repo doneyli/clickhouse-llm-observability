@@ -8,7 +8,7 @@
 # 1. Runs Text-to-SQL demo queries → generates Langfuse traces
 # 2. Runs Vector RAG demo queries → generates Langfuse traces
 # 3. Runs test scenarios (good/bad examples) → generates evaluation test data
-# 4. Runs Langfuse evaluator → scores the traces
+# 4. Notes that Langfuse evaluators score the traces automatically
 #
 # Usage: ./scripts/seed-demo-data.sh [--quick]
 #   --quick: Only run text-to-sql and vector-rag demos (skip test scenarios)
@@ -37,19 +37,24 @@ echo ""
 # ------------------------------------------------------------------------------
 echo "Checking required services..."
 
-# Check if text-to-sql is available
-if ! docker compose ps text-to-sql 2>/dev/null | grep -q "Up"; then
-    echo -e "${YELLOW}Starting text-to-sql service...${NC}"
-    docker compose up -d text-to-sql
-    sleep 5
-fi
-
-# Check if vector-rag is available
-if ! docker compose ps vector-rag 2>/dev/null | grep -q "Up"; then
-    echo -e "${YELLOW}Starting vector-rag service...${NC}"
-    docker compose up -d vector-rag
-    sleep 5
-fi
+# Check if Langfuse is healthy (needed for trace ingestion)
+echo -n "  Checking Langfuse..."
+LANGFUSE_PORT=${LANGFUSE_PORT:-3001}
+ATTEMPTS=0
+MAX_ATTEMPTS=30
+while ! curl -s "http://localhost:${LANGFUSE_PORT}" > /dev/null 2>&1; do
+    sleep 2
+    ATTEMPTS=$((ATTEMPTS + 1))
+    if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+        echo ""
+        echo -e "${RED}Langfuse is not available at http://localhost:${LANGFUSE_PORT}${NC}"
+        echo "Start it first with: ./setup.sh"
+        exit 1
+    fi
+    echo -n "."
+done
+echo ""
+echo -e "${GREEN}✓${NC} Langfuse is healthy"
 
 echo -e "${GREEN}✓${NC} Required services are running"
 echo ""
@@ -124,9 +129,8 @@ echo ""
 echo "Your demo now has sample data. View it at:"
 echo ""
 echo "  Langfuse Traces:     ${GREEN}http://localhost:3001${NC}"
-echo "  HyperDX Traces:      ${GREEN}http://localhost:8080${NC}"
 echo ""
-echo "Try these in the UIs:"
+echo "Try these in the UI:"
 echo "  - View trace timelines and token usage"
 echo "  - Filter by service (text-to-sql, vector-rag)"
 echo "  - Configure LLM-as-a-Judge evaluators in Langfuse"
