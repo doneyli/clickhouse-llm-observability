@@ -11,9 +11,4 @@ COPY . .
 
 ENV PYTHONUNBUFFERED=1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Run demo then keep alive for background evaluations
-CMD ["sh", "-c", "python main.py && echo 'Waiting for evaluations to complete...' && sleep infinity"]
+CMD ["python", "main.py"]

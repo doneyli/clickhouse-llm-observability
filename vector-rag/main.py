@@ -1,24 +1,17 @@
 """
-Vector RAG Demo with OpenLLMetry & Langfuse
+Vector RAG Demo with Langfuse
 
 A proper RAG implementation with:
 - Vector embeddings (sentence-transformers)
 - ChromaDB vector store
 - Semantic similarity retrieval
 - LLM generation from retrieved context
-- Dual instrumentation: OpenLLMetry → ClickStack and Langfuse → Langfuse
+- Instrumentation via Langfuse SDK CallbackHandler
 """
 
 import os
 import sys
 
-# ============================================================
-# CRITICAL: Setup instrumentation BEFORE importing LangChain!
-# ============================================================
-from instrumentation import setup_instrumentation
-setup_instrumentation()
-
-# Now safe to import LangChain and other modules
 from rag_pipeline import create_pipeline
 
 # Langfuse instrumentation
@@ -36,7 +29,7 @@ def run_demo(pipeline):
     """Run demo queries."""
 
     print("\n" + "="*60)
-    print("Vector RAG Demo with OpenLLMetry")
+    print("Vector RAG Demo")
     if is_langfuse_enabled():
         print("+ Langfuse instrumentation enabled")
     print("="*60)
@@ -60,7 +53,6 @@ def run_demo(pipeline):
 
     print("\n" + "="*60)
     print("Demo complete!")
-    print("   View traces: http://localhost:8080 (HyperDX)")
     if is_langfuse_enabled():
         print("   View traces: http://localhost:3001 (Langfuse)")
     print("="*60 + "\n")
@@ -103,13 +95,7 @@ def main():
     ║                                                           ║
     ║   - ChromaDB: Vector storage & similarity search          ║
     ║   - Sentence-Transformers: Text embeddings                ║
-    ║   - OpenLLMetry: Prompts, completions, token tracking     ║"""
-
-    if is_langfuse_enabled():
-        banner += """
-    ║   - Langfuse: LLM observability (enabled)                 ║"""
-
-    banner += """
+    ║   - Langfuse: LLM observability (ClickHouse backend)      ║
     ╚═══════════════════════════════════════════════════════════╝
     """
     print(banner)

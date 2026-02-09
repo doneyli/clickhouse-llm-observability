@@ -3,7 +3,7 @@
 **A unified observability platform for AI and LLM applications, powered by ClickHouse.**
 
 > **Stack already running?** [Jump to Quick Start](#quick-start) to generate traces in 2 minutes.
-> **New to this demo?** Follow the [**Guided User Journey**](docs/USER_JOURNEY.md) for setup and walkthrough (~35 min).
+> **New to this demo?** Run `./setup.sh` — it's idempotent, handles everything, and takes ~5 minutes.
 
 ---
 
@@ -54,27 +54,15 @@ LLM observability data has specific characteristics that make ClickHouse an idea
 | **Time-series patterns** | Debugging means querying recent data | Native time-series optimizations and partitioning |
 | **High cardinality** | Every trace has unique content | Handles high-cardinality data without index bloat |
 
-### How ClickHouse Compares to Alternatives
-
-| Capability | ClickHouse | PostgreSQL | Elasticsearch | Specialized Observability (Datadog, etc.) |
-|------------|------------|------------|---------------|-------------------------------------------|
-| **Query language** | SQL | SQL | Query DSL | Proprietary |
-| **Analytical query speed** | Sub-second on billions | Slows at millions | Good, but resource-heavy | Good |
-| **Text compression** | Excellent (columnar) | Moderate | Good | Varies |
-| **Self-hosted option** | ✓ Yes | ✓ Yes | ✓ Yes | Limited/None |
-| **Native OpenTelemetry** | ✓ Built-in OTEL schema | Requires setup | Requires setup | ✓ Built-in |
-| **Unified traces/metrics/logs** | ✓ Single backend | Separate systems | Logs only | ✓ Built-in |
-| **Scale without ops burden** | High | Moderate | High ops overhead | N/A (managed) |
-
 **The bottom line:** ClickHouse gives you the analytical power of a data warehouse with the real-time query performance needed for production debugging—using SQL you already know.
 
 ---
 
 ## The Value Proposition
 
-With ClickHouse as your centralized observability backend, you can:
+With ClickHouse as your centralized observability backend (via Langfuse), you can:
 
-1. **Instrument** - Automatically capture every LLM interaction with OpenTelemetry
+1. **Instrument** - Automatically capture every LLM interaction via the Langfuse SDK
 2. **Observe** - Search, filter, and visualize traces in real-time
 3. **Monitor** - Track token usage, costs, and latency across all your LLM apps
 4. **Evaluate** - Run LLM-as-judge quality assessments on production data
@@ -91,7 +79,7 @@ With ClickHouse as your centralized observability backend, you can:
 
 ```bash
 # Check if services are running
-docker compose ps
+docker compose --profile langfuse ps
 
 # Generate Text-to-SQL traces (3 demo queries)
 docker compose run --rm text-to-sql python main.py
@@ -105,20 +93,29 @@ docker compose run --rm vector-rag python main.py --interactive
 ```
 
 **View your traces:**
-- **HyperDX**: http://localhost:8080 (Traces, logs, dashboards)
 - **Langfuse**: http://localhost:3001 (LLM traces, evaluations, prompt playground)
+  - Email: `demo@localhost` | Password: `demodemo1!`
 
-**Time:** 2-3 minutes | **Outcome:** Fresh traces in your observability stack
+**Time:** 2-3 minutes | **Outcome:** Fresh traces in Langfuse
 
 ---
 
 ### First Time Setup?
 
-If you haven't set up the observability stack yet, choose one of these paths:
+```bash
+git clone https://github.com/doneyli/clickhouse-llm-observability.git
+cd clickhouse-llm-observability
+./setup.sh
+```
 
-- **[One-Command Setup](#one-command-setup-recommended)** - Fastest way to get everything running (~10 min)
-- **[Guided User Journey](docs/USER_JOURNEY.md)** - Hands-on walkthrough with explanations (~35 min)
-- **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** - Step-by-step manual setup (~15-30 min)
+The setup script is **idempotent** — safe to re-run at any time. It will:
+- Create `.env` from template (only if missing)
+- Prompt for your Anthropic API key (only if not set)
+- Generate LibreChat secrets (only if missing)
+- Auto-provision Langfuse with demo credentials (headless init)
+- Start all services and wait for health checks
+
+For more detail, see the [Guided User Journey](docs/USER_JOURNEY.md) or [Quickstart Guide](docs/QUICKSTART_GUIDE.md).
 
 ---
 
@@ -135,32 +132,22 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 │   │    Demo     │     │    Demo     │     │   (Chat)    │                   │
 │   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘                   │
 │          │                   │                   │                          │
-│    OpenLLMetry         OpenLLMetry         Native integrations              │
-│    ├─→ OTLP            ├─→ OTLP            ├─→ OTLP (@hyperdx/node-otel)    │
-│    └─→ Langfuse SDK    └─→ Langfuse SDK    └─→ Langfuse (native)            │
+│     Langfuse SDK        Langfuse SDK       Langfuse (native)               │
 │          │                   │                   │                          │
 │          └───────────────────┼───────────────────┘                          │
 │                              │                                              │
 └──────────────────────────────┼──────────────────────────────────────────────┘
                                │
-         ┌─────────────────────┴─────────────────────┐
-         │ OTLP (gRPC/HTTP)                          │ Langfuse SDK
-         ▼                                           ▼
+                               ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                            OBSERVABILITY BACKENDS                            │
+│                            LANGFUSE                                          │
+│                            localhost:3001                                     │
 │                                                                              │
-│   ┌────────────────────────────────┐    ┌────────────────────────────────┐  │
-│   │   HyperDX / ClickStack         │    │    Langfuse                    │  │
-│   │   localhost:8080               │    │    localhost:3001              │  │
-│   │                                │    │                                │  │
-│   │   • All traces via OTLP        │    │   • Real-time LLM tracing      │  │
-│   │   • gen_ai.* semantic attrs    │    │   • Score visualization        │  │
-│   │   • Dashboards, alerts         │    │   • Prompt playground          │  │
-│   │   • Unified logs/metrics       │    │   • LLM-as-judge evaluation    │  │
-│   │                                │    │                                │  │
-│   │   Backend: ClickHouse          │    │   Backend: ClickHouse          │  │
-│   └────────────────────────────────┘    └────────────────────────────────┘  │
+│   • Real-time LLM tracing       • Prompt playground                         │
+│   • Score visualization          • LLM-as-judge evaluation                  │
+│   • Cost tracking                • Session management                       │
 │                                                                              │
+│   Backend: ClickHouse (OLAP) + PostgreSQL (metadata) + Redis (cache)        │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -168,10 +155,10 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 
 | Component | Purpose | Data Store |
 |-----------|---------|------------|
-| **OpenLLMetry** | Auto-instruments LLM frameworks (LangChain, Anthropic SDK) | → ClickHouse |
-| **HyperDX/ClickStack** | Trace visualization, search, dashboards | ClickHouse |
-| **Langfuse** | LLM observability with native LibreChat integration | ClickHouse |
-| **LibreChat** | Chat interface with native Langfuse + OTLP tracing | MongoDB |
+| **Langfuse** | LLM observability, tracing, evaluation | ClickHouse + PostgreSQL |
+| **LibreChat** | Chat interface with native Langfuse tracing | MongoDB |
+| **Text-to-SQL Demo** | Natural language queries against ClickHouse | Langfuse traces |
+| **Vector RAG Demo** | RAG with embeddings and vector search | Langfuse traces |
 
 ---
 
@@ -183,14 +170,14 @@ This demo sets up a complete LLM observability pipeline:
    - Text-to-SQL: Natural language queries against ClickHouse's public demo database
    - Vector RAG: Retrieval-augmented generation with embeddings
 
-2. **Automatic Instrumentation**
+2. **Langfuse Instrumentation**
    - Every LLM call captured with prompts, completions, token counts, and latency
-   - Zero code changes required (OpenLLMetry auto-instrumentation)
+   - Langfuse SDK CallbackHandler for LangChain integration
 
 3. **Trace Visualization**
    - Search and filter traces by model, service, or content
    - View the complete request/response flow
-   - Build custom dashboards
+   - Track costs and token usage
 
 4. **Quality Evaluation**
    - Langfuse native LLM-as-a-Judge evaluators (Hallucination, Helpfulness, etc.)
@@ -199,62 +186,42 @@ This demo sets up a complete LLM observability pipeline:
 
 ---
 
-## Setup Options
+## Setup
 
-Choose your path based on your goals:
-
-### One-Command Setup (Recommended)
-
-**Best for:** Getting the demo running quickly with minimal effort.
+### One-Command Setup
 
 ```bash
 git clone https://github.com/doneyli/clickhouse-llm-observability.git
 cd clickhouse-llm-observability
 ./setup.sh
+./scripts/seed-demo-data.sh    # Populate sample traces
 ```
 
-The setup script handles everything automatically:
-- Prerequisites check (Docker, Docker Compose)
-- ClickStack startup and API key configuration
-- Environment setup with auto-generated secrets
-- Building and starting all services
-- Running the demo
+**Time:** ~5 minutes | **Outcome:** Full demo running with sample traces
 
-**Time:** ~10 minutes | **Outcome:** Full demo running with sample traces
+The setup script is idempotent — safe to re-run. It never overwrites existing config.
 
----
+### Re-running Setup
 
-### Guided User Journey (Recommended for First-Timers)
+Running `./setup.sh` again is always safe:
+- Detects and reuses already-running services
+- Preserves existing secrets and API keys
+- Only generates missing values
 
-**Best for:** Experiencing the full demo hands-on, from querying data to viewing traces to evaluating quality.
+### Langfuse Auto-Provisioned Credentials
 
-[**Start the User Journey →**](docs/USER_JOURNEY.md)
+Langfuse is auto-configured with a demo account on first boot (headless init):
 
-What you'll experience:
-1. Launch the demo stack
-2. Ask questions via the Text-to-SQL API
-3. Chat interactively with LibreChat (using the ClickHouse SQL Playground tool)
-4. Explore your traces in HyperDX
-5. Run quality evaluations with Langfuse
+| | |
+|---|---|
+| **URL** | http://localhost:3001 |
+| **Email** | `demo@localhost` |
+| **Password** | `demodemo1!` |
 
-**Time:** ~35 minutes | **Outcome:** Complete hands-on experience with all components
+### Additional Guides
 
----
-
-### Quickstart Guide
-
-**Best for:** Users who want step-by-step control over the setup process.
-
-[**Read the Quickstart Guide →**](docs/QUICKSTART_GUIDE.md)
-
-What you'll do:
-1. Start ClickStack manually
-2. Configure environment variables
-3. Build and start services individually
-4. Generate traces and view them in HyperDX
-5. Run quality evaluations
-
-**Time:** 15-30 minutes | **Outcome:** Full understanding of each component
+- **[Guided User Journey](docs/USER_JOURNEY.md)** — Hands-on walkthrough (~35 min)
+- **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** — Step-by-step manual setup
 
 ---
 
@@ -267,7 +234,6 @@ After completing the demo, you will have:
 | **Running observability stack** | Complete local environment for LLM monitoring |
 | **Sample traces in ClickHouse** | Real data to explore and query |
 | **Quality evaluation pipeline** | LLM-as-judge scoring on production traces |
-| **Custom dashboards** | Visualizations for token usage, latency, costs |
 | **Reusable patterns** | Code and configs you can adapt for your apps |
 
 ### Key Benefits
@@ -282,34 +248,36 @@ After completing the demo, you will have:
 
 ## Quick Commands Reference
 
-### First-Time Setup
+### Setup & Lifecycle
 
 ```bash
-# Clone and enter directory
-git clone https://github.com/doneyli/clickhouse-llm-observability.git
-cd clickhouse-llm-observability
-
-# Interactive setup (handles Langfuse account creation)
-./scripts/setup.sh
+# First-time setup (or re-run — it's idempotent)
+./setup.sh
 
 # Populate with sample data
 ./scripts/seed-demo-data.sh
+
+# Check status and URLs
+./setup.sh --status
+
+# Stop all services (preserves data)
+./setup.sh --cleanup
+
+# Full reset (destroys all data)
+./scripts/reset.sh
 ```
 
 ### Daily Use
 
 ```bash
 # Start everything (if already set up)
-docker compose --profile langfuse up -d
+./setup.sh
 
 # Check which services are running
-docker compose ps
+docker compose --profile langfuse ps
 
 # View logs
 docker compose logs -f [service-name]
-
-# Stop everything (preserves data)
-docker compose --profile langfuse down
 ```
 
 ### Running Demos
@@ -350,9 +318,6 @@ docker compose --profile tools run --rm test-scenarios
 
 # Re-seed demo data
 ./scripts/seed-demo-data.sh
-
-# Validate Langfuse configuration
-./scripts/validate-langfuse.sh
 ```
 
 ---
@@ -361,11 +326,10 @@ docker compose --profile tools run --rm test-scenarios
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| **HyperDX** | http://localhost:8080 | Traces, logs, metrics, dashboards |
 | **Langfuse** | http://localhost:3001 | LLM traces, evaluations, prompt playground |
-| **Text-to-SQL API** | http://localhost:8002 | Demo: Natural language → SQL |
-| **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings |
 | **LibreChat** | http://localhost:3080 | Chat UI for LLM interaction |
+| **Text-to-SQL API** | http://localhost:8002 | Demo: Natural language → SQL (on-demand) |
+| **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings (on-demand) |
 
 ---
 
@@ -374,11 +338,10 @@ docker compose --profile tools run --rm test-scenarios
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key |
-| `CLICKSTACK_API_KEY` | Yes | HyperDX ingestion key |
-| `CREDS_KEY` | Yes | LibreChat encryption key |
-| `JWT_SECRET` | Yes | LibreChat JWT secret |
-| `LANGFUSE_PUBLIC_KEY` | No | Enable Langfuse dual instrumentation |
-| `LANGFUSE_SECRET_KEY` | No | Enable Langfuse dual instrumentation |
+| `LANGFUSE_PUBLIC_KEY` | Auto | Pre-filled with demo keys (auto-provisioned) |
+| `LANGFUSE_SECRET_KEY` | Auto | Pre-filled with demo keys (auto-provisioned) |
+| `CREDS_KEY` | Auto | LibreChat encryption key (auto-generated) |
+| `JWT_SECRET` | Auto | LibreChat JWT secret (auto-generated) |
 
 See [`.env.example`](.env.example) for the full configuration reference.
 
@@ -387,53 +350,46 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ## Project Structure
 
 ```
-├── setup.sh                    # One-click setup script
+├── setup.sh                    # Idempotent setup script (safe to re-run)
 ├── docker-compose.yaml         # Service orchestration
 ├── .env.example                # Environment template
 ├── librechat.yaml              # LibreChat configuration
-├── otel-file-collector.yaml    # OpenTelemetry collector config
 │
 ├── text-to-sql/                # Text-to-SQL demo app
 │   ├── Dockerfile
 │   ├── main.py
+│   ├── langfuse_config.py
 │   └── requirements.txt
 │
 ├── vector-rag/                 # Vector RAG demo app
 │   ├── Dockerfile
 │   ├── main.py
-│   └── requirements.txt
-│
-│
-├── librechat-exporter/         # MongoDB → OTEL exporter
-│   ├── Dockerfile
-│   ├── main.py
+│   ├── langfuse_config.py
 │   └── requirements.txt
 │
 ├── librechat/                  # LibreChat customizations
-│   ├── Dockerfile.api          # API with OTEL instrumentation
-│   └── nginx.conf              # Nginx reverse proxy config
+│   ├── Dockerfile.api
+│   └── nginx.conf
 │
 ├── mcp-clickhouse/             # ClickHouse MCP Server
 │   └── Dockerfile
 │
 ├── test-scenarios/             # Evaluation test scenarios
 │   ├── Dockerfile
-│   ├── main.py
+│   ├── export_test_scenarios.py
 │   └── requirements.txt
 │
 ├── docs/                       # Documentation
 │   ├── QUICKSTART_GUIDE.md
+│   ├── USER_JOURNEY.md
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
-│   ├── LANGFUSE_INTEGRATION.md
-│   └── hyperdx-dashboard-api.md
+│   └── LANGFUSE_INTEGRATION.md
 │
 └── scripts/                    # Utility scripts
-    ├── setup.sh                # First-run setup with Langfuse config
     ├── seed-demo-data.sh       # Populate demo with sample traces
     ├── reset.sh                # Full reset (destructive)
-    ├── validate-langfuse.sh    # Validate Langfuse integration
-    └── create-hyperdx-dashboard-mongo.sh
+    └── validate-langfuse.sh    # Validate Langfuse integration
 ```
 
 ---
@@ -447,24 +403,22 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
-| [Dashboard API](docs/hyperdx-dashboard-api.md) | Programmatic dashboard creation |
 
 ---
 
 ## Troubleshooting
 
-### Traces not appearing in HyperDX?
+### Traces not appearing in Langfuse?
 
 ```bash
-# Check ClickStack is running
-curl http://localhost:8080
+# Check Langfuse is running
+curl http://localhost:3001
 
-# Verify API key is set
-grep CLICKSTACK_API_KEY .env
+# Verify API keys are set
+grep LANGFUSE_PUBLIC_KEY .env
 
-# Check network connectivity
-docker exec clickstack clickhouse-client --user api --password api \
-  --query "SELECT COUNT(*) FROM otel_traces"
+# Check Langfuse logs
+docker compose --profile langfuse logs langfuse-web
 ```
 
 ### Services won't start?
@@ -492,11 +446,8 @@ This demo integrates several open-source projects, each with their own licenses:
 | Component | License | Link |
 |-----------|---------|------|
 | **ClickHouse** | Apache 2.0 | [github.com/ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse) |
-| **HyperDX/ClickStack** | MIT | [github.com/hyperdxio/hyperdx](https://github.com/hyperdxio/hyperdx) |
-| **OpenLLMetry** | Apache 2.0 | [github.com/traceloop/openllmetry](https://github.com/traceloop/openllmetry) |
 | **Langfuse** | MIT | [github.com/langfuse/langfuse](https://github.com/langfuse/langfuse) |
 | **LibreChat** | MIT | [github.com/danny-avila/LibreChat](https://github.com/danny-avila/LibreChat) |
-| **OpenTelemetry** | Apache 2.0 | [opentelemetry.io](https://opentelemetry.io) |
 
 All components are permissively licensed (MIT or Apache 2.0), allowing free use, modification, and distribution for both personal and commercial purposes.
 
@@ -505,14 +456,9 @@ All components are permissively licensed (MIT or Apache 2.0), allowing free use,
 ## Learn More
 
 **External Resources:**
-- [OpenLLMetry Documentation](https://github.com/traceloop/openllmetry) - LLM auto-instrumentation
 - [Langfuse Documentation](https://langfuse.com/docs) - LLM observability platform
 - [LibreChat + Langfuse Integration](https://langfuse.com/integrations/other/librechat) - Native tracing integration
-- [HyperDX Documentation](https://www.hyperdx.io/docs) - Observability platform
 - [ClickHouse Documentation](https://clickhouse.com/docs) - Real-time analytics database
-
-**Blog Post:**
-- [LLM Observability with ClickStack and MCP](https://clickhouse.com/blog/llm-observability-clickstack-mcp) - Original reference implementation
 
 ---
 
@@ -522,4 +468,4 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ---
 
-*Built with ClickHouse, OpenTelemetry, and open-source LLM evaluation tools.*
+*Built with ClickHouse, Langfuse, and open-source LLM tools.*

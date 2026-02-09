@@ -1,11 +1,9 @@
 """
 Langfuse Integration Configuration (v3 API)
 
-Provides dual instrumentation alongside OpenLLMetry.
 When LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set,
-traces are sent to both ClickStack (via OTLP) and Langfuse.
+traces are sent to Langfuse (which uses ClickHouse as its OLAP backend).
 
-Updated for Langfuse SDK v3 (OpenTelemetry-based API).
 Supports session tracking via propagate_attributes.
 """
 

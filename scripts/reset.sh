@@ -33,9 +33,8 @@ echo -e "==============================================${NC}"
 echo ""
 echo "This will permanently delete:"
 echo ""
-echo "  - All Docker volumes (ClickStack, Langfuse, MongoDB, Meilisearch)"
+echo "  - All Docker volumes (Langfuse, MongoDB, Meilisearch)"
 echo "  - Bind-mounted data directories (./data-node, ./meili_data, etc.)"
-echo "  - ClickStack API key from .env"
 echo "  - Langfuse API keys from .env"
 echo "  - LibreChat secrets from .env (will be regenerated)"
 echo "  - All LibreChat conversations and user accounts"
@@ -65,7 +64,7 @@ echo ""
 # Stop All Services
 # ------------------------------------------------------------------------------
 echo "[1/5] Stopping all services..."
-docker compose --profile clickstack --profile langfuse --profile tools down 2>/dev/null || true
+docker compose --profile langfuse --profile demo --profile tools down 2>/dev/null || true
 echo -e "${GREEN}✓${NC} Services stopped"
 echo ""
 
@@ -79,9 +78,6 @@ PROJECT_NAME=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]
 
 # List of named volumes used by the demo
 VOLUME_SUFFIXES=(
-    # ClickStack volumes
-    "clickstack-clickhouse-data"
-    "clickstack-mongo-data"
     # Langfuse volumes
     "langfuse-postgres-data"
     "langfuse-minio-data"
@@ -142,9 +138,7 @@ if [ -f ".env" ]; then
     cp .env .env.backup
 
     # Remove all generated credentials
-    grep -v "^CLICKSTACK_API_KEY=" .env | \
-    grep -v "^# ClickStack API Key (added by setup script)" | \
-    grep -v "^LANGFUSE_PUBLIC_KEY=" | \
+    grep -v "^LANGFUSE_PUBLIC_KEY=" .env | \
     grep -v "^LANGFUSE_SECRET_KEY=" | \
     grep -v "^LANGFUSE_MCP_AUTH_TOKEN=" | \
     grep -v "^# Langfuse API Keys (added by setup script)" | \
@@ -180,7 +174,6 @@ echo ""
 echo "The demo environment has been reset to a fresh state."
 echo ""
 echo "To start fresh:"
-echo "  1. Run ${GREEN}./scripts/setup.sh${NC}"
-echo "  2. Follow the prompts to set up ClickStack and Langfuse"
-echo "  3. Run ${GREEN}./scripts/seed-demo-data.sh${NC}"
+echo "  1. Run ${GREEN}./setup.sh${NC}"
+echo "  2. Run ${GREEN}./scripts/seed-demo-data.sh${NC} to populate demo data"
 echo ""

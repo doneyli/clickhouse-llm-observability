@@ -1,5 +1,5 @@
 services:
-  # LibreChat API with OpenTelemetry instrumentation
+  # LibreChat API
   api:
     build:
       context: ./librechat
@@ -11,8 +11,6 @@ services:
       - mongodb
       - meilisearch
     restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
@@ -21,14 +19,10 @@ services:
       - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/LibreChat}
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-DrhYf7zENyR6AlUCKmnz0eYASOQdl6zxH7s7MKFSfFCt}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      - CONSOLE_JSON=${CONSOLE_JSON:-true}
-      - DEBUG_CONSOLE=${DEBUG_CONSOLE:-true}
       # Native Langfuse Integration (real-time tracing)
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000
       # Langfuse MCP Server (prompt management via agents)
       - LANGFUSE_MCP_AUTH_TOKEN=${LANGFUSE_MCP_AUTH_TOKEN:-}
     volumes:
@@ -85,27 +79,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # OpenTelemetry Collector for logs and metrics
-  otelcol:
-    image: otel/opentelemetry-collector-contrib:latest
-    container_name: librechat-otelcol
-    restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    environment:
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-    volumes:
-      - ./otel-file-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
-      - ./logs:/var/log/librechat:ro
-      - ./mcp-logs:/var/log/mcp-clickhouse:ro
-    command: ["--config=/etc/otelcol-contrib/config.yaml"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # ClickHouse MCP Server with OpenTelemetry instrumentation
+  # ClickHouse MCP Server
   mcp-clickhouse:
     build:
       context: ./mcp-clickhouse
@@ -113,8 +87,6 @@ services:
     ports:
       - "8001:8000"
     restart: always
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-sql-clickhouse.clickhouse.com}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-demo}
@@ -122,14 +94,11 @@ services:
       - CLICKHOUSE_SECURE=true
       - CLICKHOUSE_MCP_SERVER_TRANSPORT=sse
       - CLICKHOUSE_MCP_BIND_HOST=0.0.0.0
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
-      - OTEL_SERVICE_NAME=mcp-clickhouse
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
     volumes:
       - ./mcp-logs:/app/logs
 
   # =============================================================================
-  # Text-to-SQL Demo with OpenLLMetry + Langfuse
+  # Text-to-SQL Demo with Langfuse
   # =============================================================================
   text-to-sql:
     build:
@@ -139,20 +108,17 @@ services:
       - "${TEXT_TO_SQL_PORT:-8002}:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
       - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
-      - OTEL_SERVICE_NAME=text-to-sql-demo
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_HOST=http://langfuse-web:3000
     depends_on:
       - mcp-clickhouse
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    profiles:
+      - demo
     volumes:
       - ./text-to-sql:/app
 
@@ -167,17 +133,14 @@ services:
       - "${VECTOR_RAG_PORT:-8003}:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
-      - OTEL_SERVICE_NAME=vector-rag-demo
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - LANGFUSE_HOST=http://langfuse-web:3000
+    profiles:
+      - demo
     volumes:
       - ./vector-rag:/app
 
@@ -189,181 +152,25 @@ services:
   # - Low Coherence: Contradictory responses
   # - Hallucination: Fabricated information
   #
-  # Run: docker compose run test-scenarios
-  # List: docker compose run test-scenarios --list
+  # Run: docker compose --profile tools run --rm test-scenarios
+  # List: docker compose --profile tools run --rm test-scenarios --list
   # =============================================================================
   test-scenarios:
     build:
       context: ./test-scenarios
     container_name: test-scenarios
     environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
       # Langfuse integration
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=http://langfuse-web:3000
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     profiles:
       - tools
-
-  # =============================================================================
-  # LibreChat Exporter - Export conversations to HyperDX via OTLP
-  # =============================================================================
-  # Note: Langfuse tracing is now handled natively by LibreChat (see api service).
-  # This exporter only sends to HyperDX/ClickStack via OTLP.
-  # This service reads LibreChat conversations from MongoDB and exports them
-  # as OpenTelemetry traces with gen_ai.* semantic conventions.
-  # Run manually: docker compose run librechat-exporter --help
-  #
-  # Examples:
-  #   docker compose run librechat-exporter --list-conversations
-  #   docker compose run librechat-exporter --hours 24
-  #   docker compose run librechat-exporter --watch --interval 60
-  # =============================================================================
-  # LibreChat Exporter Watcher - Continuous export of conversations
-  # =============================================================================
-  librechat-exporter-watcher:
-    build:
-      context: ./librechat-exporter
-    container_name: librechat-exporter-watcher
-    restart: unless-stopped
-    command: ["python", "main.py", "--watch", "--interval", "10"]
-    environment:
-      # MongoDB connection (LibreChat's database)
-      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
-      # OTLP endpoint (HyperDX/ClickStack)
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
-      - OTEL_SERVICE_NAME=librechat-conversations
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-    depends_on:
-      - mongodb
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  # =============================================================================
-  librechat-exporter:
-    build:
-      context: ./librechat-exporter
-    container_name: librechat-exporter
-    environment:
-      # MongoDB connection (LibreChat's database)
-      - MONGO_URI=mongodb://librechat-mongodb:27017/LibreChat
-      # OTLP endpoint (HyperDX/ClickStack)
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces
-      - OTEL_SERVICE_NAME=librechat-conversations
-      - CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
-    depends_on:
-      - mongodb
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    # Don't auto-start - run manually with docker compose run
-    profiles:
-      - tools
-
-  # =============================================================================
-  # ClickStack - Unified Observability Platform (HyperDX)
-  # =============================================================================
-  # Optional: Enable with --profile clickstack
-  # Start: docker compose --profile clickstack up -d
-  #
-  # ClickStack provides unified observability including:
-  # - OTLP trace/log/metric ingestion
-  # - Dashboards and alerting
-  # - Full-text search across all telemetry
-  # =============================================================================
-
-  # ClickHouse for ClickStack OLAP storage
-  clickstack-clickhouse:
-    image: clickhouse/clickhouse-server:24.8
-    container_name: clickstack-clickhouse
-    restart: unless-stopped
-    profiles:
-      - clickstack
-    environment:
-      - CLICKHOUSE_USER=api
-      - CLICKHOUSE_PASSWORD=api
-      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
-    volumes:
-      - clickstack-clickhouse-data:/var/lib/clickhouse
-    ports:
-      - "8123:8123"
-      - "9000:9000"
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
-    healthcheck:
-      test: ["CMD", "clickhouse-client", "--user", "api", "--password", "api", "--query", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # MongoDB for ClickStack state (dashboards, users, alerts)
-  clickstack-mongo:
-    image: mongo:6
-    container_name: clickstack-mongo
-    restart: unless-stopped
-    profiles:
-      - clickstack
-    volumes:
-      - clickstack-mongo-data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # OpenTelemetry Collector for ClickStack
-  clickstack-otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.96.0
-    container_name: clickstack-otel-collector
-    restart: unless-stopped
-    profiles:
-      - clickstack
-    depends_on:
-      clickstack-clickhouse:
-        condition: service_healthy
-    ports:
-      - "4317:4317"
-      - "4318:4318"
-    volumes:
-      - ./clickstack-otel-config.yaml:/etc/otelcol-contrib/config.yaml:ro
-    command: ["--config=/etc/otelcol-contrib/config.yaml"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:13133/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # HyperDX UI and API
-  clickstack:
-    image: ghcr.io/hyperdxio/hyperdx-local:latest
-    container_name: clickstack
-    restart: unless-stopped
-    profiles:
-      - clickstack
-    depends_on:
-      clickstack-clickhouse:
-        condition: service_healthy
-      clickstack-mongo:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
-    environment:
-      - HYPERDX_LOG_LEVEL=info
-      - MONGO_URI=mongodb://clickstack-mongo:27017/hyperdx
-      - CLICKHOUSE_HOST=http://clickstack-clickhouse:8123
-      - CLICKHOUSE_USER=api
-      - CLICKHOUSE_PASSWORD=api
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   # =============================================================================
   # Langfuse - LLM Observability Platform
   # =============================================================================
-  # Optional: Enable with --profile langfuse
+  # Enable with --profile langfuse
   # Start: docker compose --profile langfuse up -d
   #
   # Langfuse provides LLM-specific observability including:
@@ -508,8 +315,16 @@ services:
       - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
       - SALT=langfuse-salt-min-32-characters-here
       - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Headless initialization (idempotent - only creates if not exists)
+      - LANGFUSE_INIT_ORG_ID=demo-org
+      - LANGFUSE_INIT_ORG_NAME=Demo Organization
+      - LANGFUSE_INIT_PROJECT_ID=demo-project
+      - LANGFUSE_INIT_PROJECT_NAME=LLM Observability Demo
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-1234567890
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-1234567890
+      - LANGFUSE_INIT_USER_EMAIL=demo@localhost
+      - LANGFUSE_INIT_USER_NAME=Demo User
+      - LANGFUSE_INIT_USER_PASSWORD=demodemo1!
 
   # Langfuse Web (UI and API)
   langfuse-web:
@@ -551,13 +366,18 @@ services:
       - NEXTAUTH_SECRET=langfuse-nextauth-secret-min-32-chars
       - SALT=langfuse-salt-min-32-characters-here
       - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # Headless initialization (idempotent - only creates if not exists)
+      - LANGFUSE_INIT_ORG_ID=demo-org
+      - LANGFUSE_INIT_ORG_NAME=Demo Organization
+      - LANGFUSE_INIT_PROJECT_ID=demo-project
+      - LANGFUSE_INIT_PROJECT_NAME=LLM Observability Demo
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-1234567890
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-1234567890
+      - LANGFUSE_INIT_USER_EMAIL=demo@localhost
+      - LANGFUSE_INIT_USER_NAME=Demo User
+      - LANGFUSE_INIT_USER_PASSWORD=demodemo1!
 
 volumes:
-  # ClickStack volumes
-  clickstack-clickhouse-data:
-  clickstack-mongo-data:
   # Langfuse volumes
   langfuse-postgres-data:
   langfuse-minio-data:

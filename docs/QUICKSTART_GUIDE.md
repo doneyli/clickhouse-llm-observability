@@ -16,11 +16,10 @@ cd clickhouse-llm-observability
 
 The setup script will:
 1. Check prerequisites (Docker, Docker Compose)
-2. Start ClickStack (observability backend)
-3. Prompt for API keys (Anthropic, ClickStack)
-4. Generate all required secrets
-5. Build and start all services
-6. Run the demo and show access URLs
+2. Prompt for API keys (Anthropic, Langfuse)
+3. Generate all required secrets
+4. Build and start all services (including Langfuse)
+5. Run the demo and show access URLs
 
 **Other commands:**
 ```bash
@@ -37,9 +36,9 @@ If you prefer step-by-step manual setup, continue below.
 
 A complete LLM observability pipeline with:
 - **LibreChat** - Chat interface for interacting with LLMs
-- **HyperDX/ClickStack** - Trace visualization and dashboards
+- **Langfuse** - LLM observability, trace visualization, and evaluation
 - **Text-to-SQL Demo** - LLM app with automatic instrumentation
-- **Langfuse** - LLM quality evaluation and observability
+- **ClickHouse** - Analytics backend for Langfuse
 
 ```
 ASCII Architecture:
@@ -51,20 +50,9 @@ ASCII Architecture:
                  │                            │
                  ▼                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     INSTRUMENTATION LAYER                       │
-│           OpenTelemetry + OpenLLMetry (automatic tracing)       │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │ OTLP
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    OBSERVABILITY BACKEND                        │
-│  HyperDX/ClickStack (localhost:8080) ─── ClickHouse (storage)   │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    QUALITY EVALUATION                           │
-│     Langfuse (localhost:3001) ─── LLM-as-Judge Evaluator        │
+│                  OBSERVABILITY & EVALUATION                     │
+│     Langfuse (localhost:3001) ─── ClickHouse (storage)          │
+│     Traces, Scores, LLM-as-Judge Evaluators                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -75,26 +63,16 @@ flowchart TB
         API[Text-to-SQL API<br/>localhost:8002]
     end
 
-    subgraph INST["Instrumentation Layer"]
-        OTEL[OpenTelemetry + OpenLLMetry]
-    end
-
-    subgraph OBS["Observability Backend"]
-        HDX[HyperDX/ClickStack<br/>localhost:8080]
-        CH[(ClickHouse)]
-    end
-
-    subgraph EVAL["Quality Evaluation"]
+    subgraph OBS["Observability & Evaluation"]
         LF[Langfuse<br/>localhost:3001]
-        EVL[LLM-as-Judge Evaluator]
+        CH[(ClickHouse)]
+        EVL[LLM-as-Judge Evaluators]
     end
 
-    LC --> OTEL
-    API --> OTEL
-    OTEL -->|OTLP| HDX
-    HDX --> CH
-    CH --> EVL
-    EVL --> TRU
+    LC --> LF
+    API --> LF
+    LF --> CH
+    LF --> EVL
 ```
 
 ---
@@ -120,33 +98,7 @@ git clone https://github.com/your-org/clickhouse-llm-observability.git
 cd clickhouse-llm-observability
 ```
 
-### 1.2 Start ClickStack (Observability Backend)
-
-ClickStack runs separately to receive traces from all services:
-
-```bash
-# Start ClickStack
-docker run -d --name clickstack \
-  -p 8080:8080 -p 4317:4317 -p 4318:4318 \
-  docker.hyperdx.io/hyperdx/hyperdx-all-in-one
-
-# Wait for it to be ready (usually 30-60 seconds)
-echo "Waiting for ClickStack to start..."
-until curl -s http://localhost:8080 > /dev/null 2>&1; do
-  sleep 2
-  echo -n "."
-done
-echo " Ready!"
-```
-
-### 1.3 Get Your ClickStack API Key
-
-1. Open http://localhost:8080
-2. Create an account (any email/password for local use)
-3. Go to **Team Settings** (gear icon in sidebar)
-4. Copy the **Ingestion API Key**
-
-### 1.4 Configure Environment
+### 1.2 Configure Environment
 
 ```bash
 # Copy the example environment file
@@ -156,9 +108,8 @@ cp .env.example .env
 Edit `.env` and set these **required** values:
 
 ```bash
-# Required - your API keys
+# Required - your API key
 ANTHROPIC_API_KEY=sk-ant-api03-xxxxx     # From console.anthropic.com
-CLICKSTACK_API_KEY=xxxxx                  # From step 1.3
 
 # Required for LibreChat - generate with: openssl rand -hex 32
 CREDS_KEY=<generate-32-hex-bytes>
@@ -183,24 +134,14 @@ echo "JWT_REFRESH_SECRET=$(openssl rand -hex 32)" >> .env
 
 ## Step 2: Start the Services (5 minutes)
 
-### 2.1 Connect ClickStack to Docker Network
-
-```bash
-# Create the network if it doesn't exist
-docker network create clickhouse-llm-observability_default 2>/dev/null || true
-
-# Connect ClickStack to the compose network
-docker network connect clickhouse-llm-observability_default clickstack
-```
-
-### 2.2 Build and Start All Services
+### 2.1 Build and Start All Services
 
 ```bash
 # Build and start (this takes 3-5 minutes first time)
 docker compose up -d --build
 ```
 
-### 2.3 Verify Services Are Running
+### 2.2 Verify Services Are Running
 
 ```bash
 docker compose ps
@@ -229,16 +170,14 @@ text-to-sql                  Up
 | Service | URL | What It Does |
 |---------|-----|--------------|
 | **LibreChat** | http://localhost:3080 | Chat interface |
-| **HyperDX** | http://localhost:8080 | Trace visualization |
+| **Langfuse** | http://localhost:3001 | LLM observability, traces & evaluation |
 | **Text-to-SQL API** | http://localhost:8002 | Demo API endpoint |
-| **Langfuse** | http://localhost:3001 | LLM observability & evaluation |
 
 ### 3.2 Quick Health Check
 
 ```bash
 # Check all services are responding
 echo "Checking LibreChat..."    && curl -s -o /dev/null -w "%{http_code}" http://localhost:3080 && echo " OK"
-echo "Checking HyperDX..."      && curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 && echo " OK"
 echo "Checking Text-to-SQL..."  && curl -s -o /dev/null -w "%{http_code}" http://localhost:8002/health && echo " OK"
 echo "Checking Langfuse..."     && curl -s -o /dev/null -w "%{http_code}" http://localhost:3001 && echo " OK"
 ```
@@ -273,33 +212,32 @@ docker compose exec text-to-sql python main.py --demo
 
 ---
 
-## Step 5: View Traces in HyperDX (5 minutes)
+## Step 5: View Traces in Langfuse (5 minutes)
 
-### 5.1 Open HyperDX
+### 5.1 Open Langfuse
 
-1. Go to http://localhost:8080
-2. Click **Search** in the sidebar
-3. Select **Traces** tab
+1. Go to http://localhost:3001
+2. Click **Traces** in the sidebar
 
 ### 5.2 Find Your Traces
 
-Filter by service name:
-- `ServiceName = librechat-api` - LibreChat conversations
-- `ServiceName = text-to-sql-demo` - Text-to-SQL queries
-- `ServiceName = librechat-conversations` - Exported conversations
+Browse traces from different sources:
+- LibreChat conversations
+- Text-to-SQL demo queries
+- Vector RAG queries
 
 ### 5.3 What to Look For
 
 Click on any trace to see:
 
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `gen_ai.prompt.0.content` | The prompt sent to the LLM | "What is the weather?" |
-| `gen_ai.completion.0.content` | The LLM's response | "I don't have access to..." |
-| `gen_ai.usage.input_tokens` | Tokens in the prompt | 150 |
-| `gen_ai.usage.output_tokens` | Tokens in the response | 89 |
-| `gen_ai.request.model` | Model used | claude-sonnet-4-20250514 |
-| `Duration` | Response latency | 1.2s |
+| Detail | Description | Example |
+|--------|-------------|---------|
+| Input | The prompt sent to the LLM | "What is the weather?" |
+| Output | The LLM's response | "I don't have access to..." |
+| Usage (input tokens) | Tokens in the prompt | 150 |
+| Usage (output tokens) | Tokens in the response | 89 |
+| Model | Model used | claude-sonnet-4-20250514 |
+| Latency | Response time | 1.2s |
 
 ---
 
@@ -338,9 +276,9 @@ Langfuse provides built-in LLM-as-a-Judge evaluators:
 You know the demo is working when you can:
 
 - [ ] Access LibreChat at http://localhost:3080 and send a message
-- [ ] See traces appear in HyperDX at http://localhost:8080
-- [ ] View trace details with `gen_ai.*` attributes
-- [ ] (Optional) See traces and evaluation scores in Langfuse at http://localhost:3001
+- [ ] See traces appear in Langfuse at http://localhost:3001
+- [ ] View trace details with prompts, completions, and token usage
+- [ ] (Optional) Configure LLM-as-a-Judge evaluators and see evaluation scores
 
 ---
 
@@ -356,14 +294,14 @@ docker compose logs --tail=50
 docker compose logs text-to-sql --tail=50
 ```
 
-### No traces appearing in HyperDX
+### No traces appearing in Langfuse
 
 ```bash
-# Verify API key is set
-grep CLICKSTACK_API_KEY .env
+# Verify Langfuse API keys are set
+grep LANGFUSE .env
 
-# Check ClickStack network connectivity
-docker compose exec text-to-sql curl -v http://clickstack:4318
+# Check Langfuse is running
+docker compose --profile langfuse ps
 ```
 
 ### LibreChat registration fails
@@ -396,9 +334,6 @@ docker compose --profile tools run --rm test-scenarios
 # Stop all services
 docker compose down
 
-# Stop ClickStack
-docker stop clickstack && docker rm clickstack
-
 # Remove volumes (deletes all data)
 docker compose down -v
 docker volume rm $(docker volume ls -q | grep clickhouse-llm-observability)
@@ -413,7 +348,6 @@ docker volume rm $(docker volume ls -q | grep clickhouse-llm-observability)
 | Understand evaluation architecture | [Evaluation Architecture](./EVALUATION_ARCHITECTURE.md) |
 | Test evaluation failure modes | [Evaluation Scenarios](./EVALUATION_SCENARIOS.md) |
 | Learn about Langfuse | [Langfuse Integration](./LANGFUSE_INTEGRATION.md) |
-| Create custom dashboards | [Dashboard API](./hyperdx-dashboard-api.md) |
 
 ---
 
@@ -444,19 +378,17 @@ docker compose --profile tools run --rm test-scenarios
 |------|---------|
 | 80 | Nginx (LibreChat proxy) |
 | 3080 | LibreChat API |
-| 4317 | OTLP gRPC |
-| 4318 | OTLP HTTP |
+| 3001 | Langfuse |
 | 8001 | ClickHouse MCP Server |
 | 8002 | Text-to-SQL API |
 | 8003 | Vector RAG API |
-| 8080 | HyperDX/ClickStack |
-| 3001 | Langfuse |
 
 ### Environment Variables (Required)
 
 | Variable | Description |
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `CLICKSTACK_API_KEY` | HyperDX ingestion key |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key |
 | `CREDS_KEY` | LibreChat encryption key |
 | `JWT_SECRET` | LibreChat JWT secret |

@@ -1,20 +1,13 @@
 """
-ClickHouse Text-to-SQL Demo with OpenLLMetry & Langfuse
+ClickHouse Text-to-SQL Demo with Langfuse
 
 Entry point for the Text-to-SQL application.
-Dual instrumentation: OpenLLMetry → ClickStack and Langfuse → Langfuse.
+Instrumentation via Langfuse SDK CallbackHandler.
 """
 
 import os
 import sys
 
-# ============================================================
-# CRITICAL: Setup instrumentation BEFORE importing LangChain!
-# ============================================================
-from instrumentation import setup_instrumentation
-setup_instrumentation()
-
-# Now safe to import LangChain and other modules
 from sql_pipeline import create_pipeline
 
 # Langfuse instrumentation
@@ -32,7 +25,7 @@ def run_demo(pipeline):
     """Run demo queries."""
 
     print("\n" + "="*60)
-    print("ClickHouse Text-to-SQL Demo with OpenLLMetry")
+    print("ClickHouse Text-to-SQL Demo")
     if is_langfuse_enabled():
         print("+ Langfuse instrumentation enabled")
     print("="*60)
@@ -56,7 +49,6 @@ def run_demo(pipeline):
 
     print("\n" + "="*60)
     print("Demo complete!")
-    print("   View traces: http://localhost:8080 (HyperDX)")
     if is_langfuse_enabled():
         print("   View traces: http://localhost:3001 (Langfuse)")
     print("="*60 + "\n")
@@ -97,14 +89,7 @@ def main():
     ╔═══════════════════════════════════════════════════════════╗
     ║   ClickHouse Text-to-SQL Demo                             ║
     ║                                                           ║
-    ║   - OpenLLMetry: Auto-captures prompts, tokens            ║
-    ║   - ClickStack: Unified observability in ClickHouse       ║"""
-
-    if is_langfuse_enabled():
-        banner += """
-    ║   - Langfuse: LLM observability (enabled)                 ║"""
-
-    banner += """
+    ║   - Langfuse: LLM observability (ClickHouse backend)      ║
     ╚═══════════════════════════════════════════════════════════╝
     """
     print(banner)

@@ -8,39 +8,31 @@ This guide covers the Langfuse integration for LLM observability. Langfuse is th
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                    DUAL INSTRUMENTATION ARCHITECTURE                          │
+│                       LANGFUSE OBSERVABILITY ARCHITECTURE                     │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│   ┌─────────────┐     ┌─────────────┐                                       │
-│   │ Text-to-SQL │     │ Vector RAG  │                                       │
-│   │    Demo     │     │    Demo     │                                       │
-│   └──────┬──────┘     └──────┬──────┘                                       │
-│          │                   │                                              │
-│          │ Dual Instrumentation                                             │
-│          │ • OpenLLMetry → ClickStack (automatic)                           │
-│          │ • Langfuse SDK → Langfuse (via callbacks)                        │
-│          │                   │                                              │
-│          └───────────┬───────┘                                              │
+│   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                   │
+│   │ Text-to-SQL │     │ Vector RAG  │     │  LibreChat  │                   │
+│   │    Demo     │     │    Demo     │     │             │                   │
+│   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘                   │
+│          │                   │                   │                           │
+│          │  Langfuse SDK (callbacks / native integration)                    │
+│          │                   │                   │                           │
+│          └───────────┬───────┴───────────────────┘                          │
 │                      │                                                       │
-│          ┌───────────┴───────────┐                                          │
-│          │                       │                                          │
-│          ▼                       ▼                                          │
-│   ┌─────────────────┐     ┌─────────────────┐                               │
-│   │   ClickStack    │     │    Langfuse     │                               │
-│   │   (HyperDX)     │     │    (Web UI)     │                               │
-│   │ localhost:8080  │     │ localhost:3001  │                               │
-│   └────────┬────────┘     └────────┬────────┘                               │
-│            │                       │                                        │
-│            │                       │                                        │
-│            └───────────┬───────────┘                                        │
-│                        │                                                    │
-│                        ▼                                                    │
+│                      ▼                                                       │
+│            ┌─────────────────┐                                              │
+│            │    Langfuse     │                                              │
+│            │    (Web UI)     │                                              │
+│            │ localhost:3001  │                                              │
+│            └────────┬────────┘                                              │
+│                     │                                                       │
+│                     ▼                                                       │
 │            ┌───────────────────────┐                                        │
 │            │      ClickHouse       │                                        │
-│            │   (Shared Backend)    │                                        │
+│            │   (Analytics Backend) │                                        │
 │            │                       │                                        │
-│            │ • otel_traces (HyperDX)                                        │
-│            │ • langfuse_* (Langfuse tables)                                 │
+│            │ • langfuse_* tables   │                                        │
 │            └───────────────────────┘                                        │
 │                                                                              │
 │                        ┌─────────────────┐                                  │
@@ -70,7 +62,7 @@ Langfuse requires several supporting services:
 | `langfuse-worker` | `langfuse/langfuse-worker:3` | Background event processing |
 | `langfuse-web` | `langfuse/langfuse:latest` | Web UI and API (port 3001) |
 
-**Important**: Langfuse reuses ClickStack's ClickHouse instance for OLAP storage.
+**Important**: Langfuse uses ClickHouse for OLAP storage (analytics backend).
 
 ---
 
@@ -79,7 +71,7 @@ Langfuse requires several supporting services:
 ### 1. Create Langfuse Database in ClickHouse
 
 ```bash
-docker exec clickstack clickhouse-client --user api --password api \
+docker compose exec clickhouse clickhouse-client \
   --query "CREATE DATABASE IF NOT EXISTS langfuse"
 ```
 

@@ -1,19 +1,19 @@
 #!/bin/bash
-#
-# LLM Observability Demo - One-Click Setup
-# =========================================
-# This script sets up the complete LLM observability demo with a single command.
+# ==============================================================================
+# LLM Observability Demo - Idempotent Setup
+# ==============================================================================
+# Safe to run multiple times. Never overwrites existing secrets or config.
 #
 # Usage:
-#   ./setup.sh                    # Interactive setup (prompts for API keys)
-#   ./setup.sh --auto             # Auto setup (uses existing .env or prompts)
-#   ./setup.sh --cleanup          # Stop and remove all containers
+#   ./setup.sh                    # Interactive setup
 #   ./setup.sh --status           # Show status of all services
+#   ./setup.sh --cleanup          # Stop all containers (preserves data)
+#   ./setup.sh --help             # Show help
 #
 # Prerequisites:
 #   - Docker and Docker Compose
 #   - Anthropic API key (https://console.anthropic.com/)
-#
+# ==============================================================================
 
 set -e
 
@@ -32,15 +32,17 @@ cd "$SCRIPT_DIR"
 # Print colored output
 #######################################
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-success() { echo -e "${GREEN}[OK]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+success() { echo -e "${GREEN}  ✓${NC} $1"; }
+warn() { echo -e "${YELLOW}  !${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
+created() { echo -e "${GREEN}  + Created:${NC} $1"; }
+reused() { echo -e "${BLUE}  ✓ Reusing:${NC} $1"; }
 
 header() {
     echo ""
-    echo -e "${BLUE}============================================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}============================================================${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}  $1${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
 #######################################
@@ -70,224 +72,222 @@ check_prerequisites() {
         exit 1
     fi
     success "Docker daemon is running"
+
+    # Check openssl
+    if ! command -v openssl &> /dev/null; then
+        error "openssl is not installed (needed for secret generation)."
+        exit 1
+    fi
+    success "openssl available"
 }
 
 #######################################
-# Start ClickStack (observability backend)
+# Ensure .env exists (never overwrite)
 #######################################
-start_clickstack() {
-    header "Starting ClickStack (Observability Backend)"
+ensure_env_file() {
+    header "Checking Environment"
 
-    if docker ps --format '{{.Names}}' | grep -q '^clickstack$'; then
-        success "ClickStack is already running"
+    if [ -f .env ]; then
+        reused ".env file already exists"
     else
-        info "Starting ClickStack container..."
-        docker run -d --name clickstack \
-            -p 8080:8080 -p 4317:4317 -p 4318:4318 \
-            docker.hyperdx.io/hyperdx/hyperdx-all-in-one
-
-        info "Waiting for ClickStack to be ready..."
-        local count=0
-        while ! curl -s http://localhost:8080 > /dev/null 2>&1; do
-            sleep 2
-            count=$((count + 1))
-            if [ $count -gt 60 ]; then
-                error "ClickStack failed to start after 2 minutes"
-                exit 1
-            fi
-            echo -n "."
-        done
-        echo ""
-        success "ClickStack is ready"
+        cp .env.example .env
+        created ".env from .env.example"
     fi
 
-    # Connect to Docker network
-    docker network create clickhouse-llm-observability_default 2>/dev/null || true
-    docker network connect clickhouse-llm-observability_default clickstack 2>/dev/null || true
+    # Source environment
+    set -a
+    source .env
+    set +a
 }
 
 #######################################
-# Get ClickStack API Key
+# Check/prompt for Anthropic API key
 #######################################
-get_clickstack_api_key() {
-    if [ -n "$CLICKSTACK_API_KEY" ]; then
-        return 0
-    fi
-
-    if [ -f .env ] && grep -q "CLICKSTACK_API_KEY=." .env; then
-        export CLICKSTACK_API_KEY=$(grep "CLICKSTACK_API_KEY=" .env | cut -d'=' -f2)
-        if [ -n "$CLICKSTACK_API_KEY" ]; then
-            success "Using ClickStack API key from .env"
-            return 0
-        fi
-    fi
-
-    echo ""
-    warn "ClickStack API key not found."
-    echo ""
-    echo -e "${YELLOW}To get your API key:${NC}"
-    echo "  1. Open http://localhost:8080"
-    echo "  2. Create an account (any email/password for local use)"
-    echo "  3. Go to Team Settings (gear icon)"
-    echo "  4. Copy the Ingestion API Key"
-    echo ""
-    read -p "Enter your ClickStack API key: " CLICKSTACK_API_KEY
-
-    if [ -z "$CLICKSTACK_API_KEY" ]; then
-        error "ClickStack API key is required"
-        exit 1
-    fi
-    export CLICKSTACK_API_KEY
-}
-
-#######################################
-# Get Anthropic API Key
-#######################################
-get_anthropic_api_key() {
+ensure_anthropic_key() {
     if [ -n "$ANTHROPIC_API_KEY" ]; then
+        success "ANTHROPIC_API_KEY is set"
         return 0
     fi
 
-    if [ -f .env ] && grep -q "ANTHROPIC_API_KEY=." .env; then
-        export ANTHROPIC_API_KEY=$(grep "ANTHROPIC_API_KEY=" .env | cut -d'=' -f2)
-        if [ -n "$ANTHROPIC_API_KEY" ]; then
-            success "Using Anthropic API key from .env"
-            return 0
-        fi
-    fi
+    echo ""
+    warn "ANTHROPIC_API_KEY is not set in .env"
+    echo ""
+    echo -e "  Get your API key from: ${GREEN}https://console.anthropic.com/${NC}"
+    echo ""
+    read -p "  Enter your Anthropic API key: " INPUT_KEY
 
-    echo ""
-    warn "Anthropic API key not found."
-    echo ""
-    echo -e "${YELLOW}Get your API key from:${NC} https://console.anthropic.com/"
-    echo ""
-    read -p "Enter your Anthropic API key: " ANTHROPIC_API_KEY
-
-    if [ -z "$ANTHROPIC_API_KEY" ]; then
-        error "Anthropic API key is required"
+    if [ -z "$INPUT_KEY" ]; then
+        error "Anthropic API key is required to run the demo."
         exit 1
     fi
-    export ANTHROPIC_API_KEY
+
+    # Replace the empty value in .env
+    if grep -q "^ANTHROPIC_API_KEY=$" .env; then
+        sed -i.bak "s|^ANTHROPIC_API_KEY=$|ANTHROPIC_API_KEY=${INPUT_KEY}|" .env && rm -f .env.bak
+    else
+        echo "ANTHROPIC_API_KEY=${INPUT_KEY}" >> .env
+    fi
+
+    export ANTHROPIC_API_KEY="$INPUT_KEY"
+    created "ANTHROPIC_API_KEY saved to .env"
 }
 
 #######################################
-# Configure environment
+# Generate LibreChat secrets (only if missing)
 #######################################
-configure_environment() {
-    header "Configuring Environment"
+ensure_librechat_secrets() {
+    header "Checking LibreChat Secrets"
 
-    get_clickstack_api_key
-    get_anthropic_api_key
+    local secrets_added=false
 
-    # Generate secrets if needed
-    CREDS_KEY=${CREDS_KEY:-$(openssl rand -hex 32)}
-    CREDS_IV=${CREDS_IV:-$(openssl rand -hex 16)}
-    JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 32)}
-    JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-$(openssl rand -hex 32)}
+    if [ -n "$CREDS_KEY" ]; then
+        reused "CREDS_KEY"
+    else
+        local val=$(openssl rand -hex 32)
+        echo "CREDS_KEY=$val" >> .env
+        export CREDS_KEY="$val"
+        created "CREDS_KEY"
+        secrets_added=true
+    fi
 
-    # Create .env file
-    cat > .env << EOF
-# ==============================================================================
-# LLM Observability Demo - Environment Configuration
-# Generated by setup.sh on $(date)
-# ==============================================================================
+    if [ -n "$CREDS_IV" ]; then
+        reused "CREDS_IV"
+    else
+        local val=$(openssl rand -hex 16)
+        echo "CREDS_IV=$val" >> .env
+        export CREDS_IV="$val"
+        created "CREDS_IV"
+        secrets_added=true
+    fi
 
-# Required API Keys
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-CLICKSTACK_API_KEY=${CLICKSTACK_API_KEY}
+    if [ -n "$JWT_SECRET" ]; then
+        reused "JWT_SECRET"
+    else
+        local val=$(openssl rand -hex 32)
+        echo "JWT_SECRET=$val" >> .env
+        export JWT_SECRET="$val"
+        created "JWT_SECRET"
+        secrets_added=true
+    fi
 
-# LibreChat Secrets (auto-generated)
-CREDS_KEY=${CREDS_KEY}
-CREDS_IV=${CREDS_IV}
-JWT_SECRET=${JWT_SECRET}
-JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+    if [ -n "$JWT_REFRESH_SECRET" ]; then
+        reused "JWT_REFRESH_SECRET"
+    else
+        local val=$(openssl rand -hex 32)
+        echo "JWT_REFRESH_SECRET=$val" >> .env
+        export JWT_REFRESH_SECRET="$val"
+        created "JWT_REFRESH_SECRET"
+        secrets_added=true
+    fi
 
-# ClickHouse MCP Server (public demo database)
-CLICKHOUSE_HOST=sql-clickhouse.clickhouse.com
-CLICKHOUSE_USER=demo
-CLICKHOUSE_PASSWORD=
-
-# LLM Models
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
-EVALUATOR_MODEL=claude-3-5-haiku-20241022
-TEMPERATURE=0.7
-
-# Service Ports
-TEXT_TO_SQL_PORT=8002
-VECTOR_RAG_PORT=8003
-
-# Langfuse (optional)
-LANGFUSE_PUBLIC_KEY=
-LANGFUSE_SECRET_KEY=
-LANGFUSE_HOST=http://localhost:3001
-LANGFUSE_PORT=3001
-
-# Internal
-MONGO_URI=mongodb://mongodb:27017/LibreChat
-MEILI_HOST=http://meilisearch:7700
-MEILI_MASTER_KEY=DrhYf7zENyR6AlUCKmnz0eYASOQdl6zxH7s7MKFSfFCt
-ALLOW_REGISTRATION=true
-CONSOLE_JSON=true
-DEBUG_CONSOLE=true
-EOF
-
-    success "Environment configured (.env created)"
+    if [ "$secrets_added" = true ]; then
+        # Re-source to pick up new values
+        set -a
+        source .env
+        set +a
+    fi
 }
 
 #######################################
-# Build and start services
+# Derive Langfuse MCP auth token (only if missing)
 #######################################
-build_and_start() {
-    header "Building Docker Images"
+ensure_langfuse_mcp_token() {
+    header "Checking Langfuse Configuration"
 
-    info "This may take 3-5 minutes on first run..."
-    docker compose build --parallel
-    success "All images built"
+    if [ -n "$LANGFUSE_PUBLIC_KEY" ] && [ -n "$LANGFUSE_SECRET_KEY" ]; then
+        success "Langfuse API keys configured"
+    else
+        warn "Langfuse keys not set - demo project keys will be used from .env.example"
+    fi
 
+    if [ -n "$LANGFUSE_MCP_AUTH_TOKEN" ]; then
+        reused "LANGFUSE_MCP_AUTH_TOKEN"
+    elif [ -n "$LANGFUSE_PUBLIC_KEY" ] && [ -n "$LANGFUSE_SECRET_KEY" ]; then
+        local token
+        token=$(echo -n "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" | base64)
+        echo "LANGFUSE_MCP_AUTH_TOKEN=$token" >> .env
+        export LANGFUSE_MCP_AUTH_TOKEN="$token"
+        created "LANGFUSE_MCP_AUTH_TOKEN (derived from API keys)"
+    fi
+}
+
+#######################################
+# Check which services are already running
+#######################################
+check_running_services() {
+    local running=""
+    local services=$(docker compose --profile langfuse ps --format '{{.Name}} {{.Status}}' 2>/dev/null || true)
+
+    if echo "$services" | grep -q "langfuse-web.*Up"; then
+        running="$running langfuse"
+    fi
+    if echo "$services" | grep -q "librechat-api.*Up"; then
+        running="$running librechat"
+    fi
+    if echo "$services" | grep -q "mongodb.*Up"; then
+        running="$running mongodb"
+    fi
+
+    echo "$running"
+}
+
+#######################################
+# Start services
+#######################################
+start_services() {
     header "Starting Services"
 
-    docker compose up -d
-    success "Services started"
+    local running
+    running=$(check_running_services)
 
-    # Wait for services to be healthy
-    info "Waiting for services to be ready..."
-    sleep 10
+    if [ -n "$running" ]; then
+        info "Already running:$running"
+    fi
 
-    local retries=0
-    while [ $retries -lt 30 ]; do
-        local healthy=$(docker compose ps --format json 2>/dev/null | grep -c '"healthy"' || echo "0")
-        local total=$(docker compose ps -q 2>/dev/null | wc -l | tr -d ' ')
+    info "Starting all services (this may take a few minutes on first run)..."
+    echo ""
 
-        if [ "$healthy" -ge 3 ]; then
-            break
-        fi
+    docker compose --profile langfuse up -d
 
+    success "Docker Compose services started"
+}
+
+#######################################
+# Wait for critical services to be healthy
+#######################################
+wait_for_services() {
+    header "Waiting for Services"
+
+    # Wait for Langfuse
+    info "Waiting for Langfuse to be ready..."
+    local attempts=0
+    local max_attempts=60
+    while ! curl -s http://localhost:${LANGFUSE_PORT:-3001} > /dev/null 2>&1; do
         sleep 2
-        retries=$((retries + 1))
+        attempts=$((attempts + 1))
+        if [ $attempts -ge $max_attempts ]; then
+            warn "Langfuse not ready after 2 minutes. Check: docker compose --profile langfuse logs langfuse-web"
+            return 0
+        fi
         echo -n "."
     done
     echo ""
+    success "Langfuse is ready"
 
-    success "Services are ready"
-}
-
-#######################################
-# Run demo
-#######################################
-run_demo() {
-    header "Running Demo"
-
-    info "The text-to-sql demo runs automatically on startup."
-    info "Waiting for demo to complete..."
-
-    sleep 30
-
-    # Check if demo completed
-    if docker logs text-to-sql 2>&1 | grep -q "Demo complete"; then
-        success "Demo completed successfully"
-    else
-        warn "Demo may still be running. Check logs with: docker logs text-to-sql"
-    fi
+    # Wait for LibreChat
+    info "Waiting for LibreChat to be ready..."
+    attempts=0
+    while ! curl -s http://localhost:3080/api/health > /dev/null 2>&1; do
+        sleep 2
+        attempts=$((attempts + 1))
+        if [ $attempts -ge $max_attempts ]; then
+            warn "LibreChat not ready after 2 minutes. Check: docker compose logs api"
+            return 0
+        fi
+        echo -n "."
+    done
+    echo ""
+    success "LibreChat is ready"
 }
 
 #######################################
@@ -296,27 +296,38 @@ run_demo() {
 show_status() {
     header "Service Status"
 
-    docker compose ps --format "table {{.Name}}\t{{.Status}}"
+    docker compose --profile langfuse ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
+        docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
 
     header "Access URLs"
 
     echo ""
     echo -e "  ${GREEN}LibreChat (Chat UI):${NC}        http://localhost:3080"
-    echo -e "  ${GREEN}HyperDX (Traces):${NC}           http://localhost:8080"
-    echo -e "  ${GREEN}Langfuse (Evaluations):${NC}     http://localhost:3001"
+    echo -e "  ${GREEN}Langfuse (LLM Traces):${NC}      http://localhost:${LANGFUSE_PORT:-3001}"
+    echo -e "    Email: demo@localhost  |  Password: demodemo1!"
     echo ""
 
-    header "Quick Commands"
+    header "Next Steps"
 
+    echo ""
+    echo "  # Seed demo data (generates traces in Langfuse)"
+    echo "  ./scripts/seed-demo-data.sh"
+    echo ""
+    echo "  # Or run demos individually"
+    echo "  docker compose run --rm text-to-sql python main.py"
+    echo "  docker compose run --rm vector-rag python main.py"
+    echo ""
+    echo "  # Interactive mode"
+    echo "  docker compose run --rm text-to-sql python main.py --interactive"
     echo ""
     echo "  # View logs"
-    echo "  docker compose logs -f text-to-sql"
+    echo "  docker compose logs -f api"
     echo ""
-    echo "  # Run trace evaluator"
-    echo "  docker compose run --rm trace-evaluator python main.py --service text-to-sql-demo --hours 1"
-    echo ""
-    echo "  # Stop all services"
+    echo "  # Stop all services (preserves data)"
     echo "  ./setup.sh --cleanup"
+    echo ""
+    echo "  # Full reset (destroys all data)"
+    echo "  ./scripts/reset.sh"
     echo ""
 }
 
@@ -324,21 +335,21 @@ show_status() {
 # Cleanup
 #######################################
 cleanup() {
-    header "Cleaning Up"
+    header "Stopping Services"
 
-    info "Stopping services..."
-    docker compose down || true
+    info "Stopping all containers..."
+    docker compose --profile langfuse --profile demo --profile tools down 2>/dev/null || \
+        docker compose down 2>/dev/null || true
 
-    info "Stopping ClickStack..."
-    docker stop clickstack 2>/dev/null || true
-    docker rm clickstack 2>/dev/null || true
-
-    success "Cleanup complete"
+    success "All services stopped (data preserved)"
 
     echo ""
     echo "To remove all data (volumes), run:"
-    echo "  docker compose down -v"
-    echo "  docker volume rm \$(docker volume ls -q | grep clickhouse-llm-observability)"
+    echo "  ./scripts/reset.sh"
+    echo ""
+    echo "To start again:"
+    echo "  ./setup.sh"
+    echo ""
 }
 
 #######################################
@@ -347,7 +358,7 @@ cleanup() {
 main() {
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║     LLM Observability Demo - One-Click Setup               ║${NC}"
+    echo -e "${BLUE}║       LLM Observability Demo - Setup                     ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -357,6 +368,10 @@ main() {
             exit 0
             ;;
         --status|-s)
+            # Source .env if it exists for variable expansion
+            if [ -f .env ]; then
+                set -a; source .env; set +a
+            fi
             show_status
             exit 0
             ;;
@@ -364,32 +379,36 @@ main() {
             echo "Usage: ./setup.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  (none)      Interactive setup - prompts for API keys"
-            echo "  --auto      Auto setup using existing .env or prompts"
-            echo "  --cleanup   Stop and remove all containers"
-            echo "  --status    Show status of all services"
+            echo "  (none)      Interactive setup (idempotent - safe to re-run)"
+            echo "  --status    Show status of all services and URLs"
+            echo "  --cleanup   Stop all containers (preserves data)"
             echo "  --help      Show this help message"
+            echo ""
+            echo "This script is idempotent:"
+            echo "  - Creates .env from .env.example only if .env doesn't exist"
+            echo "  - Generates secrets only if they're missing"
+            echo "  - Detects and reuses already-running services"
+            echo "  - Never overwrites existing configuration"
             echo ""
             exit 0
             ;;
     esac
 
     check_prerequisites
-    start_clickstack
-    configure_environment
-    build_and_start
-    run_demo
+    ensure_env_file
+    ensure_anthropic_key
+    ensure_librechat_secrets
+    ensure_langfuse_mcp_token
+    start_services
+    wait_for_services
     show_status
 
     header "Setup Complete!"
 
     echo ""
-    echo -e "${GREEN}Your LLM observability demo is now running!${NC}"
+    echo -e "${GREEN}Your LLM observability demo is ready!${NC}"
     echo ""
-    echo "Next steps:"
-    echo "  1. Open http://localhost:8080 to view traces in HyperDX"
-    echo "  2. Open http://localhost:3001 to view evaluations in Langfuse"
-    echo "  3. Open http://localhost:3080 to chat via LibreChat"
+    echo "  Run ./scripts/seed-demo-data.sh to populate sample traces."
     echo ""
 }
 

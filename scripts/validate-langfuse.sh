@@ -56,6 +56,12 @@ else
     warn "LANGFUSE_SECRET_KEY is not set (optional for base demo)"
 fi
 
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+    pass "ANTHROPIC_API_KEY is set"
+else
+    fail "ANTHROPIC_API_KEY is not set (required for demo apps)"
+fi
+
 echo ""
 
 # ------------------------------------------------------------------------------
@@ -67,7 +73,7 @@ echo "2. Checking Langfuse services..."
 if curl -s http://localhost:3001 > /dev/null 2>&1; then
     pass "Langfuse web UI is accessible at http://localhost:3001"
 else
-    warn "Langfuse web UI is not accessible (start with: docker compose --profile langfuse up -d)"
+    warn "Langfuse web UI is not accessible (start with: ./setup.sh)"
 fi
 
 # Check PostgreSQL
@@ -105,25 +111,36 @@ else
     warn "langfuse-web container is not running"
 fi
 
+# Check Langfuse ClickHouse
+if docker ps --format '{{.Names}}' | grep -q langfuse-clickhouse; then
+    pass "langfuse-clickhouse container is running"
+else
+    warn "langfuse-clickhouse container is not running"
+fi
+
 echo ""
 
 # ------------------------------------------------------------------------------
-# 3. Check ClickHouse Database for Langfuse
+# 3. Check Core Services
 # ------------------------------------------------------------------------------
-echo "3. Checking ClickHouse Langfuse database..."
+echo "3. Checking core services..."
 
-# Check if ClickStack is running
-if docker ps --format '{{.Names}}' | grep -q clickstack; then
-    pass "ClickStack container is running"
-
-    # Check if langfuse database exists
-    if docker exec clickstack clickhouse-client --user api --password api --query "SHOW DATABASES" 2>/dev/null | grep -q langfuse; then
-        pass "Langfuse database exists in ClickHouse"
-    else
-        warn "Langfuse database does not exist in ClickHouse (create with: docker exec clickstack clickhouse-client --user api --password api --query 'CREATE DATABASE IF NOT EXISTS langfuse')"
-    fi
+if docker ps --format '{{.Names}}' | grep -q librechat-api; then
+    pass "LibreChat API container is running"
 else
-    fail "ClickStack container is not running"
+    warn "LibreChat API container is not running"
+fi
+
+if curl -s http://localhost:3080/api/health > /dev/null 2>&1; then
+    pass "LibreChat API is healthy"
+else
+    warn "LibreChat API is not responding"
+fi
+
+if docker ps --format '{{.Names}}' | grep -q mcp-clickhouse; then
+    pass "MCP ClickHouse server is running"
+else
+    warn "MCP ClickHouse server is not running"
 fi
 
 echo ""
@@ -225,10 +242,10 @@ if [ $FAILED -eq 0 ]; then
     echo -e "${GREEN}Langfuse integration is properly configured!${NC}"
     echo ""
     echo "Next steps:"
-    echo "  1. Start Langfuse: docker compose --profile langfuse up -d"
-    echo "  2. Get API keys from: http://localhost:3001"
-    echo "  3. Add to .env: LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY"
-    echo "  4. Restart demo apps: docker compose restart text-to-sql vector-rag"
+    echo "  1. Start services: ./setup.sh"
+    echo "  2. Seed demo data: ./scripts/seed-demo-data.sh"
+    echo "  3. View traces: http://localhost:3001"
+    echo "     Email: demo@localhost | Password: demodemo1!"
     exit 0
 else
     echo -e "${RED}Some validation checks failed. Please fix the issues above.${NC}"

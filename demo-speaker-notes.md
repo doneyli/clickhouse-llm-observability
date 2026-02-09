@@ -27,14 +27,14 @@ This is powerful - business users can ask questions in plain English and get ans
 
 ---
 
-## Slide 19: Live Demo - Traces in ClickStack
+## Slide 19: Live Demo - Traces in Langfuse
 **Title:** "Demo: Full Trace Visibility"
 
 ### Speaker Notes:
 
-"Now let's see what that conversation looks like from an observability perspective. I'm switching to ClickStack - this is HyperDX, an open source observability UI that sits on top of ClickHouse.
+"Now let's see what that conversation looks like from an observability perspective. I'm switching to Langfuse - an open source LLM observability platform that uses ClickHouse as its analytics backend.
 
-**[Navigate to ClickStack, filter by service: librechat-conversations]**
+**[Navigate to Langfuse at localhost:3001, open the Traces view]**
 
 Here's the trace from our conversation. Let me walk you through what we're seeing:
 
@@ -116,7 +116,7 @@ Or build dashboards showing quality trends over time. Are we getting better or w
 
 ### Before the demo:
 1. Have LibreChat open and logged in
-2. Have ClickStack open in another tab, filtered to recent traces
+2. Have Langfuse open in another tab, filtered to recent traces
 3. Have a few interesting queries ready to ask the agent
 4. Clear any old test data that might confuse the narrative
 
@@ -143,6 +143,6 @@ Or build dashboards showing quality trends over time. Are we getting better or w
 
 If live demo fails, have these screenshots ready:
 1. LibreChat conversation with SQL results
-2. ClickStack trace waterfall with gen_ai.* attributes expanded
+2. Langfuse trace view with spans and token usage
 3. Langfuse evaluation scores
 4. ClickHouse dashboard with quality metrics over time

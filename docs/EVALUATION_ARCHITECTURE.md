@@ -87,7 +87,7 @@ These are **binary safety decisions** where blocking is required before the user
 │              │           ASYNC EVALUATION LAYER                              │
 │              ▼                                                               │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    TRACE STORE (HyperDX/ClickHouse)                  │    │
+│  │                    TRACE STORE (Langfuse/ClickHouse)                 │    │
 │  │                                                                      │    │
 │  │  • Prompts & completions (gen_ai.prompt, gen_ai.completion)         │    │
 │  │  • Token usage & latency                                            │    │
@@ -115,7 +115,7 @@ These are **binary safety decisions** where blocking is required before the user
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    DASHBOARDS & ALERTING                             │    │
 │  │                                                                      │    │
-│  │  HyperDX (Operational)          Langfuse (Quality)                  │    │
+│  │  Langfuse (Unified Observability & Quality)                          │    │
 │  │  • Latency percentiles          • Quality score trends              │    │
 │  │  • Token usage & cost           • Low-scoring outputs               │    │
 │  │  • Error rates                  • Judge reasoning                   │    │
@@ -194,9 +194,9 @@ Add thumbs up/down feedback to LibreChat and link to evaluation pipeline.
 - Feedback linked to trace IDs
 - Priority evaluation for negative feedback
 
-### Evaluation OTEL Span Structure
+### Evaluation Span Structure
 
-Each evaluation emits OpenTelemetry spans to HyperDX/ClickHouse, providing full traceability between the original LLM call and its quality evaluation.
+Each evaluation creates spans in Langfuse, providing full traceability between the original LLM call and its quality evaluation.
 
 #### Span Hierarchy
 
@@ -235,9 +235,9 @@ llm.evaluation (root span)
 
 #### Correlating Conversations with Evaluations
 
-**In HyperDX UI:**
-1. Find a `librechat-conversations` trace, copy its TraceId
-2. Search: `eval.source_trace_id:<trace-id>` to find its evaluation
+**In Langfuse UI:**
+1. Find a trace, copy its Trace ID
+2. Use the Trace ID to find its associated evaluation scores
 
 **SQL Query - Join conversations with evaluations:**
 ```sql
@@ -279,7 +279,7 @@ Each evaluation generates 3-4 spans:
 - **1 `llm.evaluation` span**: Parent span with all metadata and scores
 - **2-3 `ChatAnthropic.chat` spans**: Actual LLM calls to the judge model (one per feedback function)
 
-This is expected behavior - the evaluator runs separate LLM calls for each feedback function (relevance, coherence), and OpenLLMetry auto-instruments these as child spans.
+This is expected behavior - the evaluator runs separate LLM calls for each feedback function (relevance, coherence), and Langfuse auto-instruments these as child spans.
 
 ---
 
@@ -322,13 +322,13 @@ For production systems with high traffic, evaluate a sample:
 
 ## Metrics to Track
 
-### Operational (HyperDX)
+### Operational (Langfuse)
 - **Latency**: p50, p95, p99 response times
 - **Token usage**: Input/output tokens per request
 - **Cost**: Estimated cost per request/day
 - **Errors**: Failed requests, timeouts
 
-### Quality (Langfuse)
+### Quality (Langfuse Evaluators)
 - **Answer Relevance**: Does the answer address the question?
 - **Coherence**: Is the response well-structured?
 - **Groundedness**: Is it supported by retrieved context? (RAG only)
