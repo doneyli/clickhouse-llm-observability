@@ -26,6 +26,14 @@ NC='\033[0m' # No Color
 # Change to project root
 cd "$(dirname "$0")/.."
 
+# Source .env to ensure Docker Compose uses project-level values
+# (shell-level env vars override .env, so we must export explicitly)
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+
 echo ""
 echo -e "${BLUE}=============================================="
 echo "Seeding Demo Data"
