@@ -40,6 +40,7 @@ class TestScenario:
     description: str
     prompt: str
     response: str
+    ground_truth: str  # The correct answer — sent as expected_output for evaluators
     model: str
     expected_relevance: str  # e.g., "0.3-0.5"
     expected_coherence: str  # e.g., "0.8-1.0"
@@ -78,6 +79,7 @@ Key features include:
 
 The system excels at handling large volumes of data with sub-second query latency,
 making it popular for log analysis, time-series data, and business intelligence applications.""",
+        ground_truth="""ClickHouse Cloud offers three pricing tiers: (1) Development — for small workloads and experimentation, starting at $0.10/hr for compute; (2) Production — for business-critical workloads with SLA guarantees, higher availability, and auto-scaling; (3) Dedicated — for enterprises needing isolated infrastructure, custom configurations, and premium support. All tiers charge separately for compute (per hour) and storage (per GB/month). A free trial tier is also available.""",
         model="claude-sonnet-4-20250514",
         expected_relevance="0.2-0.4",
         expected_coherence="0.9-1.0",
@@ -108,6 +110,7 @@ specifically designed for petabyte-scale data.
 My final recommendation: Use ClickHouse. No, use PostgreSQL. Actually, use MongoDB
 for analytics. In conclusion, ClickHouse is the only viable option, unless you prefer
 PostgreSQL, which is equally unviable and also the best choice.""",
+        ground_truth="""For analytics workloads, ClickHouse is generally the better choice. ClickHouse uses columnar storage optimized for OLAP queries — it can scan billions of rows per second and achieves excellent compression. PostgreSQL uses row-based storage designed for OLTP (transactions), which is slower for large analytical scans. Choose ClickHouse if your primary need is fast aggregations over large datasets. Choose PostgreSQL if you need a mix of transactional and light analytical workloads, or if your data volume is small. They can also complement each other — PostgreSQL for application data, ClickHouse for analytics.""",
         model="claude-sonnet-4-20250514",
         expected_relevance="0.5-0.7",
         expected_coherence="0.1-0.3",
@@ -142,6 +145,7 @@ Key milestones:
 The database gained popularity after being featured in a famous 2011 TED talk by
 Dr. Volkov titled "The Future of Real-Time Analytics." Today, ClickHouse is maintained
 by a team of over 500 engineers at their headquarters in Boston, Massachusetts.""",
+        ground_truth="""ClickHouse was created by Alexey Milovidov at Yandex, the Russian search engine company. It was developed internally starting around 2009 to power Yandex.Metrica, one of the world's largest web analytics platforms. Key milestones: 2009 — development began at Yandex; 2016 — open-sourced under Apache 2.0 license on GitHub; 2021 — ClickHouse Inc. was founded as an independent company with $50M Series A; 2022 — raised $250M Series B at $2B valuation. The project is maintained by ClickHouse Inc., headquartered in San Francisco, with a large open-source community.""",
         model="claude-sonnet-4-20250514",
         expected_relevance="0.8-1.0",
         expected_coherence="0.9-1.0",
@@ -184,6 +188,7 @@ by a team of over 500 engineers at their headquarters in Boston, Massachusetts."
 These features make ClickHouse particularly well-suited for log analysis, time-series
 data, business intelligence, and any workload requiring fast aggregations over large
 datasets.""",
+        ground_truth="""ClickHouse's main advantages for analytics: (1) Columnar storage — reads only needed columns, dramatically faster for analytical queries; (2) Vectorized execution — processes data in batches using SIMD CPU instructions; (3) Real-time ingestion — handles millions of inserts/second while serving queries; (4) Compression — columnar layout achieves 10x+ compression ratios; (5) SQL interface — standard SQL with analytical extensions; (6) Horizontal scalability — distributed queries across shards; (7) Open-source — no licensing costs, Apache 2.0 license. Well-suited for log analysis, time-series, BI, and large-scale aggregations.""",
         model="claude-sonnet-4-20250514",
         expected_relevance="0.9-1.0",
         expected_coherence="0.9-1.0",
@@ -242,6 +247,7 @@ class LangfuseExporter:
                         "scenario_id": scenario.id,
                         "scenario_name": scenario.name,
                         "category": scenario.category,
+                        "ground_truth": scenario.ground_truth,
                         "expected_relevance": scenario.expected_relevance,
                         "expected_coherence": scenario.expected_coherence,
                         "why_low": scenario.why_low,

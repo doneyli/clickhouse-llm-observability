@@ -299,6 +299,8 @@ Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge** → **+ N
 
 For each evaluator, set the filter to tag: `test-scenario`.
 
+**Ground truth:** Each test scenario includes a `ground_truth` field stored in the trace metadata. The Correctness evaluator template references `{{expected_output}}` — for online evaluations this is populated from dataset items. For this demo, the Correctness evaluator still works well without it by comparing the output against the input query. To use ground truth with full accuracy, create a [Langfuse Dataset](https://langfuse.com/docs/datasets/overview) and run evaluations via experiments.
+
 **Step 3: Verify expected results**
 
 After evaluators run, the 4 test scenarios should score like this:
