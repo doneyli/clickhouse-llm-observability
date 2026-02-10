@@ -82,6 +82,8 @@ VOLUME_SUFFIXES=(
     "langfuse-postgres-data"
     "langfuse-minio-data"
     "langfuse-clickhouse-data"
+    # Model cache
+    "vector-rag-models"
 )
 
 for suffix in "${VOLUME_SUFFIXES[@]}"; do
@@ -145,7 +147,8 @@ if [ -f ".env" ]; then
     grep -v "^CREDS_KEY=" | \
     grep -v "^CREDS_IV=" | \
     grep -v "^JWT_SECRET=" | \
-    grep -v "^JWT_REFRESH_SECRET=" > .env.tmp
+    grep -v "^JWT_REFRESH_SECRET=" | \
+    grep -v "^CLICKSTACK_API_KEY=" > .env.tmp
 
     mv .env.tmp .env
 

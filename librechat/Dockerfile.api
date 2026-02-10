@@ -1,3 +1,5 @@
+# Note: librechat-dev only publishes `latest` and commit SHA tags on ghcr.io.
+# Pin to a specific commit SHA for full reproducibility if needed.
 FROM ghcr.io/danny-avila/librechat-dev:latest
 
 USER root
