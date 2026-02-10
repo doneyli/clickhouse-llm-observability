@@ -94,7 +94,7 @@ docker compose run --rm vector-rag python main.py --interactive
 
 **View your traces:**
 - **Langfuse**: http://localhost:3001 (LLM traces, evaluations, prompt playground)
-  - Email: `demo@localhost` | Password: `demodemo1!`
+  - Email: `demo@example.com` | Password: `demodemo1!`
 
 **Time:** 2-3 minutes | **Outcome:** Fresh traces in Langfuse
 
@@ -151,38 +151,40 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Component Overview
+### Components
 
-| Component | Purpose | Data Store |
-|-----------|---------|------------|
-| **Langfuse** | LLM observability, tracing, evaluation | ClickHouse + PostgreSQL |
-| **LibreChat** | Chat interface with native Langfuse tracing | MongoDB |
-| **Text-to-SQL Demo** | Natural language queries against ClickHouse | Langfuse traces |
-| **Vector RAG Demo** | RAG with embeddings and vector search | Langfuse traces |
+| Component | What It Does | Langfuse Trace Name | Filter Tag |
+|-----------|-------------|--------------------:|----------:|
+| **Text-to-SQL** | Converts natural language to SQL and runs it against ClickHouse's public demo database (UK property, GitHub events, OpenSky flights) | `text-to-sql` | `text-to-sql` |
+| **Vector RAG** | Retrieval-augmented generation — embeds documents with sentence-transformers, stores in ChromaDB, retrieves context for LLM answers | `vector-rag` | `vector-rag` |
+| **LibreChat** | Full chat UI with native Langfuse tracing — use it like ChatGPT, every conversation is traced | `AgentRun` | `librechat` |
+| **Test Scenarios** | Pre-crafted prompt/response pairs that intentionally fail in different ways — used to demo Langfuse evaluators | per-scenario name | `test-scenario` |
+| **Langfuse** | The observability platform — stores traces in ClickHouse, provides UI for search, cost tracking, and LLM-as-a-Judge evaluation | — | — |
 
----
+### Trace Tagging
 
-## What You'll Build
+Every trace source is tagged so you can filter in Langfuse:
 
-This demo sets up a complete LLM observability pipeline:
+| Tag | What It Captures |
+|-----|-----------------|
+| `text-to-sql` | Text-to-SQL demo queries |
+| `vector-rag` | Vector RAG demo queries |
+| `librechat` | LibreChat conversations |
+| `demo` | All demo queries (text-to-sql + vector-rag) |
+| `test-scenario` | All test scenario traces |
 
-1. **Demo LLM Applications**
-   - Text-to-SQL: Natural language queries against ClickHouse's public demo database
-   - Vector RAG: Retrieval-augmented generation with embeddings
+### Test Scenarios
 
-2. **Langfuse Instrumentation**
-   - Every LLM call captured with prompts, completions, token counts, and latency
-   - Langfuse SDK CallbackHandler for LangChain integration
+Four synthetic traces designed to demonstrate evaluation failure modes:
 
-3. **Trace Visualization**
-   - Search and filter traces by model, service, or content
-   - View the complete request/response flow
-   - Track costs and token usage
+| Scenario | Trace Name | Tests For | What's Wrong |
+|----------|-----------|-----------|-------------|
+| 1 | `off-topic-response` | Relevance | Asks about pricing, answers about features |
+| 2 | `contradictory-response` | Coherence | Recommends ClickHouse, then PostgreSQL, then neither, then both |
+| 3 | `fabricated-information` | Hallucination | Invents a fake creator, fake history, fake Google acquisition |
+| 4 | `good-response-control` | Baseline | Accurate, well-structured answer (the "passing grade") |
 
-4. **Quality Evaluation**
-   - Langfuse native LLM-as-a-Judge evaluators (Hallucination, Helpfulness, etc.)
-   - Automatic evaluation on new traces—no manual triggers needed
-   - Historical analysis of quality trends
+Filter by `test-scenario` in Langfuse, then configure LLM-as-a-Judge evaluators to auto-score them.
 
 ---
 
@@ -215,34 +217,13 @@ Langfuse is auto-configured with a demo account on first boot (headless init):
 | | |
 |---|---|
 | **URL** | http://localhost:3001 |
-| **Email** | `demo@localhost` |
+| **Email** | `demo@example.com` |
 | **Password** | `demodemo1!` |
 
 ### Additional Guides
 
 - **[Guided User Journey](docs/USER_JOURNEY.md)** — Hands-on walkthrough (~35 min)
 - **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** — Step-by-step manual setup
-
----
-
-## What You'll Accomplish
-
-After completing the demo, you will have:
-
-| Accomplishment | Benefit |
-|----------------|---------|
-| **Running observability stack** | Complete local environment for LLM monitoring |
-| **Sample traces in ClickHouse** | Real data to explore and query |
-| **Quality evaluation pipeline** | LLM-as-judge scoring on production traces |
-| **Reusable patterns** | Code and configs you can adapt for your apps |
-
-### Key Benefits
-
-- **Visibility**: See exactly what your LLM apps are doing in production
-- **Quality assurance**: Automated evaluation catches bad responses
-- **Cost control**: Track token usage and optimize expensive operations
-- **Debugging**: Full trace context when things go wrong
-- **Compliance**: Audit trail of all LLM interactions
 
 ---
 
@@ -283,32 +264,37 @@ docker compose logs -f [service-name]
 ### Running Demos
 
 ```bash
-# Generate traces with demo queries
-docker compose run --rm text-to-sql python main.py
-docker compose run --rm vector-rag python main.py
+# Generate traces (tagged automatically)
+docker compose run --rm text-to-sql python main.py     # → traces tagged "text-to-sql"
+docker compose run --rm vector-rag python main.py      # → traces tagged "vector-rag"
 
-# Interactive mode - type your own questions
+# Interactive mode
 docker compose run --rm text-to-sql python main.py --interactive
 docker compose run --rm vector-rag python main.py --interactive
+
+# Export test scenarios for evaluation testing
+docker compose --profile tools run --rm test-scenarios  # → traces tagged "test-scenario"
+
+# Seed everything at once
+./scripts/seed-demo-data.sh
 ```
 
 ### Evaluation
 
-Langfuse provides native LLM-as-a-Judge evaluators that run automatically on new traces.
-
 ```bash
-# Run test scenarios to generate evaluation test data
+# 1. Export test scenarios (4 pre-crafted good/bad examples)
 docker compose --profile tools run --rm test-scenarios
 
-# View evaluation results in Langfuse UI
-# http://localhost:3001 → Evaluations → LLM-as-a-Judge
-```
+# 2. Configure evaluators in Langfuse UI:
+#    http://localhost:3001 → Evaluations → LLM-as-a-Judge → + New Evaluator
+#    Filter by tag "test-scenario" to target test data
 
-**Configure evaluators in Langfuse UI:**
-1. Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge**
-2. Click **+ New Evaluator**
-3. Choose a template (Hallucination, Helpfulness, etc.)
-4. Filter by tag `test-scenario` to evaluate test data
+# 3. Expected results after evaluators run:
+#    off-topic-response       → low relevance, high coherence
+#    contradictory-response   → medium relevance, low coherence
+#    fabricated-information   → high relevance, high coherence (looks good but is false)
+#    good-response-control    → high relevance, high coherence
+```
 
 ### Reset & Maintenance
 
@@ -324,12 +310,12 @@ docker compose --profile tools run --rm test-scenarios
 
 ## Service Reference
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| **Langfuse** | http://localhost:3001 | LLM traces, evaluations, prompt playground |
-| **LibreChat** | http://localhost:3080 | Chat UI for LLM interaction |
-| **Text-to-SQL API** | http://localhost:8002 | Demo: Natural language → SQL (on-demand) |
-| **Vector RAG API** | http://localhost:8003 | Demo: RAG with embeddings (on-demand) |
+| Service | URL | Purpose | Langfuse Tag |
+|---------|-----|---------|:---:|
+| **Langfuse** | http://localhost:3001 | Traces, evaluations, prompt playground (`demo@example.com` / `demodemo1!`) | — |
+| **LibreChat** | http://localhost:3080 | Chat UI — register with any email/password | `librechat` |
+| **Text-to-SQL** | http://localhost:8002 | Natural language → SQL against ClickHouse demo data | `text-to-sql` |
+| **Vector RAG** | http://localhost:8003 | RAG with embeddings + ChromaDB | `vector-rag` |
 
 ---
 
@@ -369,6 +355,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │
 ├── librechat/                  # LibreChat customizations
 │   ├── Dockerfile.api
+│   ├── entrypoint.sh           # Patches LibreChat to add Langfuse tags
 │   └── nginx.conf
 │
 ├── mcp-clickhouse/             # ClickHouse MCP Server

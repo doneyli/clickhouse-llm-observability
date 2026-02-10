@@ -61,7 +61,7 @@ SCENARIOS = [
     # -------------------------------------------------------------------------
     TestScenario(
         id=1,
-        name="Off-Topic Response",
+        name="off-topic-response",
         category="Low Relevance",
         description="The LLM provides a coherent response about the wrong topic",
         prompt="What are ClickHouse's pricing tiers for cloud hosting?",
@@ -82,7 +82,7 @@ making it popular for log analysis, time-series data, and business intelligence 
         expected_relevance="0.2-0.4",
         expected_coherence="0.9-1.0",
         why_low="Response discusses ClickHouse features but completely ignores the pricing question",
-        tags=["test-scenario", "relevance-test"]
+        tags=["test-scenario", "off-topic-response", "relevance-test"]
     ),
 
     # -------------------------------------------------------------------------
@@ -90,7 +90,7 @@ making it popular for log analysis, time-series data, and business intelligence 
     # -------------------------------------------------------------------------
     TestScenario(
         id=2,
-        name="Contradictory Response",
+        name="contradictory-response",
         category="Low Coherence",
         description="The LLM contradicts itself multiple times within the response",
         prompt="Should I use ClickHouse or PostgreSQL for my analytics workload?",
@@ -112,7 +112,7 @@ PostgreSQL, which is equally unviable and also the best choice.""",
         expected_relevance="0.5-0.7",
         expected_coherence="0.1-0.3",
         why_low="Response repeatedly contradicts itself, making it impossible to extract a clear answer",
-        tags=["test-scenario", "coherence-test"]
+        tags=["test-scenario", "contradictory-response", "coherence-test"]
     ),
 
     # -------------------------------------------------------------------------
@@ -120,7 +120,7 @@ PostgreSQL, which is equally unviable and also the best choice.""",
     # -------------------------------------------------------------------------
     TestScenario(
         id=3,
-        name="Fabricated Information",
+        name="fabricated-information",
         category="Hallucination",
         description="The LLM confidently states false information",
         prompt="Who created ClickHouse and what is its history?",
@@ -146,7 +146,7 @@ by a team of over 500 engineers at their headquarters in Boston, Massachusetts."
         expected_relevance="0.8-1.0",
         expected_coherence="0.9-1.0",
         why_low="Response is relevant and coherent but contains entirely fabricated history (ClickHouse was actually created at Yandex by Alexey Milovidov, open-sourced in 2016)",
-        tags=["test-scenario", "hallucination-test"]
+        tags=["test-scenario", "fabricated-information", "hallucination-test"]
     ),
 
     # -------------------------------------------------------------------------
@@ -154,7 +154,7 @@ by a team of over 500 engineers at their headquarters in Boston, Massachusetts."
     # -------------------------------------------------------------------------
     TestScenario(
         id=4,
-        name="Good Response (Control)",
+        name="good-response-control",
         category="Control",
         description="A well-formed, accurate, and relevant response for comparison",
         prompt="What are the main advantages of ClickHouse for analytics?",
@@ -188,7 +188,7 @@ datasets.""",
         expected_relevance="0.9-1.0",
         expected_coherence="0.9-1.0",
         why_low="This is a control scenario - scores should be high",
-        tags=["test-scenario", "control"]
+        tags=["test-scenario", "good-response-control", "control"]
     ),
 ]
 
@@ -229,7 +229,11 @@ class LangfuseExporter:
 
             session_id = f"test-scenarios-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
 
-            with propagate_attributes(session_id=session_id):
+            with propagate_attributes(
+                session_id=session_id,
+                trace_name=scenario.name,
+                tags=scenario.tags,
+            ):
                 with self._client.start_as_current_observation(
                     as_type="span",
                     name=f"test-scenario-{scenario.id}",
@@ -243,7 +247,6 @@ class LangfuseExporter:
                         "why_low": scenario.why_low,
                         "source": "test-scenarios",
                     },
-                    tags=scenario.tags,
                 ) as trace_span:
                     with self._client.start_as_current_observation(
                         as_type="generation",

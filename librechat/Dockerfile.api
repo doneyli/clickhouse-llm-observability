@@ -10,7 +10,9 @@ RUN apk add --no-cache git build-base python3-dev curl libintl gettext-dev gcomp
 # Install to /usr/local/bin so it's available to all users
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+COPY entrypoint.sh /entrypoint.sh
+
 USER node
 EXPOSE 3080
 
-CMD ["node", "api/server/index.js"]
+CMD ["/entrypoint.sh"]
