@@ -89,13 +89,28 @@ def langfuse_session(session_id: Optional[str] = None):
         yield
 
 
+@contextmanager
+def langfuse_trace(trace_name="text-to-sql", tags=None):
+    """Context manager that sets trace name and tags for all Langfuse traces within."""
+    if not LANGFUSE_ENABLED:
+        yield
+        return
+
+    try:
+        from langfuse import propagate_attributes
+        with propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"]):
+            yield
+    except Exception as e:
+        print(f"Failed to set Langfuse trace context: {e}")
+        yield
+
+
 def get_langfuse_handler():
     """
     Get Langfuse callback handler for LangChain with session support.
     Returns None if Langfuse is not configured.
 
-    The handler automatically picks up session_id from propagate_attributes context.
-    For explicit session control, wrap calls in langfuse_session() context manager.
+    Use within a langfuse_trace() context to set trace name and tags.
     """
     if not LANGFUSE_ENABLED:
         return None
@@ -103,8 +118,6 @@ def get_langfuse_handler():
     try:
         from langfuse.langchain import CallbackHandler
 
-        # Create handler - v3 API uses different initialization
-        # Session/user context is set via propagate_attributes
         handler = CallbackHandler()
         return handler
 

@@ -11,7 +11,7 @@ import sys
 from sql_pipeline import create_pipeline
 
 # Langfuse instrumentation
-from langfuse_config import get_langfuse_handler, is_langfuse_enabled, flush as langfuse_flush
+from langfuse_config import get_langfuse_handler, langfuse_trace, is_langfuse_enabled, flush as langfuse_flush
 
 # Demo questions covering different databases
 DEMO_QUESTIONS = [
@@ -39,7 +39,8 @@ def run_demo(pipeline):
         callbacks = [langfuse_handler] if langfuse_handler else None
 
         try:
-            response = pipeline.query(question, callbacks=callbacks)
+            with langfuse_trace():
+                response = pipeline.query(question, callbacks=callbacks)
             print(f"Response: {response[:400]}...")
         except Exception as e:
             print(f"Error: {e}")
@@ -72,7 +73,8 @@ def run_interactive(pipeline):
             langfuse_handler = get_langfuse_handler()
             callbacks = [langfuse_handler] if langfuse_handler else None
 
-            response = pipeline.query(question, callbacks=callbacks)
+            with langfuse_trace():
+                response = pipeline.query(question, callbacks=callbacks)
             print(f"\nResponse: {response}\n")
 
         except KeyboardInterrupt:
