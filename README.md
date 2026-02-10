@@ -281,20 +281,34 @@ docker compose --profile tools run --rm test-scenarios  # → traces tagged "tes
 
 ### Evaluation
 
+**Step 1: Export test scenarios**
+
 ```bash
-# 1. Export test scenarios (4 pre-crafted good/bad examples)
 docker compose --profile tools run --rm test-scenarios
-
-# 2. Configure evaluators in Langfuse UI:
-#    http://localhost:3001 → Evaluations → LLM-as-a-Judge → + New Evaluator
-#    Filter by tag "test-scenario" to target test data
-
-# 3. Expected results after evaluators run:
-#    off-topic-response       → low relevance, high coherence
-#    contradictory-response   → medium relevance, low coherence
-#    fabricated-information   → high relevance, high coherence (looks good but is false)
-#    good-response-control    → high relevance, high coherence
 ```
+
+**Step 2: Create evaluators in Langfuse**
+
+Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge** → **+ New Evaluator** and create these three:
+
+| Evaluator | Template to Select | What It Catches |
+|-----------|--------------------|-----------------|
+| **Hallucination** | Hallucination | Fabricated facts stated confidently |
+| **Relevance** | Relevance | Answers that ignore the actual question |
+| **Correctness** | Correctness | Contradictory or logically inconsistent answers |
+
+For each evaluator, set the filter to tag: `test-scenario`.
+
+**Step 3: Verify expected results**
+
+After evaluators run, the 4 test scenarios should score like this:
+
+| Scenario | Hallucination | Relevance | Correctness | Why |
+|----------|:---:|:---:|:---:|-----|
+| `off-topic-response` | Pass | Fail | Pass | Coherent and factual, but answers the wrong question |
+| `contradictory-response` | Pass | Pass | Fail | On-topic but contradicts itself repeatedly |
+| `fabricated-information` | Fail | Pass | Pass | Relevant and well-structured, but entirely made up |
+| `good-response-control` | Pass | Pass | Pass | Baseline — accurate, relevant, consistent |
 
 ### Reset & Maintenance
 
