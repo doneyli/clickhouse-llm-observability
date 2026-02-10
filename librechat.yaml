@@ -10,7 +10,7 @@ cache: true
 mcpServers:
   clickhouse-playground:
     type: sse
-    url: http://host.docker.internal:8001/sse
+    url: http://mcp-clickhouse:8000/sse
 
   # Langfuse Prompt Management (MCP Server)
   # Enables agents to manage Langfuse prompts directly from chat

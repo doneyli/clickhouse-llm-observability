@@ -60,18 +60,30 @@ echo -e "${GREEN}✓${NC} Required services are running"
 echo ""
 
 # ------------------------------------------------------------------------------
+# Build Demo Images
+# ------------------------------------------------------------------------------
+echo "Building demo images (using cache if available)..."
+docker compose --profile demo --profile tools build --quiet 2>&1
+echo -e "${GREEN}✓${NC} Demo images ready"
+echo ""
+
+# ------------------------------------------------------------------------------
 # Run Text-to-SQL Demo
 # ------------------------------------------------------------------------------
 echo -e "${BLUE}[1/4] Running Text-to-SQL demo queries...${NC}"
 echo ""
 
-docker compose run --rm text-to-sql python main.py 2>&1 | while read line; do
+if ! docker compose run --rm text-to-sql python main.py 2>&1 | while read line; do
     echo "  $line"
-done
-
-echo ""
-echo -e "${GREEN}✓${NC} Text-to-SQL traces generated"
-echo ""
+done; then
+    echo -e "${RED}✗${NC} Text-to-SQL demo failed. Check your ANTHROPIC_API_KEY in .env"
+    echo "  Run manually: docker compose run --rm text-to-sql python main.py"
+    echo ""
+else
+    echo ""
+    echo -e "${GREEN}✓${NC} Text-to-SQL traces generated"
+    echo ""
+fi
 
 # ------------------------------------------------------------------------------
 # Run Vector RAG Demo
@@ -79,13 +91,17 @@ echo ""
 echo -e "${BLUE}[2/4] Running Vector RAG demo queries...${NC}"
 echo ""
 
-docker compose run --rm vector-rag python main.py 2>&1 | while read line; do
+if ! docker compose run --rm vector-rag python main.py 2>&1 | while read line; do
     echo "  $line"
-done
-
-echo ""
-echo -e "${GREEN}✓${NC} Vector RAG traces generated"
-echo ""
+done; then
+    echo -e "${RED}✗${NC} Vector RAG demo failed. Check your ANTHROPIC_API_KEY in .env"
+    echo "  Run manually: docker compose run --rm vector-rag python main.py"
+    echo ""
+else
+    echo ""
+    echo -e "${GREEN}✓${NC} Vector RAG traces generated"
+    echo ""
+fi
 
 # ------------------------------------------------------------------------------
 # Run Test Scenarios (unless --quick)
@@ -96,11 +112,16 @@ if [[ "$1" != "--quick" ]]; then
 
     # Check if test-scenarios service exists and can run
     if docker compose --profile tools run --rm test-scenarios --help > /dev/null 2>&1; then
-        docker compose --profile tools run --rm test-scenarios 2>&1 | while read line; do
+        if ! docker compose --profile tools run --rm test-scenarios 2>&1 | while read line; do
             echo "  $line"
-        done
-        echo ""
-        echo -e "${GREEN}✓${NC} Test scenarios completed"
+        done; then
+            echo -e "${RED}✗${NC} Test scenarios failed."
+            echo "  Run manually: docker compose --profile tools run --rm test-scenarios"
+            echo ""
+        else
+            echo ""
+            echo -e "${GREEN}✓${NC} Test scenarios completed"
+        fi
     else
         echo -e "${YELLOW}⚠${NC} Test scenarios service not available, skipping"
     fi

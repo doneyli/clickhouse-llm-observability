@@ -6,6 +6,7 @@
 #
 # Usage:
 #   ./setup.sh                    # Interactive setup
+#   ./setup.sh --seed             # Setup + seed demo data
 #   ./setup.sh --status           # Show status of all services
 #   ./setup.sh --cleanup          # Stop all containers (preserves data)
 #   ./setup.sh --help             # Show help
@@ -98,6 +99,22 @@ ensure_env_file() {
     set -a
     source .env
     set +a
+
+    # Clean up deprecated variables
+    if grep -q "^CLICKSTACK_API_KEY=" .env 2>/dev/null; then
+        sed -i.bak '/^CLICKSTACK_API_KEY=/d' .env && rm -f .env.bak
+        warn "Removed deprecated CLICKSTACK_API_KEY from .env"
+    fi
+}
+
+#######################################
+# Validate critical .env variables
+#######################################
+validate_env() {
+    if [ -z "$LANGFUSE_PUBLIC_KEY" ] || [ -z "$LANGFUSE_SECRET_KEY" ]; then
+        warn "LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set in .env"
+        warn "Langfuse tracing will use default demo keys (pk-lf-1234567890 / sk-lf-1234567890)"
+    fi
 }
 
 #######################################
@@ -250,6 +267,10 @@ start_services() {
     docker compose --profile langfuse up -d
 
     success "Docker Compose services started"
+
+    info "Pre-building demo images (cached if unchanged)..."
+    docker compose --profile demo --profile tools build --quiet 2>&1 || true
+    success "Demo images ready"
 }
 
 #######################################
@@ -296,13 +317,14 @@ wait_for_services() {
 show_status() {
     header "Service Status"
 
-    docker compose --profile langfuse ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
+    docker compose --profile langfuse --profile demo --profile tools ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
         docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
 
     header "Access URLs"
 
     echo ""
     echo -e "  ${GREEN}LibreChat (Chat UI):${NC}        http://localhost:3080"
+    echo -e "    First time? Register at http://localhost:3080 (any email/password)"
     echo -e "  ${GREEN}Langfuse (LLM Traces):${NC}      http://localhost:${LANGFUSE_PORT:-3001}"
     echo -e "    Email: demo@localhost  |  Password: demodemo1!"
     echo ""
@@ -362,6 +384,8 @@ main() {
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
+    local run_seed=false
+
     case "${1:-}" in
         --cleanup|-c)
             cleanup
@@ -375,11 +399,15 @@ main() {
             show_status
             exit 0
             ;;
+        --seed)
+            run_seed=true
+            ;;
         --help|-h)
             echo "Usage: ./setup.sh [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  (none)      Interactive setup (idempotent - safe to re-run)"
+            echo "  --seed      Setup + seed demo data (single-command experience)"
             echo "  --status    Show status of all services and URLs"
             echo "  --cleanup   Stop all containers (preserves data)"
             echo "  --help      Show this help message"
@@ -396,6 +424,7 @@ main() {
 
     check_prerequisites
     ensure_env_file
+    validate_env
     ensure_anthropic_key
     ensure_librechat_secrets
     ensure_langfuse_mcp_token
@@ -408,8 +437,16 @@ main() {
     echo ""
     echo -e "${GREEN}Your LLM observability demo is ready!${NC}"
     echo ""
-    echo "  Run ./scripts/seed-demo-data.sh to populate sample traces."
-    echo ""
+
+    if [ "$run_seed" = true ]; then
+        echo "  Running demo data seeding..."
+        echo ""
+        "$SCRIPT_DIR/scripts/seed-demo-data.sh"
+    else
+        echo "  Run ./scripts/seed-demo-data.sh to populate sample traces."
+        echo "  Or re-run with: ./setup.sh --seed"
+        echo ""
+    fi
 }
 
 main "$@"

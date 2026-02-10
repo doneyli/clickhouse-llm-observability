@@ -1,4 +1,4 @@
-FROM ghcr.io/danny-avila/librechat-dev:latest
+FROM ghcr.io/danny-avila/librechat-dev:v0.8.2
 
 USER root
 

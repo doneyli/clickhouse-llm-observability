@@ -1,4 +1,6 @@
-FROM mcp/clickhouse
+# Note: mcp/clickhouse only publishes a `latest` tag on Docker Hub.
+# Pin to a specific version when one becomes available.
+FROM mcp/clickhouse:latest
 
 RUN mkdir -p /app/logs
 
