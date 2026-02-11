@@ -352,6 +352,31 @@ services:
     environment:
       <<: *langfuse-common-env
 
+  # ClickHouse MCP Server for Langfuse Traces
+  # Enables natural language querying of Langfuse trace data via LibreChat agents
+  mcp-clickhouse-langfuse:
+    build:
+      context: ./mcp-clickhouse
+    container_name: mcp-clickhouse-langfuse
+    ports:
+      - "8004:8000"
+    restart: unless-stopped
+    profiles:
+      - langfuse
+    depends_on:
+      langfuse-clickhouse:
+        condition: service_healthy
+    environment:
+      - CLICKHOUSE_HOST=langfuse-clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=langfuse
+      - CLICKHOUSE_PASSWORD=langfuse123
+      - CLICKHOUSE_SECURE=false
+      - CLICKHOUSE_MCP_SERVER_TRANSPORT=sse
+      - CLICKHOUSE_MCP_BIND_HOST=0.0.0.0
+    volumes:
+      - ./mcp-langfuse-logs:/app/logs
+
 volumes:
   # Langfuse volumes
   langfuse-postgres-data:
