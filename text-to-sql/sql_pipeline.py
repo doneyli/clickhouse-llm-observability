@@ -18,19 +18,30 @@ class SQLConfig:
 # Available databases at sql.clickhouse.com
 CLICKHOUSE_DATABASES = """
 Available databases include:
-- uk_price_paid: UK property transactions
-- github_events: GitHub activity data
-- opensky: Flight tracking data
-- stackoverflow: Stack Overflow posts
-- reddit: Reddit posts and comments
-- hackernews: Hacker News stories
-- wikistat: Wikipedia page views
-- youtube: YouTube video metadata
-- food_prices: Global food price indices
-- nyc_taxi: NYC taxi trip data
-- ontime: US flight delay data
-- cell_towers: OpenCellID cell tower locations
-- crypto_prices: Cryptocurrency prices
+- amazon: Amazon product data
+- bluesky: Bluesky social network data
+- covid: COVID-19 data
+- dns: DNS query data
+- environmental: Environmental data
+- forex: Foreign exchange data
+- geo: Geographic data
+- git: Git repository data
+- github: GitHub events and activities
+- hackernews: Hacker News posts and comments
+- imdb: Internet Movie Database
+- logs: Log data
+- mta: Metropolitan Transportation Authority data
+- noaa: National Oceanic and Atmospheric Administration data
+- nyc_taxi: New York City taxi trip data
+- nypd: New York Police Department data
+- ontime: Airline on-time performance data
+- pypi: Python Package Index data
+- stackoverflow: Stack Overflow posts and data
+- stock: Stock market data
+- twitter: Twitter data
+- uk: UK property and related data
+- wiki: Wikipedia data
+- youtube: YouTube video data
 """
 
 
