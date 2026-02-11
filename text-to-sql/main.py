@@ -13,11 +13,18 @@ from sql_pipeline import create_pipeline
 # Langfuse instrumentation
 from langfuse_config import get_langfuse_handler, langfuse_trace, is_langfuse_enabled, flush as langfuse_flush
 
-# Demo questions covering different databases
+# Demo questions covering different ClickHouse public databases
 DEMO_QUESTIONS = [
     "What are the most expensive areas for property in London?",
     "How has GitHub activity changed over the past year?",
     "What are the busiest airports based on flight data?",
+    "Which programming languages have the most Stack Overflow questions?",
+    "What are the top 10 most active subreddits by post count?",
+    "What are the highest-scored stories on Hacker News this year?",
+    "Which Wikipedia articles get the most page views?",
+    "What is the average taxi trip distance in New York City?",
+    "Which US airlines have the highest rate of flight delays?",
+    "How have Bitcoin and Ethereum prices changed over the past year?",
 ]
 
 

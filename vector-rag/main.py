@@ -22,6 +22,13 @@ DEMO_QUESTIONS = [
     "What is ClickHouse and what is it used for?",
     "How does RAG architecture work?",
     "What are the benefits of LLM observability?",
+    "How does ClickHouse compare to traditional row-based databases?",
+    "What is OpenTelemetry and how does it work?",
+    "How does Langfuse evaluate LLM response quality?",
+    "What are vector embeddings and how are they used in AI?",
+    "What vector databases are available and how do they compare?",
+    "What is OpenLLMetry and how does it instrument LLM applications?",
+    "Why is ClickHouse well-suited for storing observability data?",
 ]
 
 

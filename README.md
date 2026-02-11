@@ -175,16 +175,16 @@ Every trace source is tagged so you can filter in Langfuse:
 
 ### Test Scenarios
 
-Four synthetic traces designed to demonstrate evaluation failure modes:
+40 synthetic traces (10 per category) designed to demonstrate evaluation failure modes:
 
-| Scenario | Trace Name | Tests For | What's Wrong |
-|----------|-----------|-----------|-------------|
-| 1 | `off-topic-response` | Relevance | Asks about pricing, answers about features |
-| 2 | `contradictory-response` | Coherence | Recommends ClickHouse, then PostgreSQL, then neither, then both |
-| 3 | `fabricated-information` | Hallucination | Invents a fake creator, fake history, fake Google acquisition |
-| 4 | `good-response-control` | Baseline | Accurate, well-structured answer (the "passing grade") |
+| IDs | Category | Tests For | Examples |
+|-----|----------|-----------|---------|
+| 1-10 | **Low Relevance** | Relevance | Asks about pricing/backup/security but answers about unrelated features |
+| 11-20 | **Low Coherence** | Correctness | Contradicts itself on DB choice, partitioning, replication, compression |
+| 21-30 | **Hallucination** | Hallucination | Fabricated history, fake SQL syntax, fake benchmarks, fake acquisitions |
+| 31-40 | **Control** | Baseline | Accurate answers about MergeTree, partitioning, replication, compression |
 
-Filter by `test-scenario` in Langfuse, then configure LLM-as-a-Judge evaluators to auto-score them.
+Filter by `test-scenario` in Langfuse, then configure LLM-as-a-Judge evaluators to auto-score them. Use `--list` to see all scenarios: `docker compose --profile tools run --rm --entrypoint python3 test-scenarios export_test_scenarios.py --list`
 
 ---
 
@@ -303,14 +303,14 @@ For each evaluator, set the filter to tag: `test-scenario`.
 
 **Step 3: Verify expected results**
 
-After evaluators run, the 4 test scenarios should score like this:
+After evaluators run, the 40 test scenarios should score by category:
 
-| Scenario | Hallucination | Relevance | Correctness | Why |
-|----------|:---:|:---:|:---:|-----|
-| `off-topic-response` | Pass | Fail | Pass | Coherent and factual, but answers the wrong question |
-| `contradictory-response` | Pass | Pass | Fail | On-topic but contradicts itself repeatedly |
-| `fabricated-information` | Fail | Pass | Pass | Relevant and well-structured, but entirely made up |
-| `good-response-control` | Pass | Pass | Pass | Baseline — accurate, relevant, consistent |
+| Category (IDs) | Hallucination | Relevance | Correctness | Pattern |
+|----------------|:---:|:---:|:---:|-----|
+| **Low Relevance** (1-10) | Pass | Fail | Pass | Coherent and factual, but answers the wrong question |
+| **Low Coherence** (11-20) | Pass | Pass | Fail | On-topic but contradicts itself repeatedly |
+| **Hallucination** (21-30) | Fail | Pass | Pass | Relevant and well-structured, but entirely made up |
+| **Control** (31-40) | Pass | Pass | Pass | Baseline — accurate, relevant, consistent |
 
 ### Reset & Maintenance
 
