@@ -174,14 +174,16 @@ def score_trace(
 
 
 def flush():
-    """Flush any pending Langfuse events."""
+    """Flush any pending Langfuse events and shut down cleanly."""
     if not LANGFUSE_ENABLED:
         return
 
     try:
         from langfuse import get_client
         client = get_client()
-        if client and hasattr(client, 'flush'):
+        if client and hasattr(client, 'shutdown'):
+            client.shutdown()
+        elif client and hasattr(client, 'flush'):
             client.flush()
     except Exception as e:
         print(f"Failed to flush Langfuse: {e}")

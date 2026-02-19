@@ -145,7 +145,7 @@ fi
 echo -e "${BLUE}[4/4] Evaluation happens automatically via Langfuse native evaluators${NC}"
 echo ""
 echo "  Traces created. Native Langfuse evaluators will score them automatically."
-echo "  Configure evaluators at: ${GREEN}http://localhost:3001${NC} → Evaluations → LLM-as-a-Judge"
+echo -e "  Configure evaluators at: ${GREEN}http://localhost:3001${NC} → Evaluations → LLM-as-a-Judge"
 echo ""
 
 # ------------------------------------------------------------------------------
@@ -157,7 +157,7 @@ echo -e "==============================================${NC}"
 echo ""
 echo "Your demo now has sample data. View it at:"
 echo ""
-echo "  Langfuse Traces:     ${GREEN}http://localhost:3001${NC}"
+echo -e "  Langfuse Traces:     ${GREEN}http://localhost:3001${NC}"
 echo ""
 echo "Try these in the UI:"
 echo "  - View trace timelines and token usage"
