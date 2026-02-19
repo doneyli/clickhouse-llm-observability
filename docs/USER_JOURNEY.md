@@ -259,7 +259,28 @@ The explanation flows logically from introduction to data to conclusion."
 
 ---
 
-## Step 6: Explore More (Optional)
+## Step 6: Explore Traces via CLI (Optional, 3 minutes)
+
+**What you'll do:** Use the Langfuse CLI to browse traces from your terminal.
+
+**Prerequisites:** Node.js 18+ (for `npx`)
+
+```bash
+# List recent traces
+./scripts/langfuse-cli.sh traces list --limit 5
+
+# Get details for a specific trace (use an ID from the list above)
+./scripts/langfuse-cli.sh traces get <trace-id>
+
+# Check evaluation scores
+./scripts/langfuse-cli.sh scores list
+```
+
+See [Langfuse CLI docs](./LANGFUSE_CLI.md) for more commands.
+
+---
+
+## Step 7: Explore More (Optional)
 
 ### Run the Vector RAG Demo
 
@@ -320,8 +341,8 @@ docker compose exec clickhouse clickhouse-client \
 | **Text-to-SQL API** | http://localhost:8002/query |
 | **Vector RAG API** | http://localhost:8003/query |
 | **View logs** | `docker compose logs -f [service]` |
-| **Run evaluator** | `docker compose run --rm trace-evaluator --hours 1` |
-| **List services with traces** | `docker compose run --rm trace-evaluator --list-services` |
+| **Langfuse CLI** | `./scripts/langfuse-cli.sh traces list --limit 5` |
+| **Seed demo data** | `./scripts/seed-demo-data.sh` |
 
 ---
 

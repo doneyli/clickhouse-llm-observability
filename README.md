@@ -416,8 +416,9 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ```
 ├── setup.sh                    # Idempotent setup script (safe to re-run)
 ├── docker-compose.yaml         # Service orchestration
-├── .env.example                # Environment template
+├── .env.example                # Environment template (DEPLOY_MODE, keys, ports)
 ├── librechat.yaml              # LibreChat configuration
+├── CLAUDE.md                   # Project context for Claude Code
 │
 ├── text-to-sql/                # Text-to-SQL demo app
 │   ├── Dockerfile
@@ -449,12 +450,15 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   ├── USER_JOURNEY.md
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
-│   └── LANGFUSE_INTEGRATION.md
+│   ├── LANGFUSE_INTEGRATION.md
+│   ├── LANGFUSE_CLI.md
+│   └── LANGFUSE_SKILLS.md
 │
 └── scripts/                    # Utility scripts
     ├── seed-demo-data.sh       # Populate demo with sample traces
     ├── reset.sh                # Full reset (destructive)
-    └── validate-langfuse.sh    # Validate Langfuse integration
+    ├── validate-langfuse.sh    # Validate Langfuse integration
+    └── langfuse-cli.sh         # Langfuse CLI wrapper
 ```
 
 ---
@@ -468,6 +472,8 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
+| [Langfuse CLI](docs/LANGFUSE_CLI.md) | Terminal access to traces, prompts, scores |
+| [Langfuse Skills](docs/LANGFUSE_SKILLS.md) | AI coding agent integration |
 
 ---
 
