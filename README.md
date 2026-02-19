@@ -290,6 +290,23 @@ docker compose --profile langfuse ps
 docker compose logs -f [service-name]
 ```
 
+### Langfuse CLI
+
+```bash
+# List recent traces (requires Node.js 18+)
+./scripts/langfuse-cli.sh traces list --limit 5
+
+# Get a specific trace
+./scripts/langfuse-cli.sh traces get <trace-id>
+
+# List prompts, datasets, scores
+./scripts/langfuse-cli.sh prompts list
+./scripts/langfuse-cli.sh datasets list
+./scripts/langfuse-cli.sh scores list
+```
+
+See [Langfuse CLI docs](docs/LANGFUSE_CLI.md) for more.
+
 ### Running Demos
 
 ```bash
