@@ -370,6 +370,22 @@ After evaluators run, the 40 test scenarios should score by category:
 
 ---
 
+## Coding Agent Support
+
+This project is set up for AI coding agents (Claude Code, Cursor):
+
+- **`CLAUDE.md`** at the project root provides architecture, commands, and conventions that Claude Code reads automatically
+- **Langfuse Skills** teach agents about Langfuse SDK patterns, observability, and prompt management
+
+```bash
+# Install Langfuse skills (optional)
+npx skills add langfuse/skills --skill "langfuse"
+```
+
+See [Langfuse Skills docs](docs/LANGFUSE_SKILLS.md) for details.
+
+---
+
 ## Service Reference
 
 | Service | URL | Purpose | Langfuse Tag |

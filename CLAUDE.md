@@ -1,0 +1,63 @@
+# LLM Observability Demo with ClickHouse
+
+## Architecture
+
+LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. Langfuse stores traces in ClickHouse (OLAP backend). The demo supports two deployment modes:
+
+- **self-hosted** (default): Full Docker stack (~12 containers including Langfuse, PostgreSQL, Redis, MinIO, ClickHouse)
+- **cloud**: Langfuse Cloud + only ~5 local containers (set `DEPLOY_MODE=cloud` in `.env`)
+
+## Key Commands
+
+```bash
+./setup.sh                              # Idempotent setup (safe to re-run)
+./setup.sh --seed                       # Setup + seed demo data
+./setup.sh --status                     # Show service status and URLs
+./setup.sh --cleanup                    # Stop containers (preserves data)
+./scripts/seed-demo-data.sh             # Populate sample traces
+./scripts/seed-demo-data.sh --quick     # Skip test scenarios
+./scripts/reset.sh                      # Full destructive reset
+./scripts/validate-langfuse.sh          # Validate Langfuse integration
+./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
+```
+
+## Running Demo Apps
+
+```bash
+docker compose run --rm text-to-sql python main.py              # 3 demo queries
+docker compose run --rm text-to-sql python main.py --interactive # Interactive mode
+docker compose run --rm vector-rag python main.py               # 3 RAG queries
+docker compose --profile tools run --rm test-scenarios           # 40 test scenarios
+```
+
+## Code Conventions
+
+- **Langfuse SDK**: v3 patterns — `langfuse.trace()`, `trace.span()`, `trace.generation()`. See `text-to-sql/langfuse_config.py` for setup.
+- **Docker profiles**: `langfuse` (Langfuse stack), `demo` (text-to-sql, vector-rag), `tools` (test-scenarios)
+- **Environment**: `.env` file sourced by setup.sh. Never commit `.env`. Template is `.env.example`.
+- **LANGFUSE_INTERNAL_URL**: Docker-internal Langfuse URL. Unset in self-hosted (falls back to `http://langfuse-web:3000`), set to cloud URL in cloud mode.
+- **Scripts**: All scripts `cd` to project root and `source .env`. Check `DEPLOY_MODE` before assuming local services.
+
+## Service URLs (self-hosted defaults)
+
+| Service | URL |
+|---------|-----|
+| LibreChat | http://localhost:3080 |
+| Langfuse | http://localhost:3001 (demo@example.com / demodemo1!) |
+| Text-to-SQL API | http://localhost:8002 |
+| Vector RAG API | http://localhost:8003 |
+
+## Project Layout
+
+```
+setup.sh                    # Idempotent setup script
+docker-compose.yaml         # Service orchestration (profiles: langfuse, demo, tools)
+.env.example                # Environment template (DEPLOY_MODE, keys, ports)
+text-to-sql/                # Text-to-SQL demo (Python, Langfuse SDK)
+vector-rag/                 # Vector RAG demo (Python, Langfuse SDK, ChromaDB)
+librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf)
+test-scenarios/             # 40 synthetic traces for evaluation testing
+mcp-clickhouse/             # ClickHouse MCP Server
+scripts/                    # Utility scripts (seed, reset, validate, CLI)
+docs/                       # Documentation
+```
