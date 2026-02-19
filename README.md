@@ -71,6 +71,35 @@ With ClickHouse as your centralized observability backend (via Langfuse), you ca
 
 ---
 
+## Deployment Modes
+
+This demo supports two deployment modes. **Cloud is recommended** for quick demos — it needs fewer containers and no local Langfuse stack.
+
+| | Cloud | Self-Hosted |
+|---|---|---|
+| **Langfuse** | [Langfuse Cloud](https://cloud.langfuse.com) (free tier) | Docker (~7 containers) |
+| **ClickHouse (Langfuse backend)** | Managed by Langfuse Cloud | Docker (local) |
+| **Local containers** | ~5 (LibreChat, MongoDB, Meilisearch, Nginx, MCP) | ~12 (all of the above + Langfuse stack) |
+| **Setup** | Set `DEPLOY_MODE=cloud` + Langfuse Cloud API keys | Default — just run `./setup.sh` |
+| **Best for** | Quick demos, workshops, low-resource machines | Fully offline, air-gapped, or custom Langfuse config |
+
+**Cloud quick start:**
+```bash
+# 1. Sign up at https://cloud.langfuse.com (free)
+# 2. Create a project and copy your API keys from Settings > API Keys
+# 3. Configure:
+cp .env.example .env
+# Edit .env: set DEPLOY_MODE=cloud, paste your keys
+./setup.sh
+```
+
+**Self-hosted quick start** (default):
+```bash
+./setup.sh    # Everything runs locally
+```
+
+---
+
 ## Quick Start
 
 ### Already Have the Stack Running?
@@ -261,6 +290,23 @@ docker compose --profile langfuse ps
 docker compose logs -f [service-name]
 ```
 
+### Langfuse CLI
+
+```bash
+# List recent traces (requires Node.js 18+)
+./scripts/langfuse-cli.sh traces list --limit 5
+
+# Get a specific trace
+./scripts/langfuse-cli.sh traces get <trace-id>
+
+# List prompts, datasets, scores
+./scripts/langfuse-cli.sh prompts list
+./scripts/langfuse-cli.sh datasets list
+./scripts/langfuse-cli.sh scores list
+```
+
+See [Langfuse CLI docs](docs/LANGFUSE_CLI.md) for more.
+
 ### Running Demos
 
 ```bash
@@ -324,6 +370,22 @@ After evaluators run, the 40 test scenarios should score by category:
 
 ---
 
+## Coding Agent Support
+
+This project is set up for AI coding agents (Claude Code, Cursor):
+
+- **`CLAUDE.md`** at the project root provides architecture, commands, and conventions that Claude Code reads automatically
+- **Langfuse Skills** teach agents about Langfuse SDK patterns, observability, and prompt management
+
+```bash
+# Install Langfuse skills (optional)
+npx skills add langfuse/skills --skill "langfuse"
+```
+
+See [Langfuse Skills docs](docs/LANGFUSE_SKILLS.md) for details.
+
+---
+
 ## Service Reference
 
 | Service | URL | Purpose | Langfuse Tag |
@@ -354,8 +416,9 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ```
 ├── setup.sh                    # Idempotent setup script (safe to re-run)
 ├── docker-compose.yaml         # Service orchestration
-├── .env.example                # Environment template
+├── .env.example                # Environment template (DEPLOY_MODE, keys, ports)
 ├── librechat.yaml              # LibreChat configuration
+├── CLAUDE.md                   # Project context for Claude Code
 │
 ├── text-to-sql/                # Text-to-SQL demo app
 │   ├── Dockerfile
@@ -387,12 +450,15 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   ├── USER_JOURNEY.md
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
-│   └── LANGFUSE_INTEGRATION.md
+│   ├── LANGFUSE_INTEGRATION.md
+│   ├── LANGFUSE_CLI.md
+│   └── LANGFUSE_SKILLS.md
 │
 └── scripts/                    # Utility scripts
     ├── seed-demo-data.sh       # Populate demo with sample traces
     ├── reset.sh                # Full reset (destructive)
-    └── validate-langfuse.sh    # Validate Langfuse integration
+    ├── validate-langfuse.sh    # Validate Langfuse integration
+    └── langfuse-cli.sh         # Langfuse CLI wrapper
 ```
 
 ---
@@ -406,6 +472,8 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
+| [Langfuse CLI](docs/LANGFUSE_CLI.md) | Terminal access to traces, prompts, scores |
+| [Langfuse Skills](docs/LANGFUSE_SKILLS.md) | AI coding agent integration |
 
 ---
 

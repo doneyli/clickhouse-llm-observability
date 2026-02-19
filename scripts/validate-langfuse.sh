@@ -20,6 +20,17 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Source .env for DEPLOY_MODE and other vars
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+DEPLOY_MODE="${DEPLOY_MODE:-self-hosted}"
+
+echo "Deployment mode: $DEPLOY_MODE"
+echo ""
+
 PASSED=0
 FAILED=0
 WARNINGS=0
@@ -69,53 +80,65 @@ echo ""
 # ------------------------------------------------------------------------------
 echo "2. Checking Langfuse services..."
 
-# Check if Langfuse web is running
-if curl -s http://localhost:3001 > /dev/null 2>&1; then
-    pass "Langfuse web UI is accessible at http://localhost:3001"
+if [ "$DEPLOY_MODE" = "cloud" ]; then
+    # Cloud mode: validate the remote endpoint
+    LANGFUSE_HEALTH_URL="${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}/api/public/health"
+    if curl -sf "$LANGFUSE_HEALTH_URL" > /dev/null 2>&1; then
+        pass "Langfuse Cloud is reachable at ${LANGFUSE_BASE_URL}"
+    else
+        fail "Langfuse Cloud is NOT reachable at ${LANGFUSE_HEALTH_URL}"
+    fi
+    echo "  (Cloud mode: skipping local container checks)"
 else
-    warn "Langfuse web UI is not accessible (start with: ./setup.sh)"
-fi
+    # Self-hosted mode: check local containers
+    # Check if Langfuse web is running
+    if curl -s http://localhost:3001 > /dev/null 2>&1; then
+        pass "Langfuse web UI is accessible at http://localhost:3001"
+    else
+        warn "Langfuse web UI is not accessible (start with: ./setup.sh)"
+    fi
 
-# Check PostgreSQL
-if docker ps --format '{{.Names}}' | grep -q langfuse-postgres; then
-    pass "langfuse-postgres container is running"
-else
-    warn "langfuse-postgres container is not running"
-fi
+    # Check PostgreSQL
+    if docker ps --format '{{.Names}}' | grep -q langfuse-postgres; then
+        pass "langfuse-postgres container is running"
+    else
+        warn "langfuse-postgres container is not running"
+    fi
 
-# Check Redis
-if docker ps --format '{{.Names}}' | grep -q langfuse-redis; then
-    pass "langfuse-redis container is running"
-else
-    warn "langfuse-redis container is not running"
-fi
+    # Check Redis
+    if docker ps --format '{{.Names}}' | grep -q langfuse-redis; then
+        pass "langfuse-redis container is running"
+    else
+        warn "langfuse-redis container is not running"
+    fi
 
-# Check MinIO
-if docker ps --format '{{.Names}}' | grep -q langfuse-minio; then
-    pass "langfuse-minio container is running"
-else
-    warn "langfuse-minio container is not running"
-fi
+    # Check MinIO
+    if docker ps --format '{{.Names}}' | grep -q langfuse-minio; then
+        pass "langfuse-minio container is running"
+    else
+        warn "langfuse-minio container is not running"
+    fi
 
-# Check Langfuse worker
-if docker ps --format '{{.Names}}' | grep -q langfuse-worker; then
-    pass "langfuse-worker container is running"
-else
-    warn "langfuse-worker container is not running"
-fi
+    # Check Langfuse worker
+    if docker ps --format '{{.Names}}' | grep -q langfuse-worker; then
+        pass "langfuse-worker container is running"
+    else
+        warn "langfuse-worker container is not running"
+    fi
 
-# Check Langfuse web
-if docker ps --format '{{.Names}}' | grep -q langfuse-web; then
-    pass "langfuse-web container is running"
-else
-    warn "langfuse-web container is not running"
-fi
+    # Check Langfuse web
+    if docker ps --format '{{.Names}}' | grep -q langfuse-web; then
+        pass "langfuse-web container is running"
+    else
+        warn "langfuse-web container is not running"
+    fi
 
-# Check Langfuse ClickHouse
-if docker ps --format '{{.Names}}' | grep -q langfuse-clickhouse; then
-    pass "langfuse-clickhouse container is running"
-else
-    warn "langfuse-clickhouse container is not running"
+    # Check Langfuse ClickHouse
+    if docker ps --format '{{.Names}}' | grep -q langfuse-clickhouse; then
+        pass "langfuse-clickhouse container is running"
+    else
+        warn "langfuse-clickhouse container is not running"
+    fi
 fi
 
 echo ""

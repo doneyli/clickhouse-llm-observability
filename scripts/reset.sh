@@ -26,6 +26,14 @@ NC='\033[0m' # No Color
 # Change to project root
 cd "$(dirname "$0")/.."
 
+# Source .env for DEPLOY_MODE
+if [ -f .env ]; then
+    set -a
+    source .env
+    set +a
+fi
+DEPLOY_MODE="${DEPLOY_MODE:-self-hosted}"
+
 echo ""
 echo -e "${RED}=============================================="
 echo "Demo Reset - DESTRUCTIVE OPERATION"
@@ -78,13 +86,20 @@ PROJECT_NAME=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]
 
 # List of named volumes used by the demo
 VOLUME_SUFFIXES=(
-    # Langfuse volumes
-    "langfuse-postgres-data"
-    "langfuse-minio-data"
-    "langfuse-clickhouse-data"
     # Model cache
     "vector-rag-models"
 )
+
+# Include Langfuse volumes only in self-hosted mode
+if [ "$DEPLOY_MODE" != "cloud" ]; then
+    VOLUME_SUFFIXES+=(
+        "langfuse-postgres-data"
+        "langfuse-minio-data"
+        "langfuse-clickhouse-data"
+    )
+else
+    echo "  (Cloud mode: skipping Langfuse volumes)"
+fi
 
 for suffix in "${VOLUME_SUFFIXES[@]}"; do
     vol="${PROJECT_NAME}_${suffix}"

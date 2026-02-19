@@ -24,6 +24,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Skills (installed by npx skills add)
+.skills/
+
 # Python
 __pycache__/
 *.pyc

@@ -30,6 +30,8 @@ The setup script will:
 
 If you prefer step-by-step manual setup, continue below.
 
+> **Cloud mode:** Set `DEPLOY_MODE=cloud` in `.env` and provide Langfuse Cloud API keys to skip the local Langfuse stack (~7 fewer containers). See the main [README](../README.md#deployment-modes) for details.
+
 ---
 
 ## What You'll Build
