@@ -108,6 +108,112 @@ ensure_env_file() {
 }
 
 #######################################
+# Detect and validate deployment mode
+#######################################
+detect_deploy_mode() {
+    DEPLOY_MODE="${DEPLOY_MODE:-self-hosted}"
+
+    case "$DEPLOY_MODE" in
+        cloud|self-hosted)
+            ;;
+        *)
+            error "Invalid DEPLOY_MODE='$DEPLOY_MODE'. Must be 'cloud' or 'self-hosted'."
+            exit 1
+            ;;
+    esac
+
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        info "Deployment mode: ${GREEN}cloud${NC} (Langfuse Cloud — fewer containers)"
+    else
+        info "Deployment mode: ${BLUE}self-hosted${NC} (full Docker stack)"
+    fi
+}
+
+#######################################
+# Cloud mode: ensure Langfuse Cloud keys are real
+#######################################
+ensure_langfuse_cloud_keys() {
+    if [ "$DEPLOY_MODE" != "cloud" ]; then
+        return 0
+    fi
+
+    header "Checking Langfuse Cloud Keys"
+
+    # Check if keys are still the self-hosted defaults
+    if [ "$LANGFUSE_PUBLIC_KEY" = "pk-lf-1234567890" ] || [ "$LANGFUSE_SECRET_KEY" = "sk-lf-1234567890" ]; then
+        warn "Langfuse keys are still set to self-hosted defaults."
+        echo ""
+        echo -e "  Cloud mode requires real Langfuse Cloud API keys."
+        echo -e "  Sign up free at: ${GREEN}https://cloud.langfuse.com${NC}"
+        echo -e "  Get keys from: Settings > API Keys"
+        echo ""
+
+        read -p "  Enter your Langfuse Public Key: " INPUT_PK
+        read -p "  Enter your Langfuse Secret Key: " INPUT_SK
+
+        if [ -z "$INPUT_PK" ] || [ -z "$INPUT_SK" ]; then
+            error "Langfuse Cloud API keys are required in cloud mode."
+            exit 1
+        fi
+
+        sed -i.bak "s|^LANGFUSE_PUBLIC_KEY=.*|LANGFUSE_PUBLIC_KEY=${INPUT_PK}|" .env && rm -f .env.bak
+        sed -i.bak "s|^LANGFUSE_SECRET_KEY=.*|LANGFUSE_SECRET_KEY=${INPUT_SK}|" .env && rm -f .env.bak
+        export LANGFUSE_PUBLIC_KEY="$INPUT_PK"
+        export LANGFUSE_SECRET_KEY="$INPUT_SK"
+        created "Langfuse Cloud API keys saved to .env"
+    else
+        success "Langfuse Cloud API keys are set"
+    fi
+
+    # Prompt for LANGFUSE_BASE_URL if still localhost
+    if [ "$LANGFUSE_BASE_URL" = "http://localhost:3001" ] || [ -z "$LANGFUSE_BASE_URL" ]; then
+        echo ""
+        read -p "  Langfuse Cloud URL [https://cloud.langfuse.com]: " INPUT_URL
+        INPUT_URL="${INPUT_URL:-https://cloud.langfuse.com}"
+
+        sed -i.bak "s|^LANGFUSE_BASE_URL=.*|LANGFUSE_BASE_URL=${INPUT_URL}|" .env && rm -f .env.bak
+        export LANGFUSE_BASE_URL="$INPUT_URL"
+        created "LANGFUSE_BASE_URL=${INPUT_URL}"
+    else
+        success "LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL}"
+    fi
+}
+
+#######################################
+# Ensure LANGFUSE_HOST is set (used by CLI and SDKs)
+#######################################
+ensure_langfuse_host() {
+    local host_val="${LANGFUSE_BASE_URL:-http://localhost:3001}"
+
+    if grep -q "^LANGFUSE_HOST=" .env 2>/dev/null; then
+        reused "LANGFUSE_HOST"
+    else
+        echo "LANGFUSE_HOST=${host_val}" >> .env
+        export LANGFUSE_HOST="$host_val"
+        created "LANGFUSE_HOST=${host_val}"
+    fi
+}
+
+#######################################
+# Cloud mode: set internal URLs for Docker containers
+#######################################
+set_cloud_internal_urls() {
+    if [ "$DEPLOY_MODE" != "cloud" ]; then
+        return 0
+    fi
+
+    local cloud_url="${LANGFUSE_BASE_URL}"
+
+    if grep -q "^LANGFUSE_INTERNAL_URL=" .env 2>/dev/null; then
+        reused "LANGFUSE_INTERNAL_URL"
+    else
+        echo "LANGFUSE_INTERNAL_URL=${cloud_url}" >> .env
+        export LANGFUSE_INTERNAL_URL="$cloud_url"
+        created "LANGFUSE_INTERNAL_URL=${cloud_url} (Docker containers will reach Langfuse Cloud)"
+    fi
+}
+
+#######################################
 # Validate critical .env variables
 #######################################
 validate_env() {
@@ -261,10 +367,15 @@ start_services() {
         info "Already running:$running"
     fi
 
-    info "Starting all services (this may take a few minutes on first run)..."
-    echo ""
-
-    docker compose --profile langfuse up -d
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        info "Cloud mode: starting app containers only (Langfuse runs in the cloud)..."
+        echo ""
+        docker compose up -d
+    else
+        info "Starting all services (this may take a few minutes on first run)..."
+        echo ""
+        docker compose --profile langfuse up -d
+    fi
 
     success "Docker Compose services started"
 
@@ -280,24 +391,36 @@ wait_for_services() {
     header "Waiting for Services"
 
     # Wait for Langfuse
-    info "Waiting for Langfuse to be ready..."
-    local attempts=0
-    local max_attempts=60
-    while ! curl -s http://localhost:${LANGFUSE_PORT:-3001} > /dev/null 2>&1; do
-        sleep 2
-        attempts=$((attempts + 1))
-        if [ $attempts -ge $max_attempts ]; then
-            warn "Langfuse not ready after 2 minutes. Check: docker compose --profile langfuse logs langfuse-web"
-            return 0
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        info "Validating Langfuse Cloud connectivity..."
+        local health_url="${LANGFUSE_BASE_URL}/api/public/health"
+        if curl -sf "$health_url" > /dev/null 2>&1; then
+            success "Langfuse Cloud is reachable at ${LANGFUSE_BASE_URL}"
+        else
+            warn "Could not reach Langfuse Cloud at ${health_url}"
+            warn "Traces may not be ingested. Check your LANGFUSE_BASE_URL and network."
         fi
-        echo -n "."
-    done
-    echo ""
-    success "Langfuse is ready"
+    else
+        info "Waiting for Langfuse to be ready..."
+        local attempts=0
+        local max_attempts=60
+        while ! curl -s http://localhost:${LANGFUSE_PORT:-3001} > /dev/null 2>&1; do
+            sleep 2
+            attempts=$((attempts + 1))
+            if [ $attempts -ge $max_attempts ]; then
+                warn "Langfuse not ready after 2 minutes. Check: docker compose --profile langfuse logs langfuse-web"
+                return 0
+            fi
+            echo -n "."
+        done
+        echo ""
+        success "Langfuse is ready"
+    fi
 
     # Wait for LibreChat
     info "Waiting for LibreChat to be ready..."
-    attempts=0
+    local attempts=0
+    local max_attempts=60
     while ! curl -s http://localhost:3080/api/health > /dev/null 2>&1; do
         sleep 2
         attempts=$((attempts + 1))
@@ -317,16 +440,27 @@ wait_for_services() {
 show_status() {
     header "Service Status"
 
-    docker compose --profile langfuse --profile demo --profile tools ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
-        docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        docker compose --profile demo --profile tools ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
+            docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
+    else
+        docker compose --profile langfuse --profile demo --profile tools ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || \
+            docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
+    fi
 
     header "Access URLs"
 
     echo ""
     echo -e "  ${GREEN}LibreChat (Chat UI):${NC}        http://localhost:3080"
     echo -e "    First time? Register at http://localhost:3080 (any email/password)"
-    echo -e "  ${GREEN}Langfuse (LLM Traces):${NC}      http://localhost:${LANGFUSE_PORT:-3001}"
-    echo -e "    Email: demo@example.com  |  Password: demodemo1!"
+
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        echo -e "  ${GREEN}Langfuse (LLM Traces):${NC}      ${LANGFUSE_BASE_URL}"
+        echo -e "    Log in with your Langfuse Cloud account"
+    else
+        echo -e "  ${GREEN}Langfuse (LLM Traces):${NC}      http://localhost:${LANGFUSE_PORT:-3001}"
+        echo -e "    Email: demo@example.com  |  Password: demodemo1!"
+    fi
     echo ""
 
     header "Next Steps"
@@ -360,8 +494,13 @@ cleanup() {
     header "Stopping Services"
 
     info "Stopping all containers..."
-    docker compose --profile langfuse --profile demo --profile tools down 2>/dev/null || \
-        docker compose down 2>/dev/null || true
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        docker compose --profile demo --profile tools down 2>/dev/null || \
+            docker compose down 2>/dev/null || true
+    else
+        docker compose --profile langfuse --profile demo --profile tools down 2>/dev/null || \
+            docker compose down 2>/dev/null || true
+    fi
 
     success "All services stopped (data preserved)"
 
@@ -388,6 +527,11 @@ main() {
 
     case "${1:-}" in
         --cleanup|-c)
+            # Source .env if it exists for variable expansion
+            if [ -f .env ]; then
+                set -a; source .env; set +a
+            fi
+            detect_deploy_mode
             cleanup
             exit 0
             ;;
@@ -396,6 +540,7 @@ main() {
             if [ -f .env ]; then
                 set -a; source .env; set +a
             fi
+            detect_deploy_mode
             show_status
             exit 0
             ;;
@@ -412,6 +557,10 @@ main() {
             echo "  --cleanup   Stop all containers (preserves data)"
             echo "  --help      Show this help message"
             echo ""
+            echo "Deployment modes (set DEPLOY_MODE in .env):"
+            echo "  self-hosted  Full Docker stack including Langfuse (default)"
+            echo "  cloud        Use Langfuse Cloud — skips 7 Langfuse containers"
+            echo ""
             echo "This script is idempotent:"
             echo "  - Creates .env from .env.example only if .env doesn't exist"
             echo "  - Generates secrets only if they're missing"
@@ -424,10 +573,14 @@ main() {
 
     check_prerequisites
     ensure_env_file
+    detect_deploy_mode
     validate_env
     ensure_anthropic_key
+    ensure_langfuse_cloud_keys
     ensure_librechat_secrets
     ensure_langfuse_mcp_token
+    ensure_langfuse_host
+    set_cloud_internal_urls
     start_services
     wait_for_services
     show_status

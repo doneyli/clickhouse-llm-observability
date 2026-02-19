@@ -71,6 +71,35 @@ With ClickHouse as your centralized observability backend (via Langfuse), you ca
 
 ---
 
+## Deployment Modes
+
+This demo supports two deployment modes. **Cloud is recommended** for quick demos — it needs fewer containers and no local Langfuse stack.
+
+| | Cloud | Self-Hosted |
+|---|---|---|
+| **Langfuse** | [Langfuse Cloud](https://cloud.langfuse.com) (free tier) | Docker (~7 containers) |
+| **ClickHouse (Langfuse backend)** | Managed by Langfuse Cloud | Docker (local) |
+| **Local containers** | ~5 (LibreChat, MongoDB, Meilisearch, Nginx, MCP) | ~12 (all of the above + Langfuse stack) |
+| **Setup** | Set `DEPLOY_MODE=cloud` + Langfuse Cloud API keys | Default — just run `./setup.sh` |
+| **Best for** | Quick demos, workshops, low-resource machines | Fully offline, air-gapped, or custom Langfuse config |
+
+**Cloud quick start:**
+```bash
+# 1. Sign up at https://cloud.langfuse.com (free)
+# 2. Create a project and copy your API keys from Settings > API Keys
+# 3. Configure:
+cp .env.example .env
+# Edit .env: set DEPLOY_MODE=cloud, paste your keys
+./setup.sh
+```
+
+**Self-hosted quick start** (default):
+```bash
+./setup.sh    # Everything runs locally
+```
+
+---
+
 ## Quick Start
 
 ### Already Have the Stack Running?

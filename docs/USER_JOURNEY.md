@@ -25,6 +25,8 @@ A hands-on walkthrough from setup to insights. Follow along step-by-step to expe
 
 ---
 
+> **Cloud mode available:** Set `DEPLOY_MODE=cloud` in `.env` to use Langfuse Cloud instead of the local stack. See [Deployment Modes](../README.md#deployment-modes).
+
 ## Step 1: Launch the Demo (10 minutes)
 
 **What you'll do:** Get everything running with a single command.

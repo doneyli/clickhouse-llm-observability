@@ -47,22 +47,38 @@ echo "Checking required services..."
 
 # Check if Langfuse is healthy (needed for trace ingestion)
 echo -n "  Checking Langfuse..."
+DEPLOY_MODE="${DEPLOY_MODE:-self-hosted}"
 LANGFUSE_PORT=${LANGFUSE_PORT:-3001}
-ATTEMPTS=0
-MAX_ATTEMPTS=30
-while ! curl -s "http://localhost:${LANGFUSE_PORT}" > /dev/null 2>&1; do
-    sleep 2
-    ATTEMPTS=$((ATTEMPTS + 1))
-    if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+
+if [ "$DEPLOY_MODE" = "cloud" ]; then
+    # Cloud mode: check the remote Langfuse instance
+    LANGFUSE_HEALTH_URL="${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}/api/public/health"
+    if curl -sf "$LANGFUSE_HEALTH_URL" > /dev/null 2>&1; then
         echo ""
-        echo -e "${RED}Langfuse is not available at http://localhost:${LANGFUSE_PORT}${NC}"
-        echo "Start it first with: ./setup.sh"
-        exit 1
+        echo -e "${GREEN}✓${NC} Langfuse Cloud is reachable at ${LANGFUSE_BASE_URL}"
+    else
+        echo ""
+        echo -e "${YELLOW}!${NC} Could not reach Langfuse Cloud at ${LANGFUSE_HEALTH_URL}"
+        echo "  Traces may not be ingested. Continuing anyway..."
     fi
-    echo -n "."
-done
-echo ""
-echo -e "${GREEN}✓${NC} Langfuse is healthy"
+else
+    # Self-hosted mode: wait for local Langfuse
+    ATTEMPTS=0
+    MAX_ATTEMPTS=30
+    while ! curl -s "http://localhost:${LANGFUSE_PORT}" > /dev/null 2>&1; do
+        sleep 2
+        ATTEMPTS=$((ATTEMPTS + 1))
+        if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
+            echo ""
+            echo -e "${RED}Langfuse is not available at http://localhost:${LANGFUSE_PORT}${NC}"
+            echo "Start it first with: ./setup.sh"
+            exit 1
+        fi
+        echo -n "."
+    done
+    echo ""
+    echo -e "${GREEN}✓${NC} Langfuse is healthy"
+fi
 
 echo -e "${GREEN}✓${NC} Required services are running"
 echo ""

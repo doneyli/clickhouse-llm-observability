@@ -62,7 +62,7 @@ services:
       # Native Langfuse Integration (real-time tracing)
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=http://langfuse-web:3000
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       # Langfuse MCP Server (prompt management via agents)
       - LANGFUSE_MCP_AUTH_TOKEN=${LANGFUSE_MCP_AUTH_TOKEN:-}
     volumes:
@@ -154,7 +154,7 @@ services:
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     depends_on:
       - mcp-clickhouse
     profiles:
@@ -178,7 +178,7 @@ services:
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - demo
     volumes:
@@ -204,7 +204,7 @@ services:
       # Langfuse integration
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - tools
 
