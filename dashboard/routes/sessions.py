@@ -10,7 +10,7 @@ from data_models import (
     SessionSummary,
     TraceDetail,
 )
-from langfuse_client import fetch_all_traces, fetch_traces
+from langfuse_client import fetch_all_scores, fetch_all_traces, fetch_traces
 
 router = APIRouter()
 
@@ -102,6 +102,16 @@ async def get_session_detail(session_id: str):
 
     traces_data.sort(key=lambda t: t.get("timestamp") or "")
 
+    # Build trace_id -> scores mapping from scores API
+    all_scores = await fetch_all_scores()
+    trace_scores: dict[str, dict[str, float]] = defaultdict(dict)
+    for s in all_scores:
+        tid = s.get("traceId")
+        name = s.get("name")
+        val = s.get("value")
+        if tid and name and val is not None:
+            trace_scores[tid][name] = float(val)
+
     trace_details = []
     total_cost = 0.0
     total_tokens = 0
@@ -116,14 +126,6 @@ async def get_session_detail(session_id: str):
         total_cost += cost
         total_tokens += tokens
         total_latency += latency
-
-        # Extract scores
-        scores = {}
-        for score in (t.get("scores") or []):
-            name = score.get("name")
-            val = score.get("value")
-            if name and val is not None:
-                scores[name] = val
 
         # Truncate input/output for display
         raw_input = t.get("input")
@@ -141,7 +143,7 @@ async def get_session_detail(session_id: str):
                 latency_ms=round(latency, 1),
                 cost=round(cost, 6),
                 tokens=tokens,
-                scores=scores,
+                scores=trace_scores.get(t.get("id", ""), {}),
             )
         )
 

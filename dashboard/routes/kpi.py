@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Query
 
 from data_models import KPIResponse
-from langfuse_client import fetch_all_traces
+from langfuse_client import fetch_all_scores, fetch_all_traces
 
 router = APIRouter()
 
@@ -57,11 +57,12 @@ async def get_kpi(
         if latency is not None:
             latencies.append(latency * 1000)  # seconds to ms
 
-        # Scores
-        for score in (t.get("scores") or []):
-            val = score.get("value")
-            if val is not None:
-                all_scores.append(val)
+    # Fetch scores separately (trace.scores is a list of IDs, not objects)
+    all_score_objs = await fetch_all_scores()
+    for s in all_score_objs:
+        val = s.get("value")
+        if val is not None:
+            all_scores.append(float(val))
 
     traces_per_session = [len(v) for v in sessions.values()]
     median_tps = statistics.median(traces_per_session) if traces_per_session else 0
