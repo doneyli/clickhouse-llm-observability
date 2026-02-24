@@ -21,6 +21,13 @@ LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. 
 ./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
 ```
 
+## Running the Dashboard
+
+```bash
+docker compose --profile langfuse --profile dashboard up -d   # Start with dashboard
+# Open http://localhost:8005
+```
+
 ## Running Demo Apps
 
 ```bash
@@ -33,7 +40,7 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 ## Code Conventions
 
 - **Langfuse SDK**: v3 patterns — `langfuse.trace()`, `trace.span()`, `trace.generation()`. See `text-to-sql/langfuse_config.py` for setup.
-- **Docker profiles**: `langfuse` (Langfuse stack), `demo` (text-to-sql, vector-rag), `tools` (test-scenarios)
+- **Docker profiles**: `langfuse` (Langfuse stack), `demo` (text-to-sql, vector-rag), `tools` (test-scenarios), `dashboard` (LLM Observatory)
 - **Environment**: `.env` file sourced by setup.sh. Never commit `.env`. Template is `.env.example`.
 - **LANGFUSE_INTERNAL_URL**: Docker-internal Langfuse URL. Unset in self-hosted (falls back to `http://langfuse-web:3000`), set to cloud URL in cloud mode.
 - **Scripts**: All scripts `cd` to project root and `source .env`. Check `DEPLOY_MODE` before assuming local services.
@@ -46,6 +53,7 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 | Langfuse | http://localhost:3001 (demo@example.com / demodemo1!) |
 | Text-to-SQL API | http://localhost:8002 |
 | Vector RAG API | http://localhost:8003 |
+| LLM Observatory | http://localhost:8005 |
 
 ## Project Layout
 
@@ -57,6 +65,7 @@ text-to-sql/                # Text-to-SQL demo (Python, Langfuse SDK)
 vector-rag/                 # Vector RAG demo (Python, Langfuse SDK, ChromaDB)
 librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf)
 test-scenarios/             # 40 synthetic traces for evaluation testing
+dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alpine.js)
 mcp-clickhouse/             # ClickHouse MCP Server
 scripts/                    # Utility scripts (seed, reset, validate, CLI)
 docs/                       # Documentation
