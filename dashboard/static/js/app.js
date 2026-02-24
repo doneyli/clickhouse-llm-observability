@@ -7,16 +7,19 @@ function observatory() {
     // State
     loading: true,
     error: null,
-    timeRange: '30d',
+    timeRange: 'all',
     project: 'all',
-    search: '',
-    searchTimeout: null,
+    view: 'dashboard', // 'dashboard' or 'session'
+
+    // Search
+    searchOpen: false,
+    searchQuery: '',
+    searchResults: [],
 
     // Data
     kpi: {},
     sessions: [],
     sessionsTotal: 0,
-    sessionsPage: 1,
     projects: [],
     heatmap: { days: [], max_count: 0 },
     hourly: { matrix: [], day_totals: [], max_count: 0 },
@@ -24,7 +27,9 @@ function observatory() {
     topSort: 'traces',
     tools: [],
     scores: [],
-    selectedSession: null,
+
+    // Session detail
+    selectedSessionId: null,
     sessionDetail: null,
 
     // Charts
@@ -33,61 +38,65 @@ function observatory() {
     _scoreChart: null,
     _tokenChart: null,
 
-    // Computed filters
     get filterParams() {
-      const p = {};
+      var p = {};
       if (this.timeRange !== 'all') {
-        const days = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 }[this.timeRange];
+        var days = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 }[this.timeRange];
         if (days) p.from = daysAgo(days);
       }
       if (this.project && this.project !== 'all') p.project = this.project;
       return p;
     },
 
-    // Init
     async init() {
+      // Keyboard shortcut: Ctrl+K for search
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          this.openSearch();
+        }
+        if (e.key === 'Escape' && this.searchOpen) {
+          this.closeSearch();
+        }
+      });
       await this.fetchAll();
     },
 
-    // Fetch all data
     async fetchAll() {
       this.loading = true;
       this.error = null;
       try {
-        const qs = buildQuery(this.filterParams);
-        const q = qs ? '?' + qs : '';
+        var qs = buildQuery(this.filterParams);
+        var q = qs ? '?' + qs : '';
 
-        const [kpiRes, sessRes, projRes, heatRes, hourRes, topRes, toolRes, scoreRes] =
-          await Promise.all([
-            fetch('/api/kpi' + q).then(r => r.json()),
-            fetch('/api/sessions' + q + (q ? '&' : '?') + 'limit=200' +
-              (this.search ? '&search=' + encodeURIComponent(this.search) : '')
-            ).then(r => r.json()),
-            fetch('/api/projects' + q).then(r => r.json()),
-            fetch('/api/activity/heatmap' + q).then(r => r.json()),
-            fetch('/api/activity/by-hour' + q).then(r => r.json()),
-            fetch('/api/top-sessions' + q + (q ? '&' : '?') + 'sort=' + this.topSort).then(r => r.json()),
-            fetch('/api/tools' + q).then(r => r.json()),
-            fetch('/api/scores').then(r => r.json()),
-          ]);
+        var results = await Promise.all([
+          fetch('/api/kpi' + q).then(function(r) { return r.json(); }),
+          fetch('/api/sessions' + q + (q ? '&' : '?') + 'limit=200').then(function(r) { return r.json(); }),
+          fetch('/api/projects' + q).then(function(r) { return r.json(); }),
+          fetch('/api/activity/heatmap' + q).then(function(r) { return r.json(); }),
+          fetch('/api/activity/by-hour' + q).then(function(r) { return r.json(); }),
+          fetch('/api/top-sessions' + q + (q ? '&' : '?') + 'sort=' + this.topSort).then(function(r) { return r.json(); }),
+          fetch('/api/tools' + q).then(function(r) { return r.json(); }),
+          fetch('/api/scores').then(function(r) { return r.json(); }),
+        ]);
 
-        this.kpi = kpiRes;
-        this.sessions = sessRes.sessions || [];
-        this.sessionsTotal = sessRes.total || 0;
-        this.projects = projRes.projects || [];
-        this.heatmap = heatRes;
-        this.hourly = hourRes;
-        this.topSessions = topRes.sessions || [];
-        this.tools = toolRes.tools || [];
-        this.scores = scoreRes.scores || [];
-
+        this.kpi = results[0];
+        this.sessions = results[1].sessions || [];
+        this.sessionsTotal = results[1].total || 0;
+        this.projects = results[2].projects || [];
+        this.heatmap = results[3];
+        this.hourly = results[4];
+        this.topSessions = results[5].sessions || [];
+        this.tools = results[6].tools || [];
+        this.scores = results[7].scores || [];
         this.loading = false;
 
-        // Render charts after DOM update
         this.$nextTick(() => {
-          this.renderHeatmap();
-          this.renderHourGrid();
-          this.renderCharts();
+          if (this.view === 'dashboard') {
+            this.renderHeatmap();
+            this.renderHourGrid();
+            this.renderCharts();
+          }
         });
       } catch (e) {
         this.error = 'Failed to load data: ' + e.message;
@@ -95,178 +104,253 @@ function observatory() {
       }
     },
 
-    // Time range change
     setTimeRange(range) {
       this.timeRange = range;
-      this.selectedSession = null;
+      this.view = 'dashboard';
+      this.selectedSessionId = null;
       this.sessionDetail = null;
       this.fetchAll();
     },
 
-    // Project filter change
     setProject(proj) {
       this.project = proj;
-      this.selectedSession = null;
+      this.view = 'dashboard';
+      this.selectedSessionId = null;
       this.sessionDetail = null;
       this.fetchAll();
+    },
+
+    setTopSort(sort) {
+      this.topSort = sort;
+      var qs = buildQuery(this.filterParams);
+      var q = qs ? '?' + qs + '&' : '?';
+      fetch('/api/top-sessions' + q + 'sort=' + sort)
+        .then(function(r) { return r.json(); })
+        .then((data) => { this.topSessions = data.sessions || []; });
+    },
+
+    // Session selection
+    async selectSession(sessionId) {
+      this.selectedSessionId = sessionId;
+      this.sessionDetail = null;
+      this.view = 'session';
+      try {
+        var data = await fetch('/api/sessions/' + encodeURIComponent(sessionId)).then(function(r) { return r.json(); });
+        this.sessionDetail = data;
+      } catch (e) {
+        this.sessionDetail = { error: e.message, traces: [] };
+      }
+    },
+
+    backToDashboard() {
+      this.view = 'dashboard';
+      this.selectedSessionId = null;
+      this.sessionDetail = null;
+      this.$nextTick(() => {
+        this.renderHeatmap();
+        this.renderHourGrid();
+        this.renderCharts();
+      });
     },
 
     // Search
-    onSearch() {
-      clearTimeout(this.searchTimeout);
-      this.searchTimeout = setTimeout(() => this.fetchAll(), 300);
+    openSearch() {
+      this.searchOpen = true;
+      this.searchQuery = '';
+      this.searchResults = [];
+      this.$nextTick(() => {
+        var input = document.getElementById('search-input');
+        if (input) input.focus();
+      });
     },
 
-    // Top sessions sort
-    setTopSort(sort) {
-      this.topSort = sort;
-      const qs = buildQuery(this.filterParams);
-      const q = qs ? '?' + qs + '&' : '?';
-      fetch('/api/top-sessions' + q + 'sort=' + sort)
-        .then(r => r.json())
-        .then(data => { this.topSessions = data.sessions || []; });
+    closeSearch() {
+      this.searchOpen = false;
+      this.searchQuery = '';
+      this.searchResults = [];
     },
 
-    // Session click
-    async selectSession(sessionId) {
-      if (this.selectedSession === sessionId) {
-        this.selectedSession = null;
-        this.sessionDetail = null;
+    async onSearchInput() {
+      var q = this.searchQuery.trim();
+      if (q.length < 2) {
+        this.searchResults = [];
         return;
       }
-      this.selectedSession = sessionId;
-      this.sessionDetail = null;
       try {
-        const data = await fetch('/api/sessions/' + encodeURIComponent(sessionId)).then(r => r.json());
-        this.sessionDetail = data;
+        var qs = buildQuery(this.filterParams);
+        var url = '/api/sessions' + (qs ? '?' + qs + '&' : '?') + 'limit=20&search=' + encodeURIComponent(q);
+        var data = await fetch(url).then(function(r) { return r.json(); });
+        this.searchResults = (data.sessions || []).map((s) => {
+          return { id: s.id, project: s.project, title: s.id, trace_count: s.trace_count };
+        });
       } catch (e) {
-        this.sessionDetail = { error: e.message };
+        this.searchResults = [];
       }
     },
 
-    // Export
+    searchSelect(sessionId) {
+      this.closeSearch();
+      this.selectSession(sessionId);
+    },
+
     exportCSV() {
       downloadCSV(this.filterParams);
     },
 
-    // Render GitHub-style heatmap
+    // Get a display title for a session (use session ID or first trace info)
+    sessionTitle(session) {
+      if (!session) return 'Untitled';
+      return session.id;
+    },
+
+    // Render heatmap
     renderHeatmap() {
-      const container = document.getElementById('heatmap');
+      var container = document.getElementById('heatmap');
       if (!container) return;
       container.innerHTML = '';
 
-      const days = this.heatmap.days || [];
-      const maxCount = this.heatmap.max_count || 1;
+      var days = this.heatmap.days || [];
+      var maxCount = this.heatmap.max_count || 1;
 
       if (days.length === 0) {
         container.innerHTML = '<div class="empty-state">No activity data</div>';
         return;
       }
 
-      // Build date->count map
-      const countMap = {};
-      days.forEach(d => { countMap[d.date] = d.count; });
+      var countMap = {};
+      days.forEach(function(d) { countMap[d.date] = d.count; });
 
-      // Find range
-      const allDates = days.map(d => new Date(d.date));
-      const minDate = new Date(Math.min(...allDates));
-      const maxDate = new Date(Math.max(...allDates));
+      // Determine range: always show at least the selected time range
+      var allDates = days.map(function(d) { return new Date(d.date + 'T00:00:00'); });
+      var maxDate = new Date(Math.max.apply(null, allDates));
+      var minDate;
 
-      // Extend to full weeks
-      const startDate = new Date(minDate);
-      startDate.setDate(startDate.getDate() - startDate.getDay()); // Start on Sunday
-      const endDate = new Date(maxDate);
-      endDate.setDate(endDate.getDate() + (6 - endDate.getDay())); // End on Saturday
+      if (this.timeRange === 'all' || this.timeRange === '1y') {
+        minDate = new Date(maxDate);
+        minDate.setFullYear(minDate.getFullYear() - 1);
+      } else {
+        minDate = new Date(Math.min.apply(null, allDates));
+        // Ensure at least 12 weeks
+        var twelveWeeks = new Date(maxDate);
+        twelveWeeks.setDate(twelveWeeks.getDate() - 84);
+        if (minDate > twelveWeeks) minDate = twelveWeeks;
+      }
 
-      // Build weeks
-      const heatmapEl = document.createElement('div');
-      heatmapEl.className = 'heatmap';
+      // Align to week boundaries (Sunday start)
+      var startDate = new Date(minDate);
+      startDate.setDate(startDate.getDate() - startDate.getDay());
+      var endDate = new Date(maxDate);
+      endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
 
-      // Months header
-      const monthsEl = document.createElement('div');
+      // Build structure
+      var wrapper = document.createElement('div');
+      wrapper.className = 'heatmap-wrapper';
+
+      // Day labels (Mon, Wed, Fri)
+      var dayLabels = document.createElement('div');
+      dayLabels.className = 'heatmap-day-labels';
+      var dayNames = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+      for (var i = 0; i < 7; i++) {
+        var lbl = document.createElement('div');
+        lbl.className = 'heatmap-day-label';
+        lbl.textContent = dayNames[i];
+        dayLabels.appendChild(lbl);
+      }
+      wrapper.appendChild(dayLabels);
+
+      // Grid area
+      var gridArea = document.createElement('div');
+      gridArea.className = 'heatmap-grid-area';
+
+      // Month labels
+      var monthsEl = document.createElement('div');
       monthsEl.className = 'heatmap-months';
 
-      let current = new Date(startDate);
-      let weekEl = null;
-      let lastMonth = -1;
-      let weekCount = 0;
+      var heatmapEl = document.createElement('div');
+      heatmapEl.className = 'heatmap';
+
+      var current = new Date(startDate);
+      var lastMonth = -1;
+      var weekCount = 0;
+      var weekEl = null;
+      var cellWidth = 16; // 13px cell + 3px gap
 
       while (current <= endDate) {
-        const dayOfWeek = current.getDay();
+        var dayOfWeek = current.getDay();
 
         if (dayOfWeek === 0) {
           weekEl = document.createElement('div');
           weekEl.className = 'heatmap-week';
           heatmapEl.appendChild(weekEl);
-          weekCount++;
 
-          // Track month labels
-          const month = current.getMonth();
+          var month = current.getMonth();
           if (month !== lastMonth) {
-            const label = document.createElement('span');
-            label.className = 'heatmap-month';
-            label.textContent = current.toLocaleDateString('en-US', { month: 'short' });
-            label.style.marginLeft = ((weekCount - 1) * 16) + 'px';
-            label.style.position = 'absolute';
-            monthsEl.appendChild(label);
+            var monthLabel = document.createElement('span');
+            monthLabel.className = 'heatmap-month';
+            monthLabel.textContent = current.toLocaleDateString('en-US', { month: 'short' });
+            monthLabel.style.left = (weekCount * cellWidth) + 'px';
+            monthsEl.appendChild(monthLabel);
             lastMonth = month;
           }
+          weekCount++;
         }
 
-        const dateStr = current.toISOString().slice(0, 10);
-        const count = countMap[dateStr] || 0;
-        const level = count === 0 ? 0 :
+        var y = current.getFullYear();
+        var m = String(current.getMonth() + 1).padStart(2, '0');
+        var d = String(current.getDate()).padStart(2, '0');
+        var dateStr = y + '-' + m + '-' + d;
+        var count = countMap[dateStr] || 0;
+        var level = count === 0 ? 0 :
           count <= maxCount * 0.25 ? 1 :
           count <= maxCount * 0.5 ? 2 :
           count <= maxCount * 0.75 ? 3 : 4;
 
-        const cell = document.createElement('div');
+        var cell = document.createElement('div');
         cell.className = 'heatmap-cell';
         cell.setAttribute('data-level', level);
         cell.title = dateStr + ': ' + count + ' traces';
 
         if (weekEl) weekEl.appendChild(cell);
-
         current.setDate(current.getDate() + 1);
       }
 
-      monthsEl.style.position = 'relative';
-      monthsEl.style.height = '16px';
-      container.appendChild(monthsEl);
-      container.appendChild(heatmapEl);
+      gridArea.appendChild(monthsEl);
+      gridArea.appendChild(heatmapEl);
+      wrapper.appendChild(gridArea);
+      container.appendChild(wrapper);
 
       // Legend
-      const legend = document.createElement('div');
+      var legend = document.createElement('div');
       legend.className = 'heatmap-legend';
       legend.innerHTML = 'Less ';
-      for (let i = 0; i <= 4; i++) {
-        legend.innerHTML += '<div class="heatmap-cell" data-level="' + i + '"></div>';
+      for (var l = 0; l <= 4; l++) {
+        legend.innerHTML += '<div class="heatmap-cell" data-level="' + l + '"></div>';
       }
       legend.innerHTML += ' More';
       container.appendChild(legend);
     },
 
-    // Render hour x day grid
+    // Hour grid
     renderHourGrid() {
-      const container = document.getElementById('hour-grid');
+      var container = document.getElementById('hour-grid');
       if (!container) return;
       container.innerHTML = '';
 
-      const matrix = this.hourly.matrix || [];
-      const maxCount = this.hourly.max_count || 1;
-      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      var matrix = this.hourly.matrix || [];
+      var maxCount = this.hourly.max_count || 1;
+      var dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
       if (matrix.length === 0) {
         container.innerHTML = '<div class="empty-state">No activity data</div>';
         return;
       }
 
-      const grid = document.createElement('div');
+      var grid = document.createElement('div');
       grid.className = 'hour-grid';
 
       // Header row
       grid.innerHTML += '<div></div>';
-      for (let h = 0; h < 24; h++) {
+      for (var h = 0; h < 24; h++) {
         if (h % 3 === 0) {
           grid.innerHTML += '<div class="hour-grid-header">' + h + '</div>';
         } else {
@@ -275,11 +359,11 @@ function observatory() {
       }
 
       // Data rows
-      for (let d = 0; d < 7; d++) {
+      for (var d = 0; d < 7; d++) {
         grid.innerHTML += '<div class="hour-grid-label">' + dayNames[d] + '</div>';
-        for (let h = 0; h < 24; h++) {
-          const count = (matrix[d] && matrix[d][h]) || 0;
-          const level = count === 0 ? 0 :
+        for (var h = 0; h < 24; h++) {
+          var count = (matrix[d] && matrix[d][h]) || 0;
+          var level = count === 0 ? 0 :
             count <= maxCount * 0.25 ? 1 :
             count <= maxCount * 0.5 ? 2 :
             count <= maxCount * 0.75 ? 3 : 4;
@@ -291,49 +375,60 @@ function observatory() {
       container.appendChild(grid);
     },
 
-    // Render Chart.js charts
+    // Charts
     renderCharts() {
-      // Day totals bar chart
-      const dayCtx = document.getElementById('day-chart');
-      if (dayCtx && this.hourly.day_totals) {
+      // Daily activity bar chart (time-series, not day-of-week)
+      var dayCtx = document.getElementById('day-chart');
+      if (dayCtx && this.heatmap.days && this.heatmap.days.length > 0) {
         this._dayChart = destroyChart(this._dayChart);
-        this._dayChart = createDayBarChart(dayCtx.getContext('2d'), this.hourly.day_totals);
+        this._dayChart = createDailyBarChart(dayCtx.getContext('2d'), this.heatmap.days);
       }
 
-      // Cost by project doughnut
-      const costCtx = document.getElementById('cost-chart');
-      if (costCtx && this.sessions.length > 0) {
+      // Cost by project
+      var costCtx = document.getElementById('cost-chart');
+      if (costCtx) {
         this._costChart = destroyChart(this._costChart);
-        const projectCosts = {};
-        this.sessions.forEach(s => {
-          const p = s.project || 'unknown';
-          projectCosts[p] = (projectCosts[p] || 0) + (s.total_cost || 0);
+        var projectCosts = {};
+        var hasCost = false;
+        this.sessions.forEach(function(s) {
+          if (s.total_cost > 0) {
+            hasCost = true;
+            var p = s.project || 'unknown';
+            projectCosts[p] = (projectCosts[p] || 0) + s.total_cost;
+          }
         });
-        const labels = Object.keys(projectCosts);
-        const values = Object.values(projectCosts);
-        if (labels.length > 0) {
-          this._costChart = createCostChart(costCtx.getContext('2d'), labels, values);
+        if (hasCost) {
+          this._costChart = createCostChart(costCtx.getContext('2d'), Object.keys(projectCosts), Object.values(projectCosts));
         }
       }
 
-      // Score distribution chart
-      const scoreCtx = document.getElementById('score-chart');
+      // Score chart
+      var scoreCtx = document.getElementById('score-chart');
       if (scoreCtx && this.scores.length > 0) {
         this._scoreChart = destroyChart(this._scoreChart);
         this._scoreChart = createScoreChart(scoreCtx.getContext('2d'), this.scores);
       }
 
-      // Token trend chart
-      const tokenCtx = document.getElementById('token-chart');
-      if (tokenCtx && this.sessions.length > 0) {
+      // Token trend
+      var tokenCtx = document.getElementById('token-chart');
+      if (tokenCtx) {
         this._tokenChart = destroyChart(this._tokenChart);
-        this._tokenChart = createTokenChart(tokenCtx.getContext('2d'), this.sessions);
+        var hasTokens = this.sessions.some(function(s) { return s.total_tokens > 0; });
+        if (hasTokens) {
+          this._tokenChart = createTokenChart(tokenCtx.getContext('2d'), this.sessions);
+        }
       }
     },
 
-    // Helper: max tool count for bar width
     maxToolCount() {
-      return Math.max(...this.tools.map(t => t.count), 1);
+      return Math.max.apply(null, this.tools.map(function(t) { return t.count; }).concat([1]));
+    },
+
+    // Metric for top sessions display
+    topMetricValue(session) {
+      if (this.topSort === 'cost') return fmtCost(session.total_cost);
+      if (this.topSort === 'duration') return fmtDuration(session.total_duration_ms);
+      return session.trace_count;
     },
   };
 }

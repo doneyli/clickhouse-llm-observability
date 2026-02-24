@@ -13,76 +13,97 @@
 </head>
 <body x-data="observatory()" x-init="init()">
 
-  <!-- Header -->
+  <!-- ==================== HEADER ==================== -->
   <header class="header">
     <h1>LLM Observatory</h1>
+
+    <select x-model="project" @change="setProject($event.target.value)">
+      <option value="all">All Projects</option>
+      <template x-for="p in projects" :key="p">
+        <option :value="p" x-text="p"></option>
+      </template>
+    </select>
+
     <div class="header-controls">
-      <!-- Project filter -->
-      <select x-model="project" @change="setProject($event.target.value)">
-        <option value="all">All Projects</option>
-        <template x-for="p in projects" :key="p">
-          <option :value="p" x-text="p"></option>
-        </template>
-      </select>
+      <!-- Search trigger -->
+      <button class="search-trigger" @click="openSearch()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Search sessions...
+        <kbd>Ctrl+K</kbd>
+      </button>
 
       <!-- Time range -->
       <div class="time-range-group">
         <template x-for="r in ['7d','30d','90d','1y','all']" :key="r">
-          <button :class="{ active: timeRange === r }" @click="setTimeRange(r)" x-text="r === 'all' ? 'All' : r"></button>
+          <button :class="{ active: timeRange === r }" @click="setTimeRange(r)"
+                  x-text="r === 'all' ? 'All' : r"></button>
         </template>
       </div>
 
-      <!-- Export -->
       <button class="btn" @click="exportCSV()">Export CSV</button>
     </div>
   </header>
 
+  <!-- ==================== SEARCH OVERLAY ==================== -->
+  <template x-if="searchOpen">
+    <div class="search-overlay" @click.self="closeSearch()">
+      <div class="search-modal">
+        <div class="search-input-row">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="search-input" type="text" placeholder="Search sessions..."
+                 x-model="searchQuery" @input.debounce.200ms="onSearchInput()"
+                 @keydown.escape="closeSearch()">
+          <kbd>Esc</kbd>
+        </div>
+        <ul class="search-results">
+          <template x-if="searchQuery.length >= 2 && searchResults.length === 0">
+            <li class="search-empty">No results found</li>
+          </template>
+          <template x-for="r in searchResults" :key="r.id">
+            <li class="search-result-item" @click="searchSelect(r.id)">
+              <div class="search-result-icon" style="background: #6366f1;">A</div>
+              <div class="search-result-text" x-text="r.title"></div>
+              <div class="search-result-project" x-text="r.project || ''"></div>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+  </template>
+
   <div class="layout">
 
-    <!-- Sidebar: Session list -->
+    <!-- ==================== SIDEBAR ==================== -->
     <aside class="sidebar">
-      <div class="sidebar-search">
-        <input type="search" placeholder="Search sessions..." x-model="search" @input="onSearch()">
-      </div>
+      <div class="sidebar-header" x-text="sessionsTotal + ' sessions'"></div>
 
-      <!-- Loading -->
       <template x-if="loading">
-        <div class="loading"><div class="spinner"></div> Loading sessions...</div>
+        <div class="loading"><div class="spinner"></div></div>
       </template>
 
-      <!-- Session list -->
-      <template x-if="!loading">
-        <div>
-          <template x-if="sessions.length === 0">
-            <div class="empty-state">No sessions found</div>
-          </template>
-          <ul class="session-list">
-            <template x-for="s in sessions" :key="s.id">
-              <li class="session-item"
-                  :class="{ active: selectedSession === s.id }"
-                  @click="selectSession(s.id)">
-                <div class="session-id" x-text="s.id"></div>
-                <div class="session-meta">
-                  <span x-text="s.trace_count + ' traces'"></span>
-                  <span x-text="fmtDuration(s.total_latency_ms)"></span>
-                  <span x-text="fmtRelative(s.last_trace)"></span>
-                </div>
-                <template x-if="s.project">
-                  <span class="session-project" x-text="s.project"></span>
-                </template>
-              </li>
-            </template>
-          </ul>
-          <template x-if="sessions.length > 0">
-            <div style="padding: 10px 14px; font-size: 12px; color: var(--text-muted);"
-                 x-text="sessionsTotal + ' total sessions'">
+      <ul class="session-list" x-show="!loading">
+        <template x-for="s in sessions" :key="s.id">
+          <li class="session-item"
+              :class="{ active: selectedSessionId === s.id }"
+              @click="selectSession(s.id)">
+            <div class="session-title" x-text="s.id"></div>
+            <div class="session-meta">
+              <span class="project-name" x-text="s.project || ''"></span>
+              <span x-text="fmtRelative(s.last_trace)"></span>
+              <span class="trace-badge" x-text="'+' + s.trace_count"></span>
             </div>
-          </template>
-        </div>
-      </template>
+          </li>
+        </template>
+      </ul>
+
+      <div class="sidebar-footer" x-show="!loading">
+        <span x-text="sessionsTotal + ' sessions'"></span>
+        <span x-text="kpi.traces_count ? fmtNum(kpi.traces_count) + ' traces' : ''"></span>
+        <span x-text="projects.length + ' projects'"></span>
+      </div>
     </aside>
 
-    <!-- Main content -->
+    <!-- ==================== MAIN CONTENT ==================== -->
     <main class="main">
 
       <!-- Error -->
@@ -95,87 +116,103 @@
         <div class="loading"><div class="spinner"></div> Loading dashboard...</div>
       </template>
 
-      <template x-if="!loading && !error">
-        <div>
+      <!-- ==================== SESSION VIEW ==================== -->
+      <template x-if="!loading && !error && view === 'session'">
+        <div class="session-view">
+          <div class="session-view-header">
+            <button class="session-view-back" @click="backToDashboard()">Dashboard</button>
+            <div class="session-view-title" x-text="selectedSessionId"></div>
+          </div>
 
-          <!-- Session Detail (shown when a session is selected) -->
-          <template x-if="selectedSession && sessionDetail">
-            <div class="detail-panel">
-              <div class="detail-header">
-                <h3>
-                  Session: <span x-text="selectedSession"></span>
-                </h3>
-                <div class="detail-stats">
-                  <span x-text="sessionDetail.trace_count + ' traces'"></span>
-                  <span x-text="fmtDuration(sessionDetail.total_latency_ms)"></span>
-                  <span x-text="fmtCost(sessionDetail.total_cost)"></span>
-                  <span x-text="fmtNum(sessionDetail.total_tokens) + ' tokens'"></span>
-                </div>
+          <template x-if="!sessionDetail">
+            <div class="loading"><div class="spinner"></div> Loading session...</div>
+          </template>
+
+          <template x-if="sessionDetail">
+            <div>
+              <div class="session-view-stats">
+                <span x-text="sessionDetail.trace_count + ' traces'"></span>
+                <span x-text="fmtDuration(sessionDetail.total_latency_ms)"></span>
+                <span x-text="fmtCost(sessionDetail.total_cost)"></span>
+                <span x-text="fmtNum(sessionDetail.total_tokens) + ' tokens'"></span>
               </div>
-              <ul class="trace-list">
-                <template x-for="tr in sessionDetail.traces" :key="tr.id">
-                  <li class="trace-item">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                      <span class="trace-name" x-text="tr.name || 'unnamed'"></span>
-                      <span class="trace-time" x-text="fmtDate(tr.timestamp)"></span>
-                    </div>
-                    <div class="session-meta" style="margin-top: 2px;">
-                      <span x-text="fmtDuration(tr.latency_ms)"></span>
-                      <span x-text="fmtCost(tr.cost)"></span>
-                      <span x-text="fmtNum(tr.tokens) + ' tokens'"></span>
-                    </div>
+
+              <template x-for="tr in sessionDetail.traces" :key="tr.id">
+                <div class="trace-message">
+                  <div class="trace-message-header">
+                    <div class="trace-message-icon agent">A</div>
+                    <div class="trace-message-name" x-text="tr.name || 'Trace'"></div>
+                    <div class="trace-message-time" x-text="fmtDate(tr.timestamp)"></div>
+                  </div>
+                  <div class="trace-message-body">
                     <template x-if="tr.input">
-                      <div class="trace-io"><strong>Input:</strong> <span x-text="tr.input"></span></div>
+                      <div class="io-block" x-text="tr.input"></div>
                     </template>
                     <template x-if="tr.output">
-                      <div class="trace-io"><strong>Output:</strong> <span x-text="tr.output"></span></div>
+                      <div class="io-block" x-text="tr.output"></div>
                     </template>
-                    <template x-if="Object.keys(tr.scores).length > 0">
-                      <div class="trace-scores">
-                        <template x-for="[name, val] in Object.entries(tr.scores)" :key="name">
-                          <span class="trace-score-badge" x-text="name + ': ' + val.toFixed(2)"></span>
-                        </template>
-                      </div>
+                  </div>
+                  <div class="trace-message-badges">
+                    <span class="trace-badge-pill" x-text="fmtDuration(tr.latency_ms)"></span>
+                    <template x-if="tr.cost > 0">
+                      <span class="trace-badge-pill cost" x-text="fmtCost(tr.cost)"></span>
                     </template>
-                  </li>
-                </template>
-              </ul>
+                    <template x-if="tr.tokens > 0">
+                      <span class="trace-badge-pill tokens" x-text="fmtNum(tr.tokens) + ' tokens'"></span>
+                    </template>
+                    <template x-for="[name, val] in Object.entries(tr.scores)" :key="name">
+                      <span class="trace-badge-pill" x-text="name + ': ' + val.toFixed(2)"></span>
+                    </template>
+                  </div>
+                </div>
+              </template>
             </div>
           </template>
+        </div>
+      </template>
+
+      <!-- ==================== DASHBOARD VIEW ==================== -->
+      <template x-if="!loading && !error && view === 'dashboard'">
+        <div>
 
           <!-- KPI Cards -->
           <div class="kpi-grid">
             <div class="kpi-card">
-              <div class="kpi-label">Sessions</div>
               <div class="kpi-value" x-text="fmtNum(kpi.sessions_count)"></div>
+              <div class="kpi-label">Sessions</div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">Traces</div>
               <div class="kpi-value" x-text="fmtNum(kpi.traces_count)"></div>
+              <div class="kpi-label">Traces</div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">Projects</div>
               <div class="kpi-value" x-text="fmtNum(kpi.projects_count)"></div>
+              <div class="kpi-label">Projects</div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">Active Days</div>
               <div class="kpi-value" x-text="fmtNum(kpi.active_days)"></div>
+              <div class="kpi-label">Active Days</div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">Med. Traces/Session</div>
-              <div class="kpi-value small" x-text="kpi.median_traces_per_session?.toFixed(1) ?? '—'"></div>
+              <div class="kpi-value" x-text="kpi.median_traces_per_session != null ? kpi.median_traces_per_session.toFixed(1) : '—'"></div>
+              <div class="kpi-label">Traces/Session</div>
+              <div class="kpi-sub" x-text="'med ' + (kpi.median_traces_per_session || 0).toFixed(0) + ' / p90 ' + (kpi.p90_traces_per_session || 0).toFixed(0)"></div>
             </div>
             <div class="kpi-card">
-              <div class="kpi-label">Avg Latency</div>
-              <div class="kpi-value small" x-text="fmtDuration(kpi.avg_latency_ms)"></div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Total Cost</div>
-              <div class="kpi-value small" x-text="fmtCost(kpi.total_cost)"></div>
-            </div>
-            <div class="kpi-card">
+              <div class="kpi-value" x-text="kpi.avg_score != null ? (kpi.avg_score * 100).toFixed(1) + '%' : '—'"></div>
               <div class="kpi-label">Avg Score</div>
-              <div class="kpi-value small" x-text="kpi.avg_score != null ? kpi.avg_score.toFixed(2) : '—'"></div>
+            </div>
+          </div>
+
+          <!-- Avg Latency + Total Cost (second row, smaller) -->
+          <div class="kpi-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 16px;">
+            <div class="kpi-card">
+              <div class="kpi-value" x-text="fmtDuration(kpi.avg_latency_ms)"></div>
+              <div class="kpi-label">Avg Latency</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-value" x-text="fmtCost(kpi.total_cost)"></div>
+              <div class="kpi-label">Total Cost</div>
             </div>
           </div>
 
@@ -185,10 +222,10 @@
             <div id="heatmap" class="heatmap-container"></div>
           </div>
 
-          <!-- Activity by Day + Hour Grid -->
+          <!-- Activity by Day + Activity by Hour -->
           <div class="charts-row">
             <div class="section">
-              <div class="section-title">Activity by Day</div>
+              <div class="section-title">Activity by Day and Hour</div>
               <div class="chart-container">
                 <canvas id="day-chart"></canvas>
               </div>
@@ -199,106 +236,90 @@
             </div>
           </div>
 
-          <!-- Top Sessions -->
-          <div class="section">
-            <div class="section-title">Top Sessions</div>
-            <div class="sort-tabs">
-              <template x-for="s in ['traces', 'duration', 'cost']" :key="s">
-                <button class="sort-tab" :class="{ active: topSort === s }"
-                        @click="setTopSort(s)" x-text="s"></button>
-              </template>
-            </div>
-            <template x-if="topSessions.length === 0">
-              <div class="empty-state">No sessions</div>
-            </template>
-            <template x-if="topSessions.length > 0">
-              <table class="top-table">
-                <thead>
-                  <tr>
-                    <th class="rank">#</th>
-                    <th>Session</th>
-                    <th>Project</th>
-                    <th>Traces</th>
-                    <th>Duration</th>
-                    <th>Cost</th>
-                    <th>Started</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template x-for="(s, i) in topSessions" :key="s.id">
-                    <tr>
-                      <td class="rank" x-text="i + 1"></td>
-                      <td><span class="session-link" @click="selectSession(s.id)" x-text="s.id"></span></td>
-                      <td><span class="session-project" x-text="s.project || '—'"></span></td>
-                      <td x-text="s.trace_count"></td>
-                      <td x-text="fmtDuration(s.total_duration_ms)"></td>
-                      <td x-text="fmtCost(s.total_cost)"></td>
-                      <td x-text="fmtRelative(s.first_trace)"></td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </template>
-          </div>
-
-          <!-- Tool Usage + Quality Scores -->
+          <!-- Top Sessions + (right column varies) -->
           <div class="charts-row">
+            <!-- Top Sessions -->
+            <div class="section">
+              <div class="section-header">
+                <div class="section-title">Top Sessions</div>
+                <div class="sort-tabs">
+                  <template x-for="s in ['traces', 'duration', 'cost']" :key="s">
+                    <button class="sort-tab" :class="{ active: topSort === s }"
+                            @click="setTopSort(s)"
+                            x-text="s === 'traces' ? 'By Traces' : s === 'duration' ? 'By Duration' : 'By Cost'"></button>
+                  </template>
+                </div>
+              </div>
+              <template x-if="topSessions.length === 0">
+                <div class="empty-state">No sessions</div>
+              </template>
+              <ol class="top-sessions-list">
+                <template x-for="(s, i) in topSessions" :key="s.id">
+                  <li class="top-session-item" @click="selectSession(s.id)">
+                    <div class="top-rank" x-text="i + 1"></div>
+                    <div class="top-session-info">
+                      <div class="top-session-title" x-text="s.id"></div>
+                      <div class="top-session-project" x-text="s.project || ''"></div>
+                    </div>
+                    <div class="top-session-metric" x-text="topMetricValue(s)"></div>
+                  </li>
+                </template>
+              </ol>
+            </div>
+
+            <!-- Tool / Span Usage -->
             <div class="section">
               <div class="section-title">Tool / Span Usage</div>
               <template x-if="tools.length === 0">
                 <div class="empty-state">No span data</div>
               </template>
-              <template x-if="tools.length > 0">
-                <div>
-                  <template x-for="t in tools" :key="t.name">
-                    <div class="tool-bar">
-                      <span class="tool-name" x-text="t.name" :title="t.name"></span>
+              <div class="tool-bars-list" x-show="tools.length > 0">
+                <template x-for="t in tools" :key="t.name">
+                  <div class="tool-bar">
+                    <span class="tool-name" x-text="t.name" :title="t.name"></span>
+                    <div class="tool-bar-track">
                       <div class="tool-bar-fill" :style="'width:' + (t.count / maxToolCount() * 100) + '%'"></div>
-                      <span class="tool-count" x-text="t.count"></span>
                     </div>
-                  </template>
-                </div>
-              </template>
-            </div>
-            <div class="section">
-              <div class="section-title">Quality Scores</div>
-              <template x-if="scores.length === 0">
-                <div class="empty-state">No score data</div>
-              </template>
-              <template x-if="scores.length > 0">
-                <div>
-                  <div class="chart-container" style="margin-bottom: 12px;">
-                    <canvas id="score-chart"></canvas>
+                    <span class="tool-count" x-text="t.count"></span>
                   </div>
-                  <div class="score-cards">
-                    <template x-for="s in scores" :key="s.name">
-                      <div class="score-card">
-                        <div class="score-name" x-text="s.name"></div>
-                        <div class="score-avg" x-text="s.avg.toFixed(2)"></div>
-                        <div class="score-range" x-text="'Range: ' + s.min.toFixed(2) + ' – ' + s.max.toFixed(2) + ' (' + s.count + ')'"></div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-              </template>
+                </template>
+              </div>
             </div>
           </div>
 
-          <!-- Cost + Token Charts -->
-          <div class="charts-row">
+          <!-- Quality Scores -->
+          <template x-if="scores.length > 0">
             <div class="section">
-              <div class="section-title">Cost by Project</div>
-              <div class="chart-container">
-                <canvas id="cost-chart"></canvas>
+              <div class="section-title">Quality Scores</div>
+              <div class="score-cards">
+                <template x-for="s in scores" :key="s.name">
+                  <div class="score-card">
+                    <div class="score-name" x-text="s.name"></div>
+                    <div class="score-avg" x-text="s.avg.toFixed(2)"></div>
+                    <div class="score-range" x-text="'Range: ' + s.min.toFixed(2) + ' – ' + s.max.toFixed(2)"></div>
+                  </div>
+                </template>
               </div>
             </div>
-            <div class="section">
-              <div class="section-title">Token Usage Trend</div>
-              <div class="chart-container">
-                <canvas id="token-chart"></canvas>
-              </div>
+          </template>
+
+          <!-- Cost + Token Charts (only if data exists) -->
+          <template x-if="sessions.some(s => s.total_cost > 0) || sessions.some(s => s.total_tokens > 0)">
+            <div class="charts-row">
+              <template x-if="sessions.some(s => s.total_cost > 0)">
+                <div class="section">
+                  <div class="section-title">Cost by Project</div>
+                  <div class="chart-container"><canvas id="cost-chart"></canvas></div>
+                </div>
+              </template>
+              <template x-if="sessions.some(s => s.total_tokens > 0)">
+                <div class="section">
+                  <div class="section-title">Token Usage Trend</div>
+                  <div class="chart-container"><canvas id="token-chart"></canvas></div>
+                </div>
+              </template>
             </div>
-          </div>
+          </template>
 
           <!-- Footer -->
           <footer class="footer">
