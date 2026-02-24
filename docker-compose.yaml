@@ -377,6 +377,30 @@ services:
     volumes:
       - ./mcp-langfuse-logs:/app/logs
 
+  # =============================================================================
+  # LLM Observatory — Analytics Dashboard
+  # =============================================================================
+  # Enable with --profile dashboard
+  # Start: docker compose --profile langfuse --profile dashboard up -d
+  # Open: http://localhost:8005
+  # =============================================================================
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: llm-observatory
+    ports:
+      - "${DASHBOARD_PORT:-8005}:8005"
+    environment:
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-lf-1234567890}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-1234567890}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+      - DASHBOARD_CACHE_TTL=${DASHBOARD_CACHE_TTL:-60}
+    profiles:
+      - dashboard
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+
 volumes:
   # Langfuse volumes
   langfuse-postgres-data:
