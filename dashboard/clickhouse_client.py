@@ -41,6 +41,11 @@ def _get_ch_auth() -> tuple[str, str]:
     return user, password
 
 
+def _normalize_ts(ts: str) -> str:
+    """Convert ISO 8601 (2026-02-17T04:03:55.365Z) to ClickHouse format (2026-02-17 04:03:55.365)."""
+    return ts.replace("T", " ").rstrip("Z")
+
+
 def _where_clause(from_ts: str | None, to_ts: str | None, project: str | None,
                   table_alias: str = "", ts_col: str = "timestamp") -> tuple[str, dict]:
     """Build WHERE conditions and params for time range + project filter."""
@@ -50,10 +55,10 @@ def _where_clause(from_ts: str | None, to_ts: str | None, project: str | None,
 
     if from_ts:
         conditions.append(f"{prefix}{ts_col} >= {{from_ts:DateTime64(3)}}")
-        params["from_ts"] = from_ts
+        params["from_ts"] = _normalize_ts(from_ts)
     if to_ts:
         conditions.append(f"{prefix}{ts_col} <= {{to_ts:DateTime64(3)}}")
-        params["to_ts"] = to_ts
+        params["to_ts"] = _normalize_ts(to_ts)
     if project:
         conditions.append(f"{prefix}name = {{project:String}}")
         params["project"] = project
