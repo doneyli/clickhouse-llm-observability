@@ -43,4 +43,4 @@ if ! command -v npx &> /dev/null; then
 fi
 
 # Forward all arguments to the Langfuse CLI
-exec npx langfuse "$@"
+exec langfuse "$@"
