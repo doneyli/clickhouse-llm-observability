@@ -303,23 +303,17 @@
             </div>
           </template>
 
-          <!-- Cost + Token Charts (only if data exists) -->
-          <template x-if="sessions.some(s => s.total_cost > 0) || sessions.some(s => s.total_tokens > 0)">
-            <div class="charts-row">
-              <template x-if="sessions.some(s => s.total_cost > 0)">
-                <div class="section">
-                  <div class="section-title">Cost by Project</div>
-                  <div class="chart-container"><canvas id="cost-chart"></canvas></div>
-                </div>
-              </template>
-              <template x-if="sessions.some(s => s.total_tokens > 0)">
-                <div class="section">
-                  <div class="section-title">Token Usage Trend</div>
-                  <div class="chart-container"><canvas id="token-chart"></canvas></div>
-                </div>
-              </template>
+          <!-- Cost + Token Charts (always in DOM, hidden when empty) -->
+          <div class="charts-row" x-show="sessions.some(s => s.total_cost > 0) || sessions.some(s => s.total_tokens > 0)">
+            <div class="section" x-show="sessions.some(s => s.total_cost > 0)">
+              <div class="section-title">Cost by Project</div>
+              <div class="chart-container"><canvas id="cost-chart"></canvas></div>
             </div>
-          </template>
+            <div class="section" x-show="sessions.some(s => s.total_tokens > 0)">
+              <div class="section-title">Token Usage Trend</div>
+              <div class="chart-container"><canvas id="token-chart"></canvas></div>
+            </div>
+          </div>
 
           <!-- Footer -->
           <footer class="footer">

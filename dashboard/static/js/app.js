@@ -91,12 +91,16 @@ function observatory() {
         this.scores = results[7].scores || [];
         this.loading = false;
 
+        // Double nextTick + setTimeout ensures Alpine has finished
+        // processing all x-if/x-show templates before we touch the DOM
         this.$nextTick(() => {
-          if (this.view === 'dashboard') {
-            this.renderHeatmap();
-            this.renderHourGrid();
-            this.renderCharts();
-          }
+          setTimeout(() => {
+            if (this.view === 'dashboard') {
+              this.renderHeatmap();
+              this.renderHourGrid();
+              this.renderCharts();
+            }
+          }, 50);
         });
       } catch (e) {
         this.error = 'Failed to load data: ' + e.message;
@@ -147,9 +151,11 @@ function observatory() {
       this.selectedSessionId = null;
       this.sessionDetail = null;
       this.$nextTick(() => {
-        this.renderHeatmap();
-        this.renderHourGrid();
-        this.renderCharts();
+        setTimeout(() => {
+          this.renderHeatmap();
+          this.renderHourGrid();
+          this.renderCharts();
+        }, 50);
       });
     },
 
