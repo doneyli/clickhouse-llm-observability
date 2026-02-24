@@ -1,24 +1,16 @@
-"""Projects endpoint — distinct project names from traces."""
+"""Projects — powered by ClickHouse."""
 
 from fastapi import APIRouter, Query
 
-from data_models import ProjectResponse
-from langfuse_client import fetch_all_traces
+from clickhouse_client import get_projects
 
 router = APIRouter()
 
 
-@router.get("/api/projects", response_model=ProjectResponse)
-async def get_projects(
+@router.get("/api/projects")
+async def projects_endpoint(
     from_ts: str | None = Query(None, alias="from"),
     to_ts: str | None = Query(None, alias="to"),
 ):
-    traces = await fetch_all_traces(from_ts=from_ts, to_ts=to_ts)
-
-    projects = set()
-    for t in traces:
-        name = t.get("name")
-        if name:
-            projects.add(name)
-
-    return ProjectResponse(projects=sorted(projects))
+    projects = await get_projects(from_ts=from_ts, to_ts=to_ts)
+    return {"projects": projects}

@@ -1,4 +1,4 @@
-"""CSV export endpoint."""
+"""CSV export — powered by ClickHouse."""
 
 import csv
 import io
@@ -6,7 +6,7 @@ import io
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from langfuse_client import fetch_all_traces
+from clickhouse_client import get_export_traces
 
 router = APIRouter()
 
@@ -17,7 +17,7 @@ async def export_csv(
     to_ts: str | None = Query(None, alias="to"),
     project: str | None = Query(None),
 ):
-    traces = await fetch_all_traces(from_ts=from_ts, to_ts=to_ts, name=project)
+    traces = await get_export_traces(from_ts=from_ts, to_ts=to_ts, project=project)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -28,21 +28,18 @@ async def export_csv(
     ])
 
     for t in traces:
-        usage = t.get("usage") or {}
-        raw_input = t.get("input")
-        raw_output = t.get("output")
         writer.writerow([
-            t.get("id", ""),
-            t.get("sessionId", ""),
+            t.get("trace_id", ""),
+            t.get("session_id", ""),
             t.get("name", ""),
             t.get("timestamp", ""),
-            t.get("latency", ""),
-            t.get("totalCost", ""),
-            usage.get("inputTokens") or usage.get("input") or "",
-            usage.get("outputTokens") or usage.get("output") or "",
-            usage.get("totalTokens") or usage.get("total") or "",
-            str(raw_input)[:1000] if raw_input else "",
-            str(raw_output)[:1000] if raw_output else "",
+            t.get("latency_s", ""),
+            t.get("total_cost", ""),
+            t.get("input_tokens", ""),
+            t.get("output_tokens", ""),
+            t.get("total_tokens", ""),
+            t.get("input", ""),
+            t.get("output", ""),
         ])
 
     output.seek(0)

@@ -391,6 +391,12 @@ services:
     ports:
       - "${DASHBOARD_PORT:-8005}:8005"
     environment:
+      # ClickHouse direct connection (fast analytics)
+      - CLICKHOUSE_HOST=langfuse-clickhouse
+      - CLICKHOUSE_HTTP_PORT=8123
+      - CLICKHOUSE_USER=langfuse
+      - CLICKHOUSE_PASSWORD=langfuse123
+      # Langfuse REST API (fallback / session detail)
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-lf-1234567890}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-1234567890}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
@@ -398,7 +404,7 @@ services:
     profiles:
       - dashboard
     depends_on:
-      langfuse-web:
+      langfuse-clickhouse:
         condition: service_healthy
 
 volumes:
