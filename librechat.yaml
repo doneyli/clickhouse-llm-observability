@@ -25,6 +25,13 @@ mcpServers:
     headers:
       Authorization: "Basic ${LANGFUSE_MCP_AUTH_TOKEN}"
 
+# MCP Security: Allow internal Docker network domains for MCP servers
+mcpSettings:
+  allowedDomains:
+    - "mcp-clickhouse:8000"
+    - "mcp-clickhouse-langfuse:8000"
+    - "langfuse-web:3000"
+
 # Agent Configuration
 endpoints:
   agents:
