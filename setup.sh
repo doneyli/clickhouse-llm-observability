@@ -598,6 +598,7 @@ main() {
         echo "  Running demo data seeding..."
         echo ""
         "$SCRIPT_DIR/scripts/seed-demo-data.sh"
+        "$SCRIPT_DIR/scripts/seed-librechat-agents.sh"
     else
         echo "  Run ./scripts/seed-demo-data.sh to populate sample traces."
         echo "  Or re-run with: ./setup.sh --seed"

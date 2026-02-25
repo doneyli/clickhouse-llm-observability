@@ -18,6 +18,7 @@ LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. 
 ./scripts/seed-demo-data.sh --quick     # Skip test scenarios
 ./scripts/reset.sh                      # Full destructive reset
 ./scripts/validate-langfuse.sh          # Validate Langfuse integration
+./scripts/seed-librechat-agents.sh          # Create LibreChat agents with MCP tools
 ./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
 ```
 
