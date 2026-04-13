@@ -325,7 +325,52 @@ docker compose --profile tools run --rm test-scenarios  # → traces tagged "tes
 ./scripts/seed-demo-data.sh
 ```
 
-### Evaluation
+### Evaluation Datasets & Experiments
+
+**Seed evaluation datasets** for coding assistant quality and security testing:
+
+```bash
+# Create datasets (requires pip install 'langfuse>=3.0,<4.0')
+python scripts/seed-datasets.py
+
+# Or include datasets in the full seed flow
+./scripts/seed-demo-data.sh --datasets
+```
+
+This creates two datasets in Langfuse:
+
+| Dataset | Items | Tests For |
+|---------|:-----:|-----------|
+| `coding-assistant-quality` | 12 | Code generation, debugging, refactoring, unit tests, complexity analysis, SQL conversion |
+| `coding-assistant-security` | 8 | Credential detection, PII handling, unauthorized access, insecure practices |
+
+**Run experiments** against the datasets with custom evaluators:
+
+```bash
+# Run all experiments with Claude Sonnet
+python scripts/run-experiments.py
+
+# Run with a specific model
+python scripts/run-experiments.py --model gpt-4o
+
+# Only quality or security dataset
+python scripts/run-experiments.py --dataset quality
+python scripts/run-experiments.py --dataset security
+
+# Preview without running
+python scripts/run-experiments.py --dry-run
+```
+
+Experiments create dataset runs visible in Langfuse UI (Datasets > select dataset > Runs tab) with per-item scores and aggregate metrics.
+
+**Import traces from external Langfuse instances** (e.g., Claude Code session traces):
+
+```bash
+SOURCE_LANGFUSE_PUBLIC_KEY=<pk> SOURCE_LANGFUSE_SECRET_KEY=<sk> \
+  python scripts/import-external-traces.py --limit 30 --scrub --add-tag claude-code-demo
+```
+
+### LLM-as-a-Judge Evaluation
 
 **Step 1: Export test scenarios**
 
@@ -448,6 +493,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ├── docs/                       # Documentation
 │   ├── QUICKSTART_GUIDE.md
 │   ├── USER_JOURNEY.md
+│   ├── LANGFUSE_DEMO_RUNBOOK.md  # Screen-by-screen demo script (45 min)
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
 │   ├── LANGFUSE_INTEGRATION.md
@@ -456,6 +502,9 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │
 └── scripts/                    # Utility scripts
     ├── seed-demo-data.sh       # Populate demo with sample traces
+    ├── seed-datasets.py        # Create evaluation datasets
+    ├── run-experiments.py      # Run experiments with evaluators
+    ├── import-external-traces.py # Import traces from another Langfuse
     ├── reset.sh                # Full reset (destructive)
     ├── validate-langfuse.sh    # Validate Langfuse integration
     └── langfuse-cli.sh         # Langfuse CLI wrapper
@@ -474,6 +523,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
 | [Langfuse CLI](docs/LANGFUSE_CLI.md) | Terminal access to traces, prompts, scores |
 | [Langfuse Skills](docs/LANGFUSE_SKILLS.md) | AI coding agent integration |
+| [Demo Runbook](docs/LANGFUSE_DEMO_RUNBOOK.md) | Screen-by-screen demo script for customer presentations |
 
 ---
 
