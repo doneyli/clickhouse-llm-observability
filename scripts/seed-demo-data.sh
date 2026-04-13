@@ -10,8 +10,9 @@
 # 3. Runs test scenarios (good/bad examples) → generates evaluation test data
 # 4. Notes that Langfuse evaluators score the traces automatically
 #
-# Usage: ./scripts/seed-demo-data.sh [--quick]
-#   --quick: Only run text-to-sql and vector-rag demos (skip test scenarios)
+# Usage: ./scripts/seed-demo-data.sh [--quick] [--datasets]
+#   --quick:    Only run text-to-sql and vector-rag demos (skip test scenarios)
+#   --datasets: Also seed evaluation datasets (coding quality + security)
 # ==============================================================================
 
 set -e
@@ -156,9 +157,38 @@ else
 fi
 
 # ------------------------------------------------------------------------------
+# Seed Datasets (if --datasets flag)
+# ------------------------------------------------------------------------------
+if [[ "$*" == *"--datasets"* ]]; then
+    echo -e "${BLUE}[4/5] Seeding evaluation datasets...${NC}"
+    echo ""
+
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if command -v python3 &> /dev/null && python3 -c "import langfuse" 2>/dev/null; then
+        if python3 "${SCRIPT_DIR}/seed-datasets.py" 2>&1 | while read line; do
+            echo "  $line"
+        done; then
+            echo ""
+            echo -e "${GREEN}✓${NC} Evaluation datasets created"
+        else
+            echo -e "${RED}✗${NC} Dataset seeding failed"
+            echo "  Run manually: python scripts/seed-datasets.py"
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC} Skipping datasets: python3 or langfuse package not available"
+        echo "  Install with: pip install 'langfuse>=3.0,<4.0'"
+        echo "  Then run: python scripts/seed-datasets.py"
+    fi
+    echo ""
+else
+    echo -e "${YELLOW}[4/5] Skipping evaluation datasets (use --datasets to include)${NC}"
+    echo ""
+fi
+
+# ------------------------------------------------------------------------------
 # Evaluation Note
 # ------------------------------------------------------------------------------
-echo -e "${BLUE}[4/4] Evaluation happens automatically via Langfuse native evaluators${NC}"
+echo -e "${BLUE}[5/5] Evaluation happens automatically via Langfuse native evaluators${NC}"
 echo ""
 echo "  Traces created. Native Langfuse evaluators will score them automatically."
 echo -e "  Configure evaluators at: ${GREEN}http://localhost:3001${NC} → Evaluations → LLM-as-a-Judge"
@@ -179,9 +209,15 @@ echo "Try these in the UI:"
 echo "  - View trace timelines and token usage"
 echo "  - Filter by service (text-to-sql, vector-rag)"
 echo "  - Configure LLM-as-a-Judge evaluators in Langfuse"
+echo "  - Browse evaluation datasets (if --datasets was used)"
 echo ""
 echo "To set up automatic evaluation:"
 echo "  1. Go to Langfuse → Evaluations → LLM-as-a-Judge"
 echo "  2. Create evaluators (Hallucination, Helpfulness, etc.)"
 echo "  3. Filter by tag 'test-scenario' for test data"
+echo ""
+echo "Additional scripts:"
+echo "  python scripts/seed-datasets.py              # Seed evaluation datasets"
+echo "  python scripts/import-external-traces.py     # Import traces from another Langfuse"
+echo "  See docs/LANGFUSE_DEMO_RUNBOOK.md for a full demo walkthrough"
 echo ""

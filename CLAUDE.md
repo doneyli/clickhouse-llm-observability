@@ -16,10 +16,24 @@ LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. 
 ./setup.sh --cleanup                    # Stop containers (preserves data)
 ./scripts/seed-demo-data.sh             # Populate sample traces
 ./scripts/seed-demo-data.sh --quick     # Skip test scenarios
+./scripts/seed-demo-data.sh --datasets  # Also seed evaluation datasets
 ./scripts/reset.sh                      # Full destructive reset
 ./scripts/validate-langfuse.sh          # Validate Langfuse integration
-./scripts/seed-librechat-agents.sh          # Create LibreChat agents with MCP tools
+./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
 ./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
+```
+
+## Dataset & Import Scripts
+
+```bash
+# Seed evaluation datasets (coding quality + security)
+python scripts/seed-datasets.py                    # Create all datasets
+python scripts/seed-datasets.py --dataset quality  # Only quality dataset
+python scripts/seed-datasets.py --dry-run          # Preview without creating
+
+# Import traces from an external Langfuse instance
+SOURCE_LANGFUSE_PUBLIC_KEY=<pk> SOURCE_LANGFUSE_SECRET_KEY=<sk> \
+  python scripts/import-external-traces.py --limit 30 --scrub --add-tag claude-code-demo
 ```
 
 ## Running the Dashboard
@@ -68,6 +82,6 @@ librechat/                  # LibreChat customizations (Dockerfile.api, nginx.co
 test-scenarios/             # 40 synthetic traces for evaluation testing
 dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alpine.js)
 mcp-clickhouse/             # ClickHouse MCP Server
-scripts/                    # Utility scripts (seed, reset, validate, CLI)
-docs/                       # Documentation
+scripts/                    # Utility scripts (seed, reset, validate, CLI, import, datasets)
+docs/                       # Documentation (incl. LANGFUSE_DEMO_RUNBOOK.md)
 ```
