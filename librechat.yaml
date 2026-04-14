@@ -36,3 +36,7 @@ mcpSettings:
 endpoints:
   agents:
     recursionLimit: 50
+  bedrock:
+    availableRegions:
+      - us-east-1
+      - us-west-2
