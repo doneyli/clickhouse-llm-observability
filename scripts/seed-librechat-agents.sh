@@ -200,6 +200,13 @@ build_tools_for_server() {
 CLICKHOUSE_TOOLS=$(build_tools_for_server "clickhouse-playground")
 LANGFUSE_TRACES_TOOLS=$(build_tools_for_server "langfuse-traces")
 LANGFUSE_PROMPTS_TOOLS=$(build_tools_for_server "langfuse-prompts")
+RAG_RETRIEVER_TOOLS=$(build_tools_for_server "rag-retriever")
+
+# Agentic RAG agent uses both the KB retriever and the SQL playground
+AGENTIC_RAG_TOOLS=$(jq -n \
+    --argjson a "$RAG_RETRIEVER_TOOLS" \
+    --argjson b "$CLICKHOUSE_TOOLS" \
+    '$a + $b')
 
 # Combine all tools for the Ops Assistant
 ALL_TOOLS=$(jq -n \
@@ -350,6 +357,27 @@ Start by understanding what the user needs, then use the appropriate tools. You 
 INST
 )" \
     "$ALL_TOOLS"
+
+# Agent 5: Agentic RAG Assistant
+create_agent \
+    "Agentic RAG Assistant" \
+    "Agentic RAG over a ClickHouse-native vector store with self-correction" \
+    "$(cat <<'INST'
+You are an Agentic RAG assistant. You answer questions about ClickHouse, RAG, vector search, OpenTelemetry, and LLM observability by retrieving from a knowledge base stored in ClickHouse (native vector_similarity search) — and you can also query live ClickHouse demo datasets when a question needs real numbers.
+
+Follow a corrective-RAG (CRAG) loop, do NOT answer from memory:
+1. ROUTE: decide if the question needs the knowledge base (concepts/how-to) or live SQL (dataset numbers).
+2. RETRIEVE: call `retrieve_kb` with a focused query to get relevant chunks.
+3. GRADE: judge whether the retrieved chunks actually answer the question.
+4. SELF-CORRECT: if the chunks are weak or off-topic, rewrite the query (expand abbreviations, add synonyms, be specific) and call `retrieve_kb` again before answering. Use `list_documents` if you need to see what's available.
+5. TOOL USE: for questions about dataset numbers (taxi rides, github stars, stackoverflow, etc.), write and run a ClickHouse SELECT via the playground tools instead.
+6. ANSWER: respond using ONLY the retrieved context. Cite the document titles you used.
+7. REFLECT: before finishing, verify every claim is supported by the context; if not, retrieve more or state what's missing.
+
+Be concise, accurate, and grounded. Never fabricate sources.
+INST
+)" \
+    "$AGENTIC_RAG_TOOLS"
 
 echo ""
 

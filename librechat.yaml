@@ -12,6 +12,11 @@ mcpServers:
     type: sse
     url: http://mcp-clickhouse:8000/sse
 
+  # Agentic RAG retriever (ClickHouse-native vector search over the KB)
+  rag-retriever:
+    type: sse
+    url: http://mcp-rag-retriever:8000/sse
+
   # Langfuse Traces (query LLM trace data via natural language)
   langfuse-traces:
     type: sse
@@ -24,12 +29,19 @@ mcpServers:
     url: http://langfuse-web:3000/api/public/mcp
     headers:
       Authorization: "Basic ${LANGFUSE_MCP_AUTH_TOKEN}"
+    # Langfuse advertises OAuth, but we authenticate with the static Basic header
+    # above (project API keys). OAuth auto-detection probes WITHOUT our headers,
+    # sees Langfuse's 401 WWW-Authenticate, and misclassifies this as OAuth-only.
+    # This top-level flag bypasses that probe so the static header is used for
+    # global tool discovery. (Must be top-level, NOT nested under `oauth:`.)
+    requiresOAuth: false
 
 # MCP Security: Allow internal Docker network domains for MCP servers
 mcpSettings:
   allowedDomains:
     - "mcp-clickhouse:8000"
     - "mcp-clickhouse-langfuse:8000"
+    - "mcp-rag-retriever:8000"
     - "langfuse-web:3000"
 
 # Agent Configuration

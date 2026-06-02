@@ -1,0 +1,20 @@
+# LangChain + LangGraph (agent orchestration)
+langchain>=0.3.0,<1.0.0
+langchain-anthropic>=0.3.0,<1.0.0
+langchain-core>=0.3.0,<1.0.0
+langchain-text-splitters>=0.3.0,<1.0.0
+langgraph>=0.2.0,<1.0.0
+
+# Embeddings (same model as vector-rag for fair comparison)
+langchain-huggingface>=0.1.0,<1.0.0
+sentence-transformers>=3.0.0,<4.0.0
+
+# ClickHouse-native vector store
+clickhouse-connect>=0.8.0,<1.0.0
+
+# API server
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0
+
+# Langfuse - LLM observability (agentic instrumentation)
+langfuse>=3.0.0,<4.0.0

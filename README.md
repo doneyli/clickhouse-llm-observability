@@ -494,6 +494,8 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   ├── QUICKSTART_GUIDE.md
 │   ├── USER_JOURNEY.md
 │   ├── LANGFUSE_DEMO_RUNBOOK.md  # Screen-by-screen demo script (45 min)
+│   ├── AGENTIC_RAG_DEMO_RUNBOOK.md   # Agentic RAG demo script (25 min)
+│   ├── AGENTIC_RAG_ARCHITECTURE.md   # Agentic RAG architecture + diagram
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
 │   ├── LANGFUSE_INTEGRATION.md
@@ -518,6 +520,8 @@ See [`.env.example`](.env.example) for the full configuration reference.
 |----------|-------------|
 | [User Journey](docs/USER_JOURNEY.md) | Hands-on walkthrough of the complete demo |
 | [Quickstart Guide](docs/QUICKSTART_GUIDE.md) | Get running in 15-30 minutes |
+| [Agentic RAG Demo Runbook](docs/AGENTIC_RAG_DEMO_RUNBOOK.md) | Screen-by-screen Agentic RAG demo script (25 min) |
+| [Agentic RAG Architecture](docs/AGENTIC_RAG_ARCHITECTURE.md) | CRAG loop on ClickHouse-native vectors + Langfuse |
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
