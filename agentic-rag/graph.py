@@ -236,7 +236,9 @@ class AgenticRAG:
         return "generate"  # give up correcting; answer with caveat
 
     def _reflect_edge(self, state: AgentState) -> str:
-        if state["grounded"] or state.get("reflect_attempts", 0) >= MAX_REFLECT_ATTEMPTS:
+        # `>` (not `>=`) so MAX_REFLECT_ATTEMPTS=1 permits exactly one regeneration:
+        # attempt 1 ungrounded -> regenerate, attempt 2 -> END regardless.
+        if state["grounded"] or state.get("reflect_attempts", 0) > MAX_REFLECT_ATTEMPTS:
             return END
         return "generate"
 

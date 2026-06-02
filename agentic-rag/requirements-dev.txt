@@ -1,0 +1,5 @@
+# Test-only dependencies (not installed in the production image).
+# Run:  docker compose --profile demo run --rm agentic-rag \
+#         sh -c "pip install -q -r requirements-dev.txt && pytest -q"
+-r requirements.txt
+pytest>=8.0.0,<9.0.0
