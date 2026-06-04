@@ -63,6 +63,9 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+      # Langfuse SDK v5 (OTEL) batches spans; flush on dispose so request-scoped
+      # agent runs export before the handler is torn down.
+      - LANGFUSE_FORCE_FLUSH_ON_DISPOSE=true
       # Langfuse MCP Server (prompt management via agents)
       - LANGFUSE_MCP_AUTH_TOKEN=${LANGFUSE_MCP_AUTH_TOKEN:-}
     volumes:
