@@ -25,6 +25,7 @@ as an Agent Graph with RAG-aware semantics (retriever / tool / evaluator).
 """
 
 import os
+from functools import lru_cache
 from typing import List, Optional, TypedDict
 
 from langchain_anthropic import ChatAnthropic
@@ -59,12 +60,14 @@ class AgentState(TypedDict, total=False):
     trace: List[str]         # human-readable step log for the API/CLI
 
 
+@lru_cache(maxsize=1)
 def _llm() -> ChatAnthropic:
+    # Built once and reused (env is read at startup), matching embeddings._model().
     # timeout + retries so a stalled API call fails fast and self-heals instead
     # of hanging the whole agent run indefinitely.
     return ChatAnthropic(
         model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
-        temperature=float(os.getenv("TEMPERATURE", "0.3")),
+        temperature=float(os.getenv("TEMPERATURE", "0.7")),
         max_tokens=1200,
         default_request_timeout=float(os.getenv("LLM_TIMEOUT", "45")),
         max_retries=int(os.getenv("LLM_MAX_RETRIES", "2")),

@@ -111,7 +111,11 @@ class ClickHouseVectorStore:
         (and, with the 26.2 text index, full-text) in a single query.
         """
         cfg = self.config
-        where = f"WHERE doc_title = '{title_filter}'" if title_filter else ""
+        params: Dict = {}
+        where = ""
+        if title_filter:
+            where = "WHERE doc_title = {title_filter:String}"
+            params["title_filter"] = title_filter
         sql = f"""
             SELECT
                 id,
@@ -123,7 +127,7 @@ class ClickHouseVectorStore:
             ORDER BY distance ASC
             LIMIT {int(top_k)}
         """
-        result = self.client.query(sql)
+        result = self.client.query(sql, parameters=params)
         cols = result.column_names
         return [dict(zip(cols, row)) for row in result.result_rows]
 
@@ -136,13 +140,16 @@ class ClickHouseVectorStore:
         cfg = self.config
         if not terms:
             return []
-        conds = " OR ".join([f"positionCaseInsensitive(chunk, '{t}') > 0" for t in terms])
+        params = {f"t{i}": t for i, t in enumerate(terms)}
+        conds = " OR ".join(
+            f"positionCaseInsensitive(chunk, {{t{i}:String}}) > 0" for i in range(len(terms))
+        )
         sql = f"""
             SELECT id, doc_title, chunk
             FROM {cfg.qualified_table}
             WHERE {conds}
             LIMIT {int(top_k)}
         """
-        result = self.client.query(sql)
+        result = self.client.query(sql, parameters=params)
         cols = result.column_names
         return [dict(zip(cols, row)) for row in result.result_rows]

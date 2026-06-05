@@ -144,9 +144,11 @@ def flush():
     if client is None:
         return
     try:
-        if hasattr(client, "shutdown"):
-            client.shutdown()
-        elif hasattr(client, "flush"):
+        # Use flush() (non-destructive), NOT shutdown(). get_client() returns a
+        # process-global singleton and run() calls this after every request; in
+        # the FastAPI server the agent is reused, so shutdown() would tear down
+        # the singleton and silently drop traces for every subsequent request.
+        if hasattr(client, "flush"):
             client.flush()
     except Exception as e:  # pragma: no cover - defensive
         print(f"Langfuse flush failed: {e}")

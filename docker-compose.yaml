@@ -245,8 +245,8 @@ services:
       - CH_VECTORS_DB=agentic_rag
       - CH_VECTORS_USER=agentic
       - CH_VECTORS_PASSWORD=agentic123
-      # SQL tool target (reuses the ClickHouse public demo datasets)
-      - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
+      # SQL tool connects directly to the ClickHouse public demo datasets via
+      # sql_tool.py (PUBLIC_CH_* env, defaults to sql-clickhouse.clickhouse.com).
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}

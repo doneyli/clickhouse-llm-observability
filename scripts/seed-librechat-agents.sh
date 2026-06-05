@@ -8,7 +8,8 @@
 #   1. ClickHouse Data Analyst → clickhouse-playground tools
 #   2. LLM Observability Analyst → langfuse-traces tools
 #   3. Prompt Engineer → langfuse-prompts tools
-#   4. LLM Ops Assistant → all 3 MCP servers combined
+#   4. LLM Ops Assistant → all 3 operational MCP servers combined
+#   5. Agentic RAG Assistant → rag-retriever + clickhouse-playground tools
 #
 # Prerequisites: jq, running LibreChat instance
 # Usage: ./scripts/seed-librechat-agents.sh
