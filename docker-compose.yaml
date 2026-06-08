@@ -63,6 +63,9 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+      # Langfuse SDK v5 (OTEL) batches spans; flush on dispose so request-scoped
+      # agent runs export before the handler is torn down.
+      - LANGFUSE_FORCE_FLUSH_ON_DISPOSE=true
       # Langfuse MCP Server (prompt management via agents)
       - LANGFUSE_MCP_AUTH_TOKEN=${LANGFUSE_MCP_AUTH_TOKEN:-}
     volumes:
@@ -183,6 +186,107 @@ services:
       - demo
     volumes:
       - ./vector-rag:/app
+      - vector-rag-models:/root/.cache
+
+  # =============================================================================
+  # ClickHouse (dedicated) — native vector store for the Agentic RAG demo
+  # =============================================================================
+  # Separate from Langfuse's ClickHouse (pinned 25.8) so we can run the latest
+  # GA features: native vector_similarity HNSW index, the 26.2 text index, and
+  # the QBit query-time-precision vector type. Leaving Langfuse's instance
+  # untouched avoids coupling the demo to Langfuse's supported CH version.
+  # =============================================================================
+  clickhouse-vectors:
+    image: clickhouse/clickhouse-server:26.3
+    container_name: clickhouse-vectors
+    restart: unless-stopped
+    profiles:
+      - demo
+    ports:
+      - "${CLICKHOUSE_VECTORS_HTTP_PORT:-8125}:8123"
+    environment:
+      - CLICKHOUSE_DB=agentic_rag
+      - CLICKHOUSE_USER=agentic
+      - CLICKHOUSE_PASSWORD=agentic123
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-vectors-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "agentic", "--password", "agentic123", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =============================================================================
+  # Agentic RAG Demo — LangGraph agent over ClickHouse-native vector search
+  # =============================================================================
+  # CRAG-style loop: route -> retrieve (ClickHouse HNSW) -> grade ->
+  # {answer | rewrite & re-retrieve | SQL tool} -> generate -> reflect.
+  # Instrumented with Langfuse agent/retriever/tool/evaluator observations so
+  # the Agent Graph renders. Build the index first:
+  #   docker compose --profile demo run --rm agentic-rag python ingest.py
+  # =============================================================================
+  agentic-rag:
+    build:
+      context: ./agentic-rag
+    container_name: agentic-rag
+    ports:
+      - "${AGENTIC_RAG_PORT:-8006}:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      # ClickHouse-native vector store
+      - CH_VECTORS_HOST=clickhouse-vectors
+      - CH_VECTORS_PORT=8123
+      - CH_VECTORS_DB=agentic_rag
+      - CH_VECTORS_USER=agentic
+      - CH_VECTORS_PASSWORD=agentic123
+      # SQL tool connects directly to the ClickHouse public demo datasets via
+      # sql_tool.py (PUBLIC_CH_* env, defaults to sql-clickhouse.clickhouse.com).
+      # Langfuse instrumentation
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    profiles:
+      - demo
+    depends_on:
+      clickhouse-vectors:
+        condition: service_healthy
+    volumes:
+      - ./agentic-rag:/app
+      - ./vector-rag:/shared-corpus:ro
+      - vector-rag-models:/root/.cache
+
+  # =============================================================================
+  # MCP RAG Retriever — exposes ClickHouse vector search as an MCP tool
+  # =============================================================================
+  # Lets LibreChat agents run the SAME retrieval as the LangGraph agentic-rag
+  # service (single source of truth: mounts ./agentic-rag for store/embeddings).
+  # =============================================================================
+  mcp-rag-retriever:
+    build:
+      context: ./mcp-rag-retriever
+    container_name: mcp-rag-retriever
+    ports:
+      - "${MCP_RAG_RETRIEVER_PORT:-8007}:8000"
+    restart: unless-stopped
+    profiles:
+      - demo
+    environment:
+      - CH_VECTORS_HOST=clickhouse-vectors
+      - CH_VECTORS_PORT=8123
+      - CH_VECTORS_DB=agentic_rag
+      - CH_VECTORS_USER=agentic
+      - CH_VECTORS_PASSWORD=agentic123
+    depends_on:
+      clickhouse-vectors:
+        condition: service_healthy
+    volumes:
+      - ./agentic-rag:/agentic-rag:ro
       - vector-rag-models:/root/.cache
 
   # =============================================================================
@@ -412,5 +516,7 @@ volumes:
   langfuse-postgres-data:
   langfuse-minio-data:
   langfuse-clickhouse-data:
-  # Model cache for vector-rag (persists sentence-transformers downloads)
+  # Dedicated ClickHouse for the Agentic RAG native vector store
+  clickhouse-vectors-data:
+  # Model cache shared by vector-rag and agentic-rag (sentence-transformers downloads)
   vector-rag-models:
