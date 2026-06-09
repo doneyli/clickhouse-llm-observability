@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langfuse import observe
 
 
 @dataclass
@@ -88,6 +89,7 @@ class ClickHouseSQLPipeline:
             self.response_prompt | self.llm | StrOutputParser()
         ).with_config({"metadata": {"purpose": "response_generation"}})
 
+    @observe(name="retrieve-context")
     def retrieve_context(self, question: str, analysis: str) -> str:
         """Retrieve context from ClickHouse via MCP."""
         try:

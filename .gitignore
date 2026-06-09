@@ -32,3 +32,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.sqlite
+
+# Database backups
+backups/
