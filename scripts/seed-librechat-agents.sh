@@ -227,6 +227,7 @@ ALL_TOOLS=$(jq -n \
 # Create Agents
 # ------------------------------------------------------------------------------
 CREATED=0
+UPDATED=0
 SKIPPED=0
 
 create_agent() {
@@ -250,15 +251,17 @@ create_agent() {
         if [ -n "$agent_id" ] && [ -n "$current_model" ] && [ "$current_model" != "$desired_model" ]; then
             if auth_curl -X PATCH "${LIBRECHAT_URL}/api/agents/${agent_id}" \
                 -H "Content-Type: application/json" \
-                -d "{\"model\":\"${desired_model}\"}" > /dev/null 2>&1; then
+                -d "$(jq -n --arg m "$desired_model" '{model: $m}')" > /dev/null 2>&1; then
                 echo -e "  ${GREEN}↻${NC} ${name} (model updated: ${current_model} → ${desired_model})"
+                UPDATED=$((UPDATED + 1))
             else
                 echo -e "  ${YELLOW}⤳${NC} ${name} (exists; model update failed — update manually in agent settings)"
+                SKIPPED=$((SKIPPED + 1))
             fi
         else
             echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, skipping)"
+            SKIPPED=$((SKIPPED + 1))
         fi
-        SKIPPED=$((SKIPPED + 1))
         return 0
     fi
 
@@ -419,6 +422,7 @@ echo "LibreChat Agent Seeding Complete!"
 echo -e "==============================================${NC}"
 echo ""
 echo "  Created: ${CREATED} agent(s)"
+echo "  Updated: ${UPDATED} agent(s) (model brought up to date)"
 echo "  Skipped: ${SKIPPED} agent(s) (already existed)"
 echo ""
 echo -e "  Open LibreChat: ${GREEN}${LIBRECHAT_URL}${NC}"

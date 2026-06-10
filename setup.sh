@@ -509,7 +509,8 @@ ensure_langfuse_llm_connection() {
 }
 
 #######################################
-# Seed LibreChat agents (idempotent — skips agents that already exist)
+# Seed LibreChat agents (idempotent — skips existing agents, only
+# updating their model if it drifted from ANTHROPIC_MODEL)
 #######################################
 ensure_librechat_agents() {
     header "Seeding LibreChat Agents"
@@ -759,6 +760,7 @@ main() {
             echo "  - Configures the Langfuse LLM connection (Playground + LLM-as-a-Judge)"
             echo "  - Creates 5 pre-configured LibreChat agents with MCP tools"
             echo "  - Detects and reuses already-running services"
+            echo "  - Never overwrites existing secrets or configuration"
             echo ""
             exit 0
             ;;
