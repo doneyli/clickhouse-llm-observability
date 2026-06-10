@@ -1,0 +1,117 @@
+# Agent Deployment Runbook
+
+This file is for AI coding agents (Claude Code, Codex, Cursor, etc.). If a user says
+**"Deploy this demo"**, follow this runbook exactly. Every step is non-interactive and
+verifiable. For code conventions and architecture, see [CLAUDE.md](CLAUDE.md).
+
+## What gets deployed
+
+A self-hosted LLM observability stack (~12 Docker containers): Langfuse (traces UI,
+backed by ClickHouse), LibreChat (chat UI with 5 pre-configured agents), demo apps
+(Text-to-SQL, Vector RAG, Agentic RAG), and MCP servers. Setup is fully automated —
+Langfuse org/project/API keys, the Langfuse LLM connection, LibreChat secrets, the
+demo user, and the LibreChat agents are all provisioned by `./setup.sh`.
+
+## Prerequisites (check before deploying)
+
+```bash
+docker info > /dev/null && echo "docker OK"        # Docker running, 8GB+ RAM recommended
+docker compose version > /dev/null && echo "compose OK"
+command -v jq > /dev/null && echo "jq OK"           # needed for agent seeding
+```
+
+If `jq` is missing: `brew install jq` (macOS) or `apt-get install -y jq` (Linux).
+
+The only secret you need from the user is an **Anthropic API key**
+(`sk-ant-...`, from https://console.anthropic.com/). If it is not already in `.env`
+(`grep '^ANTHROPIC_API_KEY=sk' .env`) and not in the environment, ask the user for it —
+do not invent one and do not proceed without it.
+
+## Deploy (one command, non-interactive)
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... ./setup.sh --seed
+```
+
+- Omit `ANTHROPIC_API_KEY=...` if the key is already set in `.env`.
+- Omit `--seed` to skip demo-trace generation (faster; agents are still created).
+- The script is **idempotent** — safe to re-run after any failure. Re-running is the
+  correct first response to most errors.
+- First run takes ~5 minutes (image pulls). `--seed` adds a few minutes of trace generation.
+- If the script exits non-zero, read its last lines: it prints the exact remediation.
+
+Do NOT run `docker compose up` directly for initial deployment — `setup.sh` provisions
+secrets and API-side config that compose alone does not.
+
+## Verify (definition of done)
+
+All of these must pass:
+
+```bash
+# 1. Langfuse healthy
+curl -sf http://localhost:3001/api/public/health > /dev/null && echo "PASS langfuse"
+
+# 2. LibreChat healthy
+curl -sf http://localhost:3080/health > /dev/null && echo "PASS librechat"
+
+# 3. Langfuse LLM connection exists (powers Playground + LLM-as-a-Judge)
+source .env && curl -sf -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  http://localhost:3001/api/public/llm-connections | grep -q '"adapter":"anthropic"' \
+  && echo "PASS llm-connection"
+
+# 4. The 5 demo agents exist in LibreChat
+UA="Mozilla/5.0"; TOKEN=$(curl -sf -X POST http://localhost:3080/api/auth/login \
+  -H "Content-Type: application/json" -H "User-Agent: $UA" \
+  -d '{"email":"demo@example.com","password":"demodemo1!"}' | jq -r .token)
+curl -sf -H "Authorization: Bearer $TOKEN" -H "User-Agent: $UA" \
+  http://localhost:3080/api/agents | jq -r 'if .data then .data[] else .[] end | .name' \
+  | grep -c "ClickHouse Data Analyst\|LLM Observability Analyst\|Prompt Engineer\|LLM Ops Assistant\|Agentic RAG Assistant"
+# expect: 5
+
+# 5. Traces exist (only if --seed was used)
+curl -sf -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  "http://localhost:3001/api/public/traces?limit=1" | grep -o '"totalItems":[0-9]*'
+# expect: totalItems > 0
+```
+
+Or run the built-in checklist: `./setup.sh --status` (all lines under "Demo Readiness"
+should be ✓).
+
+## Report to the user when done
+
+- **LibreChat**: http://localhost:3080 — log in as `demo@example.com` / `demodemo1!`,
+  pick an agent from the dropdown (5 pre-configured agents with MCP tools).
+- **Langfuse**: http://localhost:3001 — log in as `demo@example.com` / `demodemo1!`,
+  traces under Tracing > Traces.
+- **One remaining manual step** (no public API exists for it): creating the 3
+  LLM-as-a-Judge evaluators in the Langfuse UI. Point the user to
+  README > "LLM-as-a-Judge Evaluation" — it has screenshots.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `ANTHROPIC_API_KEY is not set and no terminal is available` | Re-run with the key: `ANTHROPIC_API_KEY=sk-ant-... ./setup.sh` |
+| Agents created without tools / "No MCP tools found" | MCP servers initialize async. Wait 30s, run `./scripts/seed-librechat-agents.sh` again (idempotent). |
+| 401 errors from Langfuse CLI/scripts | Shell-exported keys override `.env`: `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY` and retry. |
+| Langfuse not ready after 2 min | `docker compose --profile langfuse logs langfuse-web --tail 50` — usually slow first-boot migrations; re-run `./setup.sh`. |
+| LibreChat not ready | `docker compose logs api --tail 50` |
+| Port conflict (3001/3080/8002...) | Change the port in `.env` (e.g. `LANGFUSE_PORT`), re-run `./setup.sh`. |
+| Want a clean slate | `./scripts/reset.sh` (destructive), then `./setup.sh --seed`. |
+
+## Other operations
+
+```bash
+./setup.sh --status              # status + demo readiness checklist
+./scripts/seed-demo-data.sh      # (re)generate demo traces
+./setup.sh --cleanup             # stop containers, keep data
+./scripts/reset.sh               # destroy everything
+./scripts/validate-langfuse.sh   # deeper Langfuse integration validation
+```
+
+## Cloud mode (non-default)
+
+Self-hosted is the default and needs no Langfuse account. For Langfuse Cloud instead:
+set `DEPLOY_MODE=cloud`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and
+`LANGFUSE_BASE_URL` in `.env` **before** running `./setup.sh` (keys from
+cloud.langfuse.com > Settings > API Keys). Everything else is identical.

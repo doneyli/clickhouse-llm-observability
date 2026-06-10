@@ -13,6 +13,7 @@ mcp-logs/
 # Uploads and images
 uploads/
 images/
+!docs/images/
 
 # OS files
 .DS_Store

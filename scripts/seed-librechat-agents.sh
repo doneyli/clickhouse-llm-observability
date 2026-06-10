@@ -66,7 +66,8 @@ fi
 echo -n "Waiting for LibreChat at ${LIBRECHAT_URL}..."
 ATTEMPTS=0
 MAX_ATTEMPTS=30
-while ! curl -sf "${LIBRECHAT_URL}/api/health" > /dev/null 2>&1; do
+while ! curl -sf "${LIBRECHAT_URL}/health" > /dev/null 2>&1 && \
+      ! curl -sf "${LIBRECHAT_URL}/api/health" > /dev/null 2>&1; do
     sleep 2
     ATTEMPTS=$((ATTEMPTS + 1))
     if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then
@@ -132,6 +133,12 @@ fi
 
 agent_exists() {
     echo "$EXISTING_NAMES" | grep -qFx "$1"
+}
+
+agent_field() {
+    # agent_field <name> <field> — read a field from an existing agent
+    echo "$EXISTING_AGENTS" | jq -r --arg n "$1" --arg f "$2" \
+        'if type == "object" then .data else . end | .[] | select(.name == $n) | .[$f] // empty'
 }
 
 # ------------------------------------------------------------------------------
@@ -228,8 +235,29 @@ create_agent() {
     local instructions="$3"
     local tools="$4"
 
+    local desired_model="${ANTHROPIC_MODEL:-claude-sonnet-4-6}"
+
     if agent_exists "$name"; then
-        echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, skipping)"
+        # Keep existing agents on the configured model (e.g. after a deprecation bump)
+        local agent_id current_model
+        agent_id=$(agent_field "$name" "id")
+        current_model=$(agent_field "$name" "model")
+        if [ -n "$agent_id" ] && [ -z "$current_model" ]; then
+            # list endpoint omits model — fetch the agent detail
+            current_model=$(auth_curl "${LIBRECHAT_URL}/api/agents/${agent_id}" 2>/dev/null \
+                | jq -r '.model // empty' || true)
+        fi
+        if [ -n "$agent_id" ] && [ -n "$current_model" ] && [ "$current_model" != "$desired_model" ]; then
+            if auth_curl -X PATCH "${LIBRECHAT_URL}/api/agents/${agent_id}" \
+                -H "Content-Type: application/json" \
+                -d "{\"model\":\"${desired_model}\"}" > /dev/null 2>&1; then
+                echo -e "  ${GREEN}↻${NC} ${name} (model updated: ${current_model} → ${desired_model})"
+            else
+                echo -e "  ${YELLOW}⤳${NC} ${name} (exists; model update failed — update manually in agent settings)"
+            fi
+        else
+            echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, skipping)"
+        fi
         SKIPPED=$((SKIPPED + 1))
         return 0
     fi
@@ -239,13 +267,14 @@ create_agent() {
         --arg name "$name" \
         --arg desc "$description" \
         --arg inst "$instructions" \
+        --arg model "${ANTHROPIC_MODEL:-claude-sonnet-4-6}" \
         --argjson tools "$tools" \
         '{
             name: $name,
             description: $desc,
             instructions: $inst,
             provider: "anthropic",
-            model: "claude-sonnet-4-20250514",
+            model: $model,
             tools: $tools
         }')
 

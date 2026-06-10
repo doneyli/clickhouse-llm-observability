@@ -238,7 +238,7 @@ Click on any trace to see:
 | Output | The LLM's response | "I don't have access to..." |
 | Usage (input tokens) | Tokens in the prompt | 150 |
 | Usage (output tokens) | Tokens in the response | 89 |
-| Model | Model used | claude-sonnet-4-20250514 |
+| Model | Model used | claude-sonnet-4-6 |
 | Latency | Response time | 1.2s |
 
 ---

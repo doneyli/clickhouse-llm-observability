@@ -16,7 +16,7 @@ from documents import get_documents, get_document_metadata
 
 @dataclass
 class RAGConfig:
-    model_name: str = "claude-sonnet-4-20250514"
+    model_name: str = "claude-sonnet-4-6"
     embedding_model: str = "all-MiniLM-L6-v2"
     temperature: float = 0.7
     max_tokens: int = 1500
@@ -30,7 +30,7 @@ class VectorRAGPipeline:
 
     def __init__(self, config: Optional[RAGConfig] = None):
         self.config = config or RAGConfig(
-            model_name=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+            model_name=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             temperature=float(os.getenv("TEMPERATURE", "0.7")),
         )
         self._context = ""

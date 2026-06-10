@@ -190,7 +190,7 @@ TestScenario(
     description="What this tests",
     prompt="The user's question",
     response="The problematic LLM response",
-    model="claude-sonnet-4-20250514",
+    model="claude-sonnet-4-6",
     expected_relevance="0.X-0.Y",
     expected_coherence="0.X-0.Y",
     why_low="Explanation of why scores should be low"

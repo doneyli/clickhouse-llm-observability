@@ -152,7 +152,7 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -176,7 +176,7 @@ services:
       - "${VECTOR_RAG_PORT:-8003}:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -237,7 +237,7 @@ services:
       - "${AGENTIC_RAG_PORT:-8006}:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
       # ClickHouse-native vector store
       - CH_VECTORS_HOST=clickhouse-vectors
