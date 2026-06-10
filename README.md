@@ -93,6 +93,10 @@ cp .env.example .env
 ./setup.sh
 ```
 
+The keys live in **Project Settings → API Keys** (same place in Langfuse Cloud and self-hosted — self-hosted provisions them automatically):
+
+![Langfuse Project Settings showing the API Keys page](docs/images/langfuse-api-keys.png)
+
 **Self-hosted quick start** (default):
 ```bash
 ./setup.sh    # Everything runs locally
@@ -134,15 +138,35 @@ docker compose run --rm vector-rag python main.py --interactive
 ```bash
 git clone https://github.com/doneyli/clickhouse-llm-observability.git
 cd clickhouse-llm-observability
-./setup.sh
+./setup.sh --seed
 ```
 
-The setup script is **idempotent** — safe to re-run at any time. It will:
-- Create `.env` from template (only if missing)
-- Prompt for your Anthropic API key (only if not set)
-- Generate LibreChat secrets (only if missing)
-- Auto-provision Langfuse with demo credentials (headless init)
-- Start all services and wait for health checks
+Or fully non-interactive (CI, scripts, coding agents):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... ./setup.sh --seed
+```
+
+The setup script is **idempotent** — safe to re-run at any time. One run gives you a fully demo-ready stack:
+- Creates `.env` from template (only if missing)
+- Prompts for your Anthropic API key (only if not set — that's the only secret you need)
+- Generates LibreChat secrets (only if missing)
+- Auto-provisions Langfuse: demo org, project, login, and API keys (headless init)
+- Configures the **Langfuse LLM connection** with the same Anthropic key, so the Playground and LLM-as-a-Judge evaluators work immediately
+- Creates **5 pre-configured LibreChat agents** with MCP tools (see below)
+- Starts all services, waits for health checks, and prints a demo-readiness checklist
+
+When it finishes, open LibreChat at http://localhost:3080, log in as `demo@example.com` / `demodemo1!`, and pick an agent:
+
+![LibreChat agent picker with the 5 pre-configured demo agents](docs/images/librechat-agents.png)
+
+| Agent | What it does |
+|-------|--------------|
+| **ClickHouse Data Analyst** | SQL analysis over the public ClickHouse Playground (35+ datasets) |
+| **LLM Observability Analyst** | Queries Langfuse trace data in ClickHouse (latency, cost, scores) |
+| **Prompt Engineer** | Manages and iterates on prompts stored in Langfuse |
+| **LLM Ops Assistant** | All of the above combined — full-stack LLM operations |
+| **Agentic RAG Assistant** | Corrective RAG over a ClickHouse-native vector store + live SQL |
 
 For more detail, see the [Guided User Journey](docs/USER_JOURNEY.md) or [Quickstart Guide](docs/QUICKSTART_GUIDE.md).
 
@@ -224,11 +248,10 @@ Filter by `test-scenario` in Langfuse, then configure LLM-as-a-Judge evaluators 
 ```bash
 git clone https://github.com/doneyli/clickhouse-llm-observability.git
 cd clickhouse-llm-observability
-./setup.sh
-./scripts/seed-demo-data.sh    # Populate sample traces
+./setup.sh --seed              # setup + sample traces (or plain ./setup.sh to skip traces)
 ```
 
-**Time:** ~5 minutes | **Outcome:** Full demo running with sample traces
+**Time:** ~5-10 minutes | **Outcome:** Full demo running with sample traces, 5 LibreChat agents, and the Langfuse Playground/evaluator LLM connection configured
 
 The setup script is idempotent — safe to re-run. It never overwrites existing config.
 
@@ -267,7 +290,7 @@ Langfuse is auto-configured with a demo account on first boot (headless init):
 # Populate with sample data
 ./scripts/seed-demo-data.sh
 
-# Check status and URLs
+# Check status, URLs, and demo readiness checklist
 ./setup.sh --status
 
 # Stop all services (preserves data)
@@ -380,7 +403,15 @@ docker compose --profile tools run --rm test-scenarios
 
 **Step 2: Create evaluators in Langfuse**
 
-Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge** → **+ New Evaluator** and create these three:
+> The LLM connection that powers evaluators is already configured by `./setup.sh` (it reuses your Anthropic key — check **Project Settings → LLM Connections**):
+>
+> ![Langfuse LLM Connections settings with the auto-provisioned Anthropic connection](docs/images/langfuse-llm-connections.png)
+
+Creating evaluators is the one step Langfuse has no public API for, so it's done in the UI (one-time, ~2 minutes). Go to http://localhost:3001 → **Evaluators** → **+ Set up evaluator** and pick a Langfuse-managed template:
+
+![Langfuse evaluator setup showing the managed template library (Hallucination, Relevance, Correctness, ...)](docs/images/langfuse-new-evaluator.png)
+
+Create these three:
 
 | Evaluator | Template to Select | What It Catches |
 |-----------|--------------------|-----------------|
@@ -388,7 +419,9 @@ Go to http://localhost:3001 → **Evaluations** → **LLM-as-a-Judge** → **+ N
 | **Relevance** | Relevance | Answers that ignore the actual question |
 | **Correctness** | Correctness | Contradictory or logically inconsistent answers |
 
-For each evaluator, set the filter to tag: `test-scenario`.
+For each evaluator, set the filter to tag: `test-scenario`. When you're done, the Evaluators page should look like this:
+
+![Langfuse Evaluators page with active Hallucination, Relevance, and Correctness evaluators](docs/images/langfuse-evaluators.png)
 
 **Ground truth:** Each test scenario includes a `ground_truth` field stored in the trace metadata. The Correctness evaluator template references `{{expected_output}}` — for online evaluations this is populated from dataset items. For this demo, the Correctness evaluator still works well without it by comparing the output against the input query. To use ground truth with full accuracy, create a [Langfuse Dataset](https://langfuse.com/docs/datasets/overview) and run evaluations via experiments.
 
@@ -417,9 +450,10 @@ After evaluators run, the 40 test scenarios should score by category:
 
 ## Coding Agent Support
 
-This project is set up for AI coding agents (Claude Code, Cursor):
+This project is **agent-native**: point any coding agent (Claude Code, Codex, Cursor) at the repo and say **"Deploy this demo"** — it works without human intervention (you'll only be asked for your Anthropic API key if it isn't set).
 
-- **`CLAUDE.md`** at the project root provides architecture, commands, and conventions that Claude Code reads automatically
+- **`AGENTS.md`** at the project root is a deterministic deploy runbook: non-interactive setup command, machine-checkable verification steps, and a troubleshooting table. Codex and Cursor read it automatically.
+- **`CLAUDE.md`** provides architecture, commands, and conventions that Claude Code reads automatically (and points to `AGENTS.md` for deployment)
 - **Langfuse Skills** teach agents about Langfuse SDK patterns, observability, and prompt management
 
 ```bash
@@ -446,7 +480,8 @@ See [Langfuse Skills docs](docs/LANGFUSE_SKILLS.md) for details.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key |
+| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key — the **only** secret you need; reused by all demo apps, LibreChat agents, and the Langfuse Playground/evaluators |
+| `ANTHROPIC_MODEL` | No | Model for demo apps and agents (default: `claude-sonnet-4-6`) |
 | `LANGFUSE_PUBLIC_KEY` | Auto | Pre-filled with demo keys (auto-provisioned) |
 | `LANGFUSE_SECRET_KEY` | Auto | Pre-filled with demo keys (auto-provisioned) |
 | `CREDS_KEY` | Auto | LibreChat encryption key (auto-generated) |
@@ -463,6 +498,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ├── docker-compose.yaml         # Service orchestration
 ├── .env.example                # Environment template (DEPLOY_MODE, keys, ports)
 ├── librechat.yaml              # LibreChat configuration
+├── AGENTS.md                   # Deploy runbook for AI coding agents
 ├── CLAUDE.md                   # Project context for Claude Code
 │
 ├── text-to-sql/                # Text-to-SQL demo app

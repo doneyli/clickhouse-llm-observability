@@ -5,14 +5,20 @@
 # Safe to run multiple times. Never overwrites existing secrets or config.
 #
 # Usage:
-#   ./setup.sh                    # Interactive setup
-#   ./setup.sh --seed             # Setup + seed demo data
-#   ./setup.sh --status           # Show status of all services
+#   ./setup.sh                    # Full setup (prompts for key if missing)
+#   ANTHROPIC_API_KEY=sk-... ./setup.sh   # Non-interactive (CI / coding agents)
+#   ./setup.sh --seed             # Setup + seed demo traces
+#   ./setup.sh --status           # Status + demo readiness checklist
 #   ./setup.sh --cleanup          # Stop all containers (preserves data)
 #   ./setup.sh --help             # Show help
 #
+# Every run idempotently provisions: Langfuse demo project + keys, the
+# Langfuse LLM connection (Playground/evals), LibreChat secrets, and
+# 5 pre-configured LibreChat agents with MCP tools.
+#
 # Prerequisites:
 #   - Docker and Docker Compose
+#   - jq (for agent seeding)
 #   - Anthropic API key (https://console.anthropic.com/)
 # ==============================================================================
 
@@ -44,6 +50,21 @@ header() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${BLUE}  $1${NC}"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+#######################################
+# Persist a variable to .env (update in place or append; never duplicates)
+#######################################
+persist_env_var() {
+    local name="$1"
+    local value="$2"
+
+    if grep -q "^${name}=" .env 2>/dev/null; then
+        sed -i.bak "s|^${name}=.*|${name}=${value}|" .env && rm -f .env.bak
+    else
+        echo "${name}=${value}" >> .env
+    fi
+    export "${name}=${value}"
 }
 
 #######################################
@@ -80,6 +101,16 @@ check_prerequisites() {
         exit 1
     fi
     success "openssl available"
+
+    # Check jq (needed for LibreChat agent seeding and Langfuse API calls)
+    if command -v jq &> /dev/null; then
+        JQ_AVAILABLE=true
+        success "jq available"
+    else
+        JQ_AVAILABLE=false
+        warn "jq not found — LibreChat agents won't be auto-created"
+        warn "Install with: brew install jq (macOS) or apt-get install jq (Linux), then re-run ./setup.sh"
+    fi
 }
 
 #######################################
@@ -95,10 +126,27 @@ ensure_env_file() {
         created ".env from .env.example"
     fi
 
+    # Capture shell-exported values before .env overrides them, so
+    # `ANTHROPIC_API_KEY=sk-... ./setup.sh` works and conflicting
+    # LANGFUSE_* exports can be flagged (they cause 401s in CLI tools).
+    SHELL_ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+    SHELL_LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-}"
+    SHELL_LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY:-}"
+
     # Source environment
     set -a
     source .env
     set +a
+
+    # Warn if the user's shell exports different Langfuse keys than .env —
+    # tools run outside this script will pick those up and fail auth.
+    if [ -n "$SHELL_LANGFUSE_PUBLIC_KEY" ] && [ "$SHELL_LANGFUSE_PUBLIC_KEY" != "$LANGFUSE_PUBLIC_KEY" ]; then
+        warn "Your shell exports LANGFUSE_PUBLIC_KEY=${SHELL_LANGFUSE_PUBLIC_KEY:0:12}... which differs from .env"
+        warn "This causes 401 errors in CLI tools. Fix with: unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY"
+    fi
+    if [ -n "$SHELL_LANGFUSE_SECRET_KEY" ] && [ "$SHELL_LANGFUSE_SECRET_KEY" != "$LANGFUSE_SECRET_KEY" ]; then
+        warn "Your shell exports LANGFUSE_SECRET_KEY which differs from .env (will cause 401s outside this script)"
+    fi
 
     # Clean up deprecated variables
     if grep -q "^CLICKSTACK_API_KEY=" .env 2>/dev/null; then
@@ -148,6 +196,12 @@ ensure_langfuse_cloud_keys() {
         echo -e "  Get keys from: Settings > API Keys"
         echo ""
 
+        if [ ! -t 0 ]; then
+            error "Cloud mode requires Langfuse Cloud keys, and no terminal is available to prompt."
+            echo "  Edit .env and set LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY, then re-run ./setup.sh"
+            exit 1
+        fi
+
         read -p "  Enter your Langfuse Public Key: " INPUT_PK
         read -p "  Enter your Langfuse Secret Key: " INPUT_SK
 
@@ -156,10 +210,8 @@ ensure_langfuse_cloud_keys() {
             exit 1
         fi
 
-        sed -i.bak "s|^LANGFUSE_PUBLIC_KEY=.*|LANGFUSE_PUBLIC_KEY=${INPUT_PK}|" .env && rm -f .env.bak
-        sed -i.bak "s|^LANGFUSE_SECRET_KEY=.*|LANGFUSE_SECRET_KEY=${INPUT_SK}|" .env && rm -f .env.bak
-        export LANGFUSE_PUBLIC_KEY="$INPUT_PK"
-        export LANGFUSE_SECRET_KEY="$INPUT_SK"
+        persist_env_var "LANGFUSE_PUBLIC_KEY" "$INPUT_PK"
+        persist_env_var "LANGFUSE_SECRET_KEY" "$INPUT_SK"
         created "Langfuse Cloud API keys saved to .env"
     else
         success "Langfuse Cloud API keys are set"
@@ -167,12 +219,13 @@ ensure_langfuse_cloud_keys() {
 
     # Prompt for LANGFUSE_BASE_URL if still localhost
     if [ "$LANGFUSE_BASE_URL" = "http://localhost:3001" ] || [ -z "$LANGFUSE_BASE_URL" ]; then
-        echo ""
-        read -p "  Langfuse Cloud URL [https://cloud.langfuse.com]: " INPUT_URL
+        if [ -t 0 ]; then
+            echo ""
+            read -p "  Langfuse Cloud URL [https://cloud.langfuse.com]: " INPUT_URL
+        fi
         INPUT_URL="${INPUT_URL:-https://cloud.langfuse.com}"
 
-        sed -i.bak "s|^LANGFUSE_BASE_URL=.*|LANGFUSE_BASE_URL=${INPUT_URL}|" .env && rm -f .env.bak
-        export LANGFUSE_BASE_URL="$INPUT_URL"
+        persist_env_var "LANGFUSE_BASE_URL" "$INPUT_URL"
         created "LANGFUSE_BASE_URL=${INPUT_URL}"
     else
         success "LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL}"
@@ -227,9 +280,29 @@ validate_env() {
 # Check/prompt for Anthropic API key
 #######################################
 ensure_anthropic_key() {
+    # Already set in .env — nothing to do
     if [ -n "$ANTHROPIC_API_KEY" ]; then
         success "ANTHROPIC_API_KEY is set"
         return 0
+    fi
+
+    # Passed via shell env (e.g. ANTHROPIC_API_KEY=sk-... ./setup.sh) — persist it
+    if [ -n "$SHELL_ANTHROPIC_API_KEY" ]; then
+        persist_env_var "ANTHROPIC_API_KEY" "$SHELL_ANTHROPIC_API_KEY"
+        created "ANTHROPIC_API_KEY saved to .env (from shell environment)"
+        return 0
+    fi
+
+    # Non-interactive (CI, coding agents): fail fast with actionable guidance
+    if [ ! -t 0 ]; then
+        error "ANTHROPIC_API_KEY is not set and no terminal is available to prompt for it."
+        echo ""
+        echo "  Provide it one of these ways, then re-run:"
+        echo "    ANTHROPIC_API_KEY=sk-ant-... ./setup.sh"
+        echo "  or edit .env and set ANTHROPIC_API_KEY=sk-ant-..."
+        echo ""
+        echo "  Get a key from: https://console.anthropic.com/"
+        exit 1
     fi
 
     echo ""
@@ -244,14 +317,7 @@ ensure_anthropic_key() {
         exit 1
     fi
 
-    # Replace the empty value in .env
-    if grep -q "^ANTHROPIC_API_KEY=$" .env; then
-        sed -i.bak "s|^ANTHROPIC_API_KEY=$|ANTHROPIC_API_KEY=${INPUT_KEY}|" .env && rm -f .env.bak
-    else
-        echo "ANTHROPIC_API_KEY=${INPUT_KEY}" >> .env
-    fi
-
-    export ANTHROPIC_API_KEY="$INPUT_KEY"
+    persist_env_var "ANTHROPIC_API_KEY" "$INPUT_KEY"
     created "ANTHROPIC_API_KEY saved to .env"
 }
 
@@ -385,6 +451,84 @@ start_services() {
 }
 
 #######################################
+# Recreate LibreChat if it's running with a stale Anthropic key
+# (covers: user edited .env while containers were already up)
+#######################################
+ensure_fresh_key_in_containers() {
+    local container_key
+    container_key=$(docker inspect librechat-api \
+        --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+        | grep '^ANTHROPIC_API_KEY=' | cut -d= -f2- || true)
+
+    if [ -n "$container_key" ] && [ "$container_key" != "$ANTHROPIC_API_KEY" ]; then
+        warn "Running containers have an outdated ANTHROPIC_API_KEY — recreating to apply it..."
+        if [ "$DEPLOY_MODE" = "cloud" ]; then
+            docker compose up -d --force-recreate api
+        else
+            docker compose --profile langfuse up -d --force-recreate api
+        fi
+        success "LibreChat recreated with the updated key"
+    fi
+}
+
+#######################################
+# Auto-provision Langfuse LLM connection
+# Powers the Playground and LLM-as-a-Judge evaluators with the same
+# ANTHROPIC_API_KEY used by the demo apps — no UI steps needed.
+#######################################
+ensure_langfuse_llm_connection() {
+    header "Configuring Langfuse LLM Connection"
+
+    if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$LANGFUSE_PUBLIC_KEY" ] || [ -z "$LANGFUSE_SECRET_KEY" ]; then
+        warn "Missing API keys — skipping LLM connection setup"
+        return 0
+    fi
+
+    local base="${LANGFUSE_BASE_URL:-http://localhost:3001}"
+    local existing
+    existing=$(curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        "${base}/api/public/llm-connections" 2>/dev/null || true)
+
+    if echo "$existing" | grep -q '"adapter":"anthropic"'; then
+        reused "Anthropic LLM connection (Playground + LLM-as-a-Judge ready)"
+        return 0
+    fi
+
+    local response
+    response=$(curl -sf -X PUT -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        -H "Content-Type: application/json" \
+        -d "{\"provider\":\"anthropic\",\"adapter\":\"anthropic\",\"secretKey\":\"${ANTHROPIC_API_KEY}\"}" \
+        "${base}/api/public/llm-connections" 2>/dev/null || true)
+
+    if echo "$response" | grep -q '"id"'; then
+        created "Anthropic LLM connection in Langfuse (Playground + LLM-as-a-Judge ready)"
+    else
+        warn "Could not create the Langfuse LLM connection automatically."
+        warn "Add it manually: Langfuse > Project Settings > LLM Connections > Add new LLM API key"
+    fi
+}
+
+#######################################
+# Seed LibreChat agents (idempotent — skips existing agents, only
+# updating their model if it drifted from ANTHROPIC_MODEL)
+#######################################
+ensure_librechat_agents() {
+    header "Seeding LibreChat Agents"
+
+    if [ "$JQ_AVAILABLE" != true ]; then
+        warn "jq not installed — skipping agent creation"
+        warn "Install jq, then run: ./scripts/seed-librechat-agents.sh"
+        return 0
+    fi
+
+    if "$SCRIPT_DIR/scripts/seed-librechat-agents.sh"; then
+        success "LibreChat agents ready"
+    else
+        warn "Agent seeding failed — re-run later with: ./scripts/seed-librechat-agents.sh"
+    fi
+}
+
+#######################################
 # Wait for critical services to be healthy
 #######################################
 wait_for_services() {
@@ -421,7 +565,8 @@ wait_for_services() {
     info "Waiting for LibreChat to be ready..."
     local attempts=0
     local max_attempts=60
-    while ! curl -s http://localhost:3080/api/health > /dev/null 2>&1; do
+    while ! curl -sf http://localhost:3080/health > /dev/null 2>&1 && \
+          ! curl -sf http://localhost:3080/api/health > /dev/null 2>&1; do
         sleep 2
         attempts=$((attempts + 1))
         if [ $attempts -ge $max_attempts ]; then
@@ -448,11 +593,53 @@ show_status() {
             docker compose ps --format "table {{.Name}}\t{{.Status}}" 2>/dev/null || true
     fi
 
+    header "Demo Readiness"
+
+    local base="${LANGFUSE_BASE_URL:-http://localhost:3001}"
+    echo ""
+
+    if curl -sf "${base}/api/public/health" > /dev/null 2>&1; then
+        success "Langfuse is up (${base})"
+    else
+        warn "Langfuse is not reachable at ${base}"
+    fi
+
+    if curl -sf http://localhost:3080/health > /dev/null 2>&1 || \
+       curl -sf http://localhost:3080/api/health > /dev/null 2>&1; then
+        success "LibreChat is up (http://localhost:3080)"
+    else
+        warn "LibreChat is not reachable at http://localhost:3080"
+    fi
+
+    if [ -n "$LANGFUSE_PUBLIC_KEY" ] && [ -n "$LANGFUSE_SECRET_KEY" ]; then
+        if curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+            "${base}/api/public/llm-connections" 2>/dev/null | grep -q '"adapter":"anthropic"'; then
+            success "Langfuse LLM connection configured (Playground + LLM-as-a-Judge ready)"
+        else
+            warn "No Langfuse LLM connection — Playground/evaluators won't work (re-run ./setup.sh)"
+        fi
+
+        local total_traces
+        total_traces=$(curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+            "${base}/api/public/traces?limit=1" 2>/dev/null \
+            | grep -o '"totalItems":[0-9]*' | cut -d: -f2 || true)
+        if [ -n "$total_traces" ] && [ "$total_traces" -gt 0 ] 2>/dev/null; then
+            success "Langfuse has ${total_traces} traces"
+        else
+            warn "No traces yet — run ./scripts/seed-demo-data.sh to populate"
+        fi
+    fi
+
+    echo ""
+    echo -e "  ${BLUE}ℹ${NC} LLM-as-a-Judge evaluators are created in the Langfuse UI (one-time)."
+    echo "    See README > LLM-as-a-Judge Evaluation for the 3-evaluator setup."
+
     header "Access URLs"
 
     echo ""
     echo -e "  ${GREEN}LibreChat (Chat UI):${NC}        http://localhost:3080"
-    echo -e "    First time? Register at http://localhost:3080 (any email/password)"
+    echo -e "    Log in as demo@example.com / demodemo1! (pre-created with 5 demo agents)"
+    echo -e "    Or register with any email/password"
 
     if [ "$DEPLOY_MODE" = "cloud" ]; then
         echo -e "  ${GREEN}Langfuse (LLM Traces):${NC}      ${LANGFUSE_BASE_URL}"
@@ -554,21 +741,26 @@ main() {
             echo "Usage: ./setup.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  (none)      Interactive setup (idempotent - safe to re-run)"
-            echo "  --seed      Setup + seed demo data (single-command experience)"
-            echo "  --status    Show status of all services and URLs"
+            echo "  (none)      Full setup (idempotent - safe to re-run)"
+            echo "  --seed      Setup + seed demo traces (single-command experience)"
+            echo "  --status    Show status, demo readiness checklist, and URLs"
             echo "  --cleanup   Stop all containers (preserves data)"
             echo "  --help      Show this help message"
+            echo ""
+            echo "Non-interactive (CI / coding agents):"
+            echo "  ANTHROPIC_API_KEY=sk-ant-... ./setup.sh --seed"
             echo ""
             echo "Deployment modes (set DEPLOY_MODE in .env):"
             echo "  self-hosted  Full Docker stack including Langfuse (default)"
             echo "  cloud        Use Langfuse Cloud — skips 7 Langfuse containers"
             echo ""
-            echo "This script is idempotent:"
+            echo "Every run also (idempotently):"
             echo "  - Creates .env from .env.example only if .env doesn't exist"
             echo "  - Generates secrets only if they're missing"
+            echo "  - Configures the Langfuse LLM connection (Playground + LLM-as-a-Judge)"
+            echo "  - Creates 5 pre-configured LibreChat agents with MCP tools"
             echo "  - Detects and reuses already-running services"
-            echo "  - Never overwrites existing configuration"
+            echo "  - Never overwrites existing secrets or configuration"
             echo ""
             exit 0
             ;;
@@ -585,7 +777,16 @@ main() {
     ensure_langfuse_host
     set_cloud_internal_urls
     start_services
+    ensure_fresh_key_in_containers
     wait_for_services
+    ensure_langfuse_llm_connection
+    ensure_librechat_agents
+
+    if [ "$run_seed" = true ]; then
+        header "Seeding Demo Data"
+        "$SCRIPT_DIR/scripts/seed-demo-data.sh"
+    fi
+
     show_status
 
     header "Setup Complete!"
@@ -594,12 +795,7 @@ main() {
     echo -e "${GREEN}Your LLM observability demo is ready!${NC}"
     echo ""
 
-    if [ "$run_seed" = true ]; then
-        echo "  Running demo data seeding..."
-        echo ""
-        "$SCRIPT_DIR/scripts/seed-demo-data.sh"
-        "$SCRIPT_DIR/scripts/seed-librechat-agents.sh"
-    else
+    if [ "$run_seed" != true ]; then
         echo "  Run ./scripts/seed-demo-data.sh to populate sample traces."
         echo "  Or re-run with: ./setup.sh --seed"
         echo ""

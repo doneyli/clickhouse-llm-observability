@@ -11,7 +11,7 @@ from langfuse_config import langfuse_span
 
 @dataclass
 class SQLConfig:
-    model_name: str = "claude-sonnet-4-20250514"
+    model_name: str = "claude-sonnet-4-6"
     temperature: float = 0.7
     max_tokens: int = 2000
 
@@ -51,7 +51,7 @@ class ClickHouseSQLPipeline:
 
     def __init__(self, config: Optional[SQLConfig] = None):
         self.config = config or SQLConfig(
-            model_name=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+            model_name=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             temperature=float(os.getenv("TEMPERATURE", "0.7")),
         )
         self._setup_llm()

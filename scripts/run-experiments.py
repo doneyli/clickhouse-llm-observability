@@ -10,7 +10,7 @@ Usage:
     python run-experiments.py                              # Run all experiments
     python run-experiments.py --dataset quality             # Only quality dataset
     python run-experiments.py --dataset security            # Only security dataset
-    python run-experiments.py --model claude-sonnet-4-20250514  # Specify model
+    python run-experiments.py --model claude-sonnet-4-6  # Specify model
     python run-experiments.py --model gpt-4o               # Use OpenAI
     python run-experiments.py --dry-run                     # Preview without running
 
@@ -57,8 +57,8 @@ def parse_args():
     )
     parser.add_argument("--dataset", choices=["quality", "security", "all"],
                         default="all", help="Which dataset to run (default: all)")
-    parser.add_argument("--model", type=str, default="claude-sonnet-4-20250514",
-                        help="Model to use (default: claude-sonnet-4-20250514)")
+    parser.add_argument("--model", type=str, default="claude-sonnet-4-6",
+                        help="Model to use (default: claude-sonnet-4-6)")
     parser.add_argument("--max-concurrency", type=int, default=3,
                         help="Max concurrent LLM calls (default: 3)")
     parser.add_argument("--run-name", type=str, default=None,

@@ -205,7 +205,7 @@ For each evaluated conversation, the trace-evaluator creates:
 ```
 llm.evaluation (root span)
 ├── gen_ai.request.model = "claude-3-5-haiku-20241022"  (judge model)
-├── eval.source_model = "claude-sonnet-4-20250514"      (generation model)
+├── eval.source_model = "claude-sonnet-4-6"      (generation model)
 ├── eval.source_trace_id = "abc123..."                  (link to original)
 ├── eval.relevance_score = 0.95
 ├── eval.coherence_score = 0.88

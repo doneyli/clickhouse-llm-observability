@@ -59,7 +59,7 @@ V2 = (
     "CONTEXT:\n{{context}}\n\nQUESTION: {{question}}\n\nANSWER:"
 )
 
-CONFIG = {"model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"), "temperature": 0.3}
+CONFIG = {"model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"), "temperature": 0.3}
 
 
 def main():

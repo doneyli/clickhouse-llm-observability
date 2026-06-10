@@ -1,5 +1,8 @@
 # LLM Observability Demo with ClickHouse
 
+> **Deploying?** Follow [AGENTS.md](AGENTS.md) — the non-interactive deploy runbook
+> with verification steps. If the user says "deploy this demo", use that file.
+
 ## Architecture
 
 LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. Langfuse stores traces in ClickHouse (OLAP backend). The demo supports two deployment modes:
@@ -10,9 +13,10 @@ LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. 
 ## Key Commands
 
 ```bash
-./setup.sh                              # Idempotent setup (safe to re-run)
-./setup.sh --seed                       # Setup + seed demo data
-./setup.sh --status                     # Show service status and URLs
+./setup.sh                              # Idempotent setup (also provisions Langfuse LLM connection + 5 LibreChat agents)
+ANTHROPIC_API_KEY=sk-... ./setup.sh     # Non-interactive (CI / coding agents)
+./setup.sh --seed                       # Setup + seed demo traces
+./setup.sh --status                     # Service status + demo readiness checklist
 ./setup.sh --cleanup                    # Stop containers (preserves data)
 ./scripts/seed-demo-data.sh             # Populate sample traces
 ./scripts/seed-demo-data.sh --quick     # Skip test scenarios

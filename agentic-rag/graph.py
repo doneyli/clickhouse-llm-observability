@@ -66,7 +66,7 @@ def _llm() -> ChatAnthropic:
     # timeout + retries so a stalled API call fails fast and self-heals instead
     # of hanging the whole agent run indefinitely.
     return ChatAnthropic(
-        model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+        model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
         temperature=float(os.getenv("TEMPERATURE", "0.7")),
         max_tokens=1200,
         default_request_timeout=float(os.getenv("LLM_TIMEOUT", "45")),
