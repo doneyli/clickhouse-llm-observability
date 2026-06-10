@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langfuse import observe
+from langfuse_config import langfuse_span
 
 
 @dataclass
@@ -89,17 +89,17 @@ class ClickHouseSQLPipeline:
             self.response_prompt | self.llm | StrOutputParser()
         ).with_config({"metadata": {"purpose": "response_generation"}})
 
-    @observe(name="retrieve-context")
     def retrieve_context(self, question: str, analysis: str) -> str:
         """Retrieve context from ClickHouse via MCP."""
-        try:
-            from mcp_client import create_mcp_client
-            mcp = create_mcp_client()
-            self._context = mcp.get_context_for_question(question, analysis)
-            return self._context
-        except Exception as e:
-            self._context = f"[MCP unavailable: {e}]"
-            return self._context
+        with langfuse_span("retrieve-context"):
+            try:
+                from mcp_client import create_mcp_client
+                mcp = create_mcp_client()
+                self._context = mcp.get_context_for_question(question, analysis)
+                return self._context
+            except Exception as e:
+                self._context = f"[MCP unavailable: {e}]"
+                return self._context
 
     def query(self, question: str, callbacks: list = None) -> str:
         """Execute the full Text-to-SQL pipeline.
