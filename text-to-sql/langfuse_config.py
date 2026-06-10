@@ -105,6 +105,29 @@ def langfuse_trace(trace_name="text-to-sql", tags=None):
         yield
 
 
+@contextmanager
+def langfuse_span(name: str):
+    """Context manager that creates a child span nested under the current trace.
+
+    Mirrors the v3 pattern used by langfuse_session(); no-op when Langfuse is
+    not configured. Use to instrument non-LangChain steps (e.g. MCP calls) so
+    they appear as spans within the active trace.
+    """
+    if not LANGFUSE_ENABLED:
+        yield
+        return
+
+    try:
+        from langfuse import get_client
+
+        client = get_client()
+        with client.start_as_current_observation(as_type="span", name=name):
+            yield
+    except Exception as e:
+        print(f"Failed to create Langfuse span '{name}': {e}")
+        yield
+
+
 def get_langfuse_handler():
     """
     Get Langfuse callback handler for LangChain with session support.
