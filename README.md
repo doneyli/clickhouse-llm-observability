@@ -237,7 +237,7 @@ Every trace source is tagged so you can filter in Langfuse:
 | 21-30 | **Hallucination** | Hallucination | Fabricated history, fake SQL syntax, fake benchmarks, fake acquisitions |
 | 31-40 | **Control** | Baseline | Accurate answers about MergeTree, partitioning, replication, compression |
 
-Filter by `test-scenario` in Langfuse, then configure LLM-as-a-Judge evaluators to auto-score them. Use `--list` to see all scenarios: `docker compose --profile tools run --rm --entrypoint python3 test-scenarios export_test_scenarios.py --list`
+Filter by `test-scenario` in Langfuse — the auto-provisioned LLM-as-a-Judge evaluators score them as they arrive (see [LLM-as-a-Judge Evaluation](#llm-as-a-judge-evaluation)). Use `--list` to see all scenarios: `docker compose --profile tools run --rm --entrypoint python3 test-scenarios export_test_scenarios.py --list`
 
 ---
 
@@ -393,6 +393,17 @@ SOURCE_LANGFUSE_PUBLIC_KEY=<pk> SOURCE_LANGFUSE_SECRET_KEY=<sk> \
   python scripts/import-external-traces.py --limit 30 --scrub --add-tag claude-code-demo
 ```
 
+### Code Evaluators (deterministic checks)
+
+Five [code evaluators](docs/CODE_EVALUATORS.md) — TypeScript checks that run inside Langfuse — are provisioned automatically by `./setup.sh`. They score 100% of live traffic for free (no LLM calls): SQL safety (`sql-risk`), credential leaks (`credential-leak`), response structure (`structure-clean`), plus deterministic pass/fail checks on experiment runs against both datasets (`security-compliant`, `keyword-coverage`).
+
+```bash
+./scripts/seed-code-evaluators.sh    # (re-)provision from evaluators/*.ts
+docker compose run --rm text-to-sql python main.py   # generate traffic → scores appear in ~30s
+```
+
+Use code evaluators for objective checks (patterns, policies, formats) and LLM-as-a-Judge (below) for semantic ones (hallucination, relevance). See [docs/CODE_EVALUATORS.md](docs/CODE_EVALUATORS.md) for the full walkthrough and the why/when comparison.
+
 ### LLM-as-a-Judge Evaluation
 
 **Step 1: Export test scenarios**
@@ -401,29 +412,27 @@ SOURCE_LANGFUSE_PUBLIC_KEY=<pk> SOURCE_LANGFUSE_SECRET_KEY=<sk> \
 docker compose --profile tools run --rm test-scenarios
 ```
 
-**Step 2: Create evaluators in Langfuse**
+**Step 2: Evaluators are provisioned automatically**
 
 > The LLM connection that powers evaluators is already configured by `./setup.sh` (it reuses your Anthropic key — check **Project Settings → LLM Connections**):
 >
 > ![Langfuse LLM Connections settings with the auto-provisioned Anthropic connection](docs/images/langfuse-llm-connections.png)
 
-Creating evaluators is the one step Langfuse has no public API for, so it's done in the UI (one-time, ~2 minutes). Go to http://localhost:3001 → **Evaluators** → **+ Set up evaluator** and pick a Langfuse-managed template:
+`./setup.sh` (or `./scripts/seed-llm-judge-evaluators.sh`) provisions three **observation-level** LLM-as-a-Judge evaluators — the [architecture Langfuse now recommends](https://langfuse.com/faq/all/llm-as-a-judge-migration) for live data (trace-level evaluators are marked "Legacy" in the UI; the script also deactivates any legacy ones, keeping them for rollback):
+
+| Evaluator | Watches (tags) | What It Catches |
+|-----------|----------------|-----------------|
+| **Hallucination** | `hallucination-test` + `control` generations | Fabricated facts stated confidently |
+| **Relevance** | `relevance-test` + `control` generations | Answers that ignore the actual question |
+| **Correctness** | `coherence-test` + `control` spans | Contradictory or logically inconsistent answers |
+
+Each judge watches its failure category *plus* the control group, so demos show failing and passing scores side by side. Scores attach to the matching observation in the trace tree (not the trace itself).
+
+In **cloud mode** the script prints the equivalent UI steps (Evaluators → + Set up evaluator → pick template → target **Observations**):
 
 ![Langfuse evaluator setup showing the managed template library (Hallucination, Relevance, Correctness, ...)](docs/images/langfuse-new-evaluator.png)
 
-Create these three:
-
-| Evaluator | Template to Select | What It Catches |
-|-----------|--------------------|-----------------|
-| **Hallucination** | Hallucination | Fabricated facts stated confidently |
-| **Relevance** | Relevance | Answers that ignore the actual question |
-| **Correctness** | Correctness | Contradictory or logically inconsistent answers |
-
-For each evaluator, set the filter to tag: `test-scenario`. When you're done, the Evaluators page should look like this:
-
-![Langfuse Evaluators page with active Hallucination, Relevance, and Correctness evaluators](docs/images/langfuse-evaluators.png)
-
-**Ground truth:** Each test scenario includes a `ground_truth` field stored in the trace metadata. The Correctness evaluator template references `{{expected_output}}` — for online evaluations this is populated from dataset items. For this demo, the Correctness evaluator still works well without it by comparing the output against the input query. To use ground truth with full accuracy, create a [Langfuse Dataset](https://langfuse.com/docs/datasets/overview) and run evaluations via experiments.
+**Ground truth:** Each test scenario stores `ground_truth` in the root span's metadata, and the Correctness evaluator maps it via `observation.metadata.ground_truth` — observation-level evaluators make this mapping possible (trace-level ones couldn't reach span metadata). A fourth judge (Hallucination) targets **experiment runs** on `coding-assistant-quality`, scoring model outputs of `scripts/run-experiments.py`.
 
 **Step 3: Verify expected results**
 
@@ -558,6 +567,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | [Quickstart Guide](docs/QUICKSTART_GUIDE.md) | Get running in 15-30 minutes |
 | [Agentic RAG Demo Runbook](docs/AGENTIC_RAG_DEMO_RUNBOOK.md) | Screen-by-screen Agentic RAG demo script (25 min) |
 | [Agentic RAG Architecture](docs/AGENTIC_RAG_ARCHITECTURE.md) | CRAG loop on ClickHouse-native vectors + Langfuse |
+| [Code Evaluators](docs/CODE_EVALUATORS.md) | Deterministic TypeScript evaluators — why, when, demo walkthrough |
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |

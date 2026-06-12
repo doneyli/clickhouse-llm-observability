@@ -253,16 +253,19 @@ The Langfuse evaluator runs LLM-as-judge evaluation on your traces.
 docker compose --profile langfuse up -d
 ```
 
-### 6.2 Configure Native Evaluators
+### 6.2 Evaluators (provisioned automatically)
 
-Langfuse provides built-in LLM-as-a-Judge evaluators:
+`./setup.sh` already provisioned the evaluators — three observation-level
+LLM-as-a-Judge evaluators (Relevance, Correctness, Hallucination) and five
+deterministic [code evaluators](CODE_EVALUATORS.md). Review them:
 
 1. Open http://localhost:3001
-2. Go to **Evaluations** → **LLM-as-a-Judge**
-3. Click **+ New Evaluator**
-4. Choose a template (Hallucination, Helpfulness, etc.)
-5. Set sampling to 100% for demo
-6. Save - evaluators run automatically on new traces
+2. Go to **Evaluators** — all should show as Active
+3. They run automatically on new observations (generate traffic with
+   `docker compose --profile tools run --rm test-scenarios`)
+
+(Cloud mode only: create them in the UI — **Evaluators** → **+ Set up
+evaluator**, target **Observations**.)
 
 ### 6.3 View Results in Langfuse Dashboard
 
@@ -280,7 +283,7 @@ You know the demo is working when you can:
 - [ ] Access LibreChat at http://localhost:3080 and send a message
 - [ ] See traces appear in Langfuse at http://localhost:3001
 - [ ] View trace details with prompts, completions, and token usage
-- [ ] (Optional) Configure LLM-as-a-Judge evaluators and see evaluation scores
+- [ ] (Optional) Run test scenarios and see evaluation scores from the auto-provisioned evaluators
 
 ---
 

@@ -117,7 +117,19 @@ docker compose restart text-to-sql vector-rag
 
 ## Setting Up Native Evaluators (LLM-as-a-Judge)
 
-Langfuse provides built-in LLM-as-a-Judge evaluators that run **automatically** on new traces. This eliminates the need for a separate evaluation service.
+Langfuse provides built-in LLM-as-a-Judge evaluators that run **automatically** on new data. This eliminates the need for a separate evaluation service.
+
+> **In this demo, setup is automatic (self-hosted mode).** `./setup.sh` provisions
+> three observation-level judges (Relevance, Correctness, Hallucination) over the
+> test-scenario traffic plus an experiment judge, via
+> `scripts/seed-llm-judge-evaluators.sh`, and seeds the default evaluation model.
+> Langfuse now recommends **observation-level** evaluators for live data —
+> trace-level ones are marked "Legacy" in the UI
+> ([migration guide](https://langfuse.com/faq/all/llm-as-a-judge-migration)).
+> For deterministic checks (regex, policies, formats) see
+> [Code Evaluators](CODE_EVALUATORS.md), provisioned automatically as well.
+>
+> The UI steps below are for **cloud mode** or for adding your own custom evaluators.
 
 ### 1. Open Langfuse Evaluations
 
@@ -144,13 +156,14 @@ When creating an evaluator, configure:
 
 | Setting | Recommendation |
 |---------|----------------|
+| **Target** | **Observations** (recommended; trace-level is Legacy) |
 | **Model** | Select your LLM provider (e.g., Claude, GPT-4) |
 | **Sampling** | 100% for demo/development, lower (10-25%) for production |
-| **Filters** | Apply to specific trace names or tags (e.g., `test-scenario`) |
+| **Filters** | Observation type (e.g., `GENERATION`) plus trace name or tags (e.g., `test-scenario`) |
 
 ### 4. Save and Enable
 
-Once saved, the evaluator runs automatically on new traces that match your filters.
+Once saved, the evaluator runs automatically on new observations that match your filters; scores attach to the matching observation in the trace tree.
 
 ### 5. View Evaluation Results
 
@@ -167,7 +180,7 @@ Test scenarios export traces with tags for easy filtering:
 - Tag: `relevance-test` - Relevance test cases
 - Tag: `coherence-test` - Coherence test cases
 
-Configure evaluators to run only on tagged traces for focused testing.
+The auto-provisioned judges already filter on these tags (each judge watches its failure category plus `control` for contrast).
 
 ### Why Native Evaluators?
 
@@ -179,7 +192,7 @@ Configure evaluators to run only on tagged traces for focused testing.
 | Maintenance | You maintain code | Langfuse maintains |
 | Cost | Your API credits | Langfuse credits (or BYO key) |
 
-**Note**: Creating evaluators via API is not yet supported ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). Use the UI for now.
+**Note**: Langfuse still has no public API for creating evaluators ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). In self-hosted mode this demo provisions them headlessly anyway (`scripts/seed-llm-judge-evaluators.sh` and `scripts/seed-code-evaluators.sh` seed the same database rows the UI creates); in cloud mode use the UI.
 
 ---
 

@@ -83,9 +83,15 @@ should be ✓).
   pick an agent from the dropdown (5 pre-configured agents with MCP tools).
 - **Langfuse**: http://localhost:3001 — log in as `demo@example.com` / `demodemo1!`,
   traces under Tracing > Traces.
-- **One remaining manual step** (no public API exists for it): creating the 3
-  LLM-as-a-Judge evaluators in the Langfuse UI. Point the user to
-  README > "LLM-as-a-Judge Evaluation" — it has screenshots.
+- **Code evaluators**: provisioned automatically (5 deterministic TypeScript
+  evaluators — see docs/CODE_EVALUATORS.md). Verify with:
+  `docker exec langfuse-postgres psql -U langfuse -d langfuse -t -c "SELECT count(*) FROM job_configurations WHERE id LIKE 'code-eval%' AND status='ACTIVE'"`
+  (expect 5 in self-hosted mode; in cloud mode they are a manual UI step).
+- **LLM-as-a-Judge evaluators**: provisioned automatically as observation-level
+  evaluators (3 live judges + 1 experiment judge). Verify with:
+  `docker exec langfuse-postgres psql -U langfuse -d langfuse -t -c "SELECT count(*) FROM job_configurations WHERE id LIKE 'obs-eval%' AND status='ACTIVE'"`
+  (expect 4 in self-hosted mode; in cloud mode they are a manual UI step —
+  point the user to README > "LLM-as-a-Judge Evaluation").
 
 ## Troubleshooting
 

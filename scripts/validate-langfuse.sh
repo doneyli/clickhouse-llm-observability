@@ -248,7 +248,41 @@ else
     fail "Langfuse services are not under 'langfuse' profile"
 fi
 
+if grep -q "LANGFUSE_CODE_EVAL_DISPATCHER" docker-compose.yaml 2>/dev/null; then
+    pass "Code evaluator dispatcher is enabled in docker-compose.yaml"
+else
+    fail "docker-compose.yaml is missing LANGFUSE_CODE_EVAL_DISPATCHER (code evaluators disabled)"
+fi
+
 echo ""
+
+# ------------------------------------------------------------------------------
+# 7. Check provisioned evaluators (self-hosted only)
+# ------------------------------------------------------------------------------
+if [ "$DEPLOY_MODE" != "cloud" ]; then
+    echo "7. Checking provisioned evaluators..."
+
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^langfuse-postgres$'; then
+        CODE_EVALS=$(docker exec langfuse-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c "SELECT count(*) FROM job_configurations WHERE id LIKE '"'"'code-eval%'"'"' AND status = '"'"'ACTIVE'"'"'"' 2>/dev/null || echo 0)
+        JUDGE_EVALS=$(docker exec langfuse-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c "SELECT count(*) FROM job_configurations WHERE id LIKE '"'"'obs-eval%'"'"' AND status = '"'"'ACTIVE'"'"'"' 2>/dev/null || echo 0)
+
+        if [ "${CODE_EVALS:-0}" -gt 0 ] 2>/dev/null; then
+            pass "Code evaluators active (${CODE_EVALS})"
+        else
+            warn "No code evaluators — run ./scripts/seed-code-evaluators.sh"
+        fi
+
+        if [ "${JUDGE_EVALS:-0}" -gt 0 ] 2>/dev/null; then
+            pass "Observation-level LLM-as-a-Judge evaluators active (${JUDGE_EVALS})"
+        else
+            warn "No LLM-as-a-Judge evaluators — run ./scripts/seed-llm-judge-evaluators.sh"
+        fi
+    else
+        warn "langfuse-postgres not running — skipping evaluator checks"
+    fi
+
+    echo ""
+fi
 
 # ------------------------------------------------------------------------------
 # Summary

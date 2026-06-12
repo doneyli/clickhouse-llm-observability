@@ -23,6 +23,8 @@ ANTHROPIC_API_KEY=sk-... ./setup.sh     # Non-interactive (CI / coding agents)
 ./scripts/seed-demo-data.sh --datasets  # Also seed evaluation datasets
 ./scripts/reset.sh                      # Full destructive reset
 ./scripts/validate-langfuse.sh          # Validate Langfuse integration
+./scripts/seed-code-evaluators.sh       # Provision code evaluators (deterministic TS evals; see docs/CODE_EVALUATORS.md)
+./scripts/seed-llm-judge-evaluators.sh  # Provision observation-level LLM-as-a-Judge evaluators (upgrades legacy ones)
 ./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
 ./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
 ```
@@ -84,6 +86,7 @@ text-to-sql/                # Text-to-SQL demo (Python, Langfuse SDK)
 vector-rag/                 # Vector RAG demo (Python, Langfuse SDK, ChromaDB)
 librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf)
 test-scenarios/             # 40 synthetic traces for evaluation testing
+evaluators/                 # Langfuse code evaluators (TypeScript, seeded into Langfuse by setup)
 dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alpine.js)
 mcp-clickhouse/             # ClickHouse MCP Server
 scripts/                    # Utility scripts (seed, reset, validate, CLI, import, datasets)

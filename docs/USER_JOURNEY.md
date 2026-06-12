@@ -208,14 +208,11 @@ Click on any trace to see the span hierarchy, including:
 docker compose --profile langfuse up -d
 ```
 
-**Configure Native Evaluators:**
-
-1. Open http://localhost:3001
-2. Go to **Evaluations** → **LLM-as-a-Judge**
-3. Click **+ New Evaluator**
-4. Choose a template (Hallucination, Helpfulness, etc.)
-5. Set sampling to 100% for demo
-6. Save - evaluators now run automatically on new traces
+**Evaluators are already provisioned.** `./setup.sh` created three observation-level
+LLM-as-a-Judge evaluators (Relevance, Correctness, Hallucination) plus five
+deterministic [code evaluators](CODE_EVALUATORS.md) — see them under
+**Evaluators** at http://localhost:3001. (Cloud mode: create them in the UI —
+**Evaluators** → **+ Set up evaluator**, target **Observations**.)
 
 **Run test scenarios to generate evaluation data:**
 ```bash
@@ -223,7 +220,8 @@ docker compose --profile tools run --rm test-scenarios
 ```
 
 **What you'll see:**
-Native evaluators automatically score new traces. Check the Traces view to see scores appear.
+Evaluators score new observations within ~30 seconds. Open a trace and check the
+Scores panel — judge scores attach to the matching observation in the trace tree.
 
 ### 5.2 View Results in Langfuse Dashboard
 
@@ -367,7 +365,7 @@ docker compose logs text-to-sql --tail=50
 ### Langfuse dashboard empty?
 - Generate traces first: `docker compose run --rm text-to-sql python main.py`
 - The dashboard only shows data after traces have been generated
-- Configure evaluators in UI: **Evaluations** → **LLM-as-a-Judge**
+- Missing evaluator scores? Re-run `./scripts/seed-llm-judge-evaluators.sh` and `./scripts/seed-code-evaluators.sh`
 
 ---
 

@@ -361,15 +361,17 @@ A screen-by-screen demo script for presenting Langfuse LLM observability to cust
 
 ---
 
-#### Step 3.4: LLM-as-a-Judge [31:00 - 33:00]
+#### Step 3.4: Evaluators — LLM-as-a-Judge + Code [31:00 - 33:00]
 
-**Screen:** Evaluations > LLM-as-a-Judge.
+**Screen:** Evaluators page (this demo pre-provisions both kinds — see [CODE_EVALUATORS.md](CODE_EVALUATORS.md)).
 
 **Say:**
 
-> "Automated evaluation. LLM-as-a-Judge evaluators run on your traces or dataset runs. Define criteria - 'was the code correct?', 'did it follow best practices?', 'did it expose sensitive data?' - and Langfuse scores every response automatically.
+> "Automated evaluation, two complementary kinds. LLM-as-a-Judge evaluators run on your observations or dataset runs — define criteria like 'was the code correct?' and Langfuse scores every response automatically. This project ships three: Relevance, Correctness, and Hallucination, scoring the test scenarios live.
 >
-> For the security dataset, set up an evaluator: 'did the assistant detect and redact the credential?' Track quality over time in dashboards."
+> And code evaluators — deterministic TypeScript that runs inside Langfuse. For the security dataset, `security-behavior-check` answers exactly 'did the assistant detect and redact the credential?' — with string logic, not a model, so it's free, instant, and runs on 100% of items. Same idea on live traffic: every text-to-sql response gets an `sql-risk` score, every generation is scanned for leaked API keys."
+
+**Action:** Open `security-behavior-check` → show the TypeScript source and a scored run. Then open a `text-to-sql` trace → Scores panel shows `sql-risk` next to the judge scores.
 
 ---
 

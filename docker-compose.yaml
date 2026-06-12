@@ -37,6 +37,13 @@ x-langfuse-common-env: &langfuse-common-env
   LANGFUSE_INIT_USER_EMAIL: demo@example.com
   LANGFUSE_INIT_USER_NAME: Demo User
   LANGFUSE_INIT_USER_PASSWORD: demodemo1!
+  # Code evaluators (deterministic TypeScript evals executed by the worker).
+  # insecure-local runs evaluator code in the worker process — fine for this
+  # trusted demo stack, not a sandbox for untrusted code.
+  LANGFUSE_CODE_EVAL_DISPATCHER: insecure-local
+  QUEUE_CONSUMER_CODE_EVAL_EXECUTION_QUEUE_IS_ENABLED: "true"
+  # Enterprise license key (enables EE features; leave unset for community edition)
+  LANGFUSE_EE_LICENSE_KEY: ${LANGFUSE_EE_LICENSE_KEY:-}
 
 services:
   # LibreChat API

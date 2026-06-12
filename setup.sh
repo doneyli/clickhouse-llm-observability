@@ -509,6 +509,35 @@ ensure_langfuse_llm_connection() {
 }
 
 #######################################
+# Provision Langfuse code evaluators (idempotent — deterministic
+# TypeScript evals from evaluators/, seeded by scripts/seed-code-evaluators.sh)
+#######################################
+ensure_code_evaluators() {
+    header "Provisioning Langfuse Code Evaluators"
+
+    if "$SCRIPT_DIR/scripts/seed-code-evaluators.sh"; then
+        success "Code evaluators ready (deterministic checks on live traces + experiments)"
+    else
+        warn "Could not provision code evaluators — run ./scripts/seed-code-evaluators.sh manually"
+    fi
+}
+
+#######################################
+# Provision observation-level LLM-as-a-Judge evaluators (idempotent —
+# also upgrades legacy trace/dataset evaluators per the Langfuse
+# migration guide; see scripts/seed-llm-judge-evaluators.sh)
+#######################################
+ensure_llm_judge_evaluators() {
+    header "Provisioning LLM-as-a-Judge Evaluators"
+
+    if "$SCRIPT_DIR/scripts/seed-llm-judge-evaluators.sh"; then
+        success "LLM-as-a-Judge evaluators ready (observation-level)"
+    else
+        warn "Could not provision judge evaluators — run ./scripts/seed-llm-judge-evaluators.sh manually"
+    fi
+}
+
+#######################################
 # Seed LibreChat agents (idempotent — skips existing agents, only
 # updating their model if it drifted from ANTHROPIC_MODEL)
 #######################################
@@ -630,9 +659,25 @@ show_status() {
         fi
     fi
 
+    if [ "$DEPLOY_MODE" != "cloud" ]; then
+        local code_evals judge_evals
+        code_evals=$(docker exec langfuse-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c "SELECT count(*) FROM job_configurations WHERE id LIKE '"'"'code-eval%'"'"' AND status = '"'"'ACTIVE'"'"'"' 2>/dev/null || true)
+        if [ -n "$code_evals" ] && [ "$code_evals" -gt 0 ] 2>/dev/null; then
+            success "Code evaluators active (${code_evals} deterministic evaluators — see docs/CODE_EVALUATORS.md)"
+        else
+            warn "No code evaluators — run ./scripts/seed-code-evaluators.sh"
+        fi
+        judge_evals=$(docker exec langfuse-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c "SELECT count(*) FROM job_configurations WHERE id LIKE '"'"'obs-eval%'"'"' AND status = '"'"'ACTIVE'"'"'"' 2>/dev/null || true)
+        if [ -n "$judge_evals" ] && [ "$judge_evals" -gt 0 ] 2>/dev/null; then
+            success "LLM-as-a-Judge evaluators active (${judge_evals} observation-level judges)"
+        else
+            warn "No LLM-as-a-Judge evaluators — run ./scripts/seed-llm-judge-evaluators.sh"
+        fi
+    fi
+
     echo ""
-    echo -e "  ${BLUE}ℹ${NC} LLM-as-a-Judge evaluators are created in the Langfuse UI (one-time)."
-    echo "    See README > LLM-as-a-Judge Evaluation for the 3-evaluator setup."
+    echo -e "  ${BLUE}ℹ${NC} Evaluators (code + LLM-as-a-Judge) are provisioned automatically."
+    echo "    See docs/CODE_EVALUATORS.md and README > LLM-as-a-Judge Evaluation."
 
     header "Access URLs"
 
@@ -780,6 +825,8 @@ main() {
     ensure_fresh_key_in_containers
     wait_for_services
     ensure_langfuse_llm_connection
+    ensure_code_evaluators
+    ensure_llm_judge_evaluators
     ensure_librechat_agents
 
     if [ "$run_seed" = true ]; then

@@ -170,6 +170,9 @@ if [[ "$*" == *"--datasets"* ]]; then
         done; then
             echo ""
             echo -e "${GREEN}✓${NC} Evaluation datasets created"
+            # Code evaluators that target experiments reference dataset IDs,
+            # so (re-)provision them now that the datasets exist.
+            "${SCRIPT_DIR}/seed-code-evaluators.sh" || true
         else
             echo -e "${RED}✗${NC} Dataset seeding failed"
             echo "  Run manually: python scripts/seed-datasets.py"
