@@ -4,6 +4,24 @@ This file is for AI coding agents (Claude Code, Codex, Cursor, etc.). If a user 
 **"Deploy this demo"**, follow this runbook exactly. Every step is non-interactive and
 verifiable. For code conventions and architecture, see [CLAUDE.md](CLAUDE.md).
 
+## Beyond deployment
+
+This repo ships project skills in [`.agents/skills/`](.agents/skills/) (symlinked into
+`.claude/skills/` for Claude Code) covering the full lifecycle. If your harness
+supports skills, prefer them; otherwise open the SKILL.md files and follow them as
+runbooks:
+
+| User intent | Skill / runbook |
+|---|---|
+| "Deploy this demo" | [`deploy-demo`](.agents/skills/deploy-demo/SKILL.md) — wraps this file |
+| "Run / present / prep the demo" | [`run-demo`](.agents/skills/run-demo/SKILL.md) — pre-flight, fresh data, act-by-act guidance |
+| "Something is broken" | [`troubleshoot`](.agents/skills/troubleshoot/SKILL.md) — triage order + recovery ladder |
+| Query Langfuse data / docs | [`langfuse`](.agents/skills/langfuse/SKILL.md) — CLI + documentation access |
+
+For presenting to humans, the source material is [docs/SA_FIELD_GUIDE.md](docs/SA_FIELD_GUIDE.md)
+(audience/talk track), [docs/USE_CASES.md](docs/USE_CASES.md) (2-minute demo paths),
+and the runbooks in [docs/](docs/README.md).
+
 ## What gets deployed
 
 A self-hosted LLM observability stack (~12 Docker containers): Langfuse (traces UI,

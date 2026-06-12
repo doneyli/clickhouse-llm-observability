@@ -3,6 +3,21 @@
 > **Deploying?** Follow [AGENTS.md](AGENTS.md) — the non-interactive deploy runbook
 > with verification steps. If the user says "deploy this demo", use that file.
 
+## Project Skills
+
+Lifecycle tasks have project skills in `.agents/skills/` (auto-discovered via
+`.claude/skills/` symlinks) — prefer them over improvising:
+
+- **deploy-demo** — deploy + verify the full stack (wraps AGENTS.md)
+- **run-demo** — present/rehearse a demo: pre-flight, fresh traces, act-by-act guidance
+- **troubleshoot** — triage order and recovery ladder for a broken stack
+- **langfuse** — query Langfuse data via CLI, access Langfuse docs
+
+For presenter-facing material, see [docs/SA_FIELD_GUIDE.md](docs/SA_FIELD_GUIDE.md)
+(demo selection, talk track, objections) and [docs/USE_CASES.md](docs/USE_CASES.md)
+(10 use cases with 2-minute demo paths). [docs/README.md](docs/README.md) indexes all
+docs by persona.
+
 ## Architecture
 
 LLM apps (Text-to-SQL, Vector RAG, LibreChat) instrument with the Langfuse SDK. Langfuse stores traces in ClickHouse (OLAP backend). The demo supports two deployment modes:
@@ -90,5 +105,7 @@ evaluators/                 # Langfuse code evaluators (TypeScript, seeded into 
 dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alpine.js)
 mcp-clickhouse/             # ClickHouse MCP Server
 scripts/                    # Utility scripts (seed, reset, validate, CLI, import, datasets)
-docs/                       # Documentation (incl. LANGFUSE_DEMO_RUNBOOK.md)
+docs/                       # Documentation (see docs/README.md for the persona-based index)
+.agents/skills/             # Project skills (deploy-demo, run-demo, troubleshoot, langfuse)
+.claude/settings.json       # Shared Claude Code permissions for this repo's common commands
 ```
