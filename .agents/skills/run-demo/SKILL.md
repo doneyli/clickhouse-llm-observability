@@ -55,6 +55,28 @@ runbook — walk the presenter through it.
   it is written for exactly this moment. Diagnose quietly with the `troubleshoot`
   skill; don't debug on the projector.
 
+### Demoing LibreChat traces well
+
+LibreChat trace richness depends entirely on whether the agent **calls a tool**. A
+generic prompt ("what is ClickHouse?", "testing 123") produces a thin ~10-observation
+trace — one LLM generation wrapped in LangGraph scaffolding — and a trivial
+`start → agent → end` graph. That looks underwhelming on a projector. **Always drive
+LibreChat with a prompt that forces tool use:**
+
+- LLM Observability Analyst → *"What were the slowest traces in the last hour and why?"*
+  or *"Show me insights about my agents."*
+- ClickHouse Data Analyst → *"What are the top 5 repos by stars in the github dataset?"*
+- Agentic RAG Assistant → *"How does RAG reduce hallucinations, and how does ClickHouse fit in?"*
+
+These produce 45–60 observation traces with `TOOL` spans and multi-step reasoning loops
+— and a graph that actually shows the agent↔tools cycle. The node labels are LibreChat's
+internal agent IDs (cryptic but harmless); don't apologize for them, just narrate the loop.
+
+Conversation-title generation is disabled in `librechat.yaml`
+(`endpoints.all.titleConvo: false`) so the trace list stays clean. If a customer's
+instance has titling on, filter **Trace Name = AgentRun** in Langfuse to hide the
+`TitleRun` noise.
+
 ## 4. After the demo
 
 Offer the audience the self-serve path: clone the repo, run
