@@ -152,8 +152,12 @@ MCP_MAX_ATTEMPTS=15
 while [ $MCP_ATTEMPTS -lt $MCP_MAX_ATTEMPTS ]; do
     MCP_TOOLS=$(auth_curl "${LIBRECHAT_URL}/api/mcp/tools" 2>/dev/null || echo '{}')
 
-    # Check if we have tools from at least one server
-    TOOL_COUNT=$(echo "$MCP_TOOLS" | jq 'if type == "object" then [.[] | keys[]] | length else 0 end' 2>/dev/null || echo "0")
+    # Count actual TOOLS across all servers (not just how many servers exist —
+    # a server can be registered before it has advertised any tools yet).
+    TOOL_COUNT=$(echo "$MCP_TOOLS" | jq '
+        if (.servers? | objects) then [ .servers[]?.tools[]? ] | length
+        elif type == "object" then [ .[]? | objects | keys[]? ] | length
+        else 0 end' 2>/dev/null || echo "0")
     if [ "$TOOL_COUNT" -gt 0 ]; then
         break
     fi
@@ -173,32 +177,45 @@ fi
 echo -e "${GREEN}✓${NC} Found ${TOOL_COUNT} MCP tools"
 echo ""
 
-# Build tool arrays for each MCP server
-# Tool format: server entry = "sys__server__sys_mcp_<serverName>"
-#              individual tool = "<toolName>_mcp_<serverName>"
+# Build tool arrays for each MCP server.
+#
+# A bound tool is identified by its "plugin key": "<toolName>_mcp_<serverName>".
+# The server-level entry "sys__server__sys_mcp_<serverName>" tells LibreChat to
+# expose the whole server; we ALSO bind each individual tool by its plugin key so
+# the agent matches LibreChat's own UI behaviour ("Add MCP Server Tools").
+#
+# /api/mcp/tools has changed shape across LibreChat versions:
+#   v0.8.x : { "servers": { "<server>": { "tools": [ { "pluginKey": ... }, ... ] } } }
+#   legacy : { "<server>": { "<toolName>": { ... } } }
+# We read the authoritative pluginKey from the v0.8.x shape and fall back to
+# constructing it from the legacy shape. The previous version only understood the
+# legacy shape, so on current LibreChat it silently bound NO individual tools —
+# leaving agents with just the server stub. Agents seeded in that state can fail
+# to attach their tools at chat time, and the model then emits raw <function_calls>
+# / <tool_call> XML as plain text instead of using native tool calls.
 build_tools_for_server() {
     local server_name="$1"
     local tools=()
 
-    # Add server entry
+    # Server-level entry (exposes all of this server's tools).
     tools+=("\"sys__server__sys_mcp_${server_name}\"")
 
-    # Extract individual tool names for this server from pluginKey pattern
-    local tool_names
-    tool_names=$(echo "$MCP_TOOLS" | jq -r "
-        if type == \"object\" then
-            to_entries[] |
-            select(.key == \"${server_name}\") |
-            .value | keys[]
+    # Individual tool plugin keys.
+    local plugin_keys
+    plugin_keys=$(echo "$MCP_TOOLS" | jq -r --arg s "$server_name" '
+        if (.servers? | objects | has($s)) then
+            .servers[$s].tools[]?.pluginKey // empty       # v0.8.x nested shape
+        elif (objects | has($s)) then
+            .[$s] | keys[] | "\(.)_mcp_\($s)"               # legacy flat shape
         else
             empty
         end
-    " 2>/dev/null || true)
+    ' 2>/dev/null || true)
 
-    while IFS= read -r tool; do
-        [ -z "$tool" ] && continue
-        tools+=("\"${tool}_mcp_${server_name}\"")
-    done <<< "$tool_names"
+    while IFS= read -r key; do
+        [ -z "$key" ] && continue
+        tools+=("\"${key}\"")
+    done <<< "$plugin_keys"
 
     # Return as JSON array
     local IFS=','
@@ -238,28 +255,51 @@ create_agent() {
 
     local desired_model="${ANTHROPIC_MODEL:-claude-sonnet-4-6}"
 
+    # How many individual (non-stub) tools we actually resolved for this agent.
+    local desired_tool_count
+    desired_tool_count=$(echo "$tools" | jq '[.[] | select(startswith("sys__server__") | not)] | length' 2>/dev/null || echo 0)
+
     if agent_exists "$name"; then
-        # Keep existing agents on the configured model (e.g. after a deprecation bump)
-        local agent_id current_model
+        # Reconcile existing agents toward the desired model AND tool bindings.
+        # Re-running the seed script must be able to REPAIR an agent that was
+        # created before its MCP tools were available (so it only has the server
+        # stub, or an empty/stale tool set) — otherwise the agent keeps emitting
+        # raw <function_calls> XML instead of native tool calls.
+        local agent_id detail current_model current_tools
         agent_id=$(agent_field "$name" "id")
-        current_model=$(agent_field "$name" "model")
-        if [ -n "$agent_id" ] && [ -z "$current_model" ]; then
-            # list endpoint omits model — fetch the agent detail
-            current_model=$(auth_curl "${LIBRECHAT_URL}/api/agents/${agent_id}" 2>/dev/null \
-                | jq -r '.model // empty' || true)
+        detail=$(auth_curl "${LIBRECHAT_URL}/api/agents/${agent_id}" 2>/dev/null || echo '{}')
+        current_model=$(echo "$detail" | jq -r '.model // empty')
+        current_tools=$(echo "$detail" | jq -c '.tools // []' 2>/dev/null || echo '[]')
+
+        local patch='{}' changes=()
+        if [ -n "$current_model" ] && [ "$current_model" != "$desired_model" ]; then
+            patch=$(echo "$patch" | jq --arg m "$desired_model" '. + {model: $m}')
+            changes+=("model ${current_model} → ${desired_model}")
         fi
-        if [ -n "$agent_id" ] && [ -n "$current_model" ] && [ "$current_model" != "$desired_model" ]; then
+        # Only re-sync tools when we actually resolved individual tools (guard
+        # against wiping a good binding with a stub-only set when MCP is still
+        # initializing) and the desired set differs from what's stored.
+        local cur_sorted des_sorted
+        cur_sorted=$(echo "$current_tools" | jq -cS '. // [] | sort' 2>/dev/null || echo '[]')
+        des_sorted=$(echo "$tools" | jq -cS 'sort' 2>/dev/null || echo '[]')
+        if [ "$desired_tool_count" -gt 0 ] && [ "$cur_sorted" != "$des_sorted" ]; then
+            patch=$(echo "$patch" | jq --argjson t "$tools" '. + {tools: $t}')
+            changes+=("tools re-synced (${desired_tool_count} tool(s))")
+        fi
+
+        if [ -n "$agent_id" ] && [ "$patch" != "{}" ]; then
             if auth_curl -X PATCH "${LIBRECHAT_URL}/api/agents/${agent_id}" \
-                -H "Content-Type: application/json" \
-                -d "$(jq -n --arg m "$desired_model" '{model: $m}')" > /dev/null 2>&1; then
-                echo -e "  ${GREEN}↻${NC} ${name} (model updated: ${current_model} → ${desired_model})"
+                -H "Content-Type: application/json" -d "$patch" > /dev/null 2>&1; then
+                local summary
+                summary=$(printf '%s; ' "${changes[@]}"); summary=${summary%; }
+                echo -e "  ${GREEN}↻${NC} ${name} (${summary})"
                 UPDATED=$((UPDATED + 1))
             else
-                echo -e "  ${YELLOW}⤳${NC} ${name} (exists; model update failed — update manually in agent settings)"
+                echo -e "  ${YELLOW}⤳${NC} ${name} (exists; update failed — update manually in agent settings)"
                 SKIPPED=$((SKIPPED + 1))
             fi
         else
-            echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, skipping)"
+            echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, up to date)"
             SKIPPED=$((SKIPPED + 1))
         fi
         return 0
@@ -287,7 +327,14 @@ create_agent() {
         -d "$payload" 2>&1)
 
     if echo "$response" | jq -e '.id' > /dev/null 2>&1; then
-        echo -e "  ${GREEN}✓${NC} ${name}"
+        if [ "$desired_tool_count" -gt 0 ]; then
+            echo -e "  ${GREEN}✓${NC} ${name} (${desired_tool_count} tool(s) bound)"
+        else
+            # Created with only a server-level stub — MCP tools weren't live yet.
+            # The agent may emit raw tool-call XML until re-synced.
+            echo -e "  ${YELLOW}!${NC} ${name} — created with NO individual MCP tools (server still initializing?)."
+            echo -e "      Re-run ${GREEN}./scripts/seed-librechat-agents.sh${NC} once MCP servers are healthy to bind them."
+        fi
         CREATED=$((CREATED + 1))
     else
         echo -e "  ${RED}✗${NC} ${name} — failed to create"
