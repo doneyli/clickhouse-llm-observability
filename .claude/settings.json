@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(docker ps*)",
+      "Bash(docker logs *)",
+      "Bash(docker exec *)",
+      "Bash(docker inspect *)",
+      "Bash(docker info*)",
+      "Bash(./setup.sh*)",
+      "Bash(./scripts/seed-demo-data.sh*)",
+      "Bash(./scripts/seed-librechat-agents.sh*)",
+      "Bash(./scripts/seed-code-evaluators.sh*)",
+      "Bash(./scripts/seed-llm-judge-evaluators.sh*)",
+      "Bash(./scripts/validate-langfuse.sh*)",
+      "Bash(./scripts/langfuse-cli.sh*)",
+      "Bash(curl *)",
+      "Bash(jq *)",
+      "Bash(npx langfuse*)",
+      "Skill(deploy-demo)",
+      "Skill(run-demo)",
+      "Skill(troubleshoot)",
+      "Skill(langfuse)",
+      "WebFetch(domain:langfuse.com)",
+      "WebFetch(domain:clickhouse.com)"
+    ]
+  }
+}

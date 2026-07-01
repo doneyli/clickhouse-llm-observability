@@ -1,9 +1,16 @@
 # LLM Observability with ClickHouse
 
-**A unified observability platform for AI and LLM applications, powered by ClickHouse.**
+**A complete, self-provisioning LLM observability stack — Langfuse on ClickHouse, real instrumented apps, automated evaluation — built to be deployed, presented, and learned from.**
+
+| You want to… | Start here |
+|--------------|------------|
+| **Deploy it** (~5 min, one secret) | `ANTHROPIC_API_KEY=sk-ant-... ./setup.sh --seed` — or the [Quickstart Guide](docs/QUICKSTART_GUIDE.md) |
+| **Present it** to a customer or team | [SA Field Guide](docs/SA_FIELD_GUIDE.md) — demo selection, talk tracks, objection handling |
+| **Learn from it** | [User Journey](docs/USER_JOURNEY.md) (hands-on, ~35 min) and the [Use Case Catalog](docs/USE_CASES.md) |
+| **Point an AI agent at it** | Open any coding agent in the repo and say **"deploy this demo"** — [AGENTS.md](AGENTS.md) and the [bundled skills](#coding-agent-support) handle the rest |
 
 > **Stack already running?** [Jump to Quick Start](#quick-start) to generate traces in 2 minutes.
-> **New to this demo?** Run `./setup.sh` — it's idempotent, handles everything, and takes ~5 minutes.
+> **All documentation**, indexed by persona: [docs/README.md](docs/README.md)
 
 ---
 
@@ -459,18 +466,22 @@ After evaluators run, the 40 test scenarios should score by category:
 
 ## Coding Agent Support
 
-This project is **agent-native**: point any coding agent (Claude Code, Codex, Cursor) at the repo and say **"Deploy this demo"** — it works without human intervention (you'll only be asked for your Anthropic API key if it isn't set).
+This project is **agent-native**: point any coding agent (Claude Code, Codex, Cursor) at the repo and say **"Deploy this demo"** — it works without human intervention (you'll only be asked for your Anthropic API key if it isn't set). Everything an agent needs ships in the repo:
 
 - **`AGENTS.md`** at the project root is a deterministic deploy runbook: non-interactive setup command, machine-checkable verification steps, and a troubleshooting table. Codex and Cursor read it automatically.
-- **`CLAUDE.md`** provides architecture, commands, and conventions that Claude Code reads automatically (and points to `AGENTS.md` for deployment)
-- **Langfuse Skills** teach agents about Langfuse SDK patterns, observability, and prompt management
+- **`CLAUDE.md`** provides architecture, commands, and conventions that Claude Code reads automatically (and points to `AGENTS.md` for deployment).
+- **Bundled project skills** in [`.agents/skills/`](.agents/skills/) (symlinked into `.claude/skills/` — no install step) cover the full lifecycle:
 
-```bash
-# Install Langfuse skills (optional)
-npx skills add langfuse/skills --skill "langfuse"
-```
+  | Skill | What it does |
+  |-------|--------------|
+  | `deploy-demo` | Deploy and verify the full stack end to end |
+  | `run-demo` | Pre-flight checks, fresh trace generation, act-by-act demo guidance |
+  | `troubleshoot` | Triage order and recovery ladder for a broken stack |
+  | `langfuse` | Query Langfuse data via CLI and access Langfuse docs (vendored from [langfuse/skills](https://github.com/langfuse/skills)) |
 
-See [Langfuse Skills docs](docs/LANGFUSE_SKILLS.md) for details.
+- **`.claude/settings.json`** pre-approves this repo's safe commands (docker compose, setup, seed/validate scripts), so agents run with minimal permission prompts. Destructive operations (`scripts/reset.sh`) still require approval.
+
+In practice: *"deploy this demo"*, *"prep me for a 45-minute customer demo"*, and *"traces aren't showing up, fix it"* are all one-line agent prompts. See [Langfuse Skills docs](docs/LANGFUSE_SKILLS.md) for the vendored Langfuse skill details.
 
 ---
 
@@ -535,12 +546,20 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │   ├── export_test_scenarios.py
 │   └── requirements.txt
 │
-├── docs/                       # Documentation
+├── dashboard/                  # LLM Observatory — custom analytics on Langfuse's ClickHouse
+│
+├── .agents/skills/             # Project skills for AI agents (deploy-demo, run-demo,
+│                               #   troubleshoot, langfuse) — symlinked into .claude/skills/
+│
+├── docs/                       # Documentation (docs/README.md = persona-based index)
+│   ├── SA_FIELD_GUIDE.md           # Presenter field guide (demo selection, talk track, Q&A)
+│   ├── USE_CASES.md                # 10 use cases with 2-minute demo paths
 │   ├── QUICKSTART_GUIDE.md
 │   ├── USER_JOURNEY.md
-│   ├── LANGFUSE_DEMO_RUNBOOK.md  # Screen-by-screen demo script (45 min)
-│   ├── AGENTIC_RAG_DEMO_RUNBOOK.md   # Agentic RAG demo script (25 min)
-│   ├── AGENTIC_RAG_ARCHITECTURE.md   # Agentic RAG architecture + diagram
+│   ├── LANGFUSE_DEMO_RUNBOOK.md    # Screen-by-screen demo script (45 min)
+│   ├── AGENTIC_RAG_DEMO_RUNBOOK.md # Agentic RAG demo script (25 min)
+│   ├── AGENTIC_RAG_ARCHITECTURE.md # Agentic RAG architecture + diagram
+│   ├── DASHBOARD.md
 │   ├── EVALUATION_ARCHITECTURE.md
 │   ├── EVALUATION_SCENARIOS.md
 │   ├── LANGFUSE_INTEGRATION.md
@@ -561,19 +580,24 @@ See [`.env.example`](.env.example) for the full configuration reference.
 
 ## Documentation
 
+**[docs/README.md](docs/README.md) indexes everything by persona** (deploy / present / learn / AI agent). Highlights:
+
 | Document | Description |
 |----------|-------------|
+| [SA Field Guide](docs/SA_FIELD_GUIDE.md) | **For presenters** — demo selection, talk track, prep checklist, objection handling |
+| [Use Case Catalog](docs/USE_CASES.md) | 10 observability use cases, each with a 2-minute demo path |
+| [Demo Runbook](docs/LANGFUSE_DEMO_RUNBOOK.md) | Screen-by-screen 45-min demo script with full talk tracks |
+| [Agentic RAG Demo Runbook](docs/AGENTIC_RAG_DEMO_RUNBOOK.md) | Screen-by-screen Agentic RAG demo script (25 min) |
 | [User Journey](docs/USER_JOURNEY.md) | Hands-on walkthrough of the complete demo |
 | [Quickstart Guide](docs/QUICKSTART_GUIDE.md) | Get running in 15-30 minutes |
-| [Agentic RAG Demo Runbook](docs/AGENTIC_RAG_DEMO_RUNBOOK.md) | Screen-by-screen Agentic RAG demo script (25 min) |
 | [Agentic RAG Architecture](docs/AGENTIC_RAG_ARCHITECTURE.md) | CRAG loop on ClickHouse-native vectors + Langfuse |
 | [Code Evaluators](docs/CODE_EVALUATORS.md) | Deterministic TypeScript evaluators — why, when, demo walkthrough |
 | [Evaluation Architecture](docs/EVALUATION_ARCHITECTURE.md) | Production evaluation strategies |
 | [Evaluation Scenarios](docs/EVALUATION_SCENARIOS.md) | Test failure modes |
+| [Dashboard (LLM Observatory)](docs/DASHBOARD.md) | Custom analytics straight from Langfuse's ClickHouse tables |
 | [Langfuse Integration](docs/LANGFUSE_INTEGRATION.md) | Langfuse observability platform |
 | [Langfuse CLI](docs/LANGFUSE_CLI.md) | Terminal access to traces, prompts, scores |
 | [Langfuse Skills](docs/LANGFUSE_SKILLS.md) | AI coding agent integration |
-| [Demo Runbook](docs/LANGFUSE_DEMO_RUNBOOK.md) | Screen-by-screen demo script for customer presentations |
 
 ---
 

@@ -28,6 +28,9 @@ Thumbs.db
 # Skills (installed by npx skills add)
 .skills/
 
+# Per-user Claude Code settings (shared settings live in .claude/settings.json)
+.claude/settings.local.json
+
 # Python
 __pycache__/
 *.pyc

@@ -46,6 +46,15 @@ mcpSettings:
 
 # Agent Configuration
 endpoints:
+  # Shared settings applied to ALL endpoints (overrides per-endpoint config).
+  # titleConvo: false disables LibreChat's automatic conversation-title generation.
+  # Each titled chat would otherwise emit a separate "TitleRun" trace into Langfuse
+  # (a small LLM call to name the thread) that clutters the trace list and looks like
+  # a junk agent run in a demo. Disabling keeps every Langfuse trace a real "AgentRun".
+  # To re-enable titles, set this to true (and optionally filter Trace Name = AgentRun
+  # in Langfuse to hide the TitleRun traces).
+  all:
+    titleConvo: false
   agents:
     recursionLimit: 50
   bedrock:

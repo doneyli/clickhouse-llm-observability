@@ -357,6 +357,40 @@ Using the web image for the worker will cause events to queue indefinitely.
 
 ---
 
+## Reading LibreChat Traces
+
+LibreChat traces differ from the Python demo apps, and it helps to know why before you
+present or debug them.
+
+**How LibreChat instruments.** The Python demos (Text-to-SQL, Vector RAG, Agentic RAG)
+call the Langfuse SDK directly and build clean, intentionally named spans. LibreChat
+instead traces through its native `@librechat/agents` LangChain/LangGraph callbacks.
+That produces a deeper, machine-named tree — `AgentRun → LangGraph → agent_<id> →
+agent=agent_<id> → RunnableSequence → prompt / generation → RunnableLambda`. The
+`Runnable*` spans and agent-ID node names are LangChain/LangGraph internals, not a bug.
+The `librechat` tag is added via a small `sed` patch in `librechat/entrypoint.sh`.
+
+**Trace richness tracks tool use.** This is the key thing to understand:
+
+| Prompt | Result |
+|--------|--------|
+| Tool-using ("show me my slowest traces") | 45–60 observations: `TOOL` spans (`tool_batch`, `tools=agent_<id>`) + repeated reasoning loops. Rich. |
+| Generic ("what is ClickHouse?", "hi") | ~10 observations: one `LibreChatAnthropic` generation in LangGraph scaffolding. Thin but complete. |
+
+The trace itself is always complete (full I/O, token counts, cost); a thin trace just
+reflects a one-shot answer with no tool calls. Demo with tool-triggering prompts.
+
+**The graph view.** Langfuse renders the LangGraph node graph at the bottom of the
+trace. A thin trace draws a trivial `__start__ → agent → __end__`; a tool-using trace
+draws the agent↔tools loop. Node labels are LibreChat's internal agent IDs — opaque
+but harmless.
+
+**Title generation is disabled.** `librechat.yaml` sets `endpoints.all.titleConvo:
+false`. With titling on, every chat also emits a separate `TitleRun` trace (LibreChat
+naming the thread) that clutters the trace list. Disabling keeps every trace a real
+`AgentRun`. To re-enable, set it to `true` and filter **Trace Name = AgentRun** in
+Langfuse to hide the `TitleRun` noise.
+
 ## MCP Server Integration (LibreChat Agents)
 
 LibreChat agents can interact with Langfuse prompts directly through the Langfuse MCP server.

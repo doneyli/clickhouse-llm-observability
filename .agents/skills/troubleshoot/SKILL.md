@@ -1,0 +1,77 @@
+---
+name: troubleshoot
+description: Diagnose and fix problems with the LLM observability stack — services not starting, traces not appearing, missing scores, agents without MCP tools, 401 errors, port conflicts. Use when anything in the demo stack is broken, unhealthy, or behaving unexpectedly.
+---
+
+# Troubleshoot the Stack
+
+Diagnose before acting. Most problems resolve with a targeted fix plus an idempotent
+`./setup.sh` re-run — destructive resets are the last resort, never the first.
+
+## Triage order
+
+1. **The built-in checklist tells you what's broken:**
+
+   ```bash
+   ./setup.sh --status        # readiness checklist — note every ✗ line
+   docker compose --profile langfuse --profile demo --profile dashboard ps   # container states
+   ```
+
+2. **Probe the failing service directly:**
+
+   ```bash
+   curl -sf http://localhost:3001/api/public/health   # Langfuse
+   curl -sf http://localhost:3080/health              # LibreChat
+   curl -sf http://localhost:8005/health              # LLM Observatory dashboard (if profile is up)
+   ```
+
+   The demo apps (text-to-sql, vector-rag, test-scenarios) are run-on-demand
+   containers, not long-running services — "is it healthy" means "does
+   `docker compose run --rm text-to-sql python main.py` exit 0 and produce a trace".
+
+3. **Read its logs** (last 50 lines is usually enough):
+
+   ```bash
+   docker compose --profile langfuse logs langfuse-web --tail 50
+   docker compose logs api --tail 50                  # LibreChat
+   docker compose logs langfuse-worker --tail 50      # evaluator/score issues
+   ```
+
+4. **Match against known failures** — check the table in
+   [AGENTS.md](../../../AGENTS.md#troubleshooting) first. The highest-frequency ones:
+
+   | Symptom | Cause → Fix |
+   |---|---|
+   | 401s from SDK/CLI, traces silently missing | Shell-exported `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` override `.env`. `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY` and retry. |
+   | LibreChat agents have no MCP tools | MCP servers init async. Wait 30s, re-run `./scripts/seed-librechat-agents.sh` (idempotent). |
+   | Langfuse not ready after ~2 min | Slow first-boot migrations. Re-run `./setup.sh`. |
+   | Traces arrive but no judge scores | Check LLM connection exists (Project Settings > LLM Connections) and `langfuse-worker` logs; evaluators need ~30–60s. |
+   | Port conflict | Change the port in `.env` (e.g. `LANGFUSE_PORT`), re-run `./setup.sh`. |
+
+5. **Deeper integration validation** when traces/scores misbehave but containers look
+   healthy:
+
+   ```bash
+   ./scripts/validate-langfuse.sh
+   ```
+
+6. **Evaluator provisioning** (self-hosted only) is verifiable in Postgres:
+
+   ```bash
+   docker exec langfuse-postgres psql -U langfuse -d langfuse -t \
+     -c "SELECT id, status FROM job_configurations WHERE id LIKE 'code-eval%' OR id LIKE 'obs-eval%'"
+   # expect 5 code-eval* + 4 obs-eval* rows, all ACTIVE
+   ```
+
+   Re-provision with `./scripts/seed-code-evaluators.sh` /
+   `./scripts/seed-llm-judge-evaluators.sh` (both idempotent).
+
+## Recovery ladder (least → most destructive)
+
+1. Targeted fix from the table above, then `./setup.sh` (idempotent, safe).
+2. Restart one service: `docker compose restart <service>`.
+3. `./setup.sh --cleanup` then `./setup.sh` (stops containers, keeps data).
+4. `./scripts/reset.sh` then `./setup.sh --seed` — **destroys all data; get explicit
+   user confirmation first.**
+
+After any fix, confirm with `./setup.sh --status` — done means every readiness line ✓.

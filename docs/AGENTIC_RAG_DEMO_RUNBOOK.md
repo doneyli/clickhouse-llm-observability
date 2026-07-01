@@ -174,6 +174,8 @@ print('ANSWER :', r['answer'][:400])
 
 **Fallback:** If the tool doesn't appear, confirm `mcp-rag-retriever` is up and re-run `./scripts/seed-librechat-agents.sh`.
 
+> **Note:** Use a tool-triggering prompt like the one above — that's what makes the LibreChat trace rich (tool spans + reasoning loop). A generic "hello" yields a thin single-LLM-call trace. LibreChat traces via native LangGraph callbacks, so the tree shows internal node names (`RunnableSequence`, agent IDs) rather than the clean SDK spans from Act 3 — same data, noisier labels. Title generation is disabled, so each chat is one clean `AgentRun` trace.
+
 ---
 
 ### Closing: Why This Matters [24:00 - 25:00]
