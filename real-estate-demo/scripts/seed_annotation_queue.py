@@ -16,31 +16,13 @@ Run:
 """
 
 import argparse
-import base64
-import json
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from agent.config import (verify_project, LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY,  # noqa: E402
-                          LANGFUSE_SECRET_KEY)
+from agent.config import verify_project, LANGFUSE_HOST, langfuse_api as api  # noqa: E402
 
-AUTH = base64.b64encode(f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()).decode()
 QUEUE_NAME = "Property Concierge - human review"
-
-
-def api(method, path, body=None):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"{LANGFUSE_HOST}{path}", data=data, method=method,
-                                 headers={"Authorization": f"Basic {AUTH}",
-                                          "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return r.status, json.loads(r.read() or "{}")
-    except urllib.error.HTTPError as e:
-        return e.code, {"error": e.read(300).decode()}
 
 
 def ensure_score_config(name, data_type, **extra):

@@ -89,7 +89,7 @@ def code_grounded_listings(result: Dict[str, Any]) -> Score:
 def code_budget_adherence(result: Dict[str, Any]) -> Score:
     shown = result.get("listings_shown") or []
     max_price = _constraints(result).get("max_price")
-    real = [get_listing(i) for i in shown if get_listing(i) is not None]
+    real = [l for i in shown if (l := get_listing(i)) is not None]
     if max_price is None or not real:
         return Score("budget-adherence", 1.0, "NUMERIC", kind="code",
                      comment="No budget constraint to check." if max_price is None
@@ -105,14 +105,18 @@ def code_budget_adherence(result: Dict[str, Any]) -> Score:
 def code_location_match(result: Dict[str, Any]) -> Score:
     shown = result.get("listings_shown") or []
     location = (_constraints(result).get("location") or "").strip().lower()
-    real = [get_listing(i) for i in shown if get_listing(i) is not None]
+    real = [l for i in shown if (l := get_listing(i)) is not None]
     if not location or not real:
         return Score("location-match", 1.0, "NUMERIC", kind="code",
                      comment="No location constraint to check." if not location
                      else "No concrete listings to check.")
-    matched = [l for l in real if location in l["city"].lower()]
+    # Match the location term against city AND neighborhood, mirroring
+    # search_listings — a district name (e.g. "Gràcia") is a valid location.
+    def _in_loc(l):
+        return location in f'{l["city"]} {l["neighborhood"]}'.lower()
+    matched = [l for l in real if _in_loc(l)]
     frac = len(matched) / len(real)
-    wrong = [f'{l["id"]}({l["city"]})' for l in real if location not in l["city"].lower()]
+    wrong = [f'{l["id"]}({l["neighborhood"]}, {l["city"]})' for l in real if not _in_loc(l)]
     c = (f"All {len(real)} in '{location.title()}'." if not wrong
          else f"{len(wrong)}/{len(real)} outside '{location.title()}': {', '.join(wrong)}.")
     return Score("location-match", round(frac, 2), "NUMERIC", kind="code", comment=c)
@@ -194,8 +198,8 @@ def _numeric_judge(name: str, rubric: str, result: Dict[str, Any]) -> Score:
     raw = data.get("score", data.get("rating"))
     try:
         val = float(raw)
-        if val > 1.0:  # tolerate a 1-5 or 0-100 style answer
-            val = val / 5.0 if val <= 5 else val / 100.0
+        if val > 1.0:  # tolerate a 1-5, 1-10 or 0-100 style answer
+            val = val / 5.0 if val <= 5 else (val / 10.0 if val <= 10 else val / 100.0)
         val = max(0.0, min(1.0, val))
     except (TypeError, ValueError):
         val = 0.0

@@ -57,10 +57,17 @@ _AGENT_SYSTEM = (
 )
 
 # --- lightweight language detection (Spanish vs English) for language-match ---
-_ES_MARKERS = {"el", "la", "los", "las", "un", "una", "con", "para", "cerca", "piso",
-               "alquiler", "comprar", "habitaciones", "precio", "buscando", "quiero",
-               "necesito", "vivienda", "barrio", "cocina", "hipoteca", "está", "más",
-               "económico", "familia", "jardín", "terraza"}
+# Only Spanish FUNCTION/verb words — strong language signals. Deliberately NOT
+# real-estate nouns or place names (piso, terraza, barrio, familia, Malasaña…):
+# those appear verbatim in English answers and caused correct English replies to
+# be misclassified as Spanish.
+_ES_MARKERS = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "del", "al", "con",
+    "para", "por", "sin", "sobre", "cerca", "que", "qué", "cómo", "cuánto",
+    "dónde", "este", "esta", "ese", "esa", "aquí", "quiero", "busco", "buscando",
+    "necesito", "tienes", "tiene", "hay", "está", "están", "es", "son", "más",
+    "muy", "también", "pero", "porque", "tu", "su", "te", "ideal",
+}
 
 
 def detect_language(text: str) -> str:
@@ -70,8 +77,10 @@ def detect_language(text: str) -> str:
     if not words:
         return "en"
     es_hits = sum(1 for w in words if w in _ES_MARKERS)
-    has_accents = bool(re.search(r"[áéíóúñ¿¡]", text.lower()))
-    if es_hits >= 2 or (has_accents and es_hits >= 1):
+    # Accents alone don't imply Spanish — Spanish place names (Málaga, Chamberí)
+    # appear in English answers — so still require at least one function word.
+    has_accents = bool(re.search(r"[¿¡]", text)) or "ñ" in text.lower()
+    if es_hits >= 3 or (has_accents and es_hits >= 1):
         return "es"
     return "en"
 
@@ -238,11 +247,18 @@ def run_turn(
                         result = execute_tool(call["name"], call["input"])
                         tspan.update(output=result)
                     evidence.append({"tool": call["name"], "input": call["input"], "output": result})
+                    # A listing is "retrieved" if it came back from a search OR
+                    # was fetched by id via get_listing_details — both are real
+                    # grounding, so grounded-listings must credit either.
                     if call["name"] == "search_listings":
                         for l in result.get("listings", []):
                             if l["id"] not in retrieved_ids:
                                 retrieved_ids.append(l["id"])
                                 retrieved_listings.append(l)
+                    elif call["name"] == "get_listing_details" and result.get("id"):
+                        if result["id"] not in retrieved_ids:
+                            retrieved_ids.append(result["id"])
+                            retrieved_listings.append(result)
                     tool_outputs.append({"id": call["id"],
                                          "content": json.dumps(result, ensure_ascii=False)})
                 append_tool_results(model, messages, tool_outputs)

@@ -26,10 +26,23 @@ docker ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$" \
   || { echo "Postgres container ${PG_CONTAINER} not running."; exit 1; }
 
 q(){ docker exec -i "$PG_CONTAINER" sh -c 'psql -v ON_ERROR_STOP=1 -q -t -A -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; }
+# Escape single quotes for safe interpolation into SQL string literals.
+sql_esc(){ printf "%s" "$1" | sed "s/'/''/g"; }
 
-PROJECT_ID=$(echo "SELECT project_id FROM api_keys WHERE public_key='${LANGFUSE_PUBLIC_KEY}' LIMIT 1;" | q)
+EXPECTED_PROJECT="real-estate"
+PK_ESC=$(sql_esc "${LANGFUSE_PUBLIC_KEY}")
+PROJECT_ID=$(echo "SELECT project_id FROM api_keys WHERE public_key='${PK_ESC}' LIMIT 1;" | q)
 [ -n "$PROJECT_ID" ] || { echo "Could not resolve project for the configured public key."; exit 1; }
-green "Project: ${PROJECT_ID}"
+
+# Key-isolation guard (mirrors config.verify_project): refuse to write to any
+# project other than 'real-estate' so a stale/wrong shell key can't pollute another.
+PID_ESC=$(sql_esc "${PROJECT_ID}")
+PROJECT_NAME=$(echo "SELECT name FROM projects WHERE id='${PID_ESC}' LIMIT 1;" | q)
+if [ "$PROJECT_NAME" != "$EXPECTED_PROJECT" ]; then
+  echo "Refusing: keys resolve to project '${PROJECT_NAME:-?}' (id ${PROJECT_ID}), expected '${EXPECTED_PROJECT}'."
+  exit 1
+fi
+green "Project: ${PROJECT_ID} (${PROJECT_NAME})"
 
 echo ""
 echo "Provisioning managed LLM-as-a-Judge evaluators (model: ${EVAL_MODEL})…"
@@ -40,9 +53,11 @@ if [ -z "$LLM_KEY_ID" ]; then
   warn "No Anthropic LLM connection on this project — add one in Settings > LLM Connections, then re-run."
   exit 1
 fi
+EVAL_MODEL_ESC=$(sql_esc "${EVAL_MODEL}")
+LLM_KEY_ID_ESC=$(sql_esc "${LLM_KEY_ID}")
 echo "INSERT INTO default_llm_models (id, project_id, llm_api_key_id, provider, adapter, model, model_params, created_at, updated_at)
-      SELECT 'default-eval-${PROJECT_ID}', '${PROJECT_ID}', '${LLM_KEY_ID}', provider, adapter, '${EVAL_MODEL}', '{}'::jsonb, now(), now()
-      FROM llm_api_keys WHERE id='${LLM_KEY_ID}'
+      SELECT 'default-eval-${PID_ESC}', '${PID_ESC}', '${LLM_KEY_ID_ESC}', provider, adapter, '${EVAL_MODEL_ESC}', '{}'::jsonb, now(), now()
+      FROM llm_api_keys WHERE id='${LLM_KEY_ID_ESC}'
       ON CONFLICT (project_id) DO UPDATE SET llm_api_key_id=EXCLUDED.llm_api_key_id, model=EXCLUDED.model, updated_at=now();" | q > /dev/null
 green "Default evaluation model set (${EVAL_MODEL})"
 

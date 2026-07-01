@@ -93,6 +93,29 @@ def get_openai():
     return _openai
 
 
+def _basic_auth() -> str:
+    return base64.b64encode(f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()).decode()
+
+
+def langfuse_api(method: str, path: str, body=None, timeout: int = 20):
+    """Call the Langfuse REST API with the project's keys.
+
+    Returns (status_code, parsed_json). HTTP error responses are returned as
+    (code, {"error": ...}); connection failures raise urllib.error.URLError.
+    Shared by every entrypoint so auth/timeout/error handling live in one place.
+    """
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        f"{LANGFUSE_HOST}{path}", data=data, method=method,
+        headers={"Authorization": f"Basic {_basic_auth()}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read() or "{}")
+    except urllib.error.HTTPError as e:
+        return e.code, {"error": e.read(300).decode(errors="replace")}
+
+
 def verify_project(quiet: bool = False) -> str:
     """
     Confirm the configured keys resolve to EXPECTED_PROJECT.
@@ -100,16 +123,8 @@ def verify_project(quiet: bool = False) -> str:
     Returns the project name. Exits the process if the keys are wrong so we
     never silently pollute another project (the key-shadowing landmine).
     """
-    auth = base64.b64encode(
-        f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()
-    ).decode()
-    req = urllib.request.Request(
-        f"{LANGFUSE_HOST}/api/public/projects",
-        headers={"Authorization": f"Basic {auth}"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.load(resp)
+        _, data = langfuse_api("GET", "/api/public/projects", timeout=10)
     except urllib.error.URLError as e:
         print(f"ERROR: cannot reach Langfuse at {LANGFUSE_HOST}: {e}", file=sys.stderr)
         sys.exit(1)

@@ -78,7 +78,9 @@ def call_llm(model: str, system: str, messages: List[Dict[str, Any]],
     # ---- OpenAI ----
     client = get_openai()
     oai_messages = [{"role": "system", "content": system}] + messages
-    kwargs = dict(model=model, max_tokens=max_tokens, messages=oai_messages)
+    # o-series reasoning models reject `max_tokens` and require `max_completion_tokens`.
+    token_param = "max_completion_tokens" if model.lower().startswith(("o1", "o3", "o4")) else "max_tokens"
+    kwargs = {"model": model, token_param: max_tokens, "messages": oai_messages}
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"

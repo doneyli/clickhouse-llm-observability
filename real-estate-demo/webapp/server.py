@@ -12,11 +12,9 @@ Run:
     # or: ./run_portal.sh
 """
 
-import base64
-import json
 import sys
 import threading
-import urllib.request
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -26,8 +24,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from agent.config import (get_langfuse, verify_project, LANGFUSE_HOST,
-                          LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, AGENT_MODEL)
+from agent.config import (get_langfuse, verify_project, langfuse_api,
+                          LANGFUSE_HOST, AGENT_MODEL)
 from agent.concierge import run_turn
 from agent.catalog import get_listing
 
@@ -38,12 +36,8 @@ app = FastAPI(title="Property Concierge")
 
 def _project_id() -> str:
     """Resolve the project id so we can build trace deep-links."""
-    auth = base64.b64encode(f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()).decode()
-    req = urllib.request.Request(f"{LANGFUSE_HOST}/api/public/projects",
-                                 headers={"Authorization": f"Basic {auth}"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.load(r)
+        _, data = langfuse_api("GET", "/api/public/projects", timeout=10)
         return data["data"][0]["id"]
     except Exception:
         return ""
@@ -66,12 +60,12 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
 
 
-# Per-session conversation memory so portal follow-ups carry context. Each turn
-# is still its own Langfuse trace (grouped by session_id); this just feeds the
-# agent the conversation so far. In-memory (resets on restart) — fine for a demo.
-_SESSIONS: dict[str, list] = {}
+# Per-session state: conversation history (agent context) + a monotonic turn
+# counter (stable turn-N labels — must NOT be derived from the capped history).
+# One conversation = one trace. In-memory (resets on restart) — fine for a demo.
+_SESSIONS: dict[str, dict] = {}
 _SESSIONS_LOCK = threading.Lock()
-MAX_HISTORY_TURNS = 8  # keep the last ~4 exchanges
+MAX_HISTORY_TURNS = 8  # cap the history fed to the agent (~4 exchanges)
 
 
 @app.get("/")
@@ -86,24 +80,28 @@ def health():
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    sid = req.session_id or "default"
+    # Session-less callers get a unique id so they never share history or a trace.
+    sid = req.session_id or f"anon-{uuid.uuid4().hex[:12]}"
     # One conversation = one trace: a deterministic trace id from the session id,
     # so every turn of this chat lands in the same trace as turn-1, turn-2, ….
     conv_trace_id = get_langfuse().create_trace_id(seed=sid)
     with _SESSIONS_LOCK:
-        history = list(_SESSIONS.get(sid, []))
-    turn_index = len(history) // 2  # 2 entries (user+assistant) per prior turn
+        state = _SESSIONS.get(sid, {"history": [], "turns": 0})
+        history = list(state["history"])
+        turn_index = state["turns"]
 
-    result = run_turn(req.query, session_id=req.session_id, user_id="portal-visitor",
+    # Pass the resolved sid (not the raw None) so the trace carries the session.
+    result = run_turn(req.query, session_id=sid, user_id="portal-visitor",
                       extra_tags=["portal"], history=history,
                       conversation_trace_id=conv_trace_id, turn_index=turn_index)
 
     with _SESSIONS_LOCK:
-        turns = _SESSIONS.get(sid, []) + [
+        prev = _SESSIONS.get(sid, {"history": [], "turns": 0})
+        new_hist = (prev["history"] + [
             {"role": "user", "content": req.query},
             {"role": "assistant", "content": result["answer"]},
-        ]
-        _SESSIONS[sid] = turns[-MAX_HISTORY_TURNS:]
+        ])[-MAX_HISTORY_TURNS:]
+        _SESSIONS[sid] = {"history": new_hist, "turns": prev["turns"] + 1}
 
     listings = [get_listing(i) for i in result["listings_shown"]]
     listings = [l for l in listings if l]

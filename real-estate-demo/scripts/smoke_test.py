@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.config import get_langfuse, verify_project, LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+from agent.config import get_langfuse, verify_project, langfuse_api, LANGFUSE_HOST
 
 
 def main():
@@ -53,20 +53,13 @@ def main():
     print("  flushed; waiting for ingestion...")
 
     # Poll the API to confirm the trace + observation-level score landed.
-    import base64, json, urllib.request
-    auth = base64.b64encode(f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()).decode()
-
-    def api(path):
-        req = urllib.request.Request(f"{LANGFUSE_HOST}{path}",
-                                     headers={"Authorization": f"Basic {auth}"})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return json.load(r)
-
     ok = False
     for attempt in range(15):
         time.sleep(2)
         try:
-            trace = api(f"/api/public/traces/{trace_id}")
+            status, trace = langfuse_api("GET", f"/api/public/traces/{trace_id}")
+            if status != 200:
+                continue
         except Exception:
             continue
         scores = trace.get("scores", [])
