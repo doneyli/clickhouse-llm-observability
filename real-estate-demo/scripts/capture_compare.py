@@ -12,8 +12,8 @@ EMAIL = "demo@example.com"
 PW = "demodemo1!"
 PROJ = "cmr22wcoe0003mv06l3ua15cl"
 DS = "cmr23ro4f0009mv06a3coxj0t"
-CLAUDE = "bd1eebb5-3263-4bba-ac0b-c6ed27e1b512"
-GPT = "d19059cd-40dc-4e4c-b5d0-760a8623eccc"
+CLAUDE = "5667e64c-6a46-45ad-ae90-ed79b319c025"
+GPT = "46cdb6d7-1271-4789-b900-d4304415c7b2"
 COMPARE = f"{HOST}/project/{PROJ}/datasets/{DS}/compare?runs={CLAUDE}&runs={GPT}"
 OUT = Path(__file__).resolve().parent.parent
 

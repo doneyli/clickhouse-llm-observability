@@ -110,10 +110,14 @@ def code_location_match(result: Dict[str, Any]) -> Score:
         return Score("location-match", 1.0, "NUMERIC", kind="code",
                      comment="No location constraint to check." if not location
                      else "No concrete listings to check.")
-    # Match the location term against city AND neighborhood, mirroring
-    # search_listings — a district name (e.g. "Gràcia") is a valid location.
+    # Match ANY location token against city+neighborhood, mirroring
+    # search_listings. Handles a district ("Gràcia") and compound values the
+    # planner may extract ("Gràcia, Barcelona") regardless of word order.
+    loc_tokens = [t for t in re.split(r"[,\s]+", location) if len(t) >= 3]
+
     def _in_loc(l):
-        return location in f'{l["city"]} {l["neighborhood"]}'.lower()
+        hay = f'{l["city"]} {l["neighborhood"]}'.lower()
+        return any(t in hay for t in loc_tokens) if loc_tokens else True
     matched = [l for l in real if _in_loc(l)]
     frac = len(matched) / len(real)
     wrong = [f'{l["id"]}({l["neighborhood"]}, {l["city"]})' for l in real if not _in_loc(l)]

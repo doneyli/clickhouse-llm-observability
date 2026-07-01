@@ -68,21 +68,25 @@ _ES_MARKERS = {
     "necesito", "tienes", "tiene", "hay", "está", "están", "es", "son", "más",
     "muy", "también", "pero", "porque", "tu", "su", "te", "ideal",
 }
+# Unambiguously-English function words (absent in Spanish). Language is decided by
+# whichever set the answer uses MORE — robust to Spanish place/feature names
+# (Malasaña, terraza, El Palo) that legitimately appear in English answers.
+_EN_MARKERS = {
+    "the", "is", "are", "you", "your", "and", "with", "of", "for", "this", "that",
+    "we", "it", "have", "has", "will", "can", "would", "be", "been", "near", "here",
+    "there", "within", "great", "which", "at", "as", "an", "to", "in", "on", "i'd",
+}
 
 
 def detect_language(text: str) -> str:
     if not text:
         return "en"
-    words = re.findall(r"[a-záéíóúñü]+", text.lower())
+    words = re.findall(r"[a-záéíóúñü']+", text.lower())
     if not words:
         return "en"
-    es_hits = sum(1 for w in words if w in _ES_MARKERS)
-    # Accents alone don't imply Spanish — Spanish place names (Málaga, Chamberí)
-    # appear in English answers — so still require at least one function word.
-    has_accents = bool(re.search(r"[¿¡]", text)) or "ñ" in text.lower()
-    if es_hits >= 3 or (has_accents and es_hits >= 1):
-        return "es"
-    return "en"
+    es = sum(1 for w in words if w in _ES_MARKERS)
+    en = sum(1 for w in words if w in _EN_MARKERS)
+    return "es" if (es > en and es >= 2) else "en"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
