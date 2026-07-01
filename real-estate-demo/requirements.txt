@@ -1,0 +1,10 @@
+# Real Estate Property Concierge demo
+langfuse>=3.0,<4.0
+anthropic>=0.40
+python-dotenv>=1.0
+# OpenAI — agent runs on GPT for the Claude-vs-GPT comparison
+openai>=1.40
+
+# Portal (the show-able app)
+fastapi>=0.110
+uvicorn[standard]>=0.29

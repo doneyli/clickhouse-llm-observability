@@ -36,6 +36,8 @@ __pycache__/
 *.pyc
 *.pyo
 *.sqlite
+.venv/
+venv/
 
 # Database backups
 backups/
