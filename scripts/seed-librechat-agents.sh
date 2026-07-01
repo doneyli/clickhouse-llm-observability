@@ -259,6 +259,19 @@ create_agent() {
     local desired_tool_count
     desired_tool_count=$(echo "$tools" | jq '[.[] | select(startswith("sys__server__") | not)] | length' 2>/dev/null || echo 0)
 
+    # Servers this agent references (via their stub) that resolved NO individual
+    # tool — i.e. that MCP server hadn't advertised its tools yet. A multi-server
+    # agent (Agentic RAG, LLM Ops) can have desired_tool_count > 0 from one ready
+    # server while another is still empty; re-syncing then would overwrite a healthy
+    # agent with a partial set (dropping the not-ready server's tools). Treat any
+    # such set as "not ready" and refuse to re-sync until every server has tools.
+    local incomplete_servers
+    incomplete_servers=$(echo "$tools" | jq -r '
+        [ .[] | select(startswith("sys__server__sys_mcp_")) | ltrimstr("sys__server__sys_mcp_") ] as $servers
+        | [ .[] | select(startswith("sys__server__") | not) ] as $indiv
+        | [ $servers[] as $s | select( ([ $indiv[] | select(endswith("_mcp_" + $s)) ] | length) == 0 ) | $s ]
+        | join(" ")' 2>/dev/null || echo "")
+
     if agent_exists "$name"; then
         # Reconcile existing agents toward the desired model AND tool bindings.
         # Re-running the seed script must be able to REPAIR an agent that was
@@ -271,20 +284,25 @@ create_agent() {
         current_model=$(echo "$detail" | jq -r '.model // empty')
         current_tools=$(echo "$detail" | jq -c '.tools // []' 2>/dev/null || echo '[]')
 
-        local patch='{}' changes=()
+        local patch='{}' changes=() note=""
         if [ -n "$current_model" ] && [ "$current_model" != "$desired_model" ]; then
             patch=$(echo "$patch" | jq --arg m "$desired_model" '. + {model: $m}')
             changes+=("model ${current_model} → ${desired_model}")
         fi
-        # Only re-sync tools when we actually resolved individual tools (guard
-        # against wiping a good binding with a stub-only set when MCP is still
-        # initializing) and the desired set differs from what's stored.
+        # Re-sync tools only when the desired set differs from what's stored AND
+        # every server the agent uses actually resolved its individual tools.
+        # Skipping when incomplete guards against overwriting a healthy agent with
+        # a partial set while an MCP server is still initializing.
         local cur_sorted des_sorted
         cur_sorted=$(echo "$current_tools" | jq -cS '. // [] | sort' 2>/dev/null || echo '[]')
         des_sorted=$(echo "$tools" | jq -cS 'sort' 2>/dev/null || echo '[]')
-        if [ "$desired_tool_count" -gt 0 ] && [ "$cur_sorted" != "$des_sorted" ]; then
-            patch=$(echo "$patch" | jq --argjson t "$tools" '. + {tools: $t}')
-            changes+=("tools re-synced (${desired_tool_count} tool(s))")
+        if [ "$cur_sorted" != "$des_sorted" ]; then
+            if [ "$desired_tool_count" -gt 0 ] && [ -z "$incomplete_servers" ]; then
+                patch=$(echo "$patch" | jq --argjson t "$tools" '. + {tools: $t}')
+                changes+=("tools re-synced (${desired_tool_count} tool(s))")
+            elif [ -n "$incomplete_servers" ]; then
+                note="tool re-sync skipped — server(s) not ready: ${incomplete_servers}"
+            fi
         fi
 
         if [ -n "$agent_id" ] && [ "$patch" != "{}" ]; then
@@ -293,11 +311,15 @@ create_agent() {
                 local summary
                 summary=$(printf '%s; ' "${changes[@]}"); summary=${summary%; }
                 echo -e "  ${GREEN}↻${NC} ${name} (${summary})"
+                [ -n "$note" ] && echo -e "      ${YELLOW}!${NC} ${note}; re-run once healthy"
                 UPDATED=$((UPDATED + 1))
             else
                 echo -e "  ${YELLOW}⤳${NC} ${name} (exists; update failed — update manually in agent settings)"
                 SKIPPED=$((SKIPPED + 1))
             fi
+        elif [ -n "$note" ]; then
+            echo -e "  ${YELLOW}!${NC} ${name} — ${note}. Re-run once MCP servers are healthy."
+            SKIPPED=$((SKIPPED + 1))
         else
             echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, up to date)"
             SKIPPED=$((SKIPPED + 1))
@@ -327,8 +349,14 @@ create_agent() {
         -d "$payload" 2>&1)
 
     if echo "$response" | jq -e '.id' > /dev/null 2>&1; then
-        if [ "$desired_tool_count" -gt 0 ]; then
+        if [ "$desired_tool_count" -gt 0 ] && [ -z "$incomplete_servers" ]; then
             echo -e "  ${GREEN}✓${NC} ${name} (${desired_tool_count} tool(s) bound)"
+        elif [ "$desired_tool_count" -gt 0 ] && [ -n "$incomplete_servers" ]; then
+            # Multi-server agent created while some server was still initializing —
+            # it has a partial tool set and may emit raw tool-call XML for the
+            # missing server until re-synced.
+            echo -e "  ${YELLOW}!${NC} ${name} — created with PARTIAL tools; server(s) not ready: ${incomplete_servers}."
+            echo -e "      Re-run ${GREEN}./scripts/seed-librechat-agents.sh${NC} once MCP servers are healthy to bind them."
         else
             # Created with only a server-level stub — MCP tools weren't live yet.
             # The agent may emit raw tool-call XML until re-synced.
@@ -469,7 +497,7 @@ echo "LibreChat Agent Seeding Complete!"
 echo -e "==============================================${NC}"
 echo ""
 echo "  Created: ${CREATED} agent(s)"
-echo "  Updated: ${UPDATED} agent(s) (model brought up to date)"
+echo "  Updated: ${UPDATED} agent(s) (model and/or tools brought up to date)"
 echo "  Skipped: ${SKIPPED} agent(s) (already existed)"
 echo ""
 echo -e "  Open LibreChat: ${GREEN}${LIBRECHAT_URL}${NC}"
