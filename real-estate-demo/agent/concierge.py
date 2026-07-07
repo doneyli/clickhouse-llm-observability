@@ -28,33 +28,9 @@ from .catalog import LISTINGS
 from .tools import execute_tool
 from .llm import call_llm, tools_for, append_assistant, append_tool_results, provider_of
 from .scoring import run_code_evaluators, extract_listing_ids
+from .prompts import get_plan_prompt, get_agent_prompt, link_kwargs, PRODUCTION_LABEL
 
 MAX_ITERS = 5
-
-_PLAN_SYSTEM = (
-    "You extract structured search constraints from a real-estate question. "
-    "Return ONLY JSON with keys: location (city string or null), operation "
-    "('buy'|'rent'|null), max_price (number or null), min_price (number or null), "
-    "min_bedrooms (integer or null), property_type (string or null), "
-    "features (array of strings), wants_mortgage (boolean — true if the user asks "
-    "about financing/mortgage/monthly cost/affordability), "
-    "query_language ('es' if the question is in Spanish, else 'en')."
-)
-
-_AGENT_SYSTEM = (
-    "You are a professional real-estate concierge for an online property "
-    "marketplace. Help the user find a home using the available tools.\n"
-    "Rules:\n"
-    "- ALWAYS call search_listings before recommending anything; never invent listings.\n"
-    "- When you recommend a property, cite its listing id in brackets, e.g. [MAD-101].\n"
-    "- Only recommend listings returned by the tools.\n"
-    "- If the user hints at budget or financing, use calculate_mortgage to add a "
-    "monthly-payment estimate.\n"
-    "- Add neighborhood_insights for context when helpful.\n"
-    "- Be concise, warm and professional. Answer in the SAME language as the user "
-    "({lang}). Do not overpromise.\n"
-    "{fault_note}"
-)
 
 # --- lightweight language detection (Spanish vs English) for language-match ---
 # Only Spanish FUNCTION/verb words — strong language signals. Deliberately NOT
@@ -138,6 +114,7 @@ def run_turn(
     fault: Optional[str] = None,
     is_experiment: bool = False,
     model: Optional[str] = None,
+    prompt_label: str = PRODUCTION_LABEL,
     history: Optional[List[Dict[str, Any]]] = None,
     conversation_trace_id: Optional[str] = None,
     turn_index: int = 0,
@@ -182,7 +159,7 @@ def run_turn(
             trace_id = lf.get_current_trace_id()
             root.update(input={"query": query},
                         metadata={"agent_model": model, "provider": provider_of(model),
-                                  "turn": turn_index + 1})
+                                  "prompt_label": prompt_label, "turn": turn_index + 1})
             # Trace-level input: set the opening question once (first turn).
             if not is_experiment and (not multiturn or turn_index == 0):
                 lf.update_current_trace(input={"query": query},
@@ -193,11 +170,15 @@ def run_turn(
             # "that one" resolve against the conversation.
             plan_messages = history + [{"role": "user", "content": query}]
             constraints: Dict[str, Any] = {}
+            # Fetch the plan prompt from Langfuse (production label) with a hard
+            # fallback; link it to the generation so per-version metrics accrue.
+            plan_prompt = get_plan_prompt()
+            plan_system = plan_prompt.compile()
             with lf.start_as_current_observation(
-                as_type="generation", name="plan", model=model
+                as_type="generation", name="plan", model=model, **link_kwargs(plan_prompt)
             ) as gen:
                 gen.update(input=plan_messages)
-                res = call_llm(model, _PLAN_SYSTEM, plan_messages, max_tokens=400)
+                res = call_llm(model, plan_system, plan_messages, max_tokens=400)
                 constraints = _extract_json(res["text"])
                 gen.update(output=constraints, usage_details=res["usage"],
                            **({"cost_details": res["cost_details"]} if res.get("cost_details") else {}))
@@ -210,7 +191,12 @@ def run_turn(
             if fault == "wrong_language":
                 fault_note = "Regardless of the user's language, answer in English."
                 answer_lang = "en"
-            system = _AGENT_SYSTEM.format(lang=answer_lang, fault_note=fault_note)
+            # Fetch the agent system prompt from Langfuse for the requested label
+            # (production by default; the experiment can request `candidate`),
+            # with a hard fallback. Compile the {{lang}}/{{fault_note}} variables.
+            agent_prompt = get_agent_prompt(label=prompt_label)
+            system = agent_prompt.compile(lang=answer_lang, fault_note=fault_note)
+            agent_prompt_link = link_kwargs(agent_prompt)
 
             messages: List[Dict[str, Any]] = history + [{"role": "user", "content": query}]
             tools = tools_for(model)
@@ -223,7 +209,8 @@ def run_turn(
 
             for i in range(MAX_ITERS):
                 with lf.start_as_current_observation(
-                    as_type="generation", name=f"agent-turn-{i+1}", model=model
+                    as_type="generation", name=f"agent-turn-{i+1}", model=model,
+                    **agent_prompt_link
                 ) as gen:
                     gen.update(input=messages)
                     res = call_llm(model, system, messages, tools=tools, max_tokens=1500)
@@ -295,6 +282,7 @@ def run_turn(
                 "trace_id": trace_id,
                 "final_generation_id": final_gen_id,
                 "model": model,
+                "prompt_label": prompt_label,
                 "fault": fault,
             }
 

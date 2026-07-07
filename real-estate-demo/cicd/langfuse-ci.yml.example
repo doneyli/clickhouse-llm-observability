@@ -1,0 +1,82 @@
+# -----------------------------------------------------------------------------
+# REFERENCE ARTIFACT — not an active workflow in this repo.
+#
+# This is the "Deploy" node of the AI Engineering loop as a real CI/CD pipe.
+# Copy it to `.github/workflows/langfuse-ci.yml` in the repo that owns your
+# prompts, then in Langfuse add a **Prompts > Automations > GitHub Repository
+# Dispatch** automation pointing at:
+#
+#     https://api.github.com/repos/<owner>/<repo>/dispatches
+#     event type: langfuse-prompt-update
+#
+# Now: promoting a prompt version to the `production` label in Langfuse fires
+# this workflow. It runs your prompt evals against the checked-in dataset, and
+# only "deploys" when the change both carries the `production` label AND passes
+# the gate. That closes the loop automatically — Experiment/Evaluate → Deploy →
+# new production traffic → new traces — with no manual redeploy.
+#
+# Docs: https://langfuse.com/docs/prompt-management/features/github-integration
+# -----------------------------------------------------------------------------
+name: Langfuse Prompt CI
+
+on:
+  # Fired by Langfuse when a prompt version changes (see automation above).
+  repository_dispatch:
+    types: [langfuse-prompt-update]
+  # Allow manual runs from the Actions tab too.
+  workflow_dispatch:
+
+jobs:
+  evaluate-prompt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show which prompt changed
+        run: |
+          echo "Action:  ${{ github.event.client_payload.action }}"
+          echo "Prompt:  ${{ github.event.client_payload.prompt.name }}"
+          echo "Version: ${{ github.event.client_payload.prompt.version }}"
+          echo "Labels:  ${{ github.event.client_payload.prompt.labels }}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        working-directory: real-estate-demo
+        run: |
+          python -m pip install -r requirements.txt
+
+      # Gate: run the SAME dataset experiment used in the demo against the new
+      # prompt version, so a prompt change is validated on the eval set before
+      # it can ship. Fail the job (block the deploy) if scores regress.
+      - name: Evaluate the new prompt on the eval dataset
+        working-directory: real-estate-demo
+        env:
+          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python scripts/run_experiment.py \
+            --model claude-sonnet-4-6 \
+            --run-name "ci-${{ github.event.client_payload.prompt.version }}"
+          # In a real pipeline, add a threshold check here that exits non-zero
+          # if any run-level aggregate (grounded-listings, budget-adherence, …)
+          # drops below your bar — that is the gate that blocks a bad prompt.
+
+  deploy:
+    needs: evaluate-prompt
+    runs-on: ubuntu-latest
+    # Only deploy prompt versions explicitly promoted to `production`.
+    if: contains(github.event.client_payload.prompt.labels, 'production')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ship it
+        run: |
+          echo "Deploying ${{ github.event.client_payload.prompt.name }} \
+            v${{ github.event.client_payload.prompt.version }} to production"
+          # The app fetches the `production`-labelled prompt at runtime, so for a
+          # prompt-only change there is often nothing to redeploy — this step is
+          # where you'd roll app/config, warm caches, or notify on-call.

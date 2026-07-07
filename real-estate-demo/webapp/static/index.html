@@ -5,20 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Property Concierge · AI Home Search</title>
 <style>
+  /* ClickHouse look & feel — values pulled verbatim from @clickhouse/click-ui's
+     dark theme (src/theme/styles/tokens-dark.css, --click-global-color-*).
+     This restyles the existing zero-build portal to match the ClickHouse design
+     language; it does not import the React package. Keep these in sync by hand. */
   :root{
-    --bg:#0f1720; --panel:#151f2b; --panel-2:#1b2836; --line:#243244;
-    --text:#e7edf3; --muted:#93a4b7; --brand:#19c37d; --brand-2:#0ea5e9;
-    --accent:#f4b740; --user:#22303f; --danger:#ef6b6b; --radius:14px;
+    --bg:#1f1f1c;           /* background-default */
+    --panel:#282828;        /* background-muted (cards, bubbles)   */
+    --panel-2:#2d2d2d;      /* raised nested surface (fields, code, chips) */
+    --line:#323232;         /* stroke-default  */
+    --line-intense:#414141; /* stroke-intense  */
+    --text:#ffffff;         /* text-default    */
+    --muted:#b3b6bd;        /* text-muted      */
+    --brand:#faff69;        /* accent-default — ClickHouse yellow  */
+    --brand-hover:#feffc2;  /* text-link-hover */
+    --brand-2:#437ef0;      /* info blue (secondary accent)        */
+    --accent:#faff69;       /* unify secondary accent to brand     */
+    --user:#2d2d2d;         /* user message surface */
+    --danger:#ffbaba;       /* text-danger     */
+    --radius:8px;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:radial-gradient(1200px 600px at 80% -10%,#16324a 0%,var(--bg) 55%);color:var(--text)}
+  body{margin:0;
+    font-family:"Inter","SF Pro Display",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Open Sans","Helvetica Neue",sans-serif;
+    background:radial-gradient(1200px 600px at 80% -12%,#2a2a20 0%,var(--bg) 52%);color:var(--text)}
   header{display:flex;align-items:center;justify-content:space-between;padding:16px 26px;
-    border-bottom:1px solid var(--line);background:rgba(15,23,32,.75);backdrop-filter:blur(8px);position:sticky;top:0;z-index:10}
+    border-bottom:1px solid var(--line);background:rgba(31,31,28,.75);backdrop-filter:blur(8px);position:sticky;top:0;z-index:10}
   .brand{display:flex;align-items:center;gap:12px;font-weight:700;font-size:19px;letter-spacing:.2px}
-  .logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--brand-2));
-    display:grid;place-items:center;font-size:20px;box-shadow:0 4px 18px rgba(25,195,125,.35)}
+  .logo{width:38px;height:38px;border-radius:8px;background:var(--brand);
+    display:grid;place-items:center;font-size:20px;box-shadow:0 4px 18px rgba(250,255,105,.28)}
   .brand small{display:block;font-weight:500;font-size:11.5px;color:var(--muted);letter-spacing:.3px}
   .badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
     border:1px solid var(--line);padding:6px 11px;border-radius:999px;background:var(--panel)}
@@ -35,8 +51,8 @@
   @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   .avatar{width:34px;height:34px;border-radius:9px;flex:0 0 auto;display:grid;place-items:center;font-size:16px}
   .msg.user{flex-direction:row-reverse}
-  .msg.user .avatar{background:var(--user)}
-  .msg.bot .avatar{background:linear-gradient(135deg,var(--brand),var(--brand-2))}
+  .msg.user .avatar{background:var(--user);border:1px solid var(--line)}
+  .msg.bot .avatar{background:var(--brand)}
   .bubble{padding:14px 16px;border-radius:var(--radius);max-width:88%;line-height:1.55;font-size:14.5px}
   .msg.user .bubble{background:var(--user);border:1px solid var(--line)}
   .msg.bot .bubble{background:var(--panel);border:1px solid var(--line);width:100%}
@@ -49,7 +65,7 @@
   .bubble code{background:var(--panel-2);padding:1px 6px;border-radius:5px;font-size:13px}
   .bubble hr{border:none;border-top:1px solid var(--line);margin:12px 0}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:14px}
-  .card{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:.15s}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;transition:.15s}
   .card:hover{border-color:var(--brand);transform:translateY(-2px)}
   .card .photo{height:96px;display:grid;place-items:center;font-size:34px;color:rgba(255,255,255,.92)}
   .card .body{padding:11px 12px}
@@ -59,22 +75,34 @@
   .card .id{float:right;font-size:11px;color:var(--brand);font-family:ui-monospace,monospace}
   .card .meta{display:flex;gap:10px;font-size:12px;color:var(--text);margin-bottom:8px}
   .feats{display:flex;flex-wrap:wrap;gap:5px}
-  .feat{font-size:10.5px;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:2px 7px;border-radius:6px}
+  .feat{font-size:10.5px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);padding:2px 7px;border-radius:6px}
   .tracebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
-  .tool{font-size:11px;color:var(--brand-2);background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);padding:3px 9px;border-radius:999px}
-  .tracelink{margin-left:auto;font-size:12.5px;color:#0f1720;background:var(--accent);padding:7px 13px;border-radius:8px;
-    text-decoration:none;font-weight:600;display:inline-flex;gap:6px;align-items:center}
-  .tracelink:hover{filter:brightness(1.08)}
+  .tool{font-size:11px;color:var(--brand-2);background:rgba(67,126,240,.12);border:1px solid rgba(67,126,240,.35);padding:3px 9px;border-radius:999px}
+  .tracelink{font-size:12.5px;color:#1f1f1c;background:var(--accent);padding:7px 13px;border-radius:6px;
+    text-decoration:none;font-weight:600;display:inline-flex;gap:6px;align-items:center;transition:.15s}
+  .tracelink:hover{background:var(--brand-hover)}
+  /* explicit user feedback (👍/👎) → a Langfuse score on this trace (Monitor node) */
+  .fb{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+  .fb .lbl{font-size:11.5px;color:var(--muted)}
+  .fb button{cursor:pointer;font-size:13px;line-height:1;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--text);padding:6px 9px;border-radius:6px;transition:.15s}
+  .fb button:hover:not(:disabled){border-color:var(--brand)}
+  .fb button:disabled{cursor:default;opacity:.55}
+  .fb button.on{border-color:var(--brand);background:rgba(250,255,105,.14)}
+  .fb .thanks{font-size:11.5px;color:var(--muted)}
   .typing{display:inline-flex;gap:5px;padding:4px 0}
   .typing i{width:8px;height:8px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
   .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
   @keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
   .composer{position:fixed;bottom:0;left:0;right:0;background:linear-gradient(transparent,var(--bg) 22%);padding:18px}
   .composer .inner{max-width:920px;margin:0 auto;display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);
-    border-radius:14px;padding:8px 8px 8px 16px}
+    border-radius:var(--radius);padding:8px 8px 8px 16px;transition:border-color .15s}
+  .composer .inner:focus-within{border-color:var(--brand)}
   .composer input{flex:1;background:transparent;border:none;color:var(--text);font-size:15px;outline:none}
-  .composer button{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#04121c;border:none;font-weight:700;
-    padding:10px 20px;border-radius:10px;cursor:pointer;font-size:14px}
+  .composer input::placeholder{color:#808080}
+  .composer button{background:var(--brand);color:#1f1f1c;border:1px solid var(--brand);font-weight:600;
+    padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px;transition:.15s}
+  .composer button:hover:not(:disabled){background:var(--brand-hover);border-color:var(--brand-hover)}
   .composer button:disabled{opacity:.5;cursor:not-allowed}
   .foot{max-width:920px;margin:8px auto 0;color:var(--muted);font-size:11px;text-align:center}
 </style>
@@ -109,10 +137,12 @@ const EXAMPLES = [
   "Furnished 3-bed to rent in Barcelona under €2,000/mo with parking",
   "House with a pool and sea views near the beach in Málaga, ~€500k",
 ];
+/* Subtle, desaturated city tints over the click-ui dark surface (var(--panel)) —
+   distinct per city without breaking the restrained ClickHouse palette. */
 const CITY_GRAD = {
-  Madrid:"linear-gradient(135deg,#c0392b,#8e44ad)", Barcelona:"linear-gradient(135deg,#2980b9,#16a085)",
-  Valencia:"linear-gradient(135deg,#e67e22,#f1c40f)", Seville:"linear-gradient(135deg,#d35400,#c0392b)",
-  "Málaga":"linear-gradient(135deg,#0ea5e9,#16a085)", Bilbao:"linear-gradient(135deg,#546e7a,#2c3e50)"
+  Madrid:"linear-gradient(135deg,#3a2f2c,#282828)", Barcelona:"linear-gradient(135deg,#25333a,#282828)",
+  Valencia:"linear-gradient(135deg,#3a352a,#282828)", Seville:"linear-gradient(135deg,#3a302a,#282828)",
+  "Málaga":"linear-gradient(135deg,#243139,#282828)", Bilbao:"linear-gradient(135deg,#2c3238,#282828)"
 };
 const $ = s => document.querySelector(s);
 const thread = $("#thread");
@@ -158,7 +188,7 @@ function md(src){
 }
 
 function card(l){
-  const grad = CITY_GRAD[l.city] || "linear-gradient(135deg,#334,#556)";
+  const grad = CITY_GRAD[l.city] || "linear-gradient(135deg,#2d2d2d,#282828)";
   const feats = (l.features||[]).slice(0,4).map(f=>`<span class="feat">${f.replace(/_/g," ")}</span>`).join("");
   const unit = l.operation==="rent" ? "/mo" : "";
   return `<div class="card"><div class="photo" style="background:${grad}">🏠</div>
@@ -185,11 +215,38 @@ function addBot(data){
   document.getElementById("typing")?.remove();
   const cards = data.listings?.length ? `<div class="cards">${data.listings.map(card).join("")}</div>` : "";
   const tools = (data.tools_called||[]).map(t=>`<span class="tool">🔧 ${t}</span>`).join("");
+  const fb = data.trace_id ? `<div class="fb" data-trace="${data.trace_id}">
+      <span class="lbl">Helpful?</span>
+      <button class="up" title="Helpful" aria-label="Helpful">👍</button>
+      <button class="down" title="Not helpful" aria-label="Not helpful">👎</button></div>` : "";
   const trace = `<a class="tracelink" href="${data.trace_url}" target="_blank" rel="noopener">🔍 View trace in Langfuse</a>`;
   const m=document.createElement("div"); m.className="msg bot";
   m.innerHTML=`<div class="avatar">🤖</div><div class="bubble">${md(data.answer)}${cards}
-    <div class="tracebar">${tools}${trace}</div></div>`;
-  thread.appendChild(m); scroll();
+    <div class="tracebar">${tools}${fb}${trace}</div></div>`;
+  thread.appendChild(m);
+  const fbEl = m.querySelector(".fb");
+  if(fbEl){
+    fbEl.querySelector(".up").onclick   = ()=>sendFeedback(fbEl, 1);
+    fbEl.querySelector(".down").onclick = ()=>sendFeedback(fbEl, 0);
+  }
+  scroll();
+}
+
+// Explicit user feedback → a Langfuse score on this conversation's trace.
+async function sendFeedback(fbEl, value){
+  const traceId = fbEl.getAttribute("data-trace");
+  const clicked = fbEl.querySelector(value ? ".up" : ".down");
+  fbEl.querySelectorAll("button").forEach(b=>b.disabled=true);
+  clicked && clicked.classList.add("on");
+  try{
+    await fetch("/api/feedback",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({trace_id:traceId, value})});
+    const t=document.createElement("span"); t.className="thanks"; t.textContent="Thanks — saved to Langfuse";
+    fbEl.appendChild(t);
+  }catch(e){
+    fbEl.querySelectorAll("button").forEach(b=>b.disabled=false);
+    clicked && clicked.classList.remove("on");
+  }
 }
 function scroll(){ window.scrollTo({top:document.body.scrollHeight,behavior:"smooth"}); }
 
