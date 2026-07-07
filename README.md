@@ -4,6 +4,7 @@
 
 | You want to… | Start here |
 |--------------|------------|
+| **Understand the AI Engineering loop** it demonstrates | [AI_ENGINEERING_LOOP.md](AI_ENGINEERING_LOOP.md) — trace → monitor → dataset → experiment → evaluate → **deploy** → repeat, mapped to every demo |
 | **Deploy it** (~5 min, one secret) | `ANTHROPIC_API_KEY=sk-ant-... ./setup.sh --seed` — or the [Quickstart Guide](docs/QUICKSTART_GUIDE.md) |
 | **Present it** to a customer or team | [SA Field Guide](docs/SA_FIELD_GUIDE.md) — demo selection, talk tracks, objection handling |
 | **Learn from it** | [User Journey](docs/USER_JOURNEY.md) (hands-on, ~35 min) and the [Use Case Catalog](docs/USE_CASES.md) |

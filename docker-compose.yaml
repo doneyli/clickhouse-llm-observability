@@ -99,6 +99,23 @@ services:
     volumes:
       - ./librechat/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
+  # LibreChat thumbs feedback -> Langfuse user-feedback score (Monitor node of the
+  # AI Engineering loop). nginx mirrors the feedback route here fire-and-forget
+  # (see librechat/nginx.conf); this maps conversationId+messageId back to the
+  # Langfuse trace and writes the score. Only useful with Langfuse, so it rides
+  # the `langfuse` profile.
+  feedback-bridge:
+    build:
+      context: ./librechat/feedback-bridge
+    container_name: librechat-feedback-bridge
+    restart: always
+    environment:
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    profiles:
+      - langfuse
+
   # MongoDB database
   mongodb:
     image: mongo:8

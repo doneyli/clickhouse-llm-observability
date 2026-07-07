@@ -6,7 +6,27 @@ from dataclasses import dataclass
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langfuse_config import langfuse_span
+from langfuse_config import langfuse_span, get_managed_prompt
+
+
+def _managed_or_fallback(name: str, fallback_template: str) -> ChatPromptTemplate:
+    """Build a ChatPromptTemplate from a Langfuse-managed prompt (Deploy node),
+    linking the prompt version to the generation, or fall back to the local
+    template so the app runs even if Langfuse/the prompt is unavailable.
+
+    Note: get_langchain_prompt() converts Langfuse {{var}} -> LangChain {var},
+    so the chain's .invoke(...) variable names are unchanged. Setting .metadata
+    AFTER construction is what makes the prompt link attach (passing metadata= to
+    from_template does not propagate through the LangChain CallbackHandler)."""
+    lf_prompt = get_managed_prompt(name)
+    if lf_prompt is not None:
+        try:
+            tmpl = ChatPromptTemplate.from_template(lf_prompt.get_langchain_prompt())
+            tmpl.metadata = {"langfuse_prompt": lf_prompt}
+            return tmpl
+        except Exception as e:  # pragma: no cover - defensive
+            print(f"Managed prompt '{name}' unusable ({e}); using local fallback.")
+    return ChatPromptTemplate.from_template(fallback_template)
 
 
 @dataclass
@@ -66,7 +86,10 @@ class ClickHouseSQLPipeline:
         )
 
     def _setup_chains(self):
-        self.analysis_prompt = ChatPromptTemplate.from_template(
+        # Prompts are Langfuse-managed (fetched by label=production at startup)
+        # with the inline templates below as local fallbacks — the Deploy node.
+        self.analysis_prompt = _managed_or_fallback(
+            "text-to-sql-analysis",
             f"You are a data analyst with access to ClickHouse at sql.clickhouse.com.\n\n"
             f"{CLICKHOUSE_DATABASES}\n\n"
             "Question: {question}\n\n"
@@ -77,7 +100,8 @@ class ClickHouseSQLPipeline:
             self.analysis_prompt | self.llm | StrOutputParser()
         ).with_config({"metadata": {"purpose": "query_analysis"}})
 
-        self.response_prompt = ChatPromptTemplate.from_template(
+        self.response_prompt = _managed_or_fallback(
+            "text-to-sql-response",
             "Based on the analysis and context, answer the question.\n\n"
             "Question: {question}\n"
             "Analysis: {analysis}\n"

@@ -46,6 +46,25 @@ def get_langfuse_client():
         return None
 
 
+def get_managed_prompt(name: str, label: str = "production"):
+    """Fetch a Langfuse-managed prompt (the Deploy node of the AI Engineering loop).
+
+    Returns the Langfuse prompt object (has ``.get_langchain_prompt()`` and links
+    to traces) or ``None`` if Langfuse is unavailable / the prompt isn't seeded —
+    callers fall back to a local template so the app always runs. Editing this
+    prompt in the Langfuse UI (or promoting a new version to ``production``)
+    changes behaviour on the next run with no code change.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return None
+    try:
+        return client.get_prompt(name, label=label)
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"Langfuse get_prompt('{name}') unavailable, using local fallback: {e}")
+        return None
+
+
 def set_session_id(session_id: str):
     """Set the current session ID for subsequent traces."""
     global _current_session_id
