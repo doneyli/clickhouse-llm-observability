@@ -1,0 +1,1504 @@
+{
+  "records": [
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 20.7,
+      "duration_weeks": 8,
+      "observed_lift_pct": 59.1,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 44.1,
+      "duration_weeks": 3,
+      "observed_lift_pct": 13.1,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 46.2,
+      "duration_weeks": 8,
+      "observed_lift_pct": 10.3,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 39.3,
+      "duration_weeks": 2,
+      "observed_lift_pct": 59.3,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 21.7,
+      "duration_weeks": 5,
+      "observed_lift_pct": 39.4,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 30.9,
+      "duration_weeks": 5,
+      "observed_lift_pct": 17.4,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Price Reduction",
+      "depth_pct": 25.9,
+      "duration_weeks": 8,
+      "observed_lift_pct": 43.8,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 36.7,
+      "duration_weeks": 4,
+      "observed_lift_pct": 35.6,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Display Feature",
+      "depth_pct": 16.8,
+      "duration_weeks": 4,
+      "observed_lift_pct": 38.3,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 10.7,
+      "duration_weeks": 6,
+      "observed_lift_pct": 10.3,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Coupon",
+      "depth_pct": 31.3,
+      "duration_weeks": 7,
+      "observed_lift_pct": 54.4,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 31.8,
+      "duration_weeks": 3,
+      "observed_lift_pct": 14.2,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 10.4,
+      "duration_weeks": 5,
+      "observed_lift_pct": 16.6,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Coupon",
+      "depth_pct": 10.0,
+      "duration_weeks": 6,
+      "observed_lift_pct": 8.8,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 45.9,
+      "duration_weeks": 8,
+      "observed_lift_pct": 37.1,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 20.5,
+      "duration_weeks": 5,
+      "observed_lift_pct": 7.0,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Price Reduction",
+      "depth_pct": 35.6,
+      "duration_weeks": 3,
+      "observed_lift_pct": 58.0,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 39.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 57.7,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 46.5,
+      "duration_weeks": 8,
+      "observed_lift_pct": 59.9,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 14.8,
+      "duration_weeks": 3,
+      "observed_lift_pct": 53.1,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Endcap Display",
+      "depth_pct": 36.7,
+      "duration_weeks": 4,
+      "observed_lift_pct": 32.0,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 30.9,
+      "duration_weeks": 8,
+      "observed_lift_pct": 36.0,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 39.1,
+      "duration_weeks": 3,
+      "observed_lift_pct": 58.6,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 45.5,
+      "duration_weeks": 4,
+      "observed_lift_pct": 28.9,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 17.8,
+      "duration_weeks": 6,
+      "observed_lift_pct": 18.9,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 31.5,
+      "duration_weeks": 8,
+      "observed_lift_pct": 61.1,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 20.3,
+      "duration_weeks": 8,
+      "observed_lift_pct": 54.7,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 47.0,
+      "duration_weeks": 6,
+      "observed_lift_pct": 43.1,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "BOGO",
+      "depth_pct": 37.7,
+      "duration_weeks": 4,
+      "observed_lift_pct": 56.7,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 18.7,
+      "duration_weeks": 5,
+      "observed_lift_pct": 25.6,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 25.0,
+      "duration_weeks": 4,
+      "observed_lift_pct": 54.8,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "BOGO",
+      "depth_pct": 46.9,
+      "duration_weeks": 2,
+      "observed_lift_pct": 59.5,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 12.1,
+      "duration_weeks": 5,
+      "observed_lift_pct": 22.9,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Endcap Display",
+      "depth_pct": 20.6,
+      "duration_weeks": 5,
+      "observed_lift_pct": 38.8,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 48.2,
+      "duration_weeks": 3,
+      "observed_lift_pct": 12.4,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Endcap Display",
+      "depth_pct": 31.4,
+      "duration_weeks": 5,
+      "observed_lift_pct": 64.9,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 28.5,
+      "duration_weeks": 6,
+      "observed_lift_pct": 51.5,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 39.2,
+      "duration_weeks": 3,
+      "observed_lift_pct": 46.3,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Coupon",
+      "depth_pct": 24.3,
+      "duration_weeks": 2,
+      "observed_lift_pct": 41.4,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 20.8,
+      "duration_weeks": 3,
+      "observed_lift_pct": 50.8,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Endcap Display",
+      "depth_pct": 19.0,
+      "duration_weeks": 6,
+      "observed_lift_pct": 10.5,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 30.8,
+      "duration_weeks": 2,
+      "observed_lift_pct": 43.1,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "Price Reduction",
+      "depth_pct": 32.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 44.2,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 17.8,
+      "duration_weeks": 3,
+      "observed_lift_pct": 63.6,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 47.1,
+      "duration_weeks": 2,
+      "observed_lift_pct": 29.7,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 39.2,
+      "duration_weeks": 8,
+      "observed_lift_pct": 31.1,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Display Feature",
+      "depth_pct": 36.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 24.5,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Endcap Display",
+      "depth_pct": 19.0,
+      "duration_weeks": 3,
+      "observed_lift_pct": 35.6,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Coupon",
+      "depth_pct": 13.1,
+      "duration_weeks": 5,
+      "observed_lift_pct": 57.1,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 14.9,
+      "duration_weeks": 8,
+      "observed_lift_pct": 26.2,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Display Feature",
+      "depth_pct": 24.5,
+      "duration_weeks": 5,
+      "observed_lift_pct": 61.2,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "BOGO",
+      "depth_pct": 41.2,
+      "duration_weeks": 3,
+      "observed_lift_pct": 62.6,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 44.1,
+      "duration_weeks": 2,
+      "observed_lift_pct": 14.8,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 18.8,
+      "duration_weeks": 5,
+      "observed_lift_pct": 61.2,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "BOGO",
+      "depth_pct": 28.5,
+      "duration_weeks": 2,
+      "observed_lift_pct": 13.1,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 19.4,
+      "duration_weeks": 5,
+      "observed_lift_pct": 25.5,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 36.8,
+      "duration_weeks": 4,
+      "observed_lift_pct": 52.2,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "BOGO",
+      "depth_pct": 47.0,
+      "duration_weeks": 4,
+      "observed_lift_pct": 19.1,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Coupon",
+      "depth_pct": 49.1,
+      "duration_weeks": 6,
+      "observed_lift_pct": 27.1,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 22.5,
+      "duration_weeks": 8,
+      "observed_lift_pct": 5.2,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "BOGO",
+      "depth_pct": 25.1,
+      "duration_weeks": 3,
+      "observed_lift_pct": 41.6,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Coupon",
+      "depth_pct": 35.4,
+      "duration_weeks": 2,
+      "observed_lift_pct": 16.5,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 49.3,
+      "duration_weeks": 3,
+      "observed_lift_pct": 28.2,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 24.6,
+      "duration_weeks": 2,
+      "observed_lift_pct": 13.2,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "BOGO",
+      "depth_pct": 24.4,
+      "duration_weeks": 4,
+      "observed_lift_pct": 26.7,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 41.7,
+      "duration_weeks": 8,
+      "observed_lift_pct": 12.2,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Display Feature",
+      "depth_pct": 27.6,
+      "duration_weeks": 3,
+      "observed_lift_pct": 5.3,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Coupon",
+      "depth_pct": 42.7,
+      "duration_weeks": 4,
+      "observed_lift_pct": 61.6,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 18.4,
+      "duration_weeks": 2,
+      "observed_lift_pct": 53.5,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Coupon",
+      "depth_pct": 16.7,
+      "duration_weeks": 5,
+      "observed_lift_pct": 54.7,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Display Feature",
+      "depth_pct": 32.7,
+      "duration_weeks": 7,
+      "observed_lift_pct": 45.5,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Price Reduction",
+      "depth_pct": 36.6,
+      "duration_weeks": 4,
+      "observed_lift_pct": 22.1,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 26.9,
+      "duration_weeks": 8,
+      "observed_lift_pct": 52.9,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "BOGO",
+      "depth_pct": 28.0,
+      "duration_weeks": 3,
+      "observed_lift_pct": 29.0,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "BOGO",
+      "depth_pct": 47.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 18.0,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Price Reduction",
+      "depth_pct": 18.3,
+      "duration_weeks": 2,
+      "observed_lift_pct": 14.4,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Endcap Display",
+      "depth_pct": 34.6,
+      "duration_weeks": 4,
+      "observed_lift_pct": 44.7,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "Price Reduction",
+      "depth_pct": 18.6,
+      "duration_weeks": 7,
+      "observed_lift_pct": 53.2,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 30.4,
+      "duration_weeks": 7,
+      "observed_lift_pct": 20.8,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Price Reduction",
+      "depth_pct": 45.6,
+      "duration_weeks": 6,
+      "observed_lift_pct": 47.6,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Endcap Display",
+      "depth_pct": 46.4,
+      "duration_weeks": 3,
+      "observed_lift_pct": 42.6,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Display Feature",
+      "depth_pct": 42.3,
+      "duration_weeks": 5,
+      "observed_lift_pct": 27.4,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 16.8,
+      "duration_weeks": 4,
+      "observed_lift_pct": 8.1,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 46.2,
+      "duration_weeks": 7,
+      "observed_lift_pct": 42.1,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 37.2,
+      "duration_weeks": 2,
+      "observed_lift_pct": 50.8,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 22.6,
+      "duration_weeks": 6,
+      "observed_lift_pct": 42.9,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Endcap Display",
+      "depth_pct": 17.1,
+      "duration_weeks": 2,
+      "observed_lift_pct": 48.7,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 47.3,
+      "duration_weeks": 3,
+      "observed_lift_pct": 13.8,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 45.2,
+      "duration_weeks": 6,
+      "observed_lift_pct": 62.2,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Endcap Display",
+      "depth_pct": 16.2,
+      "duration_weeks": 4,
+      "observed_lift_pct": 64.2,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "BOGO",
+      "depth_pct": 27.1,
+      "duration_weeks": 8,
+      "observed_lift_pct": 57.7,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Coupon",
+      "depth_pct": 37.9,
+      "duration_weeks": 4,
+      "observed_lift_pct": 31.6,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 22.8,
+      "duration_weeks": 3,
+      "observed_lift_pct": 63.2,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 36.6,
+      "duration_weeks": 2,
+      "observed_lift_pct": 16.1,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 23.9,
+      "duration_weeks": 7,
+      "observed_lift_pct": 60.7,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "BOGO",
+      "depth_pct": 23.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 7.8,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Endcap Display",
+      "depth_pct": 30.6,
+      "duration_weeks": 5,
+      "observed_lift_pct": 47.3,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 23.2,
+      "duration_weeks": 5,
+      "observed_lift_pct": 49.2,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 47.5,
+      "duration_weeks": 2,
+      "observed_lift_pct": 16.8,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 17.6,
+      "duration_weeks": 8,
+      "observed_lift_pct": 8.9,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 26.6,
+      "duration_weeks": 2,
+      "observed_lift_pct": 61.2,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 24.0,
+      "duration_weeks": 4,
+      "observed_lift_pct": 41.3,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 22.9,
+      "duration_weeks": 8,
+      "observed_lift_pct": 17.3,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 34.2,
+      "duration_weeks": 4,
+      "observed_lift_pct": 18.6,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 23.2,
+      "duration_weeks": 7,
+      "observed_lift_pct": 33.6,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Endcap Display",
+      "depth_pct": 29.3,
+      "duration_weeks": 4,
+      "observed_lift_pct": 33.6,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Midwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Display Feature",
+      "depth_pct": 13.2,
+      "duration_weeks": 5,
+      "observed_lift_pct": 57.0,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 15.2,
+      "duration_weeks": 8,
+      "observed_lift_pct": 8.4,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 41.1,
+      "duration_weeks": 3,
+      "observed_lift_pct": 59.5,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 31.9,
+      "duration_weeks": 4,
+      "observed_lift_pct": 32.9,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 48.6,
+      "duration_weeks": 8,
+      "observed_lift_pct": 23.3,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 34.5,
+      "duration_weeks": 3,
+      "observed_lift_pct": 22.8,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 34.4,
+      "duration_weeks": 2,
+      "observed_lift_pct": 15.9,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Price Reduction",
+      "depth_pct": 14.0,
+      "duration_weeks": 2,
+      "observed_lift_pct": 25.8,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 13.8,
+      "duration_weeks": 6,
+      "observed_lift_pct": 36.5,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 45.6,
+      "duration_weeks": 3,
+      "observed_lift_pct": 45.3,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Coupon",
+      "depth_pct": 48.3,
+      "duration_weeks": 6,
+      "observed_lift_pct": 34.2,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 17.7,
+      "duration_weeks": 4,
+      "observed_lift_pct": 49.6,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 31.2,
+      "duration_weeks": 3,
+      "observed_lift_pct": 34.9,
+      "notes": "Retailer compliance was partial; only 60% of stores featured."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 30.0,
+      "duration_weeks": 8,
+      "observed_lift_pct": 42.6,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Coupon",
+      "depth_pct": 46.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 9.7,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Display Feature",
+      "depth_pct": 19.4,
+      "duration_weeks": 3,
+      "observed_lift_pct": 42.0,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 22.1,
+      "duration_weeks": 5,
+      "observed_lift_pct": 9.3,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Coupon",
+      "depth_pct": 31.8,
+      "duration_weeks": 2,
+      "observed_lift_pct": 50.6,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 27.6,
+      "duration_weeks": 7,
+      "observed_lift_pct": 48.9,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 24.9,
+      "duration_weeks": 2,
+      "observed_lift_pct": 18.8,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 13.7,
+      "duration_weeks": 2,
+      "observed_lift_pct": 43.6,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Coupon",
+      "depth_pct": 16.0,
+      "duration_weeks": 3,
+      "observed_lift_pct": 15.8,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Multi-buy Discount",
+      "depth_pct": 19.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 30.7,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Coupon",
+      "depth_pct": 31.4,
+      "duration_weeks": 5,
+      "observed_lift_pct": 46.2,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 37.0,
+      "duration_weeks": 3,
+      "observed_lift_pct": 14.3,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Price Reduction",
+      "depth_pct": 36.1,
+      "duration_weeks": 4,
+      "observed_lift_pct": 32.2,
+      "notes": "Executed well; strong velocity during promo window."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 42.1,
+      "duration_weeks": 3,
+      "observed_lift_pct": 34.5,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ValueChain",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 35.8,
+      "duration_weeks": 8,
+      "observed_lift_pct": 29.1,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand A",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Display Feature",
+      "depth_pct": 48.9,
+      "duration_weeks": 7,
+      "observed_lift_pct": 44.6,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Display Feature",
+      "depth_pct": 45.7,
+      "duration_weeks": 4,
+      "observed_lift_pct": 15.1,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 12.2,
+      "duration_weeks": 3,
+      "observed_lift_pct": 32.9,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southeast",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 46.4,
+      "duration_weeks": 6,
+      "observed_lift_pct": 55.3,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Price Reduction",
+      "depth_pct": 37.5,
+      "duration_weeks": 2,
+      "observed_lift_pct": 9.3,
+      "notes": "Overlapping national TV flight boosted baseline."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Display Feature",
+      "depth_pct": 35.5,
+      "duration_weeks": 3,
+      "observed_lift_pct": 24.5,
+      "notes": "Display compliance was high; excellent results."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 11.4,
+      "duration_weeks": 7,
+      "observed_lift_pct": 36.0,
+      "notes": "Ran during holiday week; seasonality confounds lift estimate."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Midwest",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Endcap Display",
+      "depth_pct": 21.5,
+      "duration_weeks": 6,
+      "observed_lift_pct": 54.2,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Northeast",
+      "retail_partner": "ValueChain",
+      "mechanic": "BOGO",
+      "depth_pct": 48.0,
+      "duration_weeks": 7,
+      "observed_lift_pct": 19.0,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "Price Reduction",
+      "depth_pct": 38.5,
+      "duration_weeks": 2,
+      "observed_lift_pct": 27.2,
+      "notes": "Limited to top 20% of stores by volume; results not representative."
+    },
+    {
+      "brand": "Brand A",
+      "region": "Southwest",
+      "retail_partner": "ClubWarehouse",
+      "mechanic": "TPR (Temporary Price Reduction)",
+      "depth_pct": 36.2,
+      "duration_weeks": 3,
+      "observed_lift_pct": 43.1,
+      "notes": "Strong digital support amplified in-store promo."
+    },
+    {
+      "brand": "Brand C",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Endcap Display",
+      "depth_pct": 33.5,
+      "duration_weeks": 4,
+      "observed_lift_pct": 17.2,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Endcap Display",
+      "depth_pct": 24.8,
+      "duration_weeks": 6,
+      "observed_lift_pct": 27.0,
+      "notes": "Price point tested at threshold; consumer response better than model."
+    },
+    {
+      "brand": "Brand B",
+      "region": "Southwest",
+      "retail_partner": "MegaMart",
+      "mechanic": "Bundle Offer",
+      "depth_pct": 15.8,
+      "duration_weeks": 5,
+      "observed_lift_pct": 49.4,
+      "notes": "Inventory constraints limited sell-through in weeks 2-3."
+    },
+    {
+      "brand": "Brand B",
+      "region": "West",
+      "retail_partner": "ValueChain",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 23.1,
+      "duration_weeks": 3,
+      "observed_lift_pct": 44.0,
+      "notes": "Competitive counter-promotion reduced lift."
+    },
+    {
+      "brand": "Brand C",
+      "region": "Northeast",
+      "retail_partner": "ConvenienceCo",
+      "mechanic": "Loyalty Points",
+      "depth_pct": 27.4,
+      "duration_weeks": 6,
+      "observed_lift_pct": 35.8,
+      "notes": "Display compliance was high; excellent results."
+    }
+  ]
+}
