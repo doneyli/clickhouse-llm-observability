@@ -170,7 +170,7 @@ services:
   # =============================================================================
   text-to-sql:
     build:
-      context: ./text-to-sql
+      context: ./demos/text-to-sql
     container_name: text-to-sql
     ports:
       - "${TEXT_TO_SQL_PORT:-8002}:8000"
@@ -188,14 +188,14 @@ services:
     profiles:
       - demo
     volumes:
-      - ./text-to-sql:/app
+      - ./demos/text-to-sql:/app
 
   # =============================================================================
   # Vector RAG Demo - RAG with embeddings, vector search + Langfuse
   # =============================================================================
   vector-rag:
     build:
-      context: ./vector-rag
+      context: ./demos/vector-rag
     container_name: vector-rag
     ports:
       - "${VECTOR_RAG_PORT:-8003}:8000"
@@ -210,7 +210,7 @@ services:
     profiles:
       - demo
     volumes:
-      - ./vector-rag:/app
+      - ./demos/vector-rag:/app
       - vector-rag-models:/root/.cache
 
   # =============================================================================
@@ -256,7 +256,7 @@ services:
   # =============================================================================
   agentic-rag:
     build:
-      context: ./agentic-rag
+      context: ./demos/agentic-rag
     container_name: agentic-rag
     ports:
       - "${AGENTIC_RAG_PORT:-8006}:8000"
@@ -282,15 +282,15 @@ services:
       clickhouse-vectors:
         condition: service_healthy
     volumes:
-      - ./agentic-rag:/app
-      - ./vector-rag:/shared-corpus:ro
+      - ./demos/agentic-rag:/app
+      - ./demos/vector-rag:/shared-corpus:ro
       - vector-rag-models:/root/.cache
 
   # =============================================================================
   # MCP RAG Retriever — exposes ClickHouse vector search as an MCP tool
   # =============================================================================
   # Lets LibreChat agents run the SAME retrieval as the LangGraph agentic-rag
-  # service (single source of truth: mounts ./agentic-rag for store/embeddings).
+  # service (single source of truth: mounts ./demos/agentic-rag for store/embeddings).
   # =============================================================================
   mcp-rag-retriever:
     build:
@@ -311,7 +311,7 @@ services:
       clickhouse-vectors:
         condition: service_healthy
     volumes:
-      - ./agentic-rag:/agentic-rag:ro
+      - ./demos/agentic-rag:/agentic-rag:ro
       - vector-rag-models:/root/.cache
 
   # =============================================================================

@@ -85,7 +85,7 @@ def get_openai():
         if not OPENAI_API_KEY:
             raise RuntimeError(
                 "OPENAI_API_KEY / OPEN_AI_API_KEY not set — needed to run the agent "
-                "on an OpenAI model. Add it to real-estate-demo/.env."
+                "on an OpenAI model. Add it to demos/real-estate/.env."
             )
         import openai
 

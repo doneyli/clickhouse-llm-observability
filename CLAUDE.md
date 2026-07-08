@@ -76,7 +76,7 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 
 ## Code Conventions
 
-- **Langfuse SDK**: v3 patterns — `langfuse.trace()`, `trace.span()`, `trace.generation()`. See `text-to-sql/langfuse_config.py` for setup.
+- **Langfuse SDK**: v3 patterns — `langfuse.trace()`, `trace.span()`, `trace.generation()`. See `demos/text-to-sql/langfuse_config.py` for setup.
 - **Docker profiles**: `langfuse` (Langfuse stack), `demo` (text-to-sql, vector-rag), `tools` (test-scenarios), `dashboard` (LLM Observatory)
 - **Environment**: `.env` file sourced by setup.sh. Never commit `.env`. Template is `.env.example`.
 - **LANGFUSE_INTERNAL_URL**: Docker-internal Langfuse URL. Unset in self-hosted (falls back to `http://langfuse-web:3000`), set to cloud URL in cloud mode.
@@ -98,9 +98,12 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 setup.sh                    # Idempotent setup script
 docker-compose.yaml         # Service orchestration (profiles: langfuse, demo, tools)
 .env.example                # Environment template (DEPLOY_MODE, keys, ports)
-text-to-sql/                # Text-to-SQL demo (Python, Langfuse SDK)
-vector-rag/                 # Vector RAG demo (Python, Langfuse SDK, ChromaDB)
-librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf)
+demos/                      # The distinct LLM-app demos (see demos/README.md)
+  text-to-sql/              #   Text-to-SQL demo (Python, LangChain, Langfuse SDK)
+  vector-rag/               #   Vector RAG demo (Python, LangChain, ChromaDB)
+  agentic-rag/              #   Self-correcting RAG on ClickHouse-native vectors (LangGraph)
+  real-estate/              #   Standalone agentic concierge — the loop end-to-end (own venv/.env)
+librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf, feedback-bridge/)
 test-scenarios/             # 40 synthetic traces for evaluation testing
 evaluators/                 # Langfuse code evaluators (TypeScript, seeded into Langfuse by setup)
 dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alpine.js)
