@@ -71,7 +71,7 @@ needs, under **Settings → LLM Connections**, an **Anthropic** connection (powe
 the managed judges) and an **OpenAI** connection (optional; for the GPT run).
 
 ```bash
-cd real-estate-demo
+cd demos/real-estate
 python3.11 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```

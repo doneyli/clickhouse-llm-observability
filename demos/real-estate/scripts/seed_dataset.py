@@ -20,7 +20,7 @@ def main():
 
     try:
         lf.create_dataset(name=DATASET_NAME, description=DATASET_DESCRIPTION,
-                          metadata={"source": "real-estate-demo"})
+                          metadata={"source": "demos/real-estate"})
         print(f"✓ Created dataset: {DATASET_NAME}")
     except Exception as e:
         if "already exists" in str(e).lower() or "409" in str(e):

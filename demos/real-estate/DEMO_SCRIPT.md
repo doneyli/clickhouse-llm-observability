@@ -14,7 +14,7 @@ marketplace. The acts follow the loop:
 - **Prompts:** fetched from Langfuse **by label** (`production`/`candidate`) — versioned & deployable
 - **Run length:** 18–24 min full; 6–8 min short path
 
-> The agent, tools, evaluators and portal all live in `real-estate-demo/`. Every
+> The agent, tools, evaluators and portal all live in `demos/real-estate/`. Every
 > surface (portal, live-traffic, experiment) drives the **same** instrumented,
 > provider-agnostic agent, running the **same Langfuse-managed prompt** — so what
 > you show is what runs in production. See [`AI_ENGINEERING_LOOP.md`](AI_ENGINEERING_LOOP.md)
@@ -27,10 +27,10 @@ marketplace. The acts follow the loop:
 Requires the Langfuse stack up on `:3001`, and in the `real-estate` project
 **Settings → LLM Connections**: an **Anthropic** connection (powers managed
 judges) and an **OpenAI** connection. The raw OpenAI key must also be in
-`real-estate-demo/.env` as `OPEN_AI_API_KEY` (so the agent can run on GPT).
+`demos/real-estate/.env` as `OPEN_AI_API_KEY` (so the agent can run on GPT).
 
 ```bash
-cd real-estate-demo
+cd demos/real-estate
 python3.11 -m venv .venv && ./.venv/bin/pip install -r requirements.txt   # one-time
 ./.venv/bin/python -c "from agent.config import verify_project; verify_project()"
 
