@@ -202,7 +202,13 @@ class AgenticRAG:
             else:
                 answer = _ask(f"Answer concisely.\n\nQuestion: {state['question']}\n\nAnswer:")
             if obs:
-                obs.update(output=answer)
+                # Expose question + retrieved context on the generation so a
+                # Langfuse-managed judge (Faithfulness / Relevance, seeded by
+                # scripts/seed-agentic-rag-evaluators.sh) can score it
+                # observation-level — an INDEPENDENT check alongside the agent's
+                # in-graph self-grade (reflect groundedness).
+                obs.update(input={"question": state["question"], "context": context},
+                           output=answer)
         log = state.get("trace", []) + ["generate → drafted answer"]
         return {"answer": answer, "trace": log}
 

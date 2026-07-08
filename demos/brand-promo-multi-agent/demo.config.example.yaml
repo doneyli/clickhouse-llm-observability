@@ -1,0 +1,136 @@
+# ===========================================================================
+# Brand Promo Multi-Agent Demo — Generic Config
+# ===========================================================================
+# Copy this file to demo.config.yaml and edit, OR keep multiple customer
+# overlays (e.g. demo.config.<customer>.yaml) and symlink demo.config.yaml.
+#
+# The codebase reads ONLY demo.config.yaml. Customer-specific overlays exist
+# for convenience and are not loaded directly.
+# ===========================================================================
+
+# Observability backend. Langfuse is the only supported backend. The `BACKEND`
+# env var (in .env) takes precedence over this value when set.
+backend: "langfuse"
+
+customer:
+  display_name: "BrandCo"           # Shown in demo UI, dashboards, prompts
+  industry: "Consumer Packaged Goods"
+  geography: ["North America"]      # Used in synthetic data + queries
+
+# Brands and SKUs the agent will reference. The Strategy crew composes
+# campaigns around these. Synthetic queries cycle through them.
+catalog:
+  brand_families:
+    - name: "Brand A"
+      category: "Snacks"
+      hero_skus: ["BRA-CLS-LRG", "BRA-CLS-SML", "BRA-SPI-LRG"]
+    - name: "Brand B"
+      category: "Beverages"
+      hero_skus: ["BRB-COR-12P", "BRB-ZRO-12P", "BRB-DIE-12P"]
+    - name: "Brand C"
+      category: "Snacks"
+      hero_skus: ["BRC-ORG-MED", "BRC-CHE-MED"]
+
+# Sales regions the agent slices by.
+regions:
+  - "Southeast"
+  - "Northeast"
+  - "Midwest"
+  - "West"
+  - "Southwest"
+
+# Retail partners agents can target promos at.
+retail_partners:
+  - "MegaMart"
+  - "ValueChain"
+  - "ConvenienceCo"
+  - "ClubWarehouse"
+
+# Regulatory jurisdictions the compliance agent checks against. Names are
+# placeholders by default; swap to real bodies (FDA, FTC, etc.) per customer.
+compliance:
+  regulatory_bodies:
+    - "Federal Food Authority"
+    - "Federal Trade Authority"
+    - "State Beverage Boards"
+  brand_guideline_doc: "src/data/brand_guidelines.md"
+  regulatory_rules_doc: "src/data/regulatory_rules.md"
+
+# Fleet of agents to seed in trace history so the Executive dashboard has
+# realistic cross-agent texture. The HERO agent is the one the live demo
+# runs; the others only appear in synthetic history.
+agent_fleet:
+  hero_agent:
+    name: "PromoPlanner"
+    description: "Brand promotion planning multi-agent system"
+  other_agents:
+    - name: "CustomerCareBot"
+      description: "L1 customer support agent"
+      trace_share: 0.30
+    - name: "SupplyChainPlanner"
+      description: "Inventory rebalance and reorder agent"
+      trace_share: 0.15
+    - name: "ShelfImageAnalyzer"
+      description: "Computer vision agent for in-store shelf compliance"
+      trace_share: 0.10
+    - name: "InternalKBSearch"
+      description: "Internal knowledge base RAG agent"
+      trace_share: 0.20
+    - name: "FinanceCloseBot"
+      description: "Month-end close reconciliation agent"
+      trace_share: 0.05
+
+# Model assignments. Mix of model tiers makes the model-comparison story
+# come alive in the AI Engineer dashboard.
+llm:
+  provider: "anthropic"
+  models:
+    orchestrator: "claude-sonnet-4-6"
+    research_crew: "claude-sonnet-4-6"
+    strategy_crew: "claude-opus-4-7"
+    compliance: "claude-haiku-4-5"
+    judge: "claude-opus-4-7"
+  prompt_caching: true
+  max_tokens_default: 2048
+
+# Synthetic history generation parameters.
+synthetic_history:
+  total_traces: 50000
+  days_back: 30
+  business_hours_weighting: true        # More traces 9am-6pm in customer geography
+  hero_agent_share: 0.20                # 20% of traces are PromoPlanner; rest is fleet
+  error_rate: 0.06                      # Realistic agent error rate
+  cost_outlier_rate: 0.03               # Long-tail high-cost traces
+  failure_mode_distribution:
+    sales_api_timeout: 0.05
+    hallucinated_sku: 0.02
+    compliance_rejection: 0.08
+    crew_max_iterations: 0.01
+    tool_error: 0.04
+
+# Live demo queries the SA can rehearse and trigger on stage.
+live_demo_queries:
+  - id: "q1_happy_path"
+    text: "Draft a Q3 promo plan for Brand A Classic in the Southeast targeting back-to-school. Stay within brand guidelines."
+    expected_outcome: "successful campaign brief with research, strategy, compliance pass"
+  - id: "q2_compliance_catch"
+    text: "Design an aggressive 50% off promo on Brand B Cola targeting families with children under 12."
+    expected_outcome: "compliance agent flags marketing-to-minors rule"
+  - id: "q3_tool_failure"
+    text: "Compare Brand A vs Brand C performance in the Midwest over the last 6 quarters and recommend a co-promo."
+    expected_outcome: "sales_api intermittent timeout, retry succeeds, final brief delivered"
+  - id: "q4_high_cost"
+    text: "Build a national multi-brand portfolio promo across all 5 regions with detailed per-region tactical breakdown."
+    expected_outcome: "deep strategy crew iterations, high token cost, visible in ops dashboard"
+  - id: "q5_hallucination_catch"
+    text: "Plan a campaign for Brand A Spicy in MegaMart with at least 3 SKUs we've never released."
+    expected_outcome: "LLM-as-judge catches hallucinated SKU in factuality score"
+
+# Langfuse target. The implementer will use these to create/validate the project.
+# Required when backend=langfuse.
+langfuse:
+  host: "http://localhost:3001"
+  project_name: "brand-promo-demo"     # Override per customer (e.g. brandco-demo)
+  capture_everything: true              # Per Langfuse engineering position; no sampling
+  retention_days_traces: 90
+  retention_days_observations: 90

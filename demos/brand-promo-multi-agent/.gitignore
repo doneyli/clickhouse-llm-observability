@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+demo.config.yaml
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.langfuse_cache/
+trace_artifacts/
+uv.lock

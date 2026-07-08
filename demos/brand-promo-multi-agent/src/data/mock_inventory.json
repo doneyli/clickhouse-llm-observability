@@ -1,0 +1,644 @@
+{
+  "rows": [
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 22296,
+      "daily_velocity": 215.0,
+      "days_of_supply": 103.7
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 2753,
+      "daily_velocity": 51.8,
+      "days_of_supply": 53.1
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 1643,
+      "daily_velocity": 115.7,
+      "days_of_supply": 14.2
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 20697,
+      "daily_velocity": 554.3,
+      "days_of_supply": 37.3
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 760,
+      "daily_velocity": 23.9,
+      "days_of_supply": 31.8
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 2291,
+      "daily_velocity": 50.2,
+      "days_of_supply": 45.6
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 16739,
+      "daily_velocity": 536.7,
+      "days_of_supply": 31.2
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Southeast",
+      "dc": "ATL-DC1",
+      "units_on_hand": 6365,
+      "daily_velocity": 104.5,
+      "days_of_supply": 60.9
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 42493,
+      "daily_velocity": 332.3,
+      "days_of_supply": 127.9
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 5327,
+      "daily_velocity": 56.2,
+      "days_of_supply": 94.8
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 7621,
+      "daily_velocity": 20.8,
+      "days_of_supply": 365.6
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 25463,
+      "daily_velocity": 618.9,
+      "days_of_supply": 41.1
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 3287,
+      "daily_velocity": 56.1,
+      "days_of_supply": 58.6
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 2263,
+      "daily_velocity": 144.4,
+      "days_of_supply": 15.7
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 37059,
+      "daily_velocity": 261.3,
+      "days_of_supply": 141.8
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Southeast",
+      "dc": "MIA-DC1",
+      "units_on_hand": 3612,
+      "daily_velocity": 32.6,
+      "days_of_supply": 110.9
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 37541,
+      "daily_velocity": 562.2,
+      "days_of_supply": 66.8
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 7111,
+      "daily_velocity": 25.6,
+      "days_of_supply": 277.2
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 4263,
+      "daily_velocity": 89.7,
+      "days_of_supply": 47.5
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 39807,
+      "daily_velocity": 247.3,
+      "days_of_supply": 161.0
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 2901,
+      "daily_velocity": 127.8,
+      "days_of_supply": 22.7
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 5566,
+      "daily_velocity": 135.1,
+      "days_of_supply": 41.2
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 38700,
+      "daily_velocity": 546.4,
+      "days_of_supply": 70.8
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Northeast",
+      "dc": "NYC-DC1",
+      "units_on_hand": 6271,
+      "daily_velocity": 29.0,
+      "days_of_supply": 215.9
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 29935,
+      "daily_velocity": 663.8,
+      "days_of_supply": 45.1
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 1153,
+      "daily_velocity": 131.2,
+      "days_of_supply": 8.8
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 7598,
+      "daily_velocity": 33.1,
+      "days_of_supply": 229.3
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 33217,
+      "daily_velocity": 472.0,
+      "days_of_supply": 70.4
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 7333,
+      "daily_velocity": 67.4,
+      "days_of_supply": 108.8
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 3532,
+      "daily_velocity": 66.2,
+      "days_of_supply": 53.4
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 32496,
+      "daily_velocity": 621.1,
+      "days_of_supply": 52.3
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Northeast",
+      "dc": "BOS-DC1",
+      "units_on_hand": 6099,
+      "daily_velocity": 104.2,
+      "days_of_supply": 58.5
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 26215,
+      "daily_velocity": 520.5,
+      "days_of_supply": 50.4
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 2505,
+      "daily_velocity": 41.2,
+      "days_of_supply": 60.7
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 3608,
+      "daily_velocity": 55.1,
+      "days_of_supply": 65.5
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 29392,
+      "daily_velocity": 610.8,
+      "days_of_supply": 48.1
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 7404,
+      "daily_velocity": 119.9,
+      "days_of_supply": 61.8
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 958,
+      "daily_velocity": 49.8,
+      "days_of_supply": 19.2
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 17103,
+      "daily_velocity": 683.0,
+      "days_of_supply": 25.0
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Midwest",
+      "dc": "CHI-DC1",
+      "units_on_hand": 3786,
+      "daily_velocity": 54.8,
+      "days_of_supply": 69.1
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 28826,
+      "daily_velocity": 747.9,
+      "days_of_supply": 38.5
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 5146,
+      "daily_velocity": 133.9,
+      "days_of_supply": 38.4
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 3077,
+      "daily_velocity": 47.6,
+      "days_of_supply": 64.6
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 47717,
+      "daily_velocity": 437.4,
+      "days_of_supply": 109.1
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 7991,
+      "daily_velocity": 103.6,
+      "days_of_supply": 77.2
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 1670,
+      "daily_velocity": 54.4,
+      "days_of_supply": 30.7
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 31162,
+      "daily_velocity": 647.0,
+      "days_of_supply": 48.2
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Midwest",
+      "dc": "DET-DC1",
+      "units_on_hand": 4915,
+      "daily_velocity": 54.2,
+      "days_of_supply": 90.8
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 43077,
+      "daily_velocity": 738.7,
+      "days_of_supply": 58.3
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 3771,
+      "daily_velocity": 67.1,
+      "days_of_supply": 56.2
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 1633,
+      "daily_velocity": 86.2,
+      "days_of_supply": 18.9
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 20957,
+      "daily_velocity": 653.5,
+      "days_of_supply": 32.1
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 7554,
+      "daily_velocity": 34.3,
+      "days_of_supply": 220.5
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 5640,
+      "daily_velocity": 40.8,
+      "days_of_supply": 138.2
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 42666,
+      "daily_velocity": 557.8,
+      "days_of_supply": 76.5
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "West",
+      "dc": "LAX-DC1",
+      "units_on_hand": 3652,
+      "daily_velocity": 69.6,
+      "days_of_supply": 52.5
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 45674,
+      "daily_velocity": 517.5,
+      "days_of_supply": 88.3
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 5032,
+      "daily_velocity": 131.9,
+      "days_of_supply": 38.1
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 594,
+      "daily_velocity": 108.4,
+      "days_of_supply": 5.5
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 22507,
+      "daily_velocity": 609.0,
+      "days_of_supply": 37.0
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 4898,
+      "daily_velocity": 117.6,
+      "days_of_supply": 41.6
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 6796,
+      "daily_velocity": 103.3,
+      "days_of_supply": 65.8
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 22310,
+      "daily_velocity": 376.1,
+      "days_of_supply": 59.3
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "West",
+      "dc": "SEA-DC1",
+      "units_on_hand": 1795,
+      "daily_velocity": 79.0,
+      "days_of_supply": 22.7
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 32261,
+      "daily_velocity": 783.1,
+      "days_of_supply": 41.2
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 6741,
+      "daily_velocity": 43.2,
+      "days_of_supply": 156.0
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 7976,
+      "daily_velocity": 33.8,
+      "days_of_supply": 235.7
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 34558,
+      "daily_velocity": 705.0,
+      "days_of_supply": 49.0
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 4658,
+      "daily_velocity": 99.2,
+      "days_of_supply": 47.0
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 1752,
+      "daily_velocity": 68.6,
+      "days_of_supply": 25.5
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 25587,
+      "daily_velocity": 523.6,
+      "days_of_supply": 48.9
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Southwest",
+      "dc": "DAL-DC1",
+      "units_on_hand": 6878,
+      "daily_velocity": 139.9,
+      "days_of_supply": 49.2
+    },
+    {
+      "sku": "BRA-CLS-LRG",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 15037,
+      "daily_velocity": 559.4,
+      "days_of_supply": 26.9
+    },
+    {
+      "sku": "BRA-CLS-SML",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 4502,
+      "daily_velocity": 22.5,
+      "days_of_supply": 199.8
+    },
+    {
+      "sku": "BRA-SPI-LRG",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 3473,
+      "daily_velocity": 134.2,
+      "days_of_supply": 25.9
+    },
+    {
+      "sku": "BRB-COR-12P",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 35153,
+      "daily_velocity": 343.7,
+      "days_of_supply": 102.3
+    },
+    {
+      "sku": "BRB-ZRO-12P",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 2473,
+      "daily_velocity": 134.1,
+      "days_of_supply": 18.4
+    },
+    {
+      "sku": "BRB-DIE-12P",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 1145,
+      "daily_velocity": 31.1,
+      "days_of_supply": 36.8
+    },
+    {
+      "sku": "BRC-ORG-MED",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 46849,
+      "daily_velocity": 689.6,
+      "days_of_supply": 67.9
+    },
+    {
+      "sku": "BRC-CHE-MED",
+      "region": "Southwest",
+      "dc": "PHX-DC1",
+      "units_on_hand": 6730,
+      "daily_velocity": 89.3,
+      "days_of_supply": 75.4
+    }
+  ]
+}
