@@ -12,6 +12,26 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from documents import get_documents, get_document_metadata
+from langfuse_config import get_managed_prompt
+
+
+def _managed_or_fallback(name: str, fallback_template: str) -> ChatPromptTemplate:
+    """Build a ChatPromptTemplate from a Langfuse-managed prompt (Deploy node),
+    linking the prompt version to the generation, or fall back to the local
+    template so the app runs even if Langfuse/the prompt is unavailable.
+
+    get_langchain_prompt() converts Langfuse {{var}} -> LangChain {var}, so the
+    chain's .invoke(...) variable names are unchanged. Setting .metadata AFTER
+    construction is what makes the prompt link attach through the CallbackHandler."""
+    lf_prompt = get_managed_prompt(name)
+    if lf_prompt is not None:
+        try:
+            tmpl = ChatPromptTemplate.from_template(lf_prompt.get_langchain_prompt())
+            tmpl.metadata = {"langfuse_prompt": lf_prompt}
+            return tmpl
+        except Exception as e:  # pragma: no cover - defensive
+            print(f"Managed prompt '{name}' unusable ({e}); using local fallback.")
+    return ChatPromptTemplate.from_template(fallback_template)
 
 
 @dataclass
@@ -91,7 +111,10 @@ class VectorRAGPipeline:
 
     def _setup_chains(self):
         """Setup generation chain."""
-        self.response_prompt = ChatPromptTemplate.from_template(
+        # Langfuse-managed prompt (fetched by label=production at startup) with
+        # the inline template below as the local fallback — the Deploy node.
+        self.response_prompt = _managed_or_fallback(
+            "vector-rag-generation",
             """Answer the question based on the provided context.
 
 Context:
