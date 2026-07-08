@@ -137,6 +137,20 @@ print('ANSWER :', r['answer'][:400])
 **Say:**
 > "Two kinds of evaluator scores here. `retrieval_relevance` is logged on *each* grade step — so on this self-correcting run you can see attempt 1 scored **0** (not relevant), the agent rewrote and retried, and attempt 2 scored **1**. `groundedness` is the trace-level outcome score for the final answer. Both are real Langfuse Scores, so I can chart retrieval quality and groundedness over time, filter traces by them, and compare naive vs agentic RAG."
 
+**Self-grade vs independent judge (optional, higher-value).** The scores above are
+the agent grading *itself* in-graph. Run `./scripts/seed-agentic-rag-evaluators.sh`
+once and Langfuse *independently* scores the same answers server-side (async, in the
+worker): `faithfulness` (↔ the agent's `groundedness`), `context-relevance` (↔
+`retrieval_relevance`), and `answer-relevance`. On the `generate` observation you'll
+see them side by side.
+
+> "The agent checks its own work — but who checks the checker? These `faithfulness`
+> and `context-relevance` scores are computed independently by Langfuse, not the
+> agent. When they *agree* you trust the self-grade; when they *diverge* — e.g. the
+> agent grades its retrieval relevant but the independent judge says 0.4 — that's a
+> calibration signal telling you the agent's self-assessment is drifting. In-graph
+> evals *drive* the loop synchronously; managed evals *monitor* it independently."
+
 **Action:** Left sidebar → **Sessions** → open the agent's session.
 
 **Say:**

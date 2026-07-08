@@ -40,6 +40,7 @@ ANTHROPIC_API_KEY=sk-... ./setup.sh     # Non-interactive (CI / coding agents)
 ./scripts/validate-langfuse.sh          # Validate Langfuse integration
 ./scripts/seed-code-evaluators.sh       # Provision code evaluators (deterministic TS evals; see docs/CODE_EVALUATORS.md)
 ./scripts/seed-llm-judge-evaluators.sh  # Provision observation-level LLM-as-a-Judge evaluators (upgrades legacy ones)
+./scripts/seed-agentic-rag-evaluators.sh # Independent managed judges for agentic-rag (faithfulness/context-relevance/answer-relevance) — complements the in-graph self-grades
 python scripts/seed-app-prompts.py      # Prompt management (Deploy node): seed text-to-sql + vector-rag prompts to Langfuse
 ./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
 ./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
