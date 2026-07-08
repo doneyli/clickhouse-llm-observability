@@ -6,7 +6,7 @@ Each backend implements the same surface:
   - run_experiment(dataset, run_name, task, evaluators, run_evaluators,
     metadata, max_concurrency) -> ExperimentResult
   - persist_run_scores(item_results, run_evaluations)
-  - queue_failed_items(item_results)
+  - queue_failed_items(item_results, queue_name)
 
 The Langfuse backend wraps the existing `dataset.run_experiment(...)` SDK call.
 

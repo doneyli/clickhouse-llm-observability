@@ -32,7 +32,10 @@ def seed_annotation_queue() -> int:
 
     queue_name = "PromoPlanner Human Review"
 
-    # Create the annotation queue via API
+    # Create the annotation queue via API. Idempotent: on re-run the queue
+    # already exists, so we look it up by name and reuse it rather than giving
+    # up (which would leave the queue unmanaged) or creating a duplicate.
+    queue_id = None
     try:
         resp = httpx.post(
             f"{host}/api/public/annotation-queues",
@@ -44,18 +47,32 @@ def seed_annotation_queue() -> int:
             timeout=10,
         )
         if resp.status_code in (200, 201):
-            queue_data = resp.json()
-            queue_id = queue_data.get("id")
+            queue_id = resp.json().get("id")
             console.print(f"[green]Annotation queue created: {queue_name} (id: {queue_id})[/green]")
         elif resp.status_code == 409:
-            console.print(f"[yellow]Queue already exists: {queue_name}[/yellow]")
-            queue_id = None
+            console.print(f"[yellow]Queue already exists: {queue_name} - reusing it[/yellow]")
         else:
             console.print(f"[yellow]Queue API returned {resp.status_code} - trying manual approach[/yellow]")
-            queue_id = None
     except Exception as e:
         console.print(f"[yellow]Queue API failed: {e}[/yellow]")
-        queue_id = None
+
+    # If the queue was not returned above (e.g. it already existed), find it by
+    # name so the item-seeding below is idempotent across re-runs.
+    if queue_id is None:
+        try:
+            list_resp = httpx.get(
+                f"{host}/api/public/annotation-queues",
+                auth=(env.langfuse_public_key, env.langfuse_secret_key),
+                params={"limit": 100},
+                timeout=10,
+            )
+            if list_resp.status_code == 200:
+                for q in list_resp.json().get("data", []):
+                    if q.get("name") == queue_name:
+                        queue_id = q.get("id")
+                        break
+        except Exception as e:
+            console.print(f"[yellow]Queue lookup failed: {e}[/yellow]")
 
     # Find traces with ambiguous scores (factuality 0.6-0.8) from synthetic history
     # If not available via API, emit manual instructions
@@ -86,22 +103,56 @@ def seed_annotation_queue() -> int:
                 pp_traces = [t["id"] for t in all_traces if "PromoPlanner" in str(t.get("tags", []))][:10]
                 ambiguous = pp_traces
 
-            # Add to queue
-            added = 0
-            for trace_id in ambiguous[:10]:
-                if queue_id:
+            # Fetch trace ids already in the queue so re-runs don't add
+            # duplicate items (the endpoint has no dedup of its own).
+            existing_trace_ids: set[str] = set()
+            if queue_id:
+                page = 1
+                while page <= 20:
                     try:
-                        q_resp = httpx.post(
+                        items_resp = httpx.get(
                             f"{host}/api/public/annotation-queues/{queue_id}/items",
                             auth=(env.langfuse_public_key, env.langfuse_secret_key),
-                            json={"traceId": trace_id},
+                            params={"limit": 100, "page": page},
                             timeout=10,
                         )
-                        if q_resp.status_code in (200, 201):
-                            added += 1
                     except Exception:
-                        pass
-            console.print(f"[green]Added {added} traces to annotation queue[/green]")
+                        break
+                    if items_resp.status_code != 200:
+                        break
+                    items = items_resp.json().get("data", [])
+                    if not items:
+                        break
+                    existing_trace_ids.update(
+                        item["objectId"] for item in items if item.get("objectId")
+                    )
+                    page += 1
+
+            # Add to queue, skipping any trace already present (idempotent).
+            added = 0
+            skipped = 0
+            for trace_id in ambiguous[:10]:
+                if not queue_id:
+                    break
+                if trace_id in existing_trace_ids:
+                    skipped += 1
+                    continue
+                try:
+                    q_resp = httpx.post(
+                        f"{host}/api/public/annotation-queues/{queue_id}/items",
+                        auth=(env.langfuse_public_key, env.langfuse_secret_key),
+                        json={"traceId": trace_id},
+                        timeout=10,
+                    )
+                    if q_resp.status_code in (200, 201):
+                        added += 1
+                        existing_trace_ids.add(trace_id)
+                except Exception:
+                    pass
+            console.print(
+                f"[green]Added {added} traces to annotation queue "
+                f"({skipped} already present)[/green]"
+            )
         else:
             console.print(f"[yellow]Could not fetch traces: {traces_resp.status_code}[/yellow]")
     except Exception as e:

@@ -194,10 +194,9 @@ def load_env() -> EnvConfig:
 
 
 def resolve_backend() -> Backend:
-    """Resolve the active backend from env (BACKEND) with config fallback.
-
-    Env wins over config so a single `.env` flip is sufficient to switch
-    backends without editing yaml. Defaults to langfuse when neither is set.
+    """Resolve the active backend. Langfuse is the only supported backend, so
+    this always resolves to "langfuse". Kept as a function (not a constant) so
+    callers have a single resolution point if more backends are added later.
     """
     env_backend = os.getenv("BACKEND")
     if env_backend == "langfuse":
