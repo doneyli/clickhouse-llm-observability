@@ -1,17 +1,22 @@
 # Property Concierge — Real-Estate Agent, observed end-to-end with Langfuse
 
 A self-contained demo of an **agentic real-estate assistant** instrumented with
-**Langfuse**, built to show the full observability + evaluation lifecycle from
-the perspective of an online property marketplace:
+**Langfuse**, built to showcase the **entire [AI Engineering
+loop](https://langfuse.com/academy/ai-engineering-loop)** — not just a feature
+tour — from the perspective of an online property marketplace:
 
-**an instrumented tool-using agent → traces → scores on individual observations
-→ managed & custom evaluators → human annotation → an evaluation dataset →
-an experiment that compares two model providers (Claude vs GPT)**, plus a
-**show-able web portal** that drives the exact same agent.
+**Trace** an instrumented tool-using agent → **Monitor** it with scores &
+dashboards → build an **evaluation dataset** → **Experiment** across models
+*and* prompt versions → **Evaluate** with code evals, LLM judges & human
+annotation → **Deploy** the winning prompt by label (and via GitHub CI/CD) →
+new traces → repeat. Plus a **show-able web portal** that drives the exact same
+agent.
 
 Everything targets a dedicated Langfuse project named **`real-estate`** on
 `http://localhost:3001`.
 
+> **How the pieces map to the loop:** [`AI_ENGINEERING_LOOP.md`](AI_ENGINEERING_LOOP.md)
+> — the step-by-step map + the closing "Deploy" node.
 > **Presenting this?** Follow [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) — the ordered,
 > copy-pasteable runbook with talking points and a capability→moment map.
 
@@ -30,10 +35,14 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Scores on individual observations** | 5 deterministic **code** scores on the synthesis obs |
 | **Managed LLM-as-a-Judge** (native, automatic) | Helpfulness / Relevance, run by the Langfuse worker on `real-estate` traces |
 | **Custom SDK judges** | groundedness / tone pushed from our own code |
+| **User feedback** (👍/👎) | portal thumbs write a `user-feedback` score onto the trace (Monitor signal) |
 | **Human annotation** | queue + score configs (reviewer-verdict, expert-usefulness) |
 | Datasets | `property-concierge-eval`, 10 curated items |
 | Experiments / runs + aggregates | `dataset.run_experiment(...)` with run-level averages |
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
+| **Prompt management** (versioned, labelled) | system prompts fetched by label from Langfuse; **linked to every generation** |
+| **Prompt-variant experiment** | same agent + evals on `production` vs `candidate` prompt → compare runs |
+| **Deploy** (close the loop) | promote a prompt label to ship it; GitHub CI/CD reference in [`cicd/`](cicd/) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
 
 ---
@@ -87,12 +96,14 @@ otherwise — so the demo can never silently pollute another project.
 Or run each piece individually:
 
 ```bash
+./.venv/bin/python scripts/seed_prompts.py            # prompts → Langfuse (production + candidate)
 ./.venv/bin/python scripts/seed_dataset.py            # create the 10-item dataset
 ./scripts/seed_managed_evaluators.sh                  # native LLM judges (auto, Anthropic)
 ./.venv/bin/python scripts/run_live_traffic.py        # ~10 traces + sessions + code/custom scores
 ./.venv/bin/python scripts/seed_annotation_queue.py   # human-review queue + score configs
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6   # Claude run
-./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare)
+./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare models)
+./.venv/bin/python scripts/run_experiment.py --prompt-label candidate    # candidate prompt (compare prompts)
 ./.venv/bin/python scripts/smoke_test.py              # sanity: keys + obs-level scores
 ```
 
@@ -104,8 +115,10 @@ Or run each piece individually:
 webapp/            FastAPI portal + single-page UI  ─┐
 scripts/run_live_traffic.py  (realistic traffic)    ─┼─▶ agent/concierge.py ──▶ Langfuse traces
 scripts/run_experiment.py    (dataset run)          ─┘        (run_turn)         (project: real-estate)
-                                                                │
-agent/tools.py      4 tools over agent/catalog.py               │ observation-level CODE scores (live)
+                                                            ▲   │
+agent/prompts.py    system prompts fetched by label ────────┘   │ observation-level CODE scores (live)
+                    (production/candidate) + fallback           │ + prompt version LINKED to each generation
+agent/tools.py      4 tools over agent/catalog.py               │
 agent/scoring.py    code evaluators + LLM judges  ◀─────────────┘ trace-level LLM-judge scores (live)
 evaluators/         adapters exposing scoring as experiment Evaluations + run-level aggregates
 data/dataset.py     the 10 evaluation items
@@ -117,6 +130,13 @@ Key design choices:
   script and the experiment all call `run_turn(..., model=...)` (`agent/llm.py`
   routes to Anthropic or OpenAI), so the demo shows exactly what runs — and the
   same agent can be evaluated on Claude *and* GPT for the comparison.
+- **Prompts live in Langfuse, not in code (the Deploy node).** `agent/prompts.py`
+  fetches the system prompts **by label** at runtime (`production` by default) —
+  with a hard-coded fallback so the demo still runs offline — and links the
+  fetched version to every generation. Promoting a label ships a new prompt with
+  no redeploy, and you can `run_experiment.py --prompt-label candidate` to prove a
+  change before shipping it. This is what closes the loop; see
+  [`AI_ENGINEERING_LOOP.md`](AI_ENGINEERING_LOOP.md) and [`cicd/`](cicd/).
 - **A conversation is one trace.** Pass `run_turn(conversation_trace_id=..., turn_index=n)`
   (a deterministic `langfuse.create_trace_id(seed=session_id)`) and every turn lands
   in the *same* trace as a `turn-N` observation — the portal keeps per-session
@@ -146,19 +166,23 @@ agent/
   catalog.py      synthetic listings + neighborhood data
   tools.py        4 tools + Anthropic tool schemas
   llm.py          provider-agnostic LLM layer (Anthropic + OpenAI)
-  concierge.py    the instrumented tool-use agent (run_turn, any model)
+  prompts.py      Langfuse prompt fetch by label + hard fallback (Deploy node)
+  concierge.py    the instrumented tool-use agent (run_turn, any model/prompt)
   scoring.py      code evaluators + LLM-as-a-Judge (pure functions -> Score)
 evaluators/
   experiment_evaluators.py   Score -> Langfuse Evaluation adapters + run aggregates
 data/dataset.py   10 evaluation items
 scripts/
+  seed_prompts.py            prompts -> Langfuse (production + candidate labels)
   seed_dataset.py            create the dataset
   seed_managed_evaluators.sh native LLM-as-a-Judge (Postgres seed, Anthropic)
   run_live_traffic.py        traces + sessions + code/custom scores + faults
   seed_annotation_queue.py   human-review queue + score configs (public API)
-  run_experiment.py          dataset run for a chosen --model
+  run_experiment.py          dataset run for a chosen --model / --prompt-label
   smoke_test.py              sanity check
+cicd/             GitHub CI/CD reference (repository-dispatch workflow + guide)
 webapp/           server.py (FastAPI) + static/index.html (portal UI)
 run_demo.sh       prep all data      run_portal.sh   launch the app
+AI_ENGINEERING_LOOP.md  the loop, mapped to this demo
 DEMO_SCRIPT.md    presenter runbook
 ```

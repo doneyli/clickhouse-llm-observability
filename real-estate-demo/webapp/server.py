@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -58,6 +58,14 @@ def _startup():
 class ChatRequest(BaseModel):
     query: str
     session_id: str | None = None
+
+
+class FeedbackRequest(BaseModel):
+    trace_id: str
+    # 1 = 👍 helpful, 0 = 👎 not helpful. Stored NUMERIC so Langfuse can chart it
+    # as a satisfaction rate (mean of user-feedback) alongside the automated evals.
+    value: int
+    comment: str | None = None
 
 
 # Per-session state: conversation history (agent context) + a monotonic turn
@@ -117,6 +125,30 @@ def chat(req: ChatRequest):
         "trace_url": trace_url,
         "session_id": req.session_id,
     }
+
+
+@app.post("/api/feedback")
+def feedback(req: FeedbackRequest):
+    """Attach explicit user feedback (👍/👎) to the trace as a Langfuse score.
+
+    This is the **Monitor** node's 'feedback' signal in the AI Engineering loop:
+    real user judgement lands next to the automated code/LLM-judge scores on the
+    very same trace, so low-rated conversations are easy to surface and route to
+    review or into the eval dataset.
+    """
+    if not req.trace_id or not req.trace_id.strip():
+        raise HTTPException(status_code=400, detail="trace_id is required")
+    lf = get_langfuse()
+    value = 1 if req.value else 0
+    lf.create_score(
+        trace_id=req.trace_id,
+        name="user-feedback",
+        value=value,
+        data_type="NUMERIC",
+        comment=req.comment or ("👍 helpful" if value else "👎 not helpful"),
+    )
+    lf.flush()
+    return {"ok": True, "trace_id": req.trace_id, "value": value}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

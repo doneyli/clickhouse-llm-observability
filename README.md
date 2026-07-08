@@ -281,6 +281,12 @@ Langfuse is auto-configured with a demo account on first boot (headless init):
 
 ### Additional Guides
 
+- **[End-to-end AI Engineering Loop demo](real-estate-demo/AI_ENGINEERING_LOOP.md)** —
+  a self-contained property-concierge agent that showcases the **full [AI
+  Engineering loop](https://langfuse.com/academy/ai-engineering-loop)**: trace →
+  monitor → dataset → experiment (models *and* prompts) → evaluate → **deploy a
+  prompt by label / GitHub CI/CD** → repeat. Presenter runbook:
+  [`real-estate-demo/DEMO_SCRIPT.md`](real-estate-demo/DEMO_SCRIPT.md).
 - **[Guided User Journey](docs/USER_JOURNEY.md)** — Hands-on walkthrough (~35 min)
 - **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** — Step-by-step manual setup
 
