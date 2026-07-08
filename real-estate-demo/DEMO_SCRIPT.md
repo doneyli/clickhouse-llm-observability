@@ -268,8 +268,9 @@ Langfuse **Dashboards** → cost, tokens, latency, and score trends over time.
 - **"How do prompt changes ship — is this real CI/CD?"** Yes. The app reads the
   prompt labelled `production` at runtime, so promoting a version *is* the deploy.
   Langfuse's GitHub integration (`repository_dispatch` / webhook sync) turns that
-  promotion into a gated pipeline — run the eval set as a check, ship only on
-  pass + `production` label. Reference workflow in [`cicd/`](cicd/).
+  promotion into a pipeline — run the eval set on the new version, then ship on the
+  `production` label; add a score-regression threshold to make it a hard quality
+  gate. Reference workflow (with that threshold marked as a TODO) in [`cicd/`](cicd/).
 - **"Where does data live?"** Langfuse stores traces in **ClickHouse** — that's
   what makes search, score analytics and dashboards fast at scale.
 - **Alternative chat surface:** the stack also ships **LibreChat**

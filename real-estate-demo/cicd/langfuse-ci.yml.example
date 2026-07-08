@@ -10,10 +10,12 @@
 #     event type: langfuse-prompt-update
 #
 # Now: promoting a prompt version to the `production` label in Langfuse fires
-# this workflow. It runs your prompt evals against the checked-in dataset, and
-# only "deploys" when the change both carries the `production` label AND passes
-# the gate. That closes the loop automatically — Experiment/Evaluate → Deploy →
-# new production traffic → new traces — with no manual redeploy.
+# this workflow. As shipped it runs your prompt evals against the checked-in
+# dataset and "deploys" on the `production` label — a label gate. To make it a
+# true QUALITY gate, add a score-regression threshold at the marked spot in the
+# eval step (it isn't wired here — see the TODO). That closes the loop —
+# Experiment/Evaluate → Deploy → new production traffic → new traces — with no
+# manual redeploy.
 #
 # Docs: https://langfuse.com/docs/prompt-management/features/github-integration
 # -----------------------------------------------------------------------------
@@ -48,9 +50,11 @@ jobs:
         run: |
           python -m pip install -r requirements.txt
 
-      # Gate: run the SAME dataset experiment used in the demo against the new
-      # prompt version, so a prompt change is validated on the eval set before
-      # it can ship. Fail the job (block the deploy) if scores regress.
+      # Runs the SAME dataset experiment used in the demo against the new prompt
+      # version, so a prompt change is validated on the eval set. NOTE: this step
+      # runs the eval but does NOT yet assert on scores — add the threshold check
+      # at the marked spot below to turn this into a hard gate that blocks a
+      # regressing prompt.
       - name: Evaluate the new prompt on the eval dataset
         working-directory: real-estate-demo
         env:

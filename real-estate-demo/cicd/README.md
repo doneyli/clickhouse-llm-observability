@@ -11,15 +11,17 @@
 In this demo the agent fetches its system prompt from Langfuse **by label** at
 runtime (`property-concierge-agent` @ `production`). So "shipping a better
 prompt" = **moving the `production` label to a new version** — no app redeploy.
-That is already a deployment step. The GitHub integration adds the *gate and
-automation* around it, turning "someone clicked promote in the UI" into
-"promotion runs the evals and only then ships":
+That is already a deployment step. The GitHub integration adds *automation and a
+gate* around it, turning "someone clicked promote in the UI" into "promotion runs
+the evals, then ships on the `production` label" (the example wires the label gate
+and runs the eval; add a score-regression threshold to make it a hard quality gate
+— see the TODO in the workflow):
 
 ```
 Experiment / Evaluate  ──►  promote version to `production` in Langfuse
         ▲                              │  (webhook / repository_dispatch)
         │                              ▼
-   new traces  ◄── Deploy ◄──  GitHub Actions: run eval gate → deploy
+   new traces  ◄── Deploy ◄──  GitHub Actions: run eval → (add threshold) → deploy on label
 ```
 
 ## Two mechanisms (from the Langfuse docs)
