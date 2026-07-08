@@ -102,8 +102,11 @@ services:
   # LibreChat thumbs feedback -> Langfuse user-feedback score (Monitor node of the
   # AI Engineering loop). nginx mirrors the feedback route here fire-and-forget
   # (see librechat/nginx.conf); this maps conversationId+messageId back to the
-  # Langfuse trace and writes the score. Only useful with Langfuse, so it rides
-  # the `langfuse` profile.
+  # Langfuse trace and writes the score. It's a pure HTTP consumer of the Langfuse
+  # API (like `api`), NOT part of the self-hosted Langfuse infra — so it's a CORE
+  # service (no profile), which is what makes it start in BOTH self-hosted and
+  # `DEPLOY_MODE=cloud` (setup.sh runs cloud without `--profile langfuse`). It
+  # fails safe if Langfuse is unreachable, same as the nginx mirror.
   feedback-bridge:
     build:
       context: ./librechat/feedback-bridge
@@ -113,8 +116,6 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
-    profiles:
-      - langfuse
 
   # MongoDB database
   mongodb:

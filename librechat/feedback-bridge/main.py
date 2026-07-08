@@ -82,6 +82,20 @@ async def _handle(conversation_id: str, message_id: str, rating: str):
             print(f"[feedback-bridge] score write failed: {e}")
 
 
+async def _clear(message_id: str):
+    """User retracted their rating (LibreChat sends {"feedback": null}) → delete
+    the previously-written score by its deterministic id, so a cleared rating
+    doesn't leave a stale user-feedback score on the trace. Best-effort: a 404
+    (nothing was scored) is fine."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        score_id = f"lc-fb-{message_id}"
+        try:
+            r = await client.delete(f"{LANGFUSE_HOST}/api/public/scores/{score_id}", headers=HEADERS)
+            print(f"[feedback-bridge] cleared score id={score_id} status={r.status_code}")
+        except Exception as e:
+            print(f"[feedback-bridge] clear failed: {e}")
+
+
 @app.api_route("/mirror/api/messages/{conversation_id}/{message_id}/feedback",
                methods=["PUT", "POST", "DELETE"], status_code=202)
 async def mirror(conversation_id: str, message_id: str, request: Request, bg: BackgroundTasks):
@@ -89,13 +103,20 @@ async def mirror(conversation_id: str, message_id: str, request: Request, bg: Ba
         payload = await request.json()
     except Exception:
         payload = {}
-    fb = (payload or {}).get("feedback")
-    rating = fb.get("rating") if isinstance(fb, dict) else None  # None when cleared
-    # Return immediately; do the retrying lookup + score off the request path so the
-    # user's feedback click is never coupled to Langfuse latency.
+    fb = payload.get("feedback") if isinstance(payload, dict) else None
+    rating = fb.get("rating") if isinstance(fb, dict) else None
+    cleared = isinstance(payload, dict) and "feedback" in payload and fb is None
+    # Return immediately; do the retrying lookup + score/delete off the request path
+    # so the user's feedback click is never coupled to Langfuse latency.
     if rating in RATING_TO_VALUE:
         bg.add_task(_handle, conversation_id, message_id, rating)
-    return {"accepted": rating in RATING_TO_VALUE, "rating": rating}
+        accepted = True
+    elif cleared:
+        bg.add_task(_clear, message_id)   # retract → delete the prior score
+        accepted = True
+    else:
+        accepted = False
+    return {"accepted": accepted, "rating": rating, "cleared": cleared}
 
 
 @app.get("/health")
