@@ -305,3 +305,59 @@ class TestRunLevelFactories:
         result = gate(item_results=item_results)
         assert result.value == 0.0
         assert "FAILED" in result.comment
+
+    def test_gate_pass_deterministic_only(self):
+        # Regression: `--evaluators deterministic` never produces a
+        # response_factuality score. The gate must PASS on the deterministic
+        # dimensions, not fail on the ABSENT factuality one (previously counted
+        # as "no data" -> automatic failure, so `--evaluators deterministic --ci`
+        # could never pass).
+        from dataclasses import dataclass
+
+        from src.evals.evaluators import promo_certification_gate
+        gate = promo_certification_gate(
+            intent_threshold=0.85, compliance_threshold=0.90, factuality_threshold=0.80,
+        )
+
+        @dataclass
+        class FakeEval:
+            name: str
+            value: float
+            comment: str = ""
+
+        @dataclass
+        class FakeResult:
+            evaluations: list
+
+        item_results = [
+            FakeResult(evaluations=[
+                FakeEval("intent_classification_accuracy", 0.90),
+                FakeEval("compliance_status_match", 0.95),
+                # no response_factuality — judge not run in deterministic mode
+            ]),
+        ]
+        result = gate(item_results=item_results)
+        assert result.value == 1.0
+        assert "PASSED" in result.comment
+
+    def test_gate_fail_when_no_dimensions_scored(self):
+        # Guard the vacuous-pass edge: if NO gated dimension has data, fail.
+        from dataclasses import dataclass
+
+        from src.evals.evaluators import promo_certification_gate
+        gate = promo_certification_gate()
+
+        @dataclass
+        class FakeEval:
+            name: str
+            value: float
+            comment: str = ""
+
+        @dataclass
+        class FakeResult:
+            evaluations: list
+
+        item_results = [FakeResult(evaluations=[FakeEval("unrelated_score", 1.0)])]
+        result = gate(item_results=item_results)
+        assert result.value == 0.0
+        assert "FAILED" in result.comment
