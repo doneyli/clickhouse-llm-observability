@@ -14,7 +14,6 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.config import load_config, load_env
-from src.prompts.judge import PROMPTS
 
 console = Console()
 

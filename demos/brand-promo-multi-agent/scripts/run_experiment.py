@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument("--ci", action="store_true",
                         help="CI mode: exit 1 if certification gate fails")
     parser.add_argument("--system-prompt-file", type=str, default=None,
-                        help="Path to a markdown file used as alternative system prompt (recorded in metadata)")
+                        help="Path to a markdown file appended to the strategist's system prompt for a prompt A/B run (e.g. prompts/strategy_v2.md)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview dataset items without running the experiment")
     return parser.parse_args()
