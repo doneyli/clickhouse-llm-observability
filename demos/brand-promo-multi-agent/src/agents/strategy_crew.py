@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from crewai import LLM, Agent, Crew, Process, Task
@@ -29,12 +30,22 @@ def build_strategy_crew(
     """Build the strategy crew for a given research context."""
     llm = _get_llm(callbacks=callbacks)
 
+    # --system-prompt-file experiment hook: run_experiment.py sets this env var
+    # from the alternative prompt file. Appending it to the strategist's backstory
+    # is what makes the A/B run (e.g. prompts/strategy_v2.md's margin-protection
+    # constraints) actually change behavior — otherwise the flag only altered a
+    # metadata label and the "v2" run was identical to baseline.
+    strategist_backstory = PROMPTS["promo_strategist_backstory"]
+    prompt_override = os.getenv("PROMO_SYSTEM_PROMPT_OVERRIDE", "").strip()
+    if prompt_override:
+        strategist_backstory += "\n\nAdditional strategy constraints:\n" + prompt_override
+
     promo_strategist = Agent(
         role=PROMPTS["promo_strategist_role"],
         goal=PROMPTS["promo_strategist_goal"]
         .replace("{{brand}}", brand or "the brand")
         .replace("{{region}}", region or "all regions"),
-        backstory=PROMPTS["promo_strategist_backstory"],
+        backstory=strategist_backstory,
         tools=[],
         llm=llm,
         max_iter=5,

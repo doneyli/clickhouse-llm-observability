@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument("--ci", action="store_true",
                         help="CI mode: exit 1 if certification gate fails")
     parser.add_argument("--system-prompt-file", type=str, default=None,
-                        help="Path to a markdown file used as alternative system prompt (recorded in metadata)")
+                        help="Path to a markdown file appended to the strategist's system prompt for a prompt A/B run (e.g. prompts/strategy_v2.md)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview dataset items without running the experiment")
     return parser.parse_args()
@@ -398,7 +398,10 @@ def main() -> int:
         query = inp.get("query", str(inp)) if isinstance(inp, dict) else str(inp)
 
         if system_prompt_content:
-            os.environ["PROMO_SYSTEM_PROMPT_OVERRIDE"] = system_prompt_content[:500]
+            # Full content — strategy_crew.py reads this and appends it to the
+            # strategist's backstory. (Was truncated to 500 chars, which both
+            # lost most of the prompt and was never read by anything.)
+            os.environ["PROMO_SYSTEM_PROMPT_OVERRIDE"] = system_prompt_content
 
         item_id = getattr(item, "id", None)
         extra_metadata = {
