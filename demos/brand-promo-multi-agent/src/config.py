@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, field_validator, model_validator
 
 
@@ -171,11 +171,23 @@ def load_env() -> EnvConfig:
     in front of `uv run python ...`) wins over the dotenv file. Otherwise a
     stale BACKEND value in .env silently flips the backend out from under the
     operator.
+
+    Key-isolation exception: the Langfuse project keys must come from THIS demo's
+    .env, never an ambient shell export. With plain `override=False`, a stray
+    shell-exported `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` (a documented
+    footgun in this dev environment) would shadow the file and silently send this
+    demo's seeding/traffic into the wrong project. So we hard-set the Langfuse
+    keys from the .env file when it defines them (mirroring the guard in
+    demos/real-estate/agent/config.py, which calls this "the #1 landmine").
     """
     project_root = Path(__file__).parent.parent
     env_file = project_root / ".env"
     if env_file.exists():
         load_dotenv(env_file, override=False)
+        file_vals = dotenv_values(env_file)
+        for key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST"):
+            if file_vals.get(key):
+                os.environ[key] = file_vals[key]  # .env wins for project keys
     else:
         load_dotenv(override=False)
     backend_env = os.getenv("BACKEND")

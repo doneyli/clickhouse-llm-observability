@@ -94,53 +94,27 @@ def seed_evaluators() -> int:
         _emit_manual_checklist(cfg)
         return 0
 
-    try:
-        import httpx
-    except ImportError:
-        console.print("[red]httpx not installed[/red]")
-        return 1
-
-    host = env.langfuse_host or cfg.langfuse.host
-    judge_model = cfg.llm.models.judge
-
-    # Langfuse v3 evaluator API - attempt programmatic creation
-    success_count = 0
-    for ev in EVALUATORS:
-        prompt_text = PROMPTS.get(ev["prompt_key"], "")
-        payload = {
-            "name": ev["name"],
-            "type": "llm",
-            "enabled": True,
-            "samplingRate": 0.10,
-            "targetType": ev["target_type"],
-            "scoreName": ev["score_name"],
-            "model": judge_model,
-            "prompt": prompt_text,
-            "scoreRange": ev["score_range"],
-        }
-        try:
-            resp = httpx.post(
-                f"{host}/api/public/score-configs",
-                auth=(env.langfuse_public_key, env.langfuse_secret_key),
-                json=payload,
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                console.print(f"[green]Created evaluator: {ev['name']}[/green]")
-                success_count += 1
-            elif resp.status_code == 409:
-                console.print(f"[yellow]Evaluator already exists: {ev['name']}[/yellow]")
-                success_count += 1
-            else:
-                console.print(f"[yellow]API returned {resp.status_code} for {ev['name']} - may need manual setup[/yellow]")
-        except Exception as e:
-            console.print(f"[yellow]API call failed for {ev['name']}: {e}[/yellow]")
-
-    if success_count < len(EVALUATORS):
-        console.print("\n[yellow]Some evaluators need manual setup:[/yellow]")
-        _emit_manual_checklist(cfg)
-
-    console.print(f"\n[bold]Evaluator setup: {success_count}/{len(EVALUATORS)} via API[/bold]")
+    # This Langfuse version has no stable PUBLIC API for creating LLM-as-judge
+    # evaluators. A previous version of this script POSTed a judge-shaped payload
+    # (model/prompt/samplingRate/targetType) to /api/public/score-configs — the
+    # WRONG endpoint: it defines score *configs* (name/dataType/range), not
+    # judges. That silently created orphan score-configs (or 4xx'd) while printing
+    # "Created evaluator: ...", i.e. false success with no judge actually wired.
+    #
+    # Until a stable evaluators API exists, create these live judges once in the
+    # UI (checklist below). For a self-hosted stack you can instead seed
+    # job_configurations directly in Postgres — see scripts/seed-llm-judge-evaluators.sh
+    # and scripts/seed-agentic-rag-evaluators.sh for that pattern.
+    console.print(
+        "[yellow]Live LLM-as-judge evaluators aren't creatable via a stable public "
+        "API on this Langfuse version — configure them once in the UI:[/yellow]"
+    )
+    _emit_manual_checklist(cfg)
+    console.print(
+        "\n[dim]Self-hosted alternative: seed job_configurations in Postgres, per "
+        "scripts/seed-llm-judge-evaluators.sh. The offline experiment judges in "
+        "src/evals/evaluators.py already run via scripts/run_experiment.py.[/dim]"
+    )
     return 0
 
 

@@ -1,4 +1,4 @@
-"""LangGraph compliance mini-graph with parallel brand + regulatory checks."""
+"""LangGraph compliance mini-graph: sequential brand + regulatory checks."""
 
 from __future__ import annotations
 
@@ -22,13 +22,18 @@ class ComplianceState(TypedDict):
     brand_findings: list[ComplianceFinding]
     regulatory_findings: list[ComplianceFinding]
     all_findings: list[ComplianceFinding]
-    status: str  # APPROVED, CONDITIONAL, REJECTED
+    # Per-check errors (e.g. an injected TOOL_ERROR). Tracked so a failed check
+    # NEVER silently reports APPROVED — compliance fails CLOSED.
+    brand_error: str | None
+    regulatory_error: str | None
+    status: str  # APPROVED, CONDITIONAL, REJECTED, ERROR
     summary: str
 
 
 def _run_brand_check(state: ComplianceState) -> dict[str, Any]:
     result = check_brand_guidelines.invoke({"brief": state["brief"]})
     findings: list[ComplianceFinding] = []
+    error: str | None = None
     if result.get("status") == "ok":
         for f in result.get("findings", []):
             findings.append(
@@ -39,7 +44,11 @@ def _run_brand_check(state: ComplianceState) -> dict[str, Any]:
                     source="brand_guidelines",
                 )
             )
-    return {"brand_findings": findings}
+    else:
+        # Tool failed (e.g. injected TOOL_ERROR) — record it so aggregation can
+        # fail closed instead of treating "no findings" as "approved".
+        error = result.get("error") or result.get("status") or "brand check failed"
+    return {"brand_findings": findings, "brand_error": error}
 
 
 def _run_regulatory_check(state: ComplianceState) -> dict[str, Any]:
@@ -48,6 +57,7 @@ def _run_regulatory_check(state: ComplianceState) -> dict[str, Any]:
         "jurisdictions": state.get("jurisdictions"),
     })
     findings: list[ComplianceFinding] = []
+    error: str | None = None
     if result.get("status") == "ok":
         for f in result.get("findings", []):
             findings.append(
@@ -58,12 +68,27 @@ def _run_regulatory_check(state: ComplianceState) -> dict[str, Any]:
                     source="regulatory",
                 )
             )
-    return {"regulatory_findings": findings}
+    else:
+        error = result.get("error") or result.get("status") or "regulatory check failed"
+    return {"regulatory_findings": findings, "regulatory_error": error}
 
 
 def _aggregate(state: ComplianceState) -> dict[str, Any]:
     all_findings = state.get("brand_findings", []) + state.get("regulatory_findings", [])
     severities = {f["severity"] for f in all_findings}
+
+    # Fail CLOSED: if a check errored, we can't certify compliance — never let a
+    # tool failure fall through to APPROVED just because it produced no findings.
+    errors = [e for e in (state.get("brand_error"), state.get("regulatory_error")) if e]
+    if errors:
+        return {
+            "all_findings": all_findings,
+            "status": "ERROR",
+            "summary": (
+                "ERROR: compliance could not be fully verified (" + "; ".join(errors)
+                + "). Treating as NOT approved pending a re-run."
+            ),
+        }
 
     if "HIGH" in severities:
         status = "REJECTED"
@@ -127,6 +152,8 @@ def run_compliance_check(
         "brand_findings": [],
         "regulatory_findings": [],
         "all_findings": [],
+        "brand_error": None,
+        "regulatory_error": None,
         "status": "APPROVED",
         "summary": "",
     }

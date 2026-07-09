@@ -398,7 +398,10 @@ def main() -> int:
         query = inp.get("query", str(inp)) if isinstance(inp, dict) else str(inp)
 
         if system_prompt_content:
-            os.environ["PROMO_SYSTEM_PROMPT_OVERRIDE"] = system_prompt_content[:500]
+            # Full content — strategy_crew.py reads this and appends it to the
+            # strategist's backstory. (Was truncated to 500 chars, which both
+            # lost most of the prompt and was never read by anything.)
+            os.environ["PROMO_SYSTEM_PROMPT_OVERRIDE"] = system_prompt_content
 
         item_id = getattr(item, "id", None)
         extra_metadata = {

@@ -469,10 +469,17 @@ def promo_certification_gate(
 ):
     """Factory: multi-dimensional PASS/FAIL gate for PromoPlanner experiments.
 
-    PASS requires all three thresholds to be met:
+    Each threshold is enforced only when its score is PRESENT in the run, so a
+    fast `--evaluators deterministic` CI run gates on the deterministic
+    dimensions (intent, compliance) and `response_factuality` is enforced only
+    when the judges actually run (`--evaluators all|judge`). A dimension whose
+    evaluator didn't run is reported N/A and is not a failure — otherwise the
+    documented `--evaluators deterministic --ci` gate could never pass.
+
+    PASS requires every PRESENT dimension to meet its threshold:
     - avg intent_classification_accuracy >= intent_threshold (default 0.85)
     - avg compliance_status_match >= compliance_threshold (default 0.90)
-    - avg response_factuality >= factuality_threshold (default 0.80)
+    - avg response_factuality >= factuality_threshold (default 0.80), if run
     """
     def evaluator(*, item_results, **kwargs):
         def avg(score_name):
@@ -495,11 +502,15 @@ def promo_certification_gate(
         }
 
         failures = []
+        evaluated = 0
         for dim, (score, threshold) in checks.items():
             if score is None:
-                failures.append(f"{dim}=no data")
-            elif score < threshold:
+                continue  # dimension not evaluated in this mode — don't gate on it
+            evaluated += 1
+            if score < threshold:
                 failures.append(f"{dim}={score:.1%} < {threshold:.0%}")
+        if evaluated == 0:
+            failures.append("no scored dimensions to gate on")
 
         passed = not failures
         comment_parts = []

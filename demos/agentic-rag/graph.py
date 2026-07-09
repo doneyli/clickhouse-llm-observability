@@ -177,7 +177,14 @@ class AgenticRAG:
 
     def generate_node(self, state: AgentState) -> AgentState:
         context = state.get("context", "")
-        with lf.observe("generate", as_type="generation") as obs:
+        # Name the generation by whether it has retrieved context. The independent
+        # managed judges (scripts/seed-agentic-rag-evaluators.sh) filter on
+        # name="generate", so direct-route answers (no context) are named
+        # "generate-direct" and correctly SKIPPED — mirroring reflect_node, which
+        # also skips grounding for context-less answers. Prevents faithfulness /
+        # context-relevance from scoring an answer against an empty context.
+        gen_name = "generate" if context else "generate-direct"
+        with lf.observe(gen_name, as_type="generation") as obs:
             if context:
                 # Prompt management: pull the generation prompt from Langfuse
                 # (versioned, label-routed). Link it to this generation so the
