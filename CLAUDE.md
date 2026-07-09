@@ -104,6 +104,8 @@ demos/                      # The distinct LLM-app demos (see demos/README.md)
   vector-rag/               #   Vector RAG demo (Python, LangChain, ChromaDB)
   agentic-rag/              #   Self-correcting RAG on ClickHouse-native vectors (LangGraph)
   real-estate/              #   Standalone agentic concierge — the loop end-to-end (own venv/.env)
+  brand-promo-multi-agent/  #   Standalone multi-agent promo assistant (LangGraph + CrewAI, uv)
+  langfuse-rls/             #   Standalone trace RLS prototype (Next.js)
 librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf, feedback-bridge/)
 test-scenarios/             # 40 synthetic traces for evaluation testing
 evaluators/                 # Langfuse code evaluators (TypeScript, seeded into Langfuse by setup)
