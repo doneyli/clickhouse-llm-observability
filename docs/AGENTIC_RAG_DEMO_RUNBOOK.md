@@ -5,6 +5,8 @@
 
 **The story:** "Naive RAG retrieves once and hopes. Agentic RAG *routes*, *grades* what it retrieved, *self-corrects*, uses *tools*, and *reflects* on its own answer — all on ClickHouse-native vector search, all observable in Langfuse." See [AGENTIC_RAG_ARCHITECTURE.md](./AGENTIC_RAG_ARCHITECTURE.md) for the diagram.
 
+**Which questions to ask** (question catalog + the reliable self-correction trigger, for both CLI and LibreChat): [../demos/agentic-rag/DEMO_QUESTIONS.md](../demos/agentic-rag/DEMO_QUESTIONS.md).
+
 ---
 
 ## Pre-Demo Checklist (15 min before)
@@ -181,14 +183,14 @@ see them side by side.
 
 **Action:** Ask: *"How does RAG reduce hallucinations, and how does ClickHouse fit in?"*
 
-**What audience sees:** The agent calling the `retrieve_kb` MCP tool (ClickHouse vector search), then answering with cited document titles.
+**What audience sees:** The agent calling the `agentic_rag_answer` MCP tool, which runs the **full self-correcting graph** server-side, then answering with cited document titles. Two linked traces land in Langfuse: the `LibreChat` orchestration trace (the tool call), and a separate `agentic-rag` trace that is scored **identically to Act 3** — `retrieval_relevance`, `groundedness`, and the managed `faithfulness` / `context-relevance` / `answer-relevance` judges.
 
 **Say:**
-> "This is the same ClickHouse-native retrieval — exposed as an MCP tool — driven by a no-code LibreChat agent instead of LangGraph. Same vector store, same observability. A developer gets the LangGraph service; an analyst gets a chat agent. Both land in Langfuse."
+> "This is the exact same graded pipeline as the LangGraph service — the same route→retrieve→grade→self-correct→generate→reflect loop — exposed as one MCP tool and driven by a no-code LibreChat agent. Because it runs the real graph, the LibreChat-driven answer gets the *same online scores* as the seeded run, not just a raw retrieval. A developer gets the LangGraph service; an analyst gets a chat agent; both are evaluated the same way."
 
-**Fallback:** If the tool doesn't appear, confirm `mcp-rag-retriever` is up and re-run `./scripts/seed-librechat-agents.sh`.
+**Fallback:** If the tool doesn't appear, confirm `mcp-rag-retriever` and `agentic-rag` are up and re-run `./scripts/seed-librechat-agents.sh`. If the `agentic-rag` trace has no scores, run `./scripts/seed-agentic-rag-evaluators.sh` once and re-ask (managed judges are `NEW`-scoped).
 
-> **Note:** Use a tool-triggering prompt like the one above — that's what makes the LibreChat trace rich (tool spans + reasoning loop). A generic "hello" yields a thin single-LLM-call trace. LibreChat traces via native LangGraph callbacks, so the tree shows internal node names (`RunnableSequence`, agent IDs) rather than the clean SDK spans from Act 3 — same data, noisier labels. Title generation is disabled, so each chat is one clean `AgentRun` trace.
+> **Note:** The graph runs in the `agentic-rag` service, so its clean SDK-named `agentic-rag` trace (route/retrieve/grade-relevance/generate/reflect-groundedness) is where the scores appear — the `LibreChat` trace itself stays thin (one tool call). To instead show LibreChat's *own* multi-step reasoning loop (tool spans, agent-ID nodes), point the agent at `retrieve_kb` — but that raw-retrieval path is **not** graded. Title generation is disabled, so each chat is one clean `LibreChat` trace.
 
 ---
 

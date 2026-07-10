@@ -218,7 +218,7 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 |-----------|-------------|--------------------:|----------:|
 | **Text-to-SQL** | Converts natural language to SQL and runs it against ClickHouse's public demo database (UK property, GitHub events, OpenSky flights) | `text-to-sql` | `text-to-sql` |
 | **Vector RAG** | Retrieval-augmented generation — embeds documents with sentence-transformers, stores in ChromaDB, retrieves context for LLM answers | `vector-rag` | `vector-rag` |
-| **LibreChat** | Full chat UI with native Langfuse tracing — use it like ChatGPT, every conversation is traced | `AgentRun` | `librechat` |
+| **LibreChat** | Full chat UI with native Langfuse tracing — use it like ChatGPT, every conversation is traced | `LibreChat` | `librechat` |
 | **Test Scenarios** | Pre-crafted prompt/response pairs that intentionally fail in different ways — used to demo Langfuse evaluators | per-scenario name | `test-scenario` |
 | **Langfuse** | The observability platform — stores traces in ClickHouse, provides UI for search, cost tracking, and LLM-as-a-Judge evaluation | — | — |
 

@@ -87,7 +87,7 @@ literal markup instead of LibreChat's collapsible tool cards:
 were sent to the Anthropic API. Claude — instructed to use tools — then writes the
 tool-call syntax (and a fake response) as plain *text*, which LibreChat renders verbatim.
 This is **not** a model, model-id, version, or permission bug. Confirm in a Langfuse
-trace: the `AgentRun` generation has **no `tools` in its input** and there are **no
+trace: the `LibreChat` generation has **no `tools` in its input** and there are **no
 tool-execution spans**.
 
 Tools fail to bind when, at chat time, the MCP server wasn't connected, or the agent was

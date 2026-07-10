@@ -124,14 +124,14 @@ and answers. Then open Langfuse → the conversation you just had is itself a tr
 
 > **Reading LibreChat traces.** Pick a prompt that forces tool use (like the one above).
 > Trace richness is driven by tool calls: a tool-using query produces a 45–60
-> observation `AgentRun` with `TOOL` spans and multi-step reasoning; a generic
+> observation `LibreChat` trace with `TOOL` spans and multi-step reasoning; a generic
 > chit-chat prompt produces a thin ~10-observation trace (one LLM call wrapped in
 > LangGraph scaffolding) and a trivial graph — accurate, but underwhelming live.
 > Unlike the Python demos (which use the Langfuse SDK to build clean, named spans),
 > LibreChat traces via native LangChain/LangGraph callbacks, so you'll see internal
 > node names (`RunnableSequence`, agent IDs) — that's the integration, not a bug.
 > Conversation-title generation is disabled (`librechat.yaml` →
-> `endpoints.all.titleConvo: false`) so every trace is a real `AgentRun` rather than a
+> `endpoints.all.titleConvo: false`) so every trace is a real `LibreChat` trace rather than a
 > `TitleRun` naming call.
 
 ## 9. SQL analytics directly on trace data
