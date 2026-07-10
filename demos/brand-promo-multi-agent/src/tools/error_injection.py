@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 from enum import StrEnum
 from functools import lru_cache
@@ -32,7 +33,16 @@ def _get_rng() -> random.Random:
 
 
 def maybe_inject(tool_name: str) -> InjectedFault | None:
-    """Roll the dice for a fault injection. Returns None most of the time."""
+    """Roll the dice for a fault injection. Returns None most of the time.
+
+    Disabled entirely when PROMO_DISABLE_FAULT_INJECTION is set. Fault injection
+    exists for synthetic-history / live-demo realism; during a golden-dataset
+    experiment it only adds noise and scores items against labels they can't
+    match (e.g. a TOOL_ERROR -> compliance status "ERROR", which is never an
+    expected label), so run_experiment.py sets this to keep eval/CI scoring clean.
+    """
+    if os.getenv("PROMO_DISABLE_FAULT_INJECTION"):
+        return None
     cfg = load_config()
     dist = cfg.synthetic_history.failure_mode_distribution
     rng = _get_rng()

@@ -291,6 +291,14 @@ def _print_summary(result, args, run_name: str) -> None:
 def main() -> int:
     args = parse_args()
 
+    # Disable probabilistic fault injection for the whole eval run. Injected
+    # faults exist for synthetic-history / live-demo realism; against the golden
+    # dataset they're pure noise and score items on labels they can't match
+    # (e.g. TOOL_ERROR -> compliance "ERROR", never an expected label), which
+    # would drag avg_compliance_status_match under the certification gate. Set
+    # before any tool import/call so maybe_inject() sees it. (see src/tools/error_injection.py)
+    os.environ["PROMO_DISABLE_FAULT_INJECTION"] = "1"
+
     # Load env before importing langfuse so keys are available
     from src.config import load_env, resolve_backend
     env = load_env()
