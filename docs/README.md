@@ -18,6 +18,7 @@ Pick your path by what you're trying to do.
 | [Use Case Catalog](USE_CASES.md) | 10 capabilities, each with a 2-minute demo path; quick-tour combos |
 | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | 45-min screen-by-screen platform demo script with full talk tracks |
 | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | 25-min agentic RAG demo script with talk tracks |
+| [Brand-Promo Multi-Agent Runbook](../demos/brand-promo-multi-agent/docs/DEMO_RUNBOOK.md) | Multi-agent (LangGraph + CrewAI) promo-planning demo — synthetic history, online + offline evals, persona dashboards |
 | [Dashboard (LLM Observatory)](DASHBOARD.md) | The "your data is just ClickHouse tables" 5-min demo beat |
 
 ## I want to learn from it

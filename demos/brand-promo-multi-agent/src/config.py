@@ -152,13 +152,23 @@ class EnvConfig(BaseModel):
 
 
 def load_config(path: str = "demo.config.yaml") -> DemoConfig:
-    """Load and validate demo config from YAML."""
+    """Load and validate demo config from YAML.
+
+    Falls back to the committed ``demo.config.example.yaml`` when the (gitignored)
+    ``demo.config.yaml`` is absent, so a fresh clone / CI runs with a working
+    default config. Without this, config loading raised and SKU/brand/region
+    evaluators silently degraded to empty valid-sets (scoring every real SKU 0.0).
+    """
+    project_root = Path(__file__).parent.parent
     config_path = Path(path)
-    if not config_path.is_absolute():
-        # Try relative to CWD first, then relative to this file's project root
-        if not config_path.exists():
-            project_root = Path(__file__).parent.parent
-            config_path = project_root / path
+    if not config_path.is_absolute() and not config_path.exists():
+        # Try relative to this file's project root
+        config_path = project_root / path
+    if not config_path.exists():
+        # Fall back to the committed example config (the working default).
+        example = project_root / "demo.config.example.yaml"
+        if example.exists():
+            config_path = example
     with open(config_path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
     return DemoConfig.model_validate(raw)
