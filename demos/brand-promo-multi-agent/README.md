@@ -94,7 +94,7 @@ See `docs/EVALS_PLAN.md` for the full design rationale and `docs/DEMO_RUNBOOK.md
 
 ## Status
 
-**Built and demo-ready.** Orchestrator, synthetic trace generator (50k traces), seed scripts, persona dashboards, online evaluators, and offline eval suite (75-item dataset + experiment runner + multi-dimensional gate) are all functional. See `IMPLEMENTATION_PLAN.md` for the original build spec and `docs/EVALS_PLAN.md` for the eval pipeline design.
+**Built and demo-ready.** Orchestrator, synthetic trace generator (50k traces), seed scripts, persona dashboards, online evaluators, and offline eval suite (75-item dataset + experiment runner + multi-dimensional gate) are all functional. See `docs/ARCHITECTURE.md` for the design and `docs/EVALS_PLAN.md` for the eval pipeline.
 
 Known notes:
 - `scripts/setup_langfuse_project.py` is self-hosted only — for Langfuse Cloud, create the project via UI and skip this step

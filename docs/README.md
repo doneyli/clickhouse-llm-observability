@@ -19,6 +19,7 @@ Pick your path by what you're trying to do.
 | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | 45-min screen-by-screen platform demo script with full talk tracks |
 | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | 25-min agentic RAG demo script with talk tracks |
 | [Brand-Promo Multi-Agent Runbook](../demos/brand-promo-multi-agent/docs/DEMO_RUNBOOK.md) | Multi-agent (LangGraph + CrewAI) promo-planning demo — synthetic history, online + offline evals, persona dashboards |
+| [Langfuse RLS Demo](../demos/langfuse-rls/README.md) | Attribute-based row-level-security prototype over Langfuse traces (Next.js) — trace governance / access control (loop-adjacent) |
 | [Dashboard (LLM Observatory)](DASHBOARD.md) | The "your data is just ClickHouse tables" 5-min demo beat |
 
 ## I want to learn from it
