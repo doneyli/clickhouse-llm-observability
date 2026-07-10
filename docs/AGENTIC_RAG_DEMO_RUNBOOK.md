@@ -5,6 +5,8 @@
 
 **The story:** "Naive RAG retrieves once and hopes. Agentic RAG *routes*, *grades* what it retrieved, *self-corrects*, uses *tools*, and *reflects* on its own answer — all on ClickHouse-native vector search, all observable in Langfuse." See [AGENTIC_RAG_ARCHITECTURE.md](./AGENTIC_RAG_ARCHITECTURE.md) for the diagram.
 
+**Which questions to ask** (question catalog + the reliable self-correction trigger, for both CLI and LibreChat): [../demos/agentic-rag/DEMO_QUESTIONS.md](../demos/agentic-rag/DEMO_QUESTIONS.md).
+
 ---
 
 ## Pre-Demo Checklist (15 min before)
