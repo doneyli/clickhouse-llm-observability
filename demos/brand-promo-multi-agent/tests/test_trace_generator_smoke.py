@@ -1,105 +1,80 @@
-"""Smoke test for trace generator - validates schema without real Langfuse connection."""
+"""Smoke tests for the synthetic trace generator.
+
+The generator builds Langfuse *batch ingestion* events (not per-trace
+lf.trace()/span()/generation() calls): `_build_promo_planner_events` /
+`_build_simple_agent_events` return lists of typed IngestionEvent objects, and
+`generate_traces` ingests them via `lf.api.ingestion.batch` and returns one
+result dict per trace keyed by `agent` (no `trace_id` — ids live inside the
+events). These tests validate that event/result shape without a real Langfuse.
+"""
 
 from __future__ import annotations
 
+import random
 from unittest.mock import MagicMock, patch
 
 
 def _make_mock_langfuse():
-    """Create a mock Langfuse client that records calls."""
+    """Mock Langfuse whose `api.ingestion.batch` reports no errors."""
     lf = MagicMock()
-
-    trace_mock = MagicMock()
-    trace_mock.id = "trace-mock-id"
-    lf.trace.return_value = trace_mock
-
-    span_mock = MagicMock()
-    span_mock.id = "span-mock-id"
-    lf.span.return_value = span_mock
-
-    gen_mock = MagicMock()
-    gen_mock.id = "gen-mock-id"
-    lf.generation.return_value = gen_mock
-
-    score_mock = MagicMock()
-    lf.score.return_value = score_mock
-
+    batch_resp = MagicMock()
+    batch_resp.errors = []  # empty -> generate_traces records no ingestion errors
+    lf.api.ingestion.batch.return_value = batch_resp
     lf.flush.return_value = None
     return lf
 
 
-def test_promo_planner_trace_schema():
-    """generate_promo_planner_trace produces expected keys."""
-    import random
+def _by_type(events, event_type):
+    return [e for e in events if e.type == event_type]
 
-    from src.synthetic.trace_generator import generate_promo_planner_trace
 
-    lf = _make_mock_langfuse()
-    rng = random.Random(42)
+def test_promo_planner_events_schema():
+    """_build_promo_planner_events emits the expected trace/span/generation events."""
+    from src.synthetic.trace_generator import _build_promo_planner_events
 
-    result = generate_promo_planner_trace(lf, rng, days_back=30, business_hours=True)
+    events = _build_promo_planner_events(random.Random(42), days_back=30, business_hours=True)
 
-    assert "trace_id" in result
-    assert "failure_mode" in result
-    assert "start_time" in result
-    assert "agent" in result
-    assert result["agent"] == "PromoPlanner"
+    traces = _by_type(events, "trace-create")
+    assert len(traces) == 1
+    root = traces[0].body
+    assert root.name == "promo_planner_run"
+    assert "query" in root.input
+    assert "PromoPlanner" in root.tags  # tags are hardcoded ["synthetic", "PromoPlanner"]
 
-    # Verify trace was called
-    assert lf.trace.call_count == 1
-    trace_call = lf.trace.call_args
-    assert trace_call.kwargs["name"] == "promo_planner_run"
-    assert "query" in trace_call.kwargs["input"]
+    span_names = {e.body.name for e in _by_type(events, "span-create")}
+    for expected in (
+        "research_crew", "strategy_crew", "compliance_agent",
+        "data_analyst", "market_researcher", "historian",
+    ):
+        assert expected in span_names, f"missing span {expected}"
 
-    # Verify key span names were created
-    span_names = [call.kwargs.get("name", "") for call in lf.span.call_args_list]
-    gen_names = [call.kwargs.get("name", "") for call in lf.generation.call_args_list]
-
-    assert "research_crew" in span_names
-    assert "strategy_crew" in span_names
-    assert "compliance_agent" in span_names
-    assert "data_analyst" in span_names
-    assert "market_researcher" in span_names
-    assert "historian" in span_names
-
+    gen_names = {e.body.name for e in _by_type(events, "generation-create")}
     assert "classify_intent" in gen_names
     assert "generation.compose_brief" in gen_names
 
 
-def test_simple_agent_trace_schema():
-    """generate_simple_agent_trace produces expected keys for each fleet agent."""
-    import random
+def test_simple_agent_events_schema():
+    """_build_simple_agent_events emits a named trace + >=1 generation per fleet agent."""
+    from src.synthetic.trace_generator import _build_simple_agent_events
 
-    from src.synthetic.trace_generator import generate_simple_agent_trace
-
-    agents = ["CustomerCareBot", "SupplyChainPlanner", "ShelfImageAnalyzer", "FinanceCloseBot"]
-
-    for agent_name in agents:
-        lf = _make_mock_langfuse()
-        rng = random.Random(99)
-
-        result = generate_simple_agent_trace(
-            lf, agent_name, "claude-sonnet-4-6", rng, days_back=30, business_hours=True
+    for agent_name in ("CustomerCareBot", "SupplyChainPlanner", "ShelfImageAnalyzer", "FinanceCloseBot"):
+        events = _build_simple_agent_events(
+            agent_name, "claude-sonnet-4-6", random.Random(99), days_back=30, business_hours=True
         )
-
-        assert "trace_id" in result
-        assert result["agent"] == agent_name
-        assert lf.trace.call_count == 1
-        assert lf.generation.call_count >= 1
+        traces = _by_type(events, "trace-create")
+        assert len(traces) == 1
+        assert traces[0].body.name == f"{agent_name.lower()}_run"
+        assert agent_name in traces[0].body.tags
+        assert len(_by_type(events, "generation-create")) >= 1
 
 
 def test_generate_100_traces_schema():
-    """generate_traces produces 100 results with correct agent distribution."""
+    """generate_traces returns 100 well-formed results with the right hero distribution."""
     from src.config import load_config
 
     cfg = load_config()
 
-    results = []
-
-    lf = _make_mock_langfuse()
-
-    # Patch Langfuse constructor to return mock
-    with patch("langfuse.Langfuse", return_value=lf):
+    with patch("langfuse.Langfuse", return_value=_make_mock_langfuse()):
         from src.synthetic.trace_generator import generate_traces
 
         results = generate_traces(
@@ -111,19 +86,15 @@ def test_generate_100_traces_schema():
         )
 
     assert len(results) == 100
-
     hero_results = [r for r in results if r.get("agent") == "PromoPlanner"]
     expected_hero = int(100 * cfg.synthetic_history.hero_agent_share)
-    # Allow 5% tolerance
     assert abs(len(hero_results) - expected_hero) <= 5
-
     for r in results:
-        assert "trace_id" in r or "error" in r
-        assert "agent" in r
+        assert "agent" in r  # each result records its agent (plus failure_mode or error)
 
 
 def test_failure_modes_present_in_results():
-    """Failure modes appear with expected rough frequency over large sample."""
+    """PromoPlanner results carry a populated failure_mode field over a large sample."""
     from src.config import load_config
 
     load_config()
@@ -133,6 +104,8 @@ def test_failure_modes_present_in_results():
 
         results = generate_traces(total=500, hero_share=1.0, days_back=30, business_hours=False, seed=1)
 
-    failure_modes = [r.get("failure_mode") for r in results if r.get("failure_mode") and r["failure_mode"] != "none"]
-    # At 20% total failure rate, expect at least some
+    failure_modes = [
+        r.get("failure_mode") for r in results
+        if r.get("failure_mode") and r["failure_mode"] != "none"
+    ]
     assert len(failure_modes) > 0
