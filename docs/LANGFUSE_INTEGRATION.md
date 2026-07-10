@@ -365,10 +365,12 @@ present or debug them.
 **How LibreChat instruments.** The Python demos (Text-to-SQL, Vector RAG, Agentic RAG)
 call the Langfuse SDK directly and build clean, intentionally named spans. LibreChat
 instead traces through its native `@librechat/agents` LangChain/LangGraph callbacks.
-That produces a deeper, machine-named tree — `AgentRun → LangGraph → agent_<id> →
+That produces a deeper, machine-named tree — `LibreChat → LangGraph → agent_<id> →
 agent=agent_<id> → RunnableSequence → prompt / generation → RunnableLambda`. The
 `Runnable*` spans and agent-ID node names are LangChain/LangGraph internals, not a bug.
-The `librechat` tag is added via a small `sed` patch in `librechat/entrypoint.sh`.
+The trace is renamed to `LibreChat` (LibreChat's hardcoded internal run name is
+`AgentRun`) and the `librechat` tag added via a small `sed` patch in
+`librechat/entrypoint.sh`.
 
 **Trace richness tracks tool use.** This is the key thing to understand:
 
@@ -388,8 +390,8 @@ but harmless.
 **Title generation is disabled.** `librechat.yaml` sets `endpoints.all.titleConvo:
 false`. With titling on, every chat also emits a separate `TitleRun` trace (LibreChat
 naming the thread) that clutters the trace list. Disabling keeps every trace a real
-`AgentRun`. To re-enable, set it to `true` and filter **Trace Name = AgentRun** in
-Langfuse to hide the `TitleRun` noise.
+`LibreChat` trace. To re-enable, set it to `true` and filter **Trace Name = LibreChat**
+in Langfuse to hide the `TitleRun` noise.
 
 ## MCP Server Integration (LibreChat Agents)
 

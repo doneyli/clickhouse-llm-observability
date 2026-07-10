@@ -287,10 +287,14 @@ services:
       - vector-rag-models:/root/.cache
 
   # =============================================================================
-  # MCP RAG Retriever — exposes ClickHouse vector search as an MCP tool
+  # MCP RAG Retriever — exposes the agentic-rag pipeline as MCP tools
   # =============================================================================
-  # Lets LibreChat agents run the SAME retrieval as the LangGraph agentic-rag
-  # service (single source of truth: mounts ./demos/agentic-rag for store/embeddings).
+  # Two granularities for LibreChat agents (single source of truth: mounts
+  # ./demos/agentic-rag for store/embeddings, and proxies AGENTIC_RAG_URL/query):
+  #   * retrieve_kb / list_documents — raw ClickHouse-native vector search.
+  #   * agentic_rag_answer           — the FULL self-correcting LangGraph, so a
+  #     LibreChat answer emits a fully-scored `agentic-rag` trace (retrieval_relevance,
+  #     groundedness, faithfulness, context/answer-relevance) identical to the seed path.
   # =============================================================================
   mcp-rag-retriever:
     build:
@@ -307,9 +311,13 @@ services:
       - CH_VECTORS_DB=agentic_rag
       - CH_VECTORS_USER=agentic
       - CH_VECTORS_PASSWORD=agentic123
+      # Full agentic-rag graph (agentic_rag_answer tool proxies to its /query endpoint)
+      - AGENTIC_RAG_URL=http://agentic-rag:8000
     depends_on:
       clickhouse-vectors:
         condition: service_healthy
+      agentic-rag:
+        condition: service_started
     volumes:
       - ./demos/agentic-rag:/agentic-rag:ro
       - vector-rag-models:/root/.cache

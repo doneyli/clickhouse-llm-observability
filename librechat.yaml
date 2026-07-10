@@ -50,8 +50,9 @@ endpoints:
   # titleConvo: false disables LibreChat's automatic conversation-title generation.
   # Each titled chat would otherwise emit a separate "TitleRun" trace into Langfuse
   # (a small LLM call to name the thread) that clutters the trace list and looks like
-  # a junk agent run in a demo. Disabling keeps every Langfuse trace a real "AgentRun".
-  # To re-enable titles, set this to true (and optionally filter Trace Name = AgentRun
+  # a junk agent run in a demo. Disabling keeps every Langfuse trace a real "LibreChat"
+  # trace (renamed from LibreChat's internal "AgentRun" in librechat/entrypoint.sh).
+  # To re-enable titles, set this to true (and optionally filter Trace Name = LibreChat
   # in Langfuse to hide the TitleRun traces).
   all:
     titleConvo: false

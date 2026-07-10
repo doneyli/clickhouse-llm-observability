@@ -74,7 +74,7 @@ internal agent IDs (cryptic but harmless); don't apologize for them, just narrat
 
 Conversation-title generation is disabled in `librechat.yaml`
 (`endpoints.all.titleConvo: false`) so the trace list stays clean. If a customer's
-instance has titling on, filter **Trace Name = AgentRun** in Langfuse to hide the
+instance has titling on, filter **Trace Name = LibreChat** in Langfuse to hide the
 `TitleRun` noise.
 
 ## 4. After the demo
