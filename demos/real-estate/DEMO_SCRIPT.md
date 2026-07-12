@@ -40,6 +40,14 @@ proof-of-concept. Skip acts freely; the arc holds even if you only run three.
 Pair with the `run-demo` skill (open Claude Code in the repo) to pre-flight the
 stack and get fed the next act live.
 
+**Anchor on the loop between acts.** Keep the [AI Engineering
+loop](https://langfuse.com/academy/ai-engineering-loop) (or
+[`AI_ENGINEERING_LOOP.md`](AI_ENGINEERING_LOOP.md)) open in its own tab and flip
+back to it after each act: *"we just did this part of the loop; here's where we
+go next."* Show-then-anchor is what keeps six acts feeling like one story
+instead of six features — and it hands the audience a map they can retell
+internally after you leave.
+
 ---
 
 ## 0 · Pre-flight (do this BEFORE the meeting)
@@ -66,8 +74,12 @@ Then start the app and leave it open:
 ./run_portal.sh        # http://localhost:8080
 ```
 
-**Two browser tabs ready:** the portal (`:8080`) and Langfuse (`:3001`, login
-`demo@example.com` / `demodemo1!`, project **real-estate**).
+**Stage the screen:** the portal (`:8080`) and Langfuse (`:3001`, login
+`demo@example.com` / `demodemo1!`, project **real-estate**) **side by side** —
+app on one half, the Tracing list (filtered to *Past 1 hour*) on the other. The
+cheap-but-effective beat in Act 2 is asking a question in the portal and
+refreshing Tracing so the room watches the trace arrive seconds later. Keep a
+third tab on the AI Engineering loop for the between-act anchor.
 
 > **Demo hygiene:** if your shell exports `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`,
 > they override `.env` and traces 401 silently — `unset` them first.
@@ -116,21 +128,28 @@ That gap is the whole reason this category exists.
 
 **Land.** Map what they say to an act: *no visibility* → lean on Acts 2–3;
 *can't prove quality / picking a model* → Acts 3–5; *changes are scary to ship*
-→ Act 6. Tell them you'll show the whole loop on a working app, then let their
-answers decide where you slow down.
+→ Act 6. If their answers put them early in that journey, say so kindly — most
+teams are still at "we collect traces": *"you're not behind; let me show you the
+whole road."* Tell them you'll show the whole loop on a working app, then let
+their answers decide where you slow down.
 
 ---
 
 ## Act 1 · The app (2 min) — "here's what our customer ships"
 
-**Frame.** Start where they live: a real product. This is the kind of assistant a
-marketplace puts in front of buyers — the thing whose bad answers reach a customer.
+**Frame.** Start where they live: a real product. The scenario is modeled on a
+real ask from a property marketplace: they wanted a buyer-facing assistant on
+their site, but refused to ship a black box — they wanted to see its plan, its
+tool calls, and proof the answers met their quality bar. That's the assistant
+whose bad answers reach a customer.
 
 **Show.** Open the **portal** (`http://localhost:8080`). Click an example chip, e.g.:
 
 > *"2-bed flat to buy in Madrid under €400k near a metro, and the mortgage"*
 
-While it responds, point out the property **cards**, the **🔧 tool pills** (it
+While it responds, point at the **typing dots** — *"everything the rest of this
+demo is about happens while those dots are blinking."* Then point out the
+property **cards**, the **🔧 tool pills** (it
 searched listings, pulled neighborhood insights, estimated a mortgage), the
 **👍/👎 Helpful?** buttons, and **🔍 View trace in Langfuse**. Then ask a
 **follow-up in the same chat** — *"what would the mortgage be on that one?"* — to
@@ -168,6 +187,13 @@ observation. Walk it top → bottom:
 Then: **Sessions** → `sess-madrid-buyer-001`; **Tracing** list → filter by tag
 `real-estate`, note user ids + metadata.
 
+> **Presenter note — tell the war story.** The first version of this app created a
+> **new trace per turn** — the most common instrumentation mistake in
+> conversational apps, and it quietly breaks debugging *and* scoring (you only
+> ever grade fragments, never the conversation). One propagated `session_id` is
+> the fix. Prove it live: click **New conversation** in the portal, ask anything,
+> and a *separate* trace appears in the Tracing list.
+
 **Land.** "Root-cause goes from 'read the logs and guess' to 'open the trace and
 see the step that broke' — with the exact tool input, the cost of every call, and
 the prompt version that produced it. Multi-turn folds into one trace and
@@ -201,6 +227,13 @@ an LLM call on 100% of traffic just to check formatting. So Langfuse layers them
 
 Plus the human signal: if you clicked **👍/👎** in Act 1, a `user-feedback` score
 is on this trace too.
+
+**Prove the provenance.** In the trace's **Scores** table, point at the
+**Source** column: the code evals and SDK judges say `API` (logged by our code
+the moment the step ran), the managed judges say `EVAL` (Langfuse scored it
+server-side, after the fact), and Act 4's human labels will say `ANNOTATION`.
+Three ways quality signal gets in, one place it lands — and every score shows
+which path it took.
 
 **Money moment — evals catch problems.** Filter Traces by tag **`fault-demo`**:
 - `hallucinate` → `grounded-listings = false` (recommended a non-existent id).
@@ -246,6 +279,10 @@ that repeatable?"
 **Frame.** Everything so far scored *production* traffic. But the questions that
 stall teams are decisions: *should we switch models? did this change make things
 better or worse?* You answer those on a fixed test set, not on live traffic.
+Put it in SDLC terms — most AI engineers are software engineers first, so hand
+them the mental model they already trust: the **dataset is your test suite**, an
+**experiment is a test run**, and a **score threshold is the quality gate** that
+decides what ships.
 
 **Show.** **Datasets → `property-concierge-eval`** (10 items): show an `input`
 question and `expected_output` (criteria + ground-truth constraints) — buy/rent,
@@ -263,9 +300,16 @@ Add another candidate any time:
 ```
 
 **Land.** "This is how you choose a model — or catch a regression *before* it
-ships — with a number, not a hunch. Because cost is captured per run too, 'is the
-cheaper model good enough for this feature?' becomes a chart you can defend to
-whoever signs off."
+ships — with a number, not a hunch. Because cost is captured per run too, you can
+reason in **cost per task, not cost per token** — a 'better' model that burns
+more tokens to finish the same task can lose to a cheaper one at the same
+quality bar — so 'is the cheaper model good enough for this feature?' becomes a
+chart you can defend to whoever signs off."
+
+*For a regulated audience, land it as audit instead:* drill **run → item → its
+trace** and say "that's the full breadcrumb — every result traces back to the
+exact execution that produced it. Reproducibility and auditability aren't a
+report you assemble later; they're a property of the system."
 
 **Ask.** "How do you decide which model to use, or whether to upgrade? Have you
 ever been blocked from switching because you couldn't *prove* the new one was as
@@ -340,6 +384,21 @@ business watching cost and quality?"
 
 ---
 
+## Leave-behind · Hand them the keys (1 min)
+
+End by giving the room the asset, not a promise of one: this repo is **public
+and self-contained** — portal, agent, evaluators, datasets, seed scripts.
+"Clone it, run `./run_demo.sh`, and make it your own." The only one-time setup
+on a fresh Langfuse org is creating a project and copying its **API keys** into
+`.env`. If they use a coding agent (Claude Code, Codex, …), point them at the
+repo's **langfuse skill + CLI** — it makes the agent fluent in the SDK and the
+API, which is most of the instrumentation learning curve.
+
+**Ask.** "Who on your side is the right person to get this running — and what
+would you point it at first?"
+
+---
+
 ## Under the hood — how it's instrumented (for the "show me the code" moment)
 
 When a technical audience asks *"okay, but how much of my code does this take?"*,
@@ -347,6 +406,12 @@ open these files. **All runtime tracing is the Langfuse SDK, concentrated in
 `demos/real-estate/agent/`** — `webapp/server.py` is only the caller that feeds in
 session context. There's no framework lock-in and no magic. Show the ones that map
 to what they cared about in the **Ask** beats.
+
+The advice ladder for *their* app: a team starting from zero should begin with
+the `@observe` **decorator** (wrap your functions, set-and-forget); drop down to
+**manual instrumentation** — what this app does — only when you want the trace
+tree to look *exactly* the way you want. Everything below is the manual end of
+that ladder, chosen deliberately.
 
 **1 · One client, pinned to the right project — `agent/config.py`**
 ```python
@@ -438,6 +503,19 @@ observation. The custom LLM judges (`groundedness`/`tone`) live in that same
   judges (managed or custom) are for subjective quality.
 - **"Can judges run automatically?"** Yes — the managed evaluators in Act 3 run on
   live traffic with no app code, via the LLM connection.
+- **"Can it block a bad answer before the user sees it — guardrails, PII?"**
+  Guardrails run **client-side, at generation time** (e.g. LLM Guard for content
+  filtering, PII scrubbing before anything is sent); Langfuse self-hosted
+  enterprise adds server-side masking for what gets *stored*. Distinct from that,
+  **online scores can gate an agent's next step** — the agentic-rag demo shows a
+  score literally steering the agent — and score-based alerting (monitors) is
+  available on Langfuse Cloud (beta).
+- **"All our LLM traffic goes through a gateway — can you trace that?"** The
+  popular gateways (LiteLLM, OpenRouter, Vercel AI Gateway, Portkey, …) have
+  native integrations. For anything else, the working pattern is a thin forwarder
+  next to the gateway that uses the Langfuse SDK — and does two jobs the gateway
+  won't: scrub non-GenAI HTTP noise, and re-attach `session_id`/`user_id` so
+  turns don't land as disconnected traces.
 - **"Is LLM-as-a-Judge reliable enough to act on?"** Pair it with deterministic
   code evaluators (that's why the demo ships both) and calibrate judges against the
   human-annotated set from Act 4.
@@ -449,7 +527,10 @@ observation. The custom LLM judges (`groundedness`/`tone`) live in that same
   the reference workflow. See [`cicd/`](cicd/).
 - **"Where does data live?"** Langfuse stores traces in **ClickHouse** — that's
   what makes search, score analytics and dashboards fast at scale, and keeps the
-  data in a store you can query with SQL rather than a vendor silo.
+  data in a store you can query with SQL rather than a vendor silo. And remember
+  what's *in* it: prompts routinely carry things classic APM never sees — user
+  PII, unreleased plans, an exec's strategic questions. That sensitivity is why
+  so many teams want this stack self-hosted, in their own tenant.
 - **"What about our existing APM (Datadog etc.)?"** Keep it — APM says the request
   succeeded; this says whether the *answer* was good, what it cost per token, and
   lets you replay and experiment on real prompts.
