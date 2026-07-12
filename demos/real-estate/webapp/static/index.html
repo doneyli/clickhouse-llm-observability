@@ -39,6 +39,10 @@
   .badge{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);
     border:1px solid var(--line);padding:6px 11px;border-radius:999px;background:var(--panel)}
   .badge .dot{width:8px;height:8px;border-radius:50%;background:var(--brand);box-shadow:0 0 8px var(--brand)}
+  .hdr-right{display:flex;align-items:center;gap:12px}
+  .newchat{cursor:pointer;font-size:12px;color:var(--text);background:var(--panel-2);
+    border:1px solid var(--line);padding:6px 12px;border-radius:999px;font-family:inherit;transition:.15s}
+  .newchat:hover{border-color:var(--brand);color:#fff}
   main{max-width:920px;margin:0 auto;padding:22px 18px 130px}
   .hero{text-align:center;margin:26px 0 18px}
   .hero h1{font-size:30px;margin:0 0 8px;font-weight:700}
@@ -110,7 +114,10 @@
 <body>
 <header>
   <div class="brand"><div class="logo">🏡</div><div>Property Concierge<small>AI home-search assistant</small></div></div>
-  <div class="badge"><span class="dot"></span> Observed with Langfuse</div>
+  <div class="hdr-right">
+    <button id="newchat" class="newchat" title="Start a new conversation (new Langfuse session)">✨ New conversation</button>
+    <div class="badge"><span class="dot"></span> Observed with Langfuse</div>
+  </div>
 </header>
 
 <main id="main">
@@ -147,9 +154,12 @@ const CITY_GRAD = {
 const $ = s => document.querySelector(s);
 const thread = $("#thread");
 
-// session id -> one Langfuse session across the conversation
-let sid = sessionStorage.getItem("pc_sid");
-if(!sid){ sid = "portal-" + Math.random().toString(36).slice(2,10); sessionStorage.setItem("pc_sid", sid); }
+// session id -> one Langfuse session (= one trace) per conversation.
+// Minted fresh on every page load, so a refresh starts a NEW conversation/trace
+// instead of appending to the previous one. "New conversation" re-mints it too, so
+// a presenter can run several clean, separately-grouped conversations per page load.
+function newSid(){ return "portal-" + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
+let sid = newSid();
 
 const chips = $("#chips");
 EXAMPLES.forEach(t=>{ const c=document.createElement("div"); c.className="chip"; c.textContent=t;
@@ -267,6 +277,17 @@ async function send(){
 }
 $("#send").onclick=send;
 $("#q").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
+
+// Start a fresh conversation: new session id (=> new Langfuse trace), clear the
+// thread and bring back the hero. The backend keys history by session id, so the
+// agent also starts with a clean context — no bleed from the previous chat.
+function resetConversation(){
+  sid = newSid();
+  thread.innerHTML = "";
+  $("#hero").style.display = "";
+  $("#q").value = ""; $("#q").focus();
+}
+$("#newchat").onclick = resetConversation;
 $("#q").focus();
 </script>
 </body>
