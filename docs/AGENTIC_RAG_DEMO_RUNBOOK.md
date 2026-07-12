@@ -7,6 +7,11 @@
 
 **Which questions to ask** (question catalog + the reliable self-correction trigger, for both CLI and LibreChat): [../demos/agentic-rag/DEMO_QUESTIONS.md](../demos/agentic-rag/DEMO_QUESTIONS.md).
 
+> **Presenting to a client?** The co-located [demo script](../demos/agentic-rag/DEMO_SCRIPT.md)
+> is the consultative, benefit-led version (Frame → Show → Land → Ask, with discovery
+> questions and a "show me the code" appendix). This runbook is the deeper
+> screen-by-screen reference and fallbacks — use them together.
+
 ---
 
 ## Pre-Demo Checklist (15 min before)

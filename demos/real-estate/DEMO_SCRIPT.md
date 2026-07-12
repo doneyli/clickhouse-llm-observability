@@ -22,6 +22,26 @@ marketplace. The acts follow the loop:
 
 ---
 
+## How to run this script
+
+It's written to be a **conversation, not a walkthrough**. Every act does three
+things: it **frames** a problem the audience already has, **shows** how the
+platform answers it, and **lands** the benefit — then hands a **question** back to
+the room. So each act carries four beats:
+
+- **Frame** — the problem, in their terms (say this *before* you touch the screen).
+- **Show** — the exact clicks / commands.
+- **Land** — the "so what": the benefit, not the feature.
+- **Ask** — an open question that invites them to map it to their own world.
+
+Don't rush the **Ask** — the answers tell you which acts to go deep on and which
+to skim, and they surface the specifics you'll need if this turns into a
+proof-of-concept. Skip acts freely; the arc holds even if you only run three.
+Pair with the `run-demo` skill (open Claude Code in the repo) to pre-flight the
+stack and get fed the next act live.
+
+---
+
 ## 0 · Pre-flight (do this BEFORE the meeting)
 
 Requires the Langfuse stack up on `:3001`, and in the `real-estate` project
@@ -49,9 +69,12 @@ Then start the app and leave it open:
 **Two browser tabs ready:** the portal (`:8080`) and Langfuse (`:3001`, login
 `demo@example.com` / `demodemo1!`, project **real-estate**).
 
+> **Demo hygiene:** if your shell exports `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`,
+> they override `.env` and traces 401 silently — `unset` them first.
+
 ---
 
-## Capability → moment map (what "show everything" means)
+## What each act proves
 
 | Langfuse capability | Where in the demo |
 |---|---|
@@ -76,203 +99,353 @@ Then start the app and leave it open:
 
 ---
 
+## Opening · Locate the pain (2 min, no screen yet)
+
+**Frame.** Traditional monitoring tells you whether your app *responded* — a
+200 OK — not whether the answer was any *good*. An LLM that confidently invents a
+listing that doesn't exist looks identical, to your infra, to one that nailed it.
+That gap is the whole reason this category exists.
+
+**Ask (and actually wait — these steer the session):**
+- "Do you have LLM features in production today, or on the way?"
+- "When one gives a bad answer right now, how do you find out — who notices, and
+  how long does it take?"
+- "How do you measure whether an answer was *good* today — anything automated, or
+  is it someone eyeballing screenshots?"
+- "Is cost-per-feature something you can see, or is it one big provider bill?"
+
+**Land.** Map what they say to an act: *no visibility* → lean on Acts 2–3;
+*can't prove quality / picking a model* → Acts 3–5; *changes are scary to ship*
+→ Act 6. Tell them you'll show the whole loop on a working app, then let their
+answers decide where you slow down.
+
+---
+
 ## Act 1 · The app (2 min) — "here's what our customer ships"
 
-Open the **portal** (`http://localhost:8080`). Click an example chip, e.g.:
+**Frame.** Start where they live: a real product. This is the kind of assistant a
+marketplace puts in front of buyers — the thing whose bad answers reach a customer.
+
+**Show.** Open the **portal** (`http://localhost:8080`). Click an example chip, e.g.:
 
 > *"2-bed flat to buy in Madrid under €400k near a metro, and the mortgage"*
 
-**Say:** "This is a property-search assistant — an LLM agent a marketplace puts
-in front of buyers. Natural language, English or Spanish. It calls tools:
-searches listings, pulls neighborhood insights, estimates a mortgage, then
-writes the recommendation."
+While it responds, point out the property **cards**, the **🔧 tool pills** (it
+searched listings, pulled neighborhood insights, estimated a mortgage), the
+**👍/👎 Helpful?** buttons, and **🔍 View trace in Langfuse**. Then ask a
+**follow-up in the same chat** — *"what would the mortgage be on that one?"* — to
+show it carries context, and click **View trace** (opens the SAME trace).
 
-While it responds, point out the property **cards**, the **🔧 tool pills**, the
-**👍/👎 Helpful?** buttons (real user feedback — becomes a Langfuse score on this
-trace; the loop's Monitor signal), and the **🔍 View trace in Langfuse** button.
+**Land.** "Natural language, English or Spanish, calling real tools — and every
+single one of those turns is already captured, with a one-click path from the
+answer a user saw to the full reasoning behind it. That 👍/👎 is a real user
+signal that lands next to our automated scores. Nothing here is a mock."
 
-Now **ask a follow-up in the same chat** — e.g. *"what would the mortgage be on
-that one?"* — to show it carries context. **The button opens the SAME trace**:
-the whole conversation is one trace. → click it.
+**Ask.** "Where would an assistant like this live for you — support, search,
+internal tooling? And when it says something wrong to a customer, who owns that,
+and how do they even hear about it today?"
 
 ---
 
 ## Act 2 · The trace (4 min) — "full visibility into one conversation"
 
-The chat you just ran is **one trace**, with each exchange as a `turn-N`
+**Frame.** The number-one operational question with LLM apps: *when it's wrong,
+was it the retrieval, the tool, the prompt, or the model?* Without step-level
+visibility you're guessing. Here's what "you're not guessing" looks like.
+
+**Show.** The chat you just ran is **one trace**, each exchange a `turn-N`
 observation. Walk it top → bottom:
 - root trace `conversation` — **input** = first question, **output** = latest
   answer, metadata `agent_model`; grouped under a **session**.
 - `turn-1`, `turn-2`, … — one per user message; the follow-up resolved "that one"
   because the agent gets the conversation so far.
-- inside a turn: `plan` (extracts constraints) → `agent-turn-N` (reasoning /
-  tool decisions) → `tool:*` (**click one** — exact input/output, "no black box")
-  → the final synthesis generation.
+- inside a turn: `plan` (extracts constraints) → `agent-turn-N` (tool decisions) →
+  `tool:*` (**click one** — exact input/output, "no black box") → final synthesis.
 - Click a **generation** → **token usage** and **€ cost** per step, model, latency,
-  and the **Prompt** it used (`property-concierge-agent` v1) — the prompt is
-  version-linked to the generation, so quality later ties back to a prompt version.
+  and the **Prompt** it used (`property-concierge-agent` v1), version-linked to the
+  generation.
 
-Then: **Sessions** → `sess-madrid-buyer-001` (groups a buyer's conversations);
-**Tracing** list → filter by tag `real-estate`, note user ids + metadata.
+Then: **Sessions** → `sess-madrid-buyer-001`; **Tracing** list → filter by tag
+`real-estate`, note user ids + metadata.
+
+**Land.** "Root-cause goes from 'read the logs and guess' to 'open the trace and
+see the step that broke' — with the exact tool input, the cost of every call, and
+the prompt version that produced it. Multi-turn folds into one trace and
+conversations into a session, so you're debugging an *interaction*, not a
+disconnected call."
+
+**Ask.** "When an LLM answer is bad today, what can you actually see — the final
+output only, or the steps? Roughly how long does root-cause take, and who gets
+pulled in?"
 
 ---
 
 ## Act 3 · Scores — three layers (5 min) — "did it do a *good* job?"
 
-On a trace, open the **Scores** panel. Point out the three layers:
+**Frame.** Tracing tells you *what happened*; it doesn't tell you if it was any
+good. Quality is not one thing — some checks are mechanical (was every listing
+real?), some are subjective (was it helpful?). You need both, and you can't afford
+an LLM call on 100% of traffic just to check formatting. So Langfuse layers them.
+
+**Show.** On a trace, open the **Scores** panel — three layers:
 
 1. **Code evaluators** (deterministic, on the *synthesis observation*):
-   `used-search-tool`, `grounded-listings`, `budget-adherence`,
-   `location-match`, `language-match`. "Cheap, exact checks on every trace — did
-   it search? is every listing real *and* retrieved? within budget? right city?
-   right language? Code is perfect for mechanical truths."
+   `used-search-tool`, `grounded-listings`, `budget-adherence`, `location-match`,
+   `language-match`. Cheap, exact checks on every trace — did it search? is every
+   listing real *and* retrieved? within budget? right city? right language?
+2. **Managed LLM-as-a-Judge** (Langfuse-native, **automatic**): `Helpfulness`,
+   `Relevance`. Show the **Evaluators** page — "configured once, pointed at the
+   Anthropic connection, now scores every `real-estate` trace. No code in our app."
+3. **Custom SDK judges**: `groundedness`, `tone` — pushed from our own code where
+   we want a bespoke judge. Managed + custom coexist.
 
-2. **Managed LLM-as-a-Judge** (Langfuse-native, **automatic**):
-   `Helpfulness`, `Relevance`. **Say:** "These run inside Langfuse — I configured
-   them once under **Evaluators**, pointed them at the Anthropic connection, and
-   now they score every `real-estate` trace automatically. No code in our app."
-   → show the **Evaluators** page. (Both score 1 = good, consistent with the code
-   scores — Langfuse also ships an inverted `Hallucination` template where 1 =
-   bad; we use our own `groundedness` judge instead to keep one direction.)
-
-3. **Custom SDK judges**: `groundedness`, `tone` — "and where we want a bespoke
-   judge, we push it from our own code. Managed + custom coexist."
-
-Plus a human signal: if you clicked **👍/👎** in Act 1, a `user-feedback` score is
-on this trace too. "Automated evals *and* real user judgement, side by side — you
-can chart a satisfaction rate and route 👎 traces to review or into the dataset."
+Plus the human signal: if you clicked **👍/👎** in Act 1, a `user-feedback` score
+is on this trace too.
 
 **Money moment — evals catch problems.** Filter Traces by tag **`fault-demo`**:
 - `hallucinate` → `grounded-listings = false` (recommended a non-existent id).
 - `over_budget` → `budget-adherence < 1` (pushed an over-budget option).
 - `wrong_language` → `language-match = false` (Spanish question, English answer).
 
-"When the agent misbehaves, scores go red automatically — alert on them, or
-route low scorers to human review… which is the next stop."
+**Land.** "Deterministic checks run free on 100% of traffic; LLM judges cover the
+subjective stuff; real user feedback sits right beside both. When the agent
+misbehaves, the score goes red *automatically* — so you can alert on it, chart a
+satisfaction rate, and route the bad ones to a human. You're not sampling
+screenshots; you're measuring every conversation."
+
+**Ask.** "What does 'good' actually mean for your use case — accuracy, tone,
+format, safety? Who decides that, and is it written down anywhere yet? And is
+anyone reviewing outputs today — what's that costing you in time?"
 
 ---
 
 ## Act 4 · Human annotation (2 min) — "put a human in the loop"
 
-**Annotation Queues** → **Property Concierge - human review**. Open an item.
+**Frame.** Automated scores get you ~90% of the way. The last mile — the judgment
+that becomes your gold standard — needs a domain expert. The trap is building a
+labeling tool to capture it. You don't have to.
 
-**Say:** "Automated scores get you 90% of the way; some judgments need a human.
-This queue holds real traces for a reviewer, with a defined **score schema**:
-a categorical **reviewer-verdict** (approve / minor-issues / reject) and a 1–5
-**expert-usefulness** rating." Annotate one live to show the flow — the score
-lands on the trace next to the automated ones. "Human labels here become the
-gold set you calibrate your LLM judges against."
+**Show.** **Annotation Queues** → **Property Concierge - human review**. Open an
+item. Point at the **score schema**: a categorical **reviewer-verdict**
+(approve / minor-issues / reject) and a 1–5 **expert-usefulness** rating. Annotate
+one live — the score lands on the trace next to the automated ones.
+
+**Land.** "Your experts review real production traces in a structured queue, and
+their labels land as scores on the very same trace. That human-labeled set is what
+you calibrate your LLM judges *against* — so 'is the judge trustworthy?' becomes a
+measurable question, not a leap of faith."
+
+**Ask.** "Who are your domain experts, and how would you get their judgment into
+the loop today — spreadsheets, Slack threads, nothing? What would it take to make
+that repeatable?"
 
 ---
 
 ## Act 5 · Dataset + model comparison (5 min) — "prove it, and pick a model"
 
-**Datasets → `property-concierge-eval`** (10 items): show an `input` question and
-`expected_output` (criteria + ground-truth constraints). "A curated test set —
-buy/rent, EN/ES, several cities, plus one deliberately impossible request."
+**Frame.** Everything so far scored *production* traffic. But the questions that
+stall teams are decisions: *should we switch models? did this change make things
+better or worse?* You answer those on a fixed test set, not on live traffic.
 
-**Runs** tab → there are **two runs**: `claude-sonnet-4-6` and `gpt-4o`.
+**Show.** **Datasets → `property-concierge-eval`** (10 items): show an `input`
+question and `expected_output` (criteria + ground-truth constraints) — buy/rent,
+EN/ES, several cities, plus one deliberately impossible request.
 
-**Say:** "We ran the *same* agent and the *same* evaluators against all 10
-questions — once on Claude, once on GPT-4o. Same tools, same prompts; only the
-model changed." Point at the per-run **aggregate scores**.
+**Runs** tab → two runs: `claude-sonnet-4-6` and `gpt-4o`. "Same agent, same
+evaluators, same tools and prompts — only the model changed." Point at per-run
+**aggregate scores**, then select **both runs → Compare**: a like-for-like,
+metric-by-metric comparison — grounding, budget adherence, helpfulness, relevance.
+Click a run item → its trace → per-item scores.
 
-→ Select **both runs → Compare**. "This is the payoff: a like-for-like,
-metric-by-metric comparison of two model providers on *our* use case —
-grounding, budget adherence, helpfulness, relevance. This is how you choose a
-model, or catch a regression before it ships." Click into a run item → its trace
-→ per-item scores.
-
-Re-run any time to add another candidate model:
+Add another candidate any time:
 ```bash
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6 --run-name candidate-v2
 ```
+
+**Land.** "This is how you choose a model — or catch a regression *before* it
+ships — with a number, not a hunch. Because cost is captured per run too, 'is the
+cheaper model good enough for this feature?' becomes a chart you can defend to
+whoever signs off."
+
+**Ask.** "How do you decide which model to use, or whether to upgrade? Have you
+ever been blocked from switching because you couldn't *prove* the new one was as
+good — or as safe?"
 
 ---
 
 ## Act 6 · Close the loop — deploy a better prompt (4 min) — "and then ship it"
 
-This is the part that makes it a **loop**, not a one-way pipeline. So far the
-agent's system prompt has come from Langfuse, not from code — fetched **by
-label** (`property-concierge-agent` @ `production`) at runtime.
+**Frame.** This is what makes it a *loop*, not a dashboard. For most teams a
+prompt change means a code change, a review, and a deploy — so prompts get
+"fixed" by whoever's brave enough. Here the prompt is data in Langfuse, fetched by
+**label** (`property-concierge-agent` @ `production`) at runtime.
 
-**Prompts tab** → `property-concierge-agent`. Show there are **two versions**:
+**Show.** **Prompts tab** → `property-concierge-agent` → two versions:
 `production` (baseline) and `candidate` (tighter grounding + budget discipline +
-strict language + a scannable format). "We didn't edit the app to try a new
-prompt — it's data in Langfuse, versioned, with the diff right here."
+strict language + scannable format), with the diff right there.
 
-**Say the loop out loud:** "Back in Act 5 the code checks were already perfect,
-but the *judge* metrics — helpfulness, relevance, groundedness — sat in the low
-0.9s. **That gap is our headroom.** So we hypothesize a clearer, more disciplined
-prompt helps, write it as a `candidate`, and prove it on the *same* 10 questions
-and evaluators — only the prompt changed. We decide with data, not vibes."
+Say the loop out loud: "Back in Act 5 the code checks were perfect but the *judge*
+metrics sat in the low 0.9s — **that gap is our headroom.** So we hypothesize a
+tighter prompt, write it as a `candidate`, and prove it on the *same* 10 questions
+and evaluators. Decide with data, not vibes."
 
-Run the candidate against the eval set (≈2–3 min live, or pre-seed with
-`./run_demo.sh --prompt-variant`):
+Run the candidate (≈2–3 min live, or pre-seed with `./run_demo.sh --prompt-variant`):
 ```bash
 ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate
 ```
 
-**Datasets → Runs** → select the `production` (`claude-sonnet-4-6`) and
-`candidate` (`claude-sonnet-4-6-candidate`) runs → **Compare**. This is the honest
-money moment — **a real trade-off, not a clean win:**
-- **Up:** the candidate lifted **groundedness 0.93 → 0.96, helpfulness 0.90 →
-  0.92, relevance 0.93 → 0.93**, and **held every code metric at 1.00**.
-- **Down:** the stricter format **cost some warmth** — the categorical `tone`
-  judge went from *good ×8 / excellent ×2* to *good ×9 / **poor ×1***.
+**Datasets → Runs** → compare `production` (`claude-sonnet-4-6`) vs `candidate`
+(`claude-sonnet-4-6-candidate`). The **honest money moment — a real trade-off, not
+a clean win:**
+- **Up:** groundedness **0.93 → 0.96**, helpfulness **0.90 → 0.92**, relevance
+  **0.93 → 0.93**, and **every code metric held at 1.00**.
+- **Down:** the stricter format **cost some warmth** — the categorical `tone` judge
+  went from *good ×8 / excellent ×2* to *good ×9 / **poor ×1***.
 
-**Say it:** "This is the loop earning its keep. We aimed at grounding and got it —
+*(`tone` is categorical, so it shows as a label distribution here, not a mean.)*
+
+**Land.** "This is the loop earning its keep. We aimed at grounding and got it —
 without breaking the deterministic checks — but the eval set *caught a
-side-effect*: the rigid format reads a little colder. That's a decision to make
-with data, not a thing we'd have noticed by eyeballing one answer." *(`tone` is
-categorical, so it shows as a label distribution here, not a mean.)*
+side-effect*: the rigid format reads a little colder. That's a call you make with
+evidence, not something you'd notice by eyeballing one answer."
 
-**Deploy — or iterate.** The point is you now decide with evidence:
-- **Ship it** if grounding wins for a factual concierge: in the **Prompts** tab,
-  set the `production` label on the candidate version (promote it). "That's the
-  deploy — the app fetches `production`, so it serves the new prompt with **no
-  redeploy**. In a real pipeline this promotion is gated by CI: the [GitHub
-  integration](https://langfuse.com/docs/prompt-management/features/github-integration)
-  runs this exact eval as a check and only ships on pass — see [`cicd/`](cicd/)."
-- **Or iterate** to a `candidate-v2` that keeps the grounding discipline but
-  restores warmth, and re-run the experiment. "The first fix is rarely the last —
-  that's why it's a loop."
+**Deploy — or iterate.** In the **Prompts** tab, set the `production` label on the
+candidate to promote it. "The app fetches `production`, so it serves the new prompt
+with **no redeploy**. In a real pipeline that promotion is gated by CI — the
+[GitHub integration](https://langfuse.com/docs/prompt-management/features/github-integration)
+runs this exact eval and only ships on pass; reference in [`cicd/`](cicd/)." Or
+iterate to a `candidate-v2` that keeps the grounding but restores warmth.
 
-Either way, the next portal question produces new traces under the shipped
-version → **back to Act 2**. The loop is closed.
+Either way, the next portal question produces new traces under the shipped version
+→ **back to Act 2**. The loop is closed.
+
+**Ask.** "How does a prompt change reach production for you today — code deploy?
+Who's allowed to make one, and how nervous is that change when it goes out?"
 
 > **Presenter note:** after promoting, the app may serve the previous version for
-> up to ~60s (the SDK's prompt cache TTL) — ask the follow-up question a moment
-> later so the new version is the one that runs.
+> up to ~60s (the SDK's prompt-cache TTL) — ask the follow-up a moment later so the
+> new version is the one that runs.
 
 ---
 
 ## Optional close · Dashboards (1 min)
 
-Langfuse **Dashboards** → cost, tokens, latency, and score trends over time.
-"Once traffic flows, this is your production control room."
+**Show.** Langfuse **Dashboards** → cost, tokens, latency, and score trends over
+time. **Land.** "Once traffic flows, this is your production control room — and
+because it's all in ClickHouse underneath, you can build any view you want on the
+same data." **Ask.** "Who'd want this view — the eng team, or someone in the
+business watching cost and quality?"
+
+---
+
+## Under the hood — how it's instrumented (for the "show me the code" moment)
+
+When a technical audience asks *"okay, but how much of my code does this take?"*,
+open these files. **All runtime tracing is the Langfuse SDK, concentrated in
+`demos/real-estate/agent/`** — `webapp/server.py` is only the caller that feeds in
+session context. There's no framework lock-in and no magic. Show the ones that map
+to what they cared about in the **Ask** beats.
+
+**1 · One client, pinned to the right project — `agent/config.py`**
+```python
+# agent/config.py:54  get_langfuse() — a singleton bound to EXPLICIT keys
+_langfuse = Langfuse(public_key=..., secret_key=..., host=LANGFUSE_HOST)   # :60
+```
+`config.py:33-36` hard-overrides the `LANGFUSE_*` env vars and `verify_project()`
+(`config.py:119`) fails fast if the keys resolve to the wrong project. *Why it
+matters:* a stray shell-exported key can't silently ship a customer's traces to the
+wrong place — a real operational footgun, handled in ~3 lines.
+
+**2 · The whole trace tree is one function — `agent/concierge.py` (`run_turn`)**
+```python
+# every step is one context-manager call; the nesting IS the trace tree
+with lf.start_as_current_observation(as_type="generation", name="plan", ...):   # :177
+    ...
+for i in range(MAX_ITERS):
+    with lf.start_as_current_observation(as_type="generation", name=f"agent-turn-{i+1}"):  # :211
+        ...
+    for call in res["tool_calls"]:
+        with lf.start_as_current_observation(as_type="span", name=f"tool:{call['name']}"):  # :234
+            ...
+```
+*Why it matters:* the trace you walked in Act 2 is just these nested `with`
+blocks — `as_type` picks generation vs span, `name` is the label. That's the entire
+instrumentation surface for a whole agent.
+
+**3 · Session wrapping (Act 2 / the Sessions story) — two lines, two files**
+```python
+# webapp/server.py:95   one conversation = one trace (deterministic id from the session)
+conv_trace_id = get_langfuse().create_trace_id(seed=sid)
+# agent/concierge.py:141 each turn attaches to that shared trace
+root_cm = lf.start_as_current_observation(..., trace_context={"trace_id": conversation_trace_id})
+# agent/concierge.py:148 THIS is what groups traces into a Langfuse Session
+ctx = propagate_attributes(session_id=session_id, user_id=user_id, tags=..., trace_name=...)
+```
+*Why it matters:* `propagate_attributes(session_id=...)` is the one call that powers
+the entire Sessions view — grouping is a property you *set*, not a pipeline you build.
+
+**4 · Token usage + € cost (Act 2 cost story) — `agent/llm.py` → folded into the generation**
+```python
+# agent/llm.py:59  provider-agnostic call returns usage + cost_details (:41 publishes GPT prices)
+res = call_llm(model, system, messages, tools=tools, max_tokens=1500)
+# agent/concierge.py:217  attach them to the generation
+gen.update(output=..., usage_details=res["usage"], cost_details=res["cost_details"])
+```
+*Why it matters:* cost per step is captured at source. Claude is auto-priced by
+Langfuse; GPT gets explicit prices — which is exactly why the Act 5 cost comparison
+works across providers.
+
+**5 · Prompt management = the Deploy node (Act 6) — `agent/prompts.py`**
+```python
+# agent/prompts.py:100  fetch the system prompt BY LABEL, with a hard-coded fallback
+return get_langfuse().get_prompt(AGENT_PROMPT_NAME, label=label, fallback=AGENT_FALLBACK)
+# agent/prompts.py:112  link the fetched version to the generation (skips when fallback)
+def link_kwargs(prompt): return {} if getattr(prompt, "is_fallback", False) else {"prompt": prompt}
+```
+Used at `concierge.py:178,199` as `**link_kwargs(...)`. *Why it matters:* the prompt
+is data in Langfuse, not a string in the app — so promoting a label *is* the deploy
+(Act 6), and the fallback means the app still runs on a fresh clone with nothing seeded.
+
+**6 · Scores on an observation (Act 3) — `agent/scoring.py` → attached in `concierge.py`**
+```python
+# agent/concierge.py:300  attach each deterministic code score to the SYNTHESIS observation
+for s in run_code_evaluators(result):          # agent/scoring.py:150
+    lf.create_score(trace_id=trace_id, observation_id=final_gen_id,
+                    name=s.name, value=s.value, data_type=s.data_type, comment=s.comment)
+```
+*Why it matters:* the code evaluators are plain Python functions (`scoring.py`) — no
+LLM, deterministic, free — and a score is just `create_score(...)` pointed at an
+observation. Managed + custom LLM judges are configured in the Langfuse UI, not here.
+
+> One-liner for the room: *"The whole agent's tracing is nested `with`-blocks in one
+> file, cost and prompt-version ride along on each step, and a score is a single
+> call. That's the integration cost."*
 
 ---
 
 ## Talking points & objections
 
 - **"Tied to a framework?"** No — plain Python + the provider SDKs, instrumented
-  with the Langfuse SDK (`start_as_current_observation`). Langfuse also has
-  native integrations and OpenTelemetry.
-- **"Provider-agnostic?"** Yes — the same agent runs on Claude or GPT (`agent/llm.py`);
-  that's what powers the comparison.
-- **"Do evals need an LLM?"** No — code evaluators are deterministic and free.
-  LLM judges (managed or custom) are for subjective quality.
-- **"Can judges run automatically?"** Yes — the managed evaluators in Act 3 run
-  on live traffic with no app code, via the LLM connection.
+  with the Langfuse SDK (`start_as_current_observation`). Native integrations and
+  OpenTelemetry also exist.
+- **"Provider-agnostic?"** Yes — the same agent runs on Claude or GPT
+  (`agent/llm.py`); that's what powers the comparison.
+- **"Do evals need an LLM?"** No — code evaluators are deterministic and free. LLM
+  judges (managed or custom) are for subjective quality.
+- **"Can judges run automatically?"** Yes — the managed evaluators in Act 3 run on
+  live traffic with no app code, via the LLM connection.
+- **"Is LLM-as-a-Judge reliable enough to act on?"** Pair it with deterministic
+  code evaluators (that's why the demo ships both) and calibrate judges against the
+  human-annotated set from Act 4.
 - **"How do prompt changes ship — is this real CI/CD?"** Yes. The app reads the
-  prompt labelled `production` at runtime, so promoting a version *is* the deploy.
-  Langfuse's GitHub integration (`repository_dispatch` / webhook sync) turns that
-  promotion into a pipeline — run the eval set on the new version, then ship on the
-  `production` label; add a score-regression threshold to make it a hard quality
-  gate. Reference workflow (with that threshold marked as a TODO) in [`cicd/`](cicd/).
+  `production`-labelled prompt at runtime, so promoting a version *is* the deploy;
+  Langfuse's GitHub integration turns it into a gated pipeline. See [`cicd/`](cicd/).
 - **"Where does data live?"** Langfuse stores traces in **ClickHouse** — that's
-  what makes search, score analytics and dashboards fast at scale.
+  what makes search, score analytics and dashboards fast at scale, and keeps the
+  data in a store you can query with SQL rather than a vendor silo.
+- **"What about our existing APM (Datadog etc.)?"** Keep it — APM says the request
+  succeeded; this says whether the *answer* was good, what it cost per token, and
+  lets you replay and experiment on real prompts.
 - **Alternative chat surface:** the stack also ships **LibreChat**
   (`http://localhost:3080`); the instrumentation story is identical.
 
