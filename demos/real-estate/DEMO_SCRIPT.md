@@ -311,10 +311,12 @@ evidence, not something you'd notice by eyeballing one answer."
 
 **Deploy — or iterate.** In the **Prompts** tab, set the `production` label on the
 candidate to promote it. "The app fetches `production`, so it serves the new prompt
-with **no redeploy**. In a real pipeline that promotion is gated by CI — the
+with **no redeploy**. In a real pipeline that promotion is driven by CI — the
 [GitHub integration](https://langfuse.com/docs/prompt-management/features/github-integration)
-runs this exact eval and only ships on pass; reference in [`cicd/`](cicd/)." Or
-iterate to a `candidate-v2` that keeps the grounding but restores warmth.
+runs this exact eval on the new version and ships on the `production` label; blocking
+on a score regression to make it a *hard* quality gate is the marked TODO in
+[`cicd/`](cicd/)." Or iterate to a `candidate-v2` that keeps the grounding but
+restores warmth.
 
 Either way, the next portal question produces new traces under the shipped version
 → **back to Act 2**. The loop is closed.
@@ -415,7 +417,9 @@ for s in run_code_evaluators(result):          # agent/scoring.py:150
 ```
 *Why it matters:* the code evaluators are plain Python functions (`scoring.py`) — no
 LLM, deterministic, free — and a score is just `create_score(...)` pointed at an
-observation. Managed + custom LLM judges are configured in the Langfuse UI, not here.
+observation. The custom LLM judges (`groundedness`/`tone`) live in that same
+`scoring.py` and are pushed the same way; only the **managed** judges
+(Helpfulness/Relevance) are configured in the Langfuse UI with no app code.
 
 > One-liner for the room: *"The whole agent's tracing is nested `with`-blocks in one
 > file, cost and prompt-version ride along on each step, and a score is a single
@@ -438,8 +442,11 @@ observation. Managed + custom LLM judges are configured in the Langfuse UI, not 
   code evaluators (that's why the demo ships both) and calibrate judges against the
   human-annotated set from Act 4.
 - **"How do prompt changes ship — is this real CI/CD?"** Yes. The app reads the
-  `production`-labelled prompt at runtime, so promoting a version *is* the deploy;
-  Langfuse's GitHub integration turns it into a gated pipeline. See [`cicd/`](cicd/).
+  `production`-labelled prompt at runtime, so promoting a version *is* the deploy.
+  Langfuse's GitHub integration turns that promotion into a pipeline — run the eval
+  set on the new version, then ship on the `production` label; adding a
+  score-regression threshold to make it a *hard* quality gate is marked as a TODO in
+  the reference workflow. See [`cicd/`](cicd/).
 - **"Where does data live?"** Langfuse stores traces in **ClickHouse** — that's
   what makes search, score analytics and dashboards fast at scale, and keeps the
   data in a store you can query with SQL rather than a vendor silo.
