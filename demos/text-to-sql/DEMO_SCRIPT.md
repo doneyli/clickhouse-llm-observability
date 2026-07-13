@@ -8,8 +8,9 @@ live in Langfuse and ship by label, no redeploy.
 
 - **App:** a two-stage LangChain pipeline (`analyze → retrieve context → respond`),
   CLI batch + interactive modes (container in the root `docker-compose.yaml`)
-- **Data context:** the ClickHouse public playground (`sql.clickhouse.com`,
-  24-dataset catalog) reached through the **`mcp-clickhouse`** server
+- **Data context:** the ClickHouse public playground (`sql.clickhouse.com`) —
+  a 24-dataset catalog the analysis stage reasons over, plus live context
+  fetched through the **`mcp-clickhouse`** server
 - **Observability backend:** Langfuse (`http://localhost:3001`), trace name `text-to-sql`
 - **Model:** `claude-sonnet-4-6` (both stages)
 - **Run length:** 12–15 min full; ~5 min short path (Acts 1–2)
@@ -241,7 +242,7 @@ docker compose --profile tools run --rm test-scenarios
 ```
 
 In Langfuse, filter Traces by tag `test-scenario`: scenarios tagged
-`relevance-test` / `hallucination-test` / `control` get scored by the managed
+`relevance-test` / `coherence-test` / `hallucination-test` / `control` get scored by the managed
 **Relevance / Correctness / Hallucination** judges (provisioned once — in this
 self-hosted stack by `scripts/seed-llm-judge-evaluators.sh`, or in the
 Evaluators UI on Langfuse Cloud — no app code either way). The
@@ -305,7 +306,7 @@ with propagate_attributes(trace_name="text-to-sql", tags=["text-to-sql", "demo"]
 **4 · A manual span for the non-LangChain step — `sql_pipeline.py:118`**
 ```python
 with langfuse_span("retrieve-context"):          # langfuse_config.py:143
-    context = self.mcp.get_context_for_question(question)
+    self._context = mcp.get_context_for_question(question, analysis)
 ```
 *Why it matters:* the MCP call isn't a LangChain runnable, so it gets a plain
 SDK span — auto and manual instrumentation compose in one tree.

@@ -259,7 +259,7 @@ and `demos/real-estate/agent/` (fully manual tree).
 
 **1 · Managed prompt with fallback + version linking — `rag_pipeline.py:26`**
 ```python
-lf_prompt = get_managed_prompt("vector-rag-generation")   # get_prompt(name, label="production")
+lf_prompt = get_managed_prompt(name)   # name="vector-rag-generation" at the :117 call site; label="production"
 tmpl = ChatPromptTemplate.from_template(lf_prompt.get_langchain_prompt())
 tmpl.metadata = {"langfuse_prompt": lf_prompt}   # THIS links prompt version → generation
 ```
