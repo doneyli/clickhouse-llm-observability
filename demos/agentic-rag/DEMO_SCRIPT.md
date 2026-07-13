@@ -66,8 +66,15 @@ docker compose --profile demo up -d mcp-rag-retriever
 ./scripts/seed-librechat-agents.sh
 ```
 
+**Pre-run the money trace:** run Act 2's self-correction command once *now* (the
+`python -c` block in Act 2's Show), confirm the step log shows `grade → not
+relevant | rewrite → … | grade → relevant`, then open that trace in Langfuse and
+**pin it in its own tab**. Never hunt for the loop live — and if you must find
+one later, filter Traces by the score `retrieval_relevance = 0`.
+
 **Browser tabs ready:** Langfuse Traces (`:3001`, `demo@example.com` / `demodemo1!`),
-a terminal, LibreChat (`:3080`), and the architecture diagram.
+the pinned self-correcting trace, a terminal, LibreChat (`:3080`), and the
+architecture diagram.
 
 ---
 
@@ -109,6 +116,12 @@ itself*, running on ClickHouse's native vector search — no separate vector DB 
 with every decision traced and scored in Langfuse. Two things to watch: ClickHouse
 is doing the vector work, and Langfuse is showing the agent's reasoning as a graph."
 
+> **Coming from the property-concierge demo?** This is the pivot sentence:
+> *"There, scores **recorded** how good each answer was. Here, a score
+> **decides** what the agent does next."* Same evaluator machinery, promoted
+> from monitoring to control — and it answers the question technical audiences
+> always ask first: "can a score actually change the behavior?"
+
 ---
 
 ## Act 1 · ClickHouse IS the vector database (5 min)
@@ -144,6 +157,11 @@ The *same engine* stores our Langfuse traces, our vectors, and our business data
 need to filter or join vector results against your operational data — and can you
 today?"
 
+> **Presenter note:** the moment their answer names a system — Elasticsearch,
+> pgvector, Pinecone — anchor everything that follows against *that* system
+> ("what you do with an ES index today, watch this table do in SQL"). The
+> generic argument is fine; the named comparison is what sticks.
+
 > **Fallback:** if the table is empty, re-run `... run --rm agentic-rag python ingest.py`.
 
 ---
@@ -175,7 +193,12 @@ generate → drafted answer | reflect → grounded
 its own retrieval and rejected it*, rewrote the query, retrieved again, and only
 *then* answered — and finally checked the answer was grounded in the context. A
 naive pipeline would have answered from that first weak retrieval and you'd never
-know. This is CRAG: route, retrieve, grade, correct, generate, reflect."
+know. This is CRAG: route, retrieve, grade, correct, generate, reflect." The
+simplest way to say it: **every step passes a gate — above the bar, continue;
+below it, do something different.** (If pressed on how the grade works: here
+it's an LLM check — which is why it isn't 100% deterministic — but the gate
+pattern works identically with a deterministic threshold, e.g. a
+cosine-distance cutoff.)
 
 **Ask.** "When your RAG misses today, what's the recovery — does anything catch it,
 or does the bad answer just go out? What would it be worth to have the system retry
@@ -207,7 +230,12 @@ retrieve→grade→rewrite→retrieve loop drawn out.
 **Land.** "These are real Langfuse Scores, so retrieval quality and groundedness
 become things you *chart over time, filter traces by, and compare* — naive vs
 agentic RAG, model A vs model B. The typing is what makes Langfuse draw this as an
-agent graph instead of a flat log."
+agent graph instead of a flat log." The score does double duty: **in the moment
+it steered the agent; persisted, it drives triage** — filter to the runs where
+the grade failed, ask *why did this take two attempts?*, and the pattern tells
+you what to fix: the prompt, the embedding model, the chunking. And note what
+you did *not* build to get this — the gate, the scores and the graph all ride on
+the instrumentation; the alternative is a pile of custom eval infrastructure.
 
 **Who checks the checker? (higher-value beat).** The scores above are the agent
 grading *itself*. If you ran `./scripts/seed-agentic-rag-evaluators.sh`, Langfuse
@@ -288,6 +316,10 @@ need the same quality guarantees, or do they diverge today?"
    quality, catch regressions, and calibrate the agent's self-grades against
    independent judges. "Naive RAG hopes; this system checks its work — and you can
    watch it do so."
+
+Then hand them the asset: this repo is public and self-contained — the graph,
+the ingest script, the evaluators, the seeds. "Clone it, point the ingest at
+your own docs, and this is your prototype."
 
 ---
 
