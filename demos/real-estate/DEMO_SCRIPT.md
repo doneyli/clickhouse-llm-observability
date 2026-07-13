@@ -281,8 +281,9 @@ stall teams are decisions: *should we switch models? did this change make things
 better or worse?* You answer those on a fixed test set, not on live traffic.
 Put it in SDLC terms — most AI engineers are software engineers first, so hand
 them the mental model they already trust: the **dataset is your test suite**, an
-**experiment is a test run**, and a **score threshold is the quality gate** that
-decides what ships.
+**experiment is a test run**, and a **score threshold is the quality gate** you
+want deciding what ships (Act 6 shows how far this repo's reference pipeline
+takes that today).
 
 **Show.** **Datasets → `property-concierge-eval`** (10 items): show an `input`
 question and `expected_output` (criteria + ground-truth constraints) — buy/rent,
@@ -388,9 +389,11 @@ business watching cost and quality?"
 
 End by giving the room the asset, not a promise of one: this repo is **public
 and self-contained** — portal, agent, evaluators, datasets, seed scripts.
-"Clone it, run `./run_demo.sh`, and make it your own." The only one-time setup
-on a fresh Langfuse org is creating a project and copying its **API keys** into
-`.env`. If they use a coding agent (Claude Code, Codex, …), point them at the
+"Clone it, run `./run_demo.sh`, and make it your own." The one-time setup is
+the same Pre-flight as above: the venv, a Langfuse project with its **API keys**
+in `.env`, and an **`ANTHROPIC_API_KEY`** beside them — plus, for the managed
+judges and the GPT comparison, the two **LLM Connections** in Settings and the
+OpenAI key in `.env`. If they use a coding agent (Claude Code, Codex, …), point them at the
 repo's **langfuse skill + CLI** — it makes the agent fluent in the SDK and the
 API, which is most of the instrumentation learning curve.
 
