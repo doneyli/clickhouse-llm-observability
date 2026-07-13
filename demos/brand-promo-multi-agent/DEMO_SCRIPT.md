@@ -10,7 +10,7 @@ dataset with a certification gate** fit for CI.
 - **App:** PromoPlanner — `classify intent → research crew (3 agents + tools) →
   strategy crew (2 agents) → compliance checks → compose brief`
 - **Frameworks:** LangGraph (orchestration) + CrewAI (crews) — deliberately
-  multi-framework, because real estates are
+  multi-framework, because real agent estates are mixed
 - **Models, tiered by job:** Sonnet for research, **Opus for strategy**, Haiku
   on compliance, Opus as judge — cost-per-role is part of the story
 - **Observability backend:** Langfuse (`http://localhost:3001`), standalone
@@ -71,7 +71,10 @@ render; Prompts shows ~12 under `promo-planner/`; dataset
 `promo-planner-golden-v1` has 75 items; annotation queue has ~10 items; the
 Runs tab is non-empty. **Note:** the online evaluators and dashboards may need
 one-time manual creation in the UI — the seed scripts print exact checklists
-when the API can't create them.
+when the API can't create them. Creating the online judges in the UI requires
+an **Anthropic LLM Connection** in the demo's Langfuse project first
+(**Settings → LLM Connections**; the judge model is `claude-opus-4-7`) — add
+it before working through the evaluator checklist, or the judge setup fails.
 
 **Browser tabs ready:** Traces, the three dashboards (Executive / Ops /
 Engineer), Prompts, Datasets → Runs, Annotation Queues — plus a terminal.
@@ -438,12 +441,13 @@ prompt_override = os.getenv("PROMO_SYSTEM_PROMPT_OVERRIDE", "").strip()   # set 
 ## Reset / re-run
 
 ```bash
-uv run scripts/seed_all.py                    # re-seed everything (idempotent; dataset upserts by hash)
+uv run scripts/seed_all.py                    # re-seed everything (dataset upserts by hash; prompt seeding mints a new version each run)
 uv run scripts/generate_history.py            # append more synthetic history (--total N --seed 42)
 uv run scripts/run_live_demo.py play-all      # regenerate the 5 live traces
 uv run python scripts/run_experiment.py --run-name fresh --sample 10 --evaluators deterministic
 PYTHONPATH=. uv run --with pytest pytest tests/   # regression tests (evaluators, fault injection)
 ```
 
-No teardown script ships — "reset" is re-seeding (idempotent) or clearing the
-Langfuse project in the UI. Health check: `curl http://localhost:3001/api/public/health`.
+No teardown script ships — "reset" is re-seeding (safe to repeat, though each
+run adds prompt versions) or clearing the Langfuse project in the UI. Health
+check: `curl http://localhost:3001/api/public/health`.

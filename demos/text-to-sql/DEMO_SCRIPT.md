@@ -242,8 +242,10 @@ docker compose --profile tools run --rm test-scenarios
 
 In Langfuse, filter Traces by tag `test-scenario`: scenarios tagged
 `relevance-test` / `hallucination-test` / `control` get scored by the managed
-**Relevance / Correctness / Hallucination** judges (configured once in the UI,
-no app code). The deliberately-bad scenarios score low — the judges *catch* them.
+**Relevance / Correctness / Hallucination** judges (provisioned once — in this
+self-hosted stack by `scripts/seed-llm-judge-evaluators.sh`, or in the
+Evaluators UI on Langfuse Cloud — no app code either way). The
+deliberately-bad scenarios score low — the judges *catch* them.
 
 **Land.** "Two layers, deliberately: deterministic code for the mechanical
 policies at 100% coverage, LLM judges for the semantic questions on a sample.

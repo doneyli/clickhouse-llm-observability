@@ -7,7 +7,7 @@ deliberately the *naive baseline*: the shape most teams' first RAG takes. Use it
 to teach the fundamentals in fifteen minutes, and to set up the pivot to the
 self-correcting [`agentic-rag`](../agentic-rag/DEMO_SCRIPT.md) demo.
 
-- **App:** embed → retrieve (top-3) → generate, over a 9-document knowledge base
+- **App:** embed → retrieve (top-3) → generate, over a 10-document knowledge base
   (ClickHouse & LLM-observability topics), CLI batch + interactive
 - **Vector store:** ChromaDB **in-process** (re-indexed each run — zero extra infra)
 - **Models:** `all-MiniLM-L6-v2` embeddings (local, CPU) + `claude-sonnet-4-6`
@@ -109,7 +109,7 @@ watch what the *minimum* integration — one callback handler — buys.
 docker compose --profile demo run --rm vector-rag python main.py
 ```
 
-It indexes the 9-doc corpus (watch `Indexed N chunks from 9 documents` — chunked
+It indexes the 10-doc corpus (watch `Indexed N chunks from 10 documents` — chunked
 at 500 chars, embedded locally, in-memory), then answers 10 questions like
 *"How does ClickHouse handle high-cardinality data?"* and *"What are vector
 embeddings and how are they used?"*.
@@ -307,7 +307,7 @@ LANGFUSE_ENABLED = bool(PUBLIC_KEY and SECRET_KEY)   # no keys → app runs untr
 ## Talking points & objections
 
 - **"ChromaDB in production?"** Here it's the deliberately-simple choice: in-
-  process, re-indexed per run, zero infra — right for a 9-doc teaching demo. The
+  process, re-indexed per run, zero infra — right for a 10-doc teaching demo. The
   production-shaped answer is the agentic-rag demo: **ClickHouse-native HNSW**,
   where vectors live in the same engine as your analytics and your traces, and
   hybrid vector+SQL+text queries are one statement.
