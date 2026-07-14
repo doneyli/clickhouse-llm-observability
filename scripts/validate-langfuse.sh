@@ -154,7 +154,9 @@ else
     warn "LibreChat API container is not running"
 fi
 
-if curl -s http://localhost:3080/api/health > /dev/null 2>&1; then
+# v0.8.6+ serves /health; older builds served /api/health — probe both.
+if curl -s http://localhost:3080/health > /dev/null 2>&1 \
+    || curl -s http://localhost:3080/api/health > /dev/null 2>&1; then
     pass "LibreChat API is healthy"
 else
     warn "LibreChat API is not responding"
