@@ -19,12 +19,12 @@ LATENCY_PARAMS: dict[str, tuple[float, float]] = {
     "timeout_tool": (5000.0, 0.1),
 }
 
-# Token cost per million tokens (input, output)
+# Token cost per million tokens (input, output) — Anthropic list prices.
 MODEL_COSTS: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.0, 15.0),
-    "claude-opus-4-7": (15.0, 75.0),
-    "claude-haiku-4-5": (0.80, 4.0),
-    "claude-haiku-4-5-20251001": (0.80, 4.0),
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-haiku-4-5-20251001": (1.0, 5.0),
 }
 
 # Typical token counts per generation type (input_tokens, output_tokens)
@@ -48,10 +48,23 @@ def sample_latency(span_type: str, rng: random.Random) -> int:
     return max(10, int(sample))
 
 
-def compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Compute cost in USD for a generation."""
+def compute_cost_details(model: str, input_tokens: int, output_tokens: int) -> dict[str, float]:
+    """Per-usage-type cost in USD, for Langfuse's generation ``cost_details``.
+
+    Sending explicit cost makes Langfuse store it directly — no model-price
+    lookup — which is what these synthetic, backdated traces need (a price
+    definition's effective date would otherwise skip backfilled timestamps).
+    """
     input_cost_pm, output_cost_pm = MODEL_COSTS.get(model, (3.0, 15.0))
-    return (input_tokens * input_cost_pm + output_tokens * output_cost_pm) / 1_000_000
+    return {
+        "input": input_tokens * input_cost_pm / 1_000_000,
+        "output": output_tokens * output_cost_pm / 1_000_000,
+    }
+
+
+def compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Compute total cost in USD for a generation."""
+    return sum(compute_cost_details(model, input_tokens, output_tokens).values())
 
 
 def sample_tokens(token_type: str, rng: random.Random) -> tuple[int, int]:
