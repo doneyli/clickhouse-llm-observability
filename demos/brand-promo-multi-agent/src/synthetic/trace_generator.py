@@ -20,7 +20,7 @@ from langfuse.api.ingestion.types.score_body import ScoreBody
 from langfuse.api.ingestion.types.trace_body import TraceBody
 
 from src.config import load_config
-from src.synthetic.distributions import sample_latency, sample_tokens
+from src.synthetic.distributions import compute_cost_details, sample_latency, sample_tokens
 from src.synthetic.query_templates import (
     build_promo_planner_input,
     build_promo_planner_output,
@@ -131,7 +131,8 @@ def _mk_gen(
             model=model,
             input=inp,
             output=out,
-            usage={"input": usage_in, "output": usage_out},
+            usage_details={"input": usage_in, "output": usage_out},
+            cost_details=compute_cost_details(model, usage_in, usage_out),
             start_time=_ts(start),
             end_time=_ts(end),
             metadata=metadata,
