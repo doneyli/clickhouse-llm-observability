@@ -66,10 +66,17 @@ services:
       - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/LibreChat}
       - MEILI_HOST=${MEILI_HOST:-http://meilisearch:7700}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-DrhYf7zENyR6AlUCKmnz0eYASOQdl6zxH7s7MKFSfFCt}
-      # Native Langfuse Integration (real-time tracing)
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Native Langfuse Integration (real-time tracing).
+      # NOTE: keys are intentionally NOT set here as ${LANGFUSE_PUBLIC_KEY}.
+      # Compose interpolates ${...} from the invoking SHELL before .env, so a
+      # shell that exports placeholder LANGFUSE_* keys (a common dev footgun)
+      # would inject invalid credentials → 401 on every trace/score export.
+      # Instead they come straight from env_file (.env), which Compose reads
+      # literally from the file and never overlays with the shell environment.
       - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+      # .env's LANGFUSE_HOST is the host-side URL (localhost:3001); override it
+      # with the Docker-internal URL — the v0.8.7 Langfuse SDK also reads it.
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       # Langfuse SDK v5 (OTEL) batches spans; flush on dispose so request-scoped
       # agent runs export before the handler is torn down.
       - LANGFUSE_FORCE_FLUSH_ON_DISPOSE=true
@@ -81,7 +88,9 @@ services:
       - ./logs:/app/api/logs
       - ./images:/app/client/public/images
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3080/api/health"]
+      # LibreChat's readiness endpoint is /health (v0.8.6+ exposes explicit
+      # readiness endpoints); /api/health 404s and left the container "unhealthy".
+      test: ["CMD", "curl", "-f", "http://localhost:3080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -99,23 +108,11 @@ services:
     volumes:
       - ./librechat/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
-  # LibreChat thumbs feedback -> Langfuse user-feedback score (Monitor node of the
-  # AI Engineering loop). nginx mirrors the feedback route here fire-and-forget
-  # (see librechat/nginx.conf); this maps conversationId+messageId back to the
-  # Langfuse trace and writes the score. It's a pure HTTP consumer of the Langfuse
-  # API (like `api`), NOT part of the self-hosted Langfuse infra — so it's a CORE
-  # service (no profile), which is what makes it start in BOTH self-hosted and
-  # `DEPLOY_MODE=cloud` (setup.sh runs cloud without `--profile langfuse`). It
-  # fails safe if Langfuse is unreachable, same as the nginx mirror.
-  feedback-bridge:
-    build:
-      context: ./librechat/feedback-bridge
-    container_name: librechat-feedback-bridge
-    restart: always
-    environment:
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+  # NOTE: LibreChat thumbs 👍/👎 → Langfuse `user-feedback` score is now handled
+  # NATIVELY by LibreChat (v0.8.6+, see packages/api/src/langfuse/feedback.ts):
+  # the feedback route writes a BOOLEAN `user-feedback` score (id feedback-<traceId>)
+  # directly, and deletes it on retract. The old `feedback-bridge` sidecar + nginx
+  # mirror that reconstructed this before native support existed have been removed.
 
   # MongoDB database
   mongodb:
