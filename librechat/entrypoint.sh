@@ -9,11 +9,15 @@
 # (No evaluator filters on the trace name — the managed judges key on tags /
 # observation names — so the rename does not affect scoring.)
 
-sed -i "s/runName: 'AgentRun',/runName: 'LibreChat', tags: ['librechat'],/g" \
+# Match either quote style: source controllers use 'AgentRun' (single quotes),
+# the bundled packages/api dist uses "AgentRun" (double quotes). -E gives us a
+# quote character class; the replacement always emits valid single-quoted JS.
+sed -i -E "s/runName: ['\"]AgentRun['\"],/runName: 'LibreChat', tags: ['librechat'],/g" \
     /app/api/server/controllers/agents/client.js \
     /app/api/server/controllers/agents/openai.js \
     /app/api/server/controllers/agents/responses.js \
     /app/packages/api/dist/index.js \
+    /app/packages/api/dist/index.cjs \
     2>/dev/null || true
 
 exec node api/server/index.js

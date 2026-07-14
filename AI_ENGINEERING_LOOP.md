@@ -40,7 +40,7 @@ it across the whole stack.
 | # | Step | Across the main stack | Deep-dive example |
 |---|------|----------------------|-------------------|
 | 1 | **Trace** | All apps emit full traces (prompts, tools, retrieval, cost) to the Langfuse project | `demos/agentic-rag/graph.py`, `demos/text-to-sql/sql_pipeline.py` |
-| 2 | **Monitor** | **LLM Observatory** dashboard (`dashboard/`, `:8005`); code + LLM-judge scores; **👍/👎 user feedback** — LibreChat thumbs → `user-feedback` score via `librechat/feedback-bridge/`, and the `demos/real-estate/` portal | Langfuse **Dashboards** / **Evaluators** |
+| 2 | **Monitor** | **LLM Observatory** dashboard (`dashboard/`, `:8005`); code + LLM-judge scores; **👍/👎 user feedback** — LibreChat thumbs → `user-feedback` score natively (v0.8.6+), and the `demos/real-estate/` portal | Langfuse **Dashboards** / **Evaluators** |
 | 3 | **Build datasets** | `scripts/seed-datasets.py` (coding-quality + security datasets); production traces → dataset from the UI | `demos/real-estate/` 10-item eval set |
 | 4 | **Experiment** | `scripts/run-experiments.py` — compare **models / datasets** on the eval sets | **prompt-variant** experiments: `demos/real-estate/` + `agentic-rag` |
 | 5 | **Evaluate** | Deterministic **code evaluators** (`evaluators/*.ts`, seeded by `scripts/seed-code-evaluators.sh`) + **LLM-as-a-Judge** (`scripts/seed-llm-judge-evaluators.sh`) | human **annotation** queue in `demos/real-estate/` |
@@ -66,13 +66,14 @@ GitHub-integration path documented in `demos/real-estate/cicd/`.
 
 ## User feedback (Monitor) — how LibreChat's thumbs reach Langfuse
 
-LibreChat's native 👍/👎 (`PUT /api/messages/:conv/:msg/feedback`) is mirrored
-**fire-and-forget** by nginx (`librechat/nginx.conf`) to a small sidecar
-(`librechat/feedback-bridge/`, `langfuse` profile). The sidecar maps the
-conversation+message back to its Langfuse trace (`trace.sessionId ==
-conversationId`, `trace.metadata.messageId == messageId`) and writes a
-`user-feedback` score — so real user judgement sits next to the automated evals.
-A down/slow bridge never affects the user's click.
+LibreChat's native 👍/👎 (`PUT /api/messages/:conv/:msg/feedback`) writes a
+Langfuse `user-feedback` score **natively** (v0.8.6+, `packages/api/src/langfuse/
+feedback.ts`): a BOOLEAN score (`value` 1/0, id `feedback-<traceId>`) on the
+answer's trace, deleted when the user retracts the rating — so real user
+judgement sits next to the automated evals. It's activated by the same
+`LANGFUSE_*` env vars that turn on tracing; no extra service is required.
+(Earlier builds lacked this, so the demo previously reconstructed the score with
+an nginx-mirrored `feedback-bridge` sidecar — removed now that it's native.)
 
 ## The loop, end-to-end in one demo
 

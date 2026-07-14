@@ -106,7 +106,7 @@ demos/                      # The distinct LLM-app demos (see demos/README.md)
   real-estate/              #   Standalone agentic concierge — the loop end-to-end (own venv/.env)
   brand-promo-multi-agent/  #   Standalone multi-agent promo assistant (LangGraph + CrewAI, uv)
   langfuse-rls/             #   Standalone trace RLS prototype (Next.js)
-librechat/                  # LibreChat customizations (Dockerfile.api, nginx.conf, feedback-bridge/)
+librechat/                  # LibreChat customizations (Dockerfile.api, entrypoint.sh, nginx.conf)
 test-scenarios/             # 40 synthetic traces for evaluation testing
 evaluators/                 # Langfuse code evaluators (TypeScript, seeded into Langfuse by setup)
 dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alpine.js)

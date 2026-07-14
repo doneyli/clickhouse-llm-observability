@@ -1,6 +1,8 @@
-# Note: librechat-dev only publishes `latest` and commit SHA tags on ghcr.io.
-# Pin to a specific commit SHA for full reproducibility if needed.
-FROM ghcr.io/danny-avila/librechat-dev:latest
+# Note: librechat-dev only publishes `latest` and commit-SHA/digest tags on ghcr.io.
+# Pinned by digest for reproducibility — this is LibreChat v0.8.7 (built 2026-07-09),
+# the first line with NATIVE Langfuse feedback scoring (packages/api/src/langfuse/feedback.ts).
+# To upgrade: `docker pull ghcr.io/danny-avila/librechat-dev:latest`, then update this digest.
+FROM ghcr.io/danny-avila/librechat-dev@sha256:7f95c733d6c9b29de9feb7dd14efa8b29cb0d369bf49710daf7e9b302a8bbe41
 
 USER root
 
