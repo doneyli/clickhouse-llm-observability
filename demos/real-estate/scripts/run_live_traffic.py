@@ -71,6 +71,12 @@ TRAFFIC = [
      None, "lena.k", ["live", "fault-demo"], "hallucinate"),
     ("Quiero alquilar un piso de 2 habitaciones en Sevilla, cerca del centro.",
      None, "pablo.d", ["live", "fault-demo"], "wrong_language"),
+    # Tool-use failures: the trace itself lacks a tool:search_listings span,
+    # so used-search-tool = 0 and the trace tree tell the same story.
+    ("What 2-bedroom apartments are available to buy in Madrid right now, under €400,000?",
+     None, "nadia.s", ["live", "fault-demo"], "no_search"),
+    ("Find me a family apartment to buy in Valencia near good schools, around €300,000.",
+     None, "victor.m", ["live", "fault-demo"], "wrong_tool"),
 ]
 
 

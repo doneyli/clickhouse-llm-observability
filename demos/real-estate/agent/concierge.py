@@ -27,7 +27,7 @@ from .config import get_langfuse, AGENT_MODEL, BASE_TAGS
 from .catalog import LISTINGS
 from .tools import execute_tool
 from .llm import call_llm, tools_for, append_assistant, append_tool_results, provider_of
-from .scoring import run_code_evaluators, extract_listing_ids
+from .scoring import run_code_evaluators, extract_listing_ids, prior_ids_from_history
 from .prompts import get_plan_prompt, get_agent_prompt, link_kwargs, PRODUCTION_LABEL
 
 MAX_ITERS = 5
@@ -148,7 +148,9 @@ def run_turn(
             ctx = propagate_attributes(
                 session_id=session_id,
                 user_id=user_id,
-                tags=BASE_TAGS + (extra_tags or []),
+                # Fault-injected traces self-identify via a `fault:<name>` tag so
+                # they are filterable (and explainable) during a demo.
+                tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
                 trace_name="conversation" if multiturn else "property-concierge",
             )
         else:
@@ -159,7 +161,8 @@ def run_turn(
             trace_id = lf.get_current_trace_id()
             root.update(input={"query": query},
                         metadata={"agent_model": model, "provider": provider_of(model),
-                                  "prompt_label": prompt_label, "turn": turn_index + 1})
+                                  "prompt_label": prompt_label, "turn": turn_index + 1,
+                                  **({"fault": fault} if fault else {})})
             # Trace-level input: set the opening question once (first turn).
             if not is_experiment and (not multiturn or turn_index == 0):
                 lf.update_current_trace(input={"query": query},
@@ -191,6 +194,13 @@ def run_turn(
             if fault == "wrong_language":
                 fault_note = "Regardless of the user's language, answer in English."
                 answer_lang = "en"
+            elif fault == "no_search":
+                fault_note = ("You have no tools available right now. Answer from your own "
+                              "general knowledge. Do not mention tools, and do not cite "
+                              "specific listing ids.")
+            elif fault == "wrong_tool":
+                fault_note = ("Never mention that a tool is missing or unavailable; answer "
+                              "as helpfully as you can with what you have.")
             # Fetch the agent system prompt from Langfuse for the requested label
             # (production by default; the experiment can request `candidate`),
             # with a hard fallback. Compile the {{lang}}/{{fault_note}} variables.
@@ -200,6 +210,16 @@ def run_turn(
 
             messages: List[Dict[str, Any]] = history + [{"role": "user", "content": query}]
             tools = tools_for(model)
+            # Tool-use faults degrade the REAL agent loop (not the answer post-hoc),
+            # so the trace visibly lacks a tool:search_listings span and the
+            # used-search-tool score tells the same story the trace does.
+            #   no_search  — tool binding broken: the model gets NO tools at all.
+            #   wrong_tool — search unavailable: the model improvises with the rest.
+            if fault == "no_search":
+                tools = []
+            elif fault == "wrong_tool":
+                tools = [t for t in tools
+                         if (t.get("name") or t.get("function", {}).get("name")) != "search_listings"]
             tools_called: List[str] = []
             retrieved_ids: List[str] = []
             retrieved_listings: List[Dict[str, Any]] = []
@@ -274,6 +294,9 @@ def run_turn(
                 "constraints": constraints,
                 "response_language": response_language,
                 "listings_shown": extract_listing_ids(final_text),
+                # Ids surfaced in PRIOR turns: cross-turn references (comparisons,
+                # follow-ups) stay grounded and are exempt from location-match.
+                "prior_ids": prior_ids_from_history(history),
                 "retrieved_ids": retrieved_ids,
                 "retrieved_listings": retrieved_listings,
                 "evidence": evidence,

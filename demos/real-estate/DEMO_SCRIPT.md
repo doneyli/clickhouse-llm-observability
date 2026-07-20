@@ -239,6 +239,17 @@ which path it took.
 - `hallucinate` → `grounded-listings = false` (recommended a non-existent id).
 - `over_budget` → `budget-adherence < 1` (pushed an over-budget option).
 - `wrong_language` → `language-match = false` (Spanish question, English answer).
+- `no_search` → `used-search-tool = false` (tool binding broken: the trace has
+  **no tool spans at all** — the agent answered from memory).
+- `wrong_tool` → `used-search-tool = false` (agent called tools, just never the
+  catalog search — open the trace tree to show spans without `tool:search_listings`).
+
+Every fault-injected trace also carries a `fault:<name>` tag and a `fault` field
+in its metadata, so you can (a) filter to one failure mode live, and (b) prove
+to a skeptical audience that the bad traces are seeded, not real regressions.
+The stronger move: filter by **score** instead (e.g. `used-search-tool = 0`) and
+let the evals *surface* the bad traces for you — then open one and show the
+trace tree agrees with the score.
 
 **Land.** "Deterministic checks run free on 100% of traffic; LLM judges cover the
 subjective stuff; real user feedback sits right beside both. When the agent
