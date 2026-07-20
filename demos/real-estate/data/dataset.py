@@ -1,9 +1,11 @@
 """
-Evaluation dataset for the Real Estate Property Concierge (10 items).
+Evaluation dataset for the Real Estate Property Concierge (18 items).
 
-A realistic mix of buy/rent, English/Spanish, several cities and difficulty
+A realistic mix of buy/rent, English/Spanish, cities across Europe and difficulty
 levels — including one intentionally-hard item (impossible budget) so the
-experiment shows scores that genuinely vary.
+experiment shows scores that genuinely vary. The first 10 items are the original
+Spanish-city benchmark; items 11–18 add one query per non-Spanish market so every
+city in the catalog is exercised by the offline experiment.
 
 Each item:
   input           -> {"question": "..."}   (what the agent receives)
@@ -15,7 +17,7 @@ Each item:
 DATASET_NAME = "property-concierge-eval"
 DATASET_DESCRIPTION = (
     "Real-estate property-search assistant evaluation. Natural-language home-search "
-    "queries (buy/rent, EN/ES, multiple Spanish cities) with ground-truth constraints "
+    "queries (buy/rent, EN/ES, cities across Europe) with ground-truth constraints "
     "for grounding, budget, location and language checks plus LLM-as-a-Judge quality."
 )
 
@@ -129,5 +131,95 @@ ITEMS = [
                          "min_bedrooms": 1, "query_language": "en"},
         },
         "metadata": {"city": "Barcelona", "operation": "buy", "language": "en", "difficulty": "hard"},
+    },
+
+    # ---- Wider-Europe coverage (one item per non-Spanish market) --------------
+    {
+        "input": {"question": "I'd like to buy a renovated 2-bedroom apartment in Lisbon for up to "
+                              "€550,000. What's the neighborhood like?"},
+        "expected_output": {
+            "criteria": "Recommends a real Lisbon 2-bed to buy ≤ €550,000; adds neighborhood "
+                        "context; cites listing id(s).",
+            "expected": {"location": "Lisbon", "operation": "buy", "max_price": 550000,
+                         "min_bedrooms": 2, "query_language": "en"},
+        },
+        "metadata": {"city": "Lisbon", "operation": "buy", "language": "en", "difficulty": "medium"},
+    },
+    {
+        "input": {"question": "I'm after a furnished 2-bedroom apartment to rent near Canal "
+                              "Saint-Martin in Paris, up to €2,500 a month."},
+        "expected_output": {
+            "criteria": "Recommends a real furnished Paris 2-bed rental ≤ €2,500/mo near Canal "
+                        "Saint-Martin; cites listing id(s).",
+            "expected": {"location": "Paris", "operation": "rent", "max_price": 2500,
+                         "min_bedrooms": 2, "query_language": "en"},
+        },
+        "metadata": {"city": "Paris", "operation": "rent", "language": "en", "difficulty": "medium"},
+    },
+    {
+        "input": {"question": "I want to buy a 2-bedroom apartment in central Berlin for under "
+                              "€600,000, and I'd like to know the estimated monthly mortgage."},
+        "expected_output": {
+            "criteria": "Recommends a real central Berlin 2-bed to buy under €600k; includes a "
+                        "mortgage estimate; cites listing id(s).",
+            "expected": {"location": "Berlin", "operation": "buy", "max_price": 600000,
+                         "min_bedrooms": 2, "query_language": "en", "wants_mortgage": True},
+        },
+        "metadata": {"city": "Berlin", "operation": "buy", "language": "en", "difficulty": "medium"},
+    },
+    {
+        "input": {"question": "What furnished two-bedroom apartments can I rent in Amsterdam for "
+                              "under €2,200 a month, ideally with parking?"},
+        "expected_output": {
+            "criteria": "Recommends a real furnished Amsterdam 2-bed rental ≤ €2,200/mo, with "
+                        "parking if available; cites listing id(s).",
+            "expected": {"location": "Amsterdam", "operation": "rent", "max_price": 2200,
+                         "min_bedrooms": 2, "query_language": "en"},
+        },
+        "metadata": {"city": "Amsterdam", "operation": "rent", "language": "en", "difficulty": "easy"},
+    },
+    {
+        "input": {"question": "Find me a 3-bedroom apartment to buy in Rome close to a metro, "
+                              "budget up to €800,000."},
+        "expected_output": {
+            "criteria": "Recommends a real Rome 3-bed to buy ≤ €800k with metro access; cites "
+                        "listing id(s).",
+            "expected": {"location": "Rome", "operation": "buy", "max_price": 800000,
+                         "min_bedrooms": 3, "query_language": "en"},
+        },
+        "metadata": {"city": "Rome", "operation": "buy", "language": "en", "difficulty": "medium"},
+    },
+    {
+        "input": {"question": "We're looking to buy a 3-bedroom apartment in Vienna with parking "
+                              "and a terrace, up to €750,000."},
+        "expected_output": {
+            "criteria": "Recommends a real Vienna 3-bed to buy ≤ €750k with parking and a "
+                        "terrace; cites listing id(s).",
+            "expected": {"location": "Vienna", "operation": "buy", "max_price": 750000,
+                         "min_bedrooms": 3, "query_language": "en"},
+        },
+        "metadata": {"city": "Vienna", "operation": "buy", "language": "en", "difficulty": "medium"},
+    },
+    {
+        "input": {"question": "I need a furnished 2-bedroom apartment to rent in Dublin's docklands "
+                              "tech quarter, budget around €2,700 a month."},
+        "expected_output": {
+            "criteria": "Recommends a real furnished Dublin 2-bed rental around €2,700/mo near "
+                        "the Grand Canal Dock / docklands; cites listing id(s).",
+            "expected": {"location": "Dublin", "operation": "rent", "max_price": 2700,
+                         "min_bedrooms": 2, "query_language": "en"},
+        },
+        "metadata": {"city": "Dublin", "operation": "rent", "language": "en", "difficulty": "medium"},
+    },
+    {
+        "input": {"question": "We'd like to buy a house near the sea in Athens with a pool, budget "
+                              "about €650,000."},
+        "expected_output": {
+            "criteria": "Recommends a real Athens house to buy with a pool and sea view within "
+                        "~€650k; cites listing id(s).",
+            "expected": {"location": "Athens", "operation": "buy", "max_price": 650000,
+                         "query_language": "en"},
+        },
+        "metadata": {"city": "Athens", "operation": "buy", "language": "en", "difficulty": "medium"},
     },
 ]

@@ -56,6 +56,14 @@ TRAFFIC = [
     ("Busca un piso de 2 habitaciones en Gràcia, Barcelona, por menos de 450.000 euros. ¿Cómo es el barrio?",
      None, "nuria.m", ["live"], None),
 
+    # --- single-turn, clean, across Europe (same agent, wider catalog) ---
+    ("I want to buy a 2-bedroom apartment in central Berlin's Mitte for under €600,000; what's the mortgage?",
+     None, "jonas.b", ["live"], None),
+    ("Show me a renovated 2-bed to buy in Lisbon's Alfama for around €450,000. How's the neighborhood?",
+     None, "ana.f", ["live"], None),
+    ("Find a furnished 2-bedroom apartment to rent near Canal Saint-Martin in Paris, budget €2,500 a month.",
+     None, "claire.d", ["live"], None),
+
     # --- fault-injected so scores VARY (demo only) ---
     ("Find me a 2-bedroom flat to buy in Valencia under €250,000.",
      None, "tom.h", ["live", "fault-demo"], "over_budget"),

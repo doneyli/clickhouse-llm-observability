@@ -143,13 +143,19 @@ const EXAMPLES = [
   "Busca un piso de 2 habitaciones en Valencia por menos de 300.000 €",
   "Furnished 3-bed to rent in Barcelona under €2,000/mo with parking",
   "House with a pool and sea views near the beach in Málaga, ~€500k",
+  "Renovated 2-bed to buy in Lisbon's Alfama, around €450k",
+  "Furnished 2-bed to rent near Canal Saint-Martin in Paris",
 ];
 /* Subtle, desaturated city tints over the click-ui dark surface (var(--panel)) —
    distinct per city without breaking the restrained ClickHouse palette. */
 const CITY_GRAD = {
   Madrid:"linear-gradient(135deg,#3a2f2c,#282828)", Barcelona:"linear-gradient(135deg,#25333a,#282828)",
   Valencia:"linear-gradient(135deg,#3a352a,#282828)", Seville:"linear-gradient(135deg,#3a302a,#282828)",
-  "Málaga":"linear-gradient(135deg,#243139,#282828)", Bilbao:"linear-gradient(135deg,#2c3238,#282828)"
+  "Málaga":"linear-gradient(135deg,#243139,#282828)", Bilbao:"linear-gradient(135deg,#2c3238,#282828)",
+  Lisbon:"linear-gradient(135deg,#22363a,#282828)", Paris:"linear-gradient(135deg,#332c38,#282828)",
+  Berlin:"linear-gradient(135deg,#2b3036,#282828)", Amsterdam:"linear-gradient(135deg,#3a332a,#282828)",
+  Rome:"linear-gradient(135deg,#3a2d2a,#282828)", Vienna:"linear-gradient(135deg,#382a30,#282828)",
+  Dublin:"linear-gradient(135deg,#2a3a2f,#282828)", Athens:"linear-gradient(135deg,#26313a,#282828)"
 };
 const $ = s => document.querySelector(s);
 const thread = $("#thread");

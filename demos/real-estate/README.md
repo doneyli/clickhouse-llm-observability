@@ -37,7 +37,7 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Custom SDK judges** | groundedness / tone pushed from our own code |
 | **User feedback** (👍/👎) | portal thumbs write a `user-feedback` score onto the trace (Monitor signal) |
 | **Human annotation** | queue + score configs (reviewer-verdict, expert-usefulness) |
-| Datasets | `property-concierge-eval`, 10 curated items |
+| Datasets | `property-concierge-eval`, 18 curated items |
 | Experiments / runs + aggregates | `dataset.run_experiment(...)` with run-level averages |
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
 | **Prompt management** (versioned, labelled) | system prompts fetched by label from Langfuse; **linked to every generation** |
@@ -52,7 +52,9 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 A property-search concierge for an online real-estate marketplace. A user asks in
 natural language (EN or ES) — *"2-bed flat to buy in Madrid under €400k near a
 metro, and the mortgage"* — and the agent runs an Anthropic **tool-use loop** over
-a synthetic catalog:
+a synthetic catalog of homes across major European cities (Madrid, Barcelona,
+Valencia, Seville, Málaga, Bilbao, Lisbon, Paris, Berlin, Amsterdam, Rome, Vienna,
+Dublin and Athens):
 
 - `search_listings` — filter the catalog by city, buy/rent, price, bedrooms, features
 - `get_listing_details` — full record for one listing
