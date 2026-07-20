@@ -49,8 +49,51 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPEN_AI_API
 # Tags applied to every trace so the demo's traffic is easy to filter in the UI.
 BASE_TAGS = ["real-estate", "property-concierge"]
 
+# --- Optional trace mirror (e.g. self-hosted primary + Langfuse Cloud) -------
+# When all three are set, every span is ALSO exported to the mirror project
+# (same trace ids) and scores are duplicated via the mirror's public API.
+# Prompts, datasets, experiments and managed evaluators stay primary-only.
+MIRROR_PUBLIC_KEY = os.environ.get("LANGFUSE_MIRROR_PUBLIC_KEY")
+MIRROR_SECRET_KEY = os.environ.get("LANGFUSE_MIRROR_SECRET_KEY")
+MIRROR_HOST = os.environ.get("LANGFUSE_MIRROR_HOST")
+MIRROR_ENABLED = bool(MIRROR_PUBLIC_KEY and MIRROR_SECRET_KEY and MIRROR_HOST)
+
 _langfuse = None
 _anthropic = None
+_mirror_attached = False
+
+
+def _attach_mirror() -> None:
+    """Fan spans out to the mirror Langfuse via a second OTLP exporter.
+
+    The SDK's own LangfuseSpanProcessor filters spans by public key (so a
+    second Langfuse *client* would reject the primary's spans); a plain
+    BatchSpanProcessor on the same tracer provider exports everything —
+    identical spans, identical trace ids, on both backends.
+    """
+    global _mirror_attached
+    if _mirror_attached or not MIRROR_ENABLED:
+        return
+    import base64 as _b64
+
+    from opentelemetry import trace as _otel_trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    provider = _otel_trace.get_tracer_provider()
+    if not hasattr(provider, "add_span_processor"):
+        print(f"WARN: cannot attach Langfuse mirror ({MIRROR_HOST}): "
+              f"tracer provider {type(provider).__name__} is not the SDK provider.",
+              file=sys.stderr)
+        return
+    auth = _b64.b64encode(f"{MIRROR_PUBLIC_KEY}:{MIRROR_SECRET_KEY}".encode()).decode()
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
+        endpoint=f"{MIRROR_HOST}/api/public/otel/v1/traces",
+        headers={"Authorization": f"Basic {auth}",
+                 "x-langfuse-public-key": MIRROR_PUBLIC_KEY},
+    )))
+    _mirror_attached = True
+    print(f"✓ Mirroring traces to {MIRROR_HOST}")
 
 
 def get_langfuse():
@@ -64,7 +107,44 @@ def get_langfuse():
             secret_key=LANGFUSE_SECRET_KEY,
             host=LANGFUSE_HOST,
         )
+        _attach_mirror()
     return _langfuse
+
+
+def record_score(lf, **kwargs) -> None:
+    """create_score on the primary AND (best-effort) on the mirror.
+
+    Trace/observation ids are identical on both backends (same OTel spans),
+    so the same payload lands on the mirror via its public scores API.
+    """
+    lf.create_score(**kwargs)
+    if not MIRROR_ENABLED:
+        return
+    value = kwargs.get("value")
+    if isinstance(value, bool):  # public API wants 1/0 for BOOLEAN scores
+        value = 1 if value else 0
+    body = {
+        "traceId": kwargs.get("trace_id"),
+        "name": kwargs.get("name"),
+        "value": value,
+    }
+    if kwargs.get("observation_id"):
+        body["observationId"] = kwargs["observation_id"]
+    if kwargs.get("data_type"):
+        body["dataType"] = kwargs["data_type"]
+    if kwargs.get("comment"):
+        body["comment"] = kwargs["comment"]
+    try:
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(
+            f"{MIRROR_HOST}/api/public/scores", data=data, method="POST",
+            headers={"Authorization": "Basic " + base64.b64encode(
+                f"{MIRROR_PUBLIC_KEY}:{MIRROR_SECRET_KEY}".encode()).decode(),
+                "Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception as e:  # mirror is best-effort; never break the demo
+        print(f"WARN: mirror score '{kwargs.get('name')}' failed: {e}", file=sys.stderr)
 
 
 def get_anthropic():

@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.config import get_langfuse, verify_project
+from agent.config import get_langfuse, record_score, verify_project
 from agent.concierge import run_turn
 from agent.scoring import judge_groundedness, judge_tone
 
@@ -115,9 +115,9 @@ def main():
             # turn of a conversation gets its own groundedness/tone (not the trace).
             for judge in COMPLEMENTARY_JUDGES:
                 s = judge(result)
-                lf.create_score(trace_id=result["trace_id"],
-                                observation_id=result.get("final_generation_id"),
-                                name=s.name, value=s.value, data_type=s.data_type, comment=s.comment)
+                record_score(lf, trace_id=result["trace_id"],
+                             observation_id=result.get("final_generation_id"),
+                             name=s.name, value=s.value, data_type=s.data_type, comment=s.comment)
         shown = ", ".join(result["listings_shown"]) or "(none)"
         print(f"        -> tools={result['tools_called']} shown={shown} trace={result['trace_id'][:12]}")
 

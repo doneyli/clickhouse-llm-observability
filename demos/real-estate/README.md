@@ -102,6 +102,19 @@ the Anthropic LLM connection via API, and prints the ~2-minute UI recipe for
 the two judges (Helpfulness/Relevance on tag `real-estate`) instead of seeding
 them into the local Postgres.
 
+**Switching targets:** keep one env file per backend (e.g. `.env.cloud`
+alongside your self-hosted `.env`, both gitignored) and copy the one you want
+into place: `cp .env.cloud .env`. Everything — scripts, portal, experiments —
+follows `.env`. Restart the portal after switching.
+
+**Or send to both at once:** set the three `LANGFUSE_MIRROR_*` variables in
+`.env` (see `.env.example`). Every span is then exported to the mirror as
+well — **same trace ids on both backends** (one extra OTLP exporter on the
+same tracer provider) — and every code/judge/user-feedback score is duplicated
+via the mirror's public API. Prompts, datasets, experiments and managed
+evaluators remain primary-only; the mirror is best-effort and never blocks the
+demo if it's unreachable.
+
 ---
 
 ## Run it
