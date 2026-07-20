@@ -154,9 +154,20 @@ Key design choices:
 - **The groundedness judge sees all tool evidence** (listings + neighborhood +
   mortgage), not just search results, so legitimately-tooled facts aren't
   mis-scored as fabrication.
+- **Cross-turn references stay grounded.** In a multi-turn conversation, a
+  listing surfaced in an earlier turn (e.g. a "Madrid vs. Barcelona" comparison
+  citing turn 1's listing) is exempt from `grounded-listings` and
+  `location-match` — only *newly* recommended listings must match the current
+  location. `budget-adherence` deliberately keeps checking every listing cited,
+  so an earlier suggestion re-offered after a budget cut is still caught.
 - **Fault injection** (`run_live_traffic.py` only) deliberately degrades a few
-  answers — a hallucinated id, an over-budget push, a wrong-language reply — so
-  scores visibly vary and you can show evals catching real problems.
+  answers so scores visibly vary and you can show evals catching real problems:
+  a hallucinated id, an over-budget push, a wrong-language reply, plus two
+  tool-use failures — `no_search` (no tools bound: zero tool spans) and
+  `wrong_tool` (search removed: tool spans, but never a catalog search), both
+  scoring `used-search-tool = 0` with a trace tree that agrees. Every faulted
+  trace carries a `fault:<name>` tag and a `fault` metadata field, so you can
+  filter to a failure mode live and prove the bad traces are seeded.
 
 ---
 
