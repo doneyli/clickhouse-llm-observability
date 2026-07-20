@@ -108,7 +108,9 @@ This is the money path (DEMO_SCRIPT Act 6). Every step is real and runnable:
      metric at 1.00, so it's safe to promote `candidate` to the `production` label
      (Langfuse UI, or via the GitHub CI/CD gate); the app fetches `production`, so it
      serves the new prompt with no redeploy. Confirm with a repeat run first — the
-     judge edge is within noise.
+     judge edge is within noise. (Pass `--run-name` to `run_experiment.py` for the
+     repeat: re-running with the same name *replaces* the run, so a distinct name
+     is what lets you compare the two side by side.)
    - **Or keep iterating** — because a single run's judge delta isn't signal, the
      honest move is to re-run, widen the dataset, or design a sharper `candidate-v2`.
      The loop is a loop precisely because the first fix is rarely the last.

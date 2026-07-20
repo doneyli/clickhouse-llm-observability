@@ -99,9 +99,9 @@ Or run each piece individually:
 
 ```bash
 ./.venv/bin/python scripts/seed_prompts.py            # prompts → Langfuse (production + candidate)
-./.venv/bin/python scripts/seed_dataset.py            # create the 10-item dataset
+./.venv/bin/python scripts/seed_dataset.py            # create the 18-item dataset
 ./scripts/seed_managed_evaluators.sh                  # native LLM judges (auto, Anthropic)
-./.venv/bin/python scripts/run_live_traffic.py        # ~10 traces + sessions + code/custom scores
+./.venv/bin/python scripts/run_live_traffic.py        # ~13 traces + sessions + code/custom scores
 ./.venv/bin/python scripts/seed_annotation_queue.py   # human-review queue + score configs
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6   # Claude run
 ./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare models)
@@ -123,7 +123,7 @@ agent/prompts.py    system prompts fetched by label ────────┘ 
 agent/tools.py      4 tools over agent/catalog.py               │
 agent/scoring.py    code evaluators + LLM judges  ◀─────────────┘ trace-level LLM-judge scores (live)
 evaluators/         adapters exposing scoring as experiment Evaluations + run-level aggregates
-data/dataset.py     the 10 evaluation items
+data/dataset.py     the 18 evaluation items
 ```
 
 Key design choices:
@@ -173,7 +173,7 @@ agent/
   scoring.py      code evaluators + LLM-as-a-Judge (pure functions -> Score)
 evaluators/
   experiment_evaluators.py   Score -> Langfuse Evaluation adapters + run aggregates
-data/dataset.py   10 evaluation items
+data/dataset.py   18 evaluation items
 scripts/
   seed_prompts.py            prompts -> Langfuse (production + candidate labels)
   seed_dataset.py            create the dataset

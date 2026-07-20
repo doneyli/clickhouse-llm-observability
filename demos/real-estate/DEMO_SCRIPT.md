@@ -262,7 +262,9 @@ trace tree agrees with the score.
 - *In multi-turn conversations*, a listing cited from an earlier turn (e.g. a
   cross-city comparison) stays grounded and is exempt from `location-match` —
   the comment reads "referenced from earlier turns". Only **newly** recommended
-  listings must match the current constraints.
+  listings must match the current location. `budget-adherence` deliberately
+  keeps checking *every* listing cited, so an earlier suggestion re-offered
+  after a budget cut is still caught.
 
 **Land.** "Deterministic checks run free on 100% of traffic; LLM judges cover the
 subjective stuff; real user feedback sits right beside both. When the agent
@@ -378,6 +380,9 @@ sit inside the noise floor. So you don't ship on one run's number; you re-run, a
 you lean on the deterministic checks that sit rock-steady at 1.00. That's evaluation
 rigor, not vibes — and it's exactly the trap teams fall into when they promote on a
 single shiny eval score."
+
+*(To show the noise floor live, re-run with a distinct `--run-name` — re-running
+under the same name replaces the previous run instead of adding a second one.)*
 
 **Deploy — or iterate.** In the **Prompts** tab, set the `production` label on the
 candidate to promote it. "The app fetches `production`, so it serves the new prompt

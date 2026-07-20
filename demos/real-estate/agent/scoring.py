@@ -59,9 +59,13 @@ def extract_listing_ids(text: str) -> List[str]:
 def prior_ids_from_history(history: Optional[List[Dict[str, Any]]]) -> List[str]:
     """Listing ids the assistant already surfaced in earlier conversation turns.
 
-    Cross-turn references (e.g. a "Madrid vs. Barcelona" comparison citing the
-    listing from turn 1) are grounded by the earlier turn's retrieval, so the
-    per-turn evaluators must not treat them as new, ungrounded recommendations.
+    Extracted from the TEXT of prior assistant messages — "was mentioned
+    before", not a re-verification of the original retrieval (each turn's
+    answer was already scored for grounding when it was produced). A cross-turn
+    reference (e.g. a "Madrid vs. Barcelona" comparison citing turn 1's
+    listing) must not be re-flagged as a new, ungrounded recommendation.
+    Exempts grounded-listings and location-match only; budget-adherence
+    deliberately still checks every listing cited (see comment there).
     """
     seen, out = set(), []
     for m in history or []:
@@ -120,6 +124,9 @@ def code_grounded_listings(result: Dict[str, Any]) -> Score:
 
 
 def code_budget_adherence(result: Dict[str, Any]) -> Score:
+    # Deliberately NO prior-turn exemption here (unlike grounding/location):
+    # re-offering an earlier listing after the user tightens their budget is a
+    # real failure this score must catch.
     shown = result.get("listings_shown") or []
     max_price = _constraints(result).get("max_price")
     real = [l for i in shown if (l := get_listing(i)) is not None]
