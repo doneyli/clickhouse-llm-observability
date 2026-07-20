@@ -2,8 +2,10 @@
 Shared configuration for the Real Estate Property Concierge demo.
 
 Key-isolation is the #1 landmine: this demo targets a *dedicated* Langfuse
-project ("real-estate"). If the surrounding shell has other LANGFUSE_* keys
-exported, every trace/dataset/score would silently land in the wrong project.
+project ("real-estate" by default; override with LANGFUSE_PROJECT_NAME, e.g.
+for a Langfuse Cloud project named differently). If the surrounding shell has
+other LANGFUSE_* keys exported, every trace/dataset/score would silently land
+in the wrong project.
 
 To prevent that we:
   1. Load this folder's .env explicitly.
@@ -20,7 +22,9 @@ import urllib.error
 import json
 from pathlib import Path
 
-from dotenv import load_dotenv
+import threading
+
+from dotenv import load_dotenv, dotenv_values
 
 # --- Load this folder's .env (overriding any inherited shell values) ---
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -50,18 +54,29 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPEN_AI_API
 BASE_TAGS = ["real-estate", "property-concierge"]
 
 # --- Optional trace mirror (e.g. self-hosted primary + Langfuse Cloud) -------
-# When all three are set, every span is ALSO exported to the mirror project
-# (same trace ids) and scores are duplicated via the mirror's public API.
-# Prompts, datasets, experiments and managed evaluators stay primary-only.
-MIRROR_PUBLIC_KEY = os.environ.get("LANGFUSE_MIRROR_PUBLIC_KEY")
-MIRROR_SECRET_KEY = os.environ.get("LANGFUSE_MIRROR_SECRET_KEY")
-MIRROR_HOST = os.environ.get("LANGFUSE_MIRROR_HOST")
+# When all three are set, every span — live, portal AND experiment — is ALSO
+# exported to the mirror project with the same trace ids. Scores are duplicated
+# only on the live-traffic/portal paths (via record_score below); experiment
+# evaluation scores, prompts, datasets, dataset runs and managed evaluators
+# exist only on the primary, so experiment traces appear on the mirror without
+# scores or run linkage.
+# Read STRICTLY from this folder's .env (never the shell environment): the
+# primary keys' shell-override landmine applies here too, and a stale
+# shell-exported LANGFUSE_MIRROR_* must not silently enable mirroring.
+_env_file = dotenv_values(_ENV_PATH)
+MIRROR_PUBLIC_KEY = _env_file.get("LANGFUSE_MIRROR_PUBLIC_KEY")
+MIRROR_SECRET_KEY = _env_file.get("LANGFUSE_MIRROR_SECRET_KEY")
+MIRROR_HOST = (_env_file.get("LANGFUSE_MIRROR_HOST") or "").rstrip("/") or None
 MIRROR_ENABLED = bool(MIRROR_PUBLIC_KEY and MIRROR_SECRET_KEY and MIRROR_HOST)
 
 _langfuse = None
 _anthropic = None
 _mirror_attached = False
 _mirror_processor = None
+# The portal serves sync FastAPI handlers from a thread pool; without a lock,
+# two cold-start requests could each attach a mirror processor (spans then
+# mirrored twice, one processor orphaned from flush/atexit).
+_langfuse_lock = threading.Lock()
 
 
 def _attach_mirror() -> None:
@@ -105,24 +120,29 @@ def _attach_mirror() -> None:
 
 
 def flush_langfuse(lf=None) -> None:
-    """Flush the primary client AND the mirror processor (if attached)."""
+    """Flush the primary client AND the mirror processor (if attached).
+
+    The mirror flush is capped at 3s so an unreachable mirror adds at most a
+    short delay to a turn/feedback request instead of hanging it.
+    """
     (lf or get_langfuse()).flush()
     if _mirror_processor is not None:
-        _mirror_processor.force_flush(10_000)
+        _mirror_processor.force_flush(3_000)
 
 
 def get_langfuse():
     """Return a singleton Langfuse client bound to the real-estate project keys."""
     global _langfuse
-    if _langfuse is None:
-        from langfuse import Langfuse
+    with _langfuse_lock:
+        if _langfuse is None:
+            from langfuse import Langfuse
 
-        _langfuse = Langfuse(
-            public_key=LANGFUSE_PUBLIC_KEY,
-            secret_key=LANGFUSE_SECRET_KEY,
-            host=LANGFUSE_HOST,
-        )
-        _attach_mirror()
+            _langfuse = Langfuse(
+                public_key=LANGFUSE_PUBLIC_KEY,
+                secret_key=LANGFUSE_SECRET_KEY,
+                host=LANGFUSE_HOST,
+            )
+            _attach_mirror()
     return _langfuse
 
 

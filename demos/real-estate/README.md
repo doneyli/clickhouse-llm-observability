@@ -108,12 +108,16 @@ into place: `cp .env.cloud .env`. Everything — scripts, portal, experiments �
 follows `.env`. Restart the portal after switching.
 
 **Or send to both at once:** set the three `LANGFUSE_MIRROR_*` variables in
-`.env` (see `.env.example`). Every span is then exported to the mirror as
-well — **same trace ids on both backends** (one extra OTLP exporter on the
-same tracer provider) — and every code/judge/user-feedback score is duplicated
-via the mirror's public API. Prompts, datasets, experiments and managed
-evaluators remain primary-only; the mirror is best-effort and never blocks the
-demo if it's unreachable.
+`.env` (see `.env.example`; they are read from the file only, so stray shell
+exports can't silently enable mirroring). Every span — live traffic, portal,
+*and* experiment runs — is then exported to the mirror as well, with the
+**same trace ids on both backends** (one extra OTLP exporter on the same
+tracer provider). Scores are duplicated on the live-traffic and portal paths
+(code scores, SDK judges, user feedback); experiment evaluation scores,
+prompts, datasets, dataset-run linkage and managed evaluators exist only on
+the primary — so experiment traces show up on the mirror *without* scores or
+run linkage. The mirror is best-effort: if it's unreachable, the demo logs a
+warning and continues, adding at most ~3s to a turn.
 
 ---
 
