@@ -251,6 +251,19 @@ The stronger move: filter by **score** instead (e.g. `used-search-tool = 0`) and
 let the evals *surface* the bad traces for you — then open one and show the
 trace tree agrees with the score.
 
+**How to read the scores (common audience questions):**
+- *"Why is `grounded-listings` still green on the `no_search` trace?"* The code
+  evals are deliberately **orthogonal** — each catches exactly one failure mode,
+  so a red score names the failure. With no listing ids in the answer there is
+  nothing to ground: `grounded-listings` passes vacuously (its comment says "No
+  specific listings recommended.") while `used-search-tool` goes red — and any
+  fabricated *prose* (invented price ranges) is caught by the `groundedness`
+  judge instead. The score **comments** always say exactly what was checked.
+- *In multi-turn conversations*, a listing cited from an earlier turn (e.g. a
+  cross-city comparison) stays grounded and is exempt from `location-match` —
+  the comment reads "referenced from earlier turns". Only **newly** recommended
+  listings must match the current constraints.
+
 **Land.** "Deterministic checks run free on 100% of traffic; LLM judges cover the
 subjective stuff; real user feedback sits right beside both. When the agent
 misbehaves, the score goes red *automatically* — so you can alert on it, chart a
