@@ -6,8 +6,10 @@ Two families of evaluators, both as pure functions over a TurnResult dict:
   CODE evaluators (deterministic, cheap, exact):
     - used-search-tool        BOOLEAN   did the agent actually search?
     - grounded-listings       BOOLEAN   every recommended id exists & was retrieved
+                                        (this turn, or surfaced in an earlier turn)
     - budget-adherence        NUMERIC   fraction of recommendations within budget
-    - location-match          NUMERIC   fraction of recommendations in the right city
+    - location-match          NUMERIC   fraction of NEW recommendations in the right
+                                        city (carry-over references are exempt)
     - language-match          BOOLEAN   answer language == question language
 
   LLM-as-a-Judge evaluators (call Claude with a rubric):
@@ -54,6 +56,33 @@ def extract_listing_ids(text: str) -> List[str]:
     return out
 
 
+def prior_ids_from_history(history: Optional[List[Dict[str, Any]]]) -> List[str]:
+    """Listing ids the assistant already surfaced in earlier conversation turns.
+
+    Extracted from the TEXT of prior assistant messages — "was mentioned
+    before", not a re-verification of the original retrieval (each turn's
+    answer was already scored for grounding when it was produced). A cross-turn
+    reference (e.g. a "Madrid vs. Barcelona" comparison citing turn 1's
+    listing) must not be re-flagged as a new, ungrounded recommendation.
+    Exempts grounded-listings and location-match only; budget-adherence
+    deliberately still checks every listing cited (see comment there).
+    """
+    seen, out = set(), []
+    for m in history or []:
+        if m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if isinstance(content, list):  # provider content blocks
+            content = " ".join(
+                str(b.get("text", "")) if isinstance(b, dict) else str(b) for b in content
+            )
+        for i in extract_listing_ids(str(content or "")):
+            if i not in seen:
+                seen.add(i)
+                out.append(i)
+    return out
+
+
 def _constraints(result: Dict[str, Any]) -> Dict[str, Any]:
     return result.get("constraints") or {}
 
@@ -71,22 +100,33 @@ def code_used_search_tool(result: Dict[str, Any]) -> Score:
 def code_grounded_listings(result: Dict[str, Any]) -> Score:
     shown = result.get("listings_shown") or []
     retrieved = set(result.get("retrieved_ids") or [])
+    prior = set(result.get("prior_ids") or [])
     if not shown:
         return Score("grounded-listings", True, "BOOLEAN", kind="code",
                      comment="No specific listings recommended.")
     hallucinated = [i for i in shown if get_listing(i) is None]
-    not_retrieved = [i for i in shown if get_listing(i) is not None and i not in retrieved]
+    # A real id is grounded if retrieved THIS turn or already surfaced in an
+    # earlier turn of the conversation (a comparison / follow-up reference).
+    not_retrieved = [i for i in shown
+                     if get_listing(i) is not None and i not in retrieved and i not in prior]
     ok = not hallucinated and not not_retrieved
     if hallucinated:
         c = f"Hallucinated listing id(s) not in catalog: {hallucinated}."
     elif not_retrieved:
         c = f"Recommended id(s) never returned by search: {not_retrieved}."
     else:
+        carried = [i for i in shown if i in prior and i not in retrieved]
         c = f"All {len(shown)} recommended listings exist and were retrieved."
+        if carried:
+            c = (f"All {len(shown)} recommended listings are grounded "
+                 f"({len(carried)} referenced from earlier turns: {carried}).")
     return Score("grounded-listings", ok, "BOOLEAN", kind="code", comment=c)
 
 
 def code_budget_adherence(result: Dict[str, Any]) -> Score:
+    # Deliberately NO prior-turn exemption here (unlike grounding/location):
+    # re-offering an earlier listing after the user tightens their budget is a
+    # real failure this score must catch.
     shown = result.get("listings_shown") or []
     max_price = _constraints(result).get("max_price")
     real = [l for i in shown if (l := get_listing(i)) is not None]
@@ -104,12 +144,21 @@ def code_budget_adherence(result: Dict[str, Any]) -> Score:
 
 def code_location_match(result: Dict[str, Any]) -> Score:
     shown = result.get("listings_shown") or []
+    prior = set(result.get("prior_ids") or [])
     location = (_constraints(result).get("location") or "").strip().lower()
-    real = [l for i in shown if (l := get_listing(i)) is not None]
+    # Only NEWLY recommended listings must honor this turn's location; ids
+    # carried over from earlier turns (e.g. a cross-city comparison) are
+    # legitimate references, not recommendations for the new location.
+    new_shown = [i for i in shown if i not in prior]
+    real = [l for i in new_shown if (l := get_listing(i)) is not None]
     if not location or not real:
-        return Score("location-match", 1.0, "NUMERIC", kind="code",
-                     comment="No location constraint to check." if not location
-                     else "No concrete listings to check.")
+        if not location:
+            c = "No location constraint to check."
+        elif shown and not new_shown:
+            c = "Only references carried over from earlier turns — no new listings to check."
+        else:
+            c = "No concrete listings to check."
+        return Score("location-match", 1.0, "NUMERIC", kind="code", comment=c)
     # Match ANY location token against city+neighborhood, mirroring
     # search_listings. Handles a district ("Gràcia") and compound values the
     # planner may extract ("Gràcia, Barcelona") regardless of word order.

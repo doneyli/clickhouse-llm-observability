@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.config import get_langfuse, verify_project, AGENT_MODEL
+from agent.config import get_langfuse, verify_project, AGENT_MODEL, langfuse_api
 from agent.concierge import run_turn
 from data.dataset import DATASET_NAME
 from evaluators.experiment_evaluators import ALL_EVALUATORS, RUN_EVALUATORS
@@ -61,6 +61,15 @@ def main():
     print(f"Experiment on '{DATASET_NAME}' ({len(dataset.items)} items)")
     print(f"  run_name={run_name}  model={args.model}  prompt_label={args.prompt_label}  "
           f"concurrency={args.max_concurrency}\n")
+
+    # Re-running with an existing run_name APPENDS items to that run, silently
+    # mixing old + new results (and skewing the aggregates) — especially after the
+    # dataset composition changes. Make re-runs idempotent: drop a prior run of the
+    # same name so each invocation is a clean snapshot. (To keep multiple runs of
+    # one config, pass a distinct --run-name.)
+    st, _ = langfuse_api("DELETE", f"/api/public/datasets/{DATASET_NAME}/runs/{run_name}")
+    if st == 200:
+        print(f"  (replaced existing run '{run_name}')\n")
 
     result = dataset.run_experiment(
         name=DATASET_NAME,

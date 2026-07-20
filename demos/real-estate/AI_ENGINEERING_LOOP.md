@@ -42,7 +42,7 @@ The loop clusters into two areas of work:
 |---|-----------|-----------|--------------|-----------------|
 | 1 | **Trace** | Full path of each request: prompts, tools, outputs, latency, cost | `agent/concierge.py` emits `plan → agent-turn → tool:* → synthesis`; multi-turn = one trace; sessions; the **prompt version is linked to each generation** | Langfuse **Tracing** / **Sessions**; DEMO_SCRIPT Act 2 |
 | 2 | **Monitor** | Surface the traces that deserve attention over time | Managed LLM-as-a-Judge (auto) + custom SDK judges + code scores + **👍/👎 user feedback** from the portal; **Dashboards** for cost/latency/score trends | Langfuse **Evaluators**, **Dashboards**; DEMO_SCRIPT Acts 1, 3 / close |
-| 3 | **Build datasets** | Turn real + designed scenarios into repeatable test cases | `data/dataset.py` → `property-concierge-eval` (10 curated items, incl. an impossible one); production traces can be added to it from the UI | Langfuse **Datasets**; `scripts/seed_dataset.py`; DEMO_SCRIPT Act 5 |
+| 3 | **Build datasets** | Turn real + designed scenarios into repeatable test cases | `data/dataset.py` → `property-concierge-eval` (18 curated items across Europe, incl. an impossible one); production traces can be added to it from the UI | Langfuse **Datasets**; `scripts/seed_dataset.py`; DEMO_SCRIPT Act 5 |
 | 4 | **Experiment** | Change one variable, compare vs a baseline | Same agent + dataset + evaluators across **models** (Claude vs GPT-4o) **and prompt versions** (production vs candidate) | `scripts/run_experiment.py --model / --prompt-label`; Langfuse **Datasets → Runs → Compare** |
 | 5 | **Evaluate** | Decide if it's good enough to ship | Deterministic **code** evals, **LLM-as-a-Judge** (managed + custom), **human annotation** queue | `agent/scoring.py`, `evaluators/`, `scripts/seed_annotation_queue.py`; DEMO_SCRIPT Acts 3–4 |
 | ⟳ | **Deploy** | Ship the change; it becomes new production traffic | Prompts fetched **by label** at runtime → promoting a version ships it; **GitHub CI/CD** gates + automates promotion | `agent/prompts.py`, `scripts/seed_prompts.py`, [`cicd/`](cicd/); section below |
@@ -72,9 +72,9 @@ label. See [`cicd/`](cicd/) for a ready-to-copy workflow and setup steps.
 This is the money path (DEMO_SCRIPT Act 6). Every step is real and runnable:
 
 1. **Monitor finds headroom.** Even on good traffic the *subjective* metrics sit
-   below 1.0 — on the eval set, `production` scores helpfulness 0.90, relevance
-   0.93, groundedness 0.93 (the deterministic code checks are already 1.00). That
-   gap is the improvement target. *(Separately, Act 3's fault-injected traces show
+   below 1.0 — on the 18-item eval set, `production` scores helpfulness 0.90,
+   relevance 0.89, groundedness 0.92 (the deterministic code checks are already
+   1.00). That gap is the improvement target. *(Separately, Act 3's fault-injected traces show
    evals catching hard failures — but those faults are injected in code, not
    caused by the prompt, so they belong to "evals catch problems", not here.)*
 2. **Lock the scenarios as tests.** The `property-concierge-eval` dataset already
@@ -90,25 +90,30 @@ This is the money path (DEMO_SCRIPT Act 6). Every step is real and runnable:
    ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate
    # Langfuse → Datasets → property-concierge-eval → Runs → select both → Compare
    ```
-   **Measured result (Claude, 10 items) — a real trade-off, not a clean win:**
-   the candidate lifted the metrics it targeted — **groundedness 0.93 → 0.96,
-   helpfulness 0.90 → 0.92, relevance 0.93 → 0.93** — and **held every code metric
-   at 1.00**. But its stricter, more rigid format **cost some warmth**: the
-   categorical `tone` judge went from *good ×8 / excellent ×2* (production) to
-   *good ×9 / **poor ×1*** (candidate). The eval set caught a side-effect the
-   change introduced — which is the entire point.
-   *(`tone` is a categorical score, so it shows as a label distribution in the
-   compare view rather than a single mean. Judge scores also carry run-to-run
-   noise; the discipline is that you re-run and compare, not that a number is exact.)*
+   **Measured result (Claude, 18 items) — a marginal edge, and a lesson in judge
+   noise:** on a matched run the candidate nudged the metrics it targeted —
+   **relevance 0.89 → 0.91, helpfulness 0.90 → 0.91** — held **groundedness
+   (0.92 → 0.91)** and **tone** (*good ×14 / poor ×4* → *good ×13 / poor ×4 /
+   excellent ×1*), and kept **every deterministic code metric at 1.00**. But those
+   judge deltas (±0.01–0.02) sit *inside* the run-to-run noise: repeating the
+   **same** production prompt swung groundedness across 0.89–0.96. So the honest
+   read isn't "candidate wins by X" — it's that the change **regressed nothing**,
+   and the **deterministic code evals (rock-steady at 1.00) are what you gate on**,
+   not a single noisy judge number.
+   *(`tone` is categorical — a label distribution in the compare view, not a mean.
+   The discipline the loop teaches: re-run and compare; don't ship on one number.)*
 5. **Decide with the data — deploy, or iterate.** This is a judgment call, and
    Langfuse gave you the evidence to make it instead of guessing:
-   - **Ship it** if grounding/helpfulness matter more than a little warmth for a
-     factual concierge — promote `candidate` to the `production` label (Langfuse
-     UI, or via the GitHub CI/CD gate). The app fetches `production`, so it serves
-     the new prompt with no redeploy.
-   - **Or iterate** to a `candidate-v2` that keeps the grounding discipline but
-     restores warmth, and run the experiment again. The loop is a loop precisely
-     because the first fix is rarely the last.
+   - **Ship it (carefully)** — the candidate regressed nothing and held every code
+     metric at 1.00, so it's safe to promote `candidate` to the `production` label
+     (Langfuse UI, or via the GitHub CI/CD gate); the app fetches `production`, so it
+     serves the new prompt with no redeploy. Confirm with a repeat run first — the
+     judge edge is within noise. (Pass `--run-name` to `run_experiment.py` for the
+     repeat: re-running with the same name *replaces* the run, so a distinct name
+     is what lets you compare the two side by side.)
+   - **Or keep iterating** — because a single run's judge delta isn't signal, the
+     honest move is to re-run, widen the dataset, or design a sharper `candidate-v2`.
+     The loop is a loop precisely because the first fix is rarely the last.
 6. **New traces** flow under whatever you shipped → back to step 1.
 
 ## What's live vs. documented-only (honest scope)

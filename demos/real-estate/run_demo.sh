@@ -28,7 +28,7 @@ echo "════════════════════════�
 echo -e "\n[1/7] Seeding prompts into Langfuse Prompt Management (production + candidate)…"
 $PY scripts/seed_prompts.py
 
-echo -e "\n[2/7] Seeding evaluation dataset (10 items)…"
+echo -e "\n[2/7] Seeding evaluation dataset (18 items)…"
 $PY scripts/seed_dataset.py
 
 echo -e "\n[3/7] Provisioning managed LLM-as-a-Judge evaluators (Anthropic)…"

@@ -37,7 +37,7 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Custom SDK judges** | groundedness / tone pushed from our own code |
 | **User feedback** (👍/👎) | portal thumbs write a `user-feedback` score onto the trace (Monitor signal) |
 | **Human annotation** | queue + score configs (reviewer-verdict, expert-usefulness) |
-| Datasets | `property-concierge-eval`, 10 curated items |
+| Datasets | `property-concierge-eval`, 18 curated items |
 | Experiments / runs + aggregates | `dataset.run_experiment(...)` with run-level averages |
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
 | **Prompt management** (versioned, labelled) | system prompts fetched by label from Langfuse; **linked to every generation** |
@@ -52,7 +52,9 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 A property-search concierge for an online real-estate marketplace. A user asks in
 natural language (EN or ES) — *"2-bed flat to buy in Madrid under €400k near a
 metro, and the mortgage"* — and the agent runs an Anthropic **tool-use loop** over
-a synthetic catalog:
+a synthetic catalog of homes across major European cities (Madrid, Barcelona,
+Valencia, Seville, Málaga, Bilbao, Lisbon, Paris, Berlin, Amsterdam, Rome, Vienna,
+Dublin and Athens):
 
 - `search_listings` — filter the catalog by city, buy/rent, price, bedrooms, features
 - `get_listing_details` — full record for one listing
@@ -97,9 +99,9 @@ Or run each piece individually:
 
 ```bash
 ./.venv/bin/python scripts/seed_prompts.py            # prompts → Langfuse (production + candidate)
-./.venv/bin/python scripts/seed_dataset.py            # create the 10-item dataset
+./.venv/bin/python scripts/seed_dataset.py            # create the 18-item dataset
 ./scripts/seed_managed_evaluators.sh                  # native LLM judges (auto, Anthropic)
-./.venv/bin/python scripts/run_live_traffic.py        # ~10 traces + sessions + code/custom scores
+./.venv/bin/python scripts/run_live_traffic.py        # ~13 traces + sessions + code/custom scores
 ./.venv/bin/python scripts/seed_annotation_queue.py   # human-review queue + score configs
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6   # Claude run
 ./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare models)
@@ -121,7 +123,7 @@ agent/prompts.py    system prompts fetched by label ────────┘ 
 agent/tools.py      4 tools over agent/catalog.py               │
 agent/scoring.py    code evaluators + LLM judges  ◀─────────────┘ trace-level LLM-judge scores (live)
 evaluators/         adapters exposing scoring as experiment Evaluations + run-level aggregates
-data/dataset.py     the 10 evaluation items
+data/dataset.py     the 18 evaluation items
 ```
 
 Key design choices:
@@ -171,7 +173,7 @@ agent/
   scoring.py      code evaluators + LLM-as-a-Judge (pure functions -> Score)
 evaluators/
   experiment_evaluators.py   Score -> Langfuse Evaluation adapters + run aggregates
-data/dataset.py   10 evaluation items
+data/dataset.py   18 evaluation items
 scripts/
   seed_prompts.py            prompts -> Langfuse (production + candidate labels)
   seed_dataset.py            create the dataset

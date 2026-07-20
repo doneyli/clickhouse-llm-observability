@@ -32,7 +32,7 @@ def main():
     for i, item in enumerate(ITEMS, 1):
         try:
             # Stable id → create_dataset_item UPSERTS, so re-running (every
-            # run_demo.sh) refreshes the 10 items instead of duplicating them.
+            # run_demo.sh) refreshes the items in place instead of duplicating them.
             lf.create_dataset_item(
                 id=f"pce-{i:02d}",
                 dataset_name=DATASET_NAME,

@@ -102,7 +102,7 @@ third tab on the AI Engineering loop for the between-act anchor.
 | **User feedback** (👍/👎 → score) | Act 1 click; Act 3 shows it on the trace |
 | **Evals catch real problems** | Act 3 — fault-injected traces score low |
 | **Human annotation** (queues + score configs) | Act 4 — reviewer verdict + usefulness rating |
-| **Datasets** | Act 5 — `property-concierge-eval` (10 items) |
+| **Datasets** | Act 5 — `property-concierge-eval` (18 items) |
 | **Experiments / runs + aggregates** | Act 5 — Runs tab |
 | **Model comparison** (Claude vs GPT) | Act 5 — compare the two runs side-by-side |
 | **Prompt management** (versioned, labelled, linked to traces) | Act 2 (prompt on a generation) + Act 6 (Prompts tab) |
@@ -239,6 +239,32 @@ which path it took.
 - `hallucinate` → `grounded-listings = false` (recommended a non-existent id).
 - `over_budget` → `budget-adherence < 1` (pushed an over-budget option).
 - `wrong_language` → `language-match = false` (Spanish question, English answer).
+- `no_search` → `used-search-tool = false` (tool binding broken: the trace has
+  **no tool spans at all** — the agent answered from memory).
+- `wrong_tool` → `used-search-tool = false` (agent called tools, just never the
+  catalog search — open the trace tree to show spans without `tool:search_listings`).
+
+Every fault-injected trace also carries a `fault:<name>` tag and a `fault` field
+in its metadata, so you can (a) filter to one failure mode live, and (b) prove
+to a skeptical audience that the bad traces are seeded, not real regressions.
+The stronger move: filter by **score** instead (e.g. `used-search-tool = 0`) and
+let the evals *surface* the bad traces for you — then open one and show the
+trace tree agrees with the score.
+
+**How to read the scores (common audience questions):**
+- *"Why is `grounded-listings` still green on the `no_search` trace?"* The code
+  evals are deliberately **orthogonal** — each catches exactly one failure mode,
+  so a red score names the failure. With no listing ids in the answer there is
+  nothing to ground: `grounded-listings` passes vacuously (its comment says "No
+  specific listings recommended.") while `used-search-tool` goes red — and any
+  fabricated *prose* (invented price ranges) is caught by the `groundedness`
+  judge instead. The score **comments** always say exactly what was checked.
+- *In multi-turn conversations*, a listing cited from an earlier turn (e.g. a
+  cross-city comparison) stays grounded and is exempt from `location-match` —
+  the comment reads "referenced from earlier turns". Only **newly** recommended
+  listings must match the current location. `budget-adherence` deliberately
+  keeps checking *every* listing cited, so an earlier suggestion re-offered
+  after a budget cut is still caught.
 
 **Land.** "Deterministic checks run free on 100% of traffic; LLM judges cover the
 subjective stuff; real user feedback sits right beside both. When the agent
@@ -285,9 +311,9 @@ them the mental model they already trust: the **dataset is your test suite**, an
 want deciding what ships (Act 6 shows how far this repo's reference pipeline
 takes that today).
 
-**Show.** **Datasets → `property-concierge-eval`** (10 items): show an `input`
+**Show.** **Datasets → `property-concierge-eval`** (18 items): show an `input`
 question and `expected_output` (criteria + ground-truth constraints) — buy/rent,
-EN/ES, several cities, plus one deliberately impossible request.
+EN/ES, cities across Europe, plus one deliberately impossible request.
 
 **Runs** tab → two runs: `claude-sonnet-4-6` and `gpt-4o`. "Same agent, same
 evaluators, same tools and prompts — only the model changed." Point at per-run
@@ -340,19 +366,23 @@ Run the candidate (≈2–3 min live, or pre-seed with `./run_demo.sh --prompt-v
 ```
 
 **Datasets → Runs** → compare `production` (`claude-sonnet-4-6`) vs `candidate`
-(`claude-sonnet-4-6-candidate`). The **honest money moment — a real trade-off, not
-a clean win:**
-- **Up:** groundedness **0.93 → 0.96**, helpfulness **0.90 → 0.92**, relevance
-  **0.93 → 0.93**, and **every code metric held at 1.00**.
-- **Down:** the stricter format **cost some warmth** — the categorical `tone` judge
-  went from *good ×8 / excellent ×2* to *good ×9 / **poor ×1***.
+(`claude-sonnet-4-6-candidate`). The **money moment — what the eval actually teaches:**
+- **Nudged up:** relevance **0.89 → 0.91**, helpfulness **0.90 → 0.91**.
+- **Held:** groundedness **0.92 → 0.91**, tone flat (*good ×14 / poor ×4* →
+  *good ×13 / poor ×4 / excellent ×1*), and **every code metric at 1.00**.
+- **The catch:** those deltas are within run-to-run noise — repeating the *same*
+  production prompt swung groundedness across 0.89–0.96.
 
 *(`tone` is categorical, so it shows as a label distribution here, not a mean.)*
 
-**Land.** "This is the loop earning its keep. We aimed at grounding and got it —
-without breaking the deterministic checks — but the eval set *caught a
-side-effect*: the rigid format reads a little colder. That's a call you make with
-evidence, not something you'd notice by eyeballing one answer."
+**Land.** "The candidate hurt nothing and nudged relevance up — but the judge deltas
+sit inside the noise floor. So you don't ship on one run's number; you re-run, and
+you lean on the deterministic checks that sit rock-steady at 1.00. That's evaluation
+rigor, not vibes — and it's exactly the trap teams fall into when they promote on a
+single shiny eval score."
+
+*(To show the noise floor live, re-run with a distinct `--run-name` — re-running
+under the same name replaces the previous run instead of adding a second one.)*
 
 **Deploy — or iterate.** In the **Prompts** tab, set the `production` label on the
 candidate to promote it. "The app fetches `production`, so it serves the new prompt
@@ -360,8 +390,8 @@ with **no redeploy**. In a real pipeline that promotion is driven by CI — the
 [GitHub integration](https://langfuse.com/docs/prompt-management/features/github-integration)
 runs this exact eval on the new version and ships on the `production` label; blocking
 on a score regression to make it a *hard* quality gate is the marked TODO in
-[`cicd/`](cicd/)." Or iterate to a `candidate-v2` that keeps the grounding but
-restores warmth.
+[`cicd/`](cicd/)." Or, since judge deltas this small are noisy, re-run to confirm
+the win before promoting — and keep a `candidate-v2` ready if a metric slips.
 
 Either way, the next portal question produces new traces under the shipped version
 → **back to Act 2**. The loop is closed.
