@@ -67,8 +67,8 @@ It then writes a grounded recommendation citing real listing ids.
 
 ## Setup
 
-Prerequisites: the Langfuse stack running on `localhost:3001` (this repo's main
-stack) and Python 3.11+. For the full feature set, the `real-estate` project
+Prerequisites: a Langfuse instance — this repo's main stack on `localhost:3001`
+(default) **or a Langfuse Cloud project** (see below) — and Python 3.11+. For the full feature set, the `real-estate` project
 needs, under **Settings → LLM Connections**, an **Anthropic** connection (powers
 the managed judges) and an **OpenAI** connection (optional; for the GPT run).
 
@@ -82,6 +82,25 @@ python3.11 -m venv .venv
 `OPEN_AI_API_KEY` (so the agent can run on GPT). `agent/config.py` **verifies at
 runtime** that the keys resolve to the `real-estate` project and refuses to run
 otherwise — so the demo can never silently pollute another project.
+
+### Using Langfuse Cloud instead
+
+The demo runs against a [Langfuse Cloud](https://cloud.langfuse.com) project
+just as well — no local Langfuse stack needed:
+
+1. Create a project (name it `real-estate`, or set `LANGFUSE_PROJECT_NAME` in
+   `.env` to whatever you named it) and grab its API keys.
+2. In `.env`, set `LANGFUSE_HOST=https://cloud.langfuse.com` (EU) or
+   `https://us.cloud.langfuse.com` (US) plus that project's keys.
+3. Run `./run_demo.sh` as usual.
+
+Everything seeds through the public API — prompts, dataset, live traffic,
+experiments, annotation queue, and all code/SDK-judge scores — identically to
+self-hosted. The one difference: **managed LLM-as-a-Judge evaluators** have no
+public API, so `seed_managed_evaluators.sh` detects the remote host, upserts
+the Anthropic LLM connection via API, and prints the ~2-minute UI recipe for
+the two judges (Helpfulness/Relevance on tag `real-estate`) instead of seeding
+them into the local Postgres.
 
 ---
 

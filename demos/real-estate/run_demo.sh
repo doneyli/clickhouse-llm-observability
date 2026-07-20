@@ -32,7 +32,7 @@ echo -e "\n[2/7] Seeding evaluation dataset (18 items)…"
 $PY scripts/seed_dataset.py
 
 echo -e "\n[3/7] Provisioning managed LLM-as-a-Judge evaluators (Anthropic)…"
-./scripts/seed_managed_evaluators.sh || echo "  (managed evaluators step skipped — check Docker/Postgres)"
+./scripts/seed_managed_evaluators.sh || echo "  (managed evaluators step skipped — self-hosted: check Docker/Postgres; cloud: see steps above)"
 
 echo -e "\n[4/7] Generating live traffic (traces + code scores + a session)…"
 $PY scripts/run_live_traffic.py $JUDGE_FLAG
@@ -57,7 +57,9 @@ else
   fi
 fi
 
-echo -e "\n✓ Done. Open Langfuse (http://localhost:3001) → project 'real-estate'."
+LF_HOST=$(grep -E '^LANGFUSE_HOST=' .env 2>/dev/null | tail -1 | cut -d= -f2-)
+LF_PROJECT=$(grep -E '^LANGFUSE_PROJECT_NAME=' .env 2>/dev/null | tail -1 | cut -d= -f2-)
+echo -e "\n✓ Done. Open Langfuse (${LF_HOST:-http://localhost:3001}) → project '${LF_PROJECT:-real-estate}'."
 echo "  Prompts, Evaluators, Datasets > Runs (compare Claude vs gpt-4o, production vs candidate),"
 echo "  Annotation Queues, Tracing."
 echo "  Then start the portal:  ./run_portal.sh   → http://localhost:8080"

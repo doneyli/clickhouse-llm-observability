@@ -22,6 +22,47 @@ EVAL_MODEL="${MANAGED_EVAL_MODEL:-claude-sonnet-4-6}"
 green(){ printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
 warn(){  printf '  \033[1;33m⚠\033[0m %s\n' "$1"; }
 
+EXPECTED_PROJECT="${LANGFUSE_PROJECT_NAME:-real-estate}"
+
+# ---- Langfuse Cloud / remote host: no direct DB access ----------------------
+# job_configurations have no public API, so on Cloud the two judges are set up
+# in the UI. We still provision what the API allows (the Anthropic LLM
+# connection) and print the exact remaining steps. Exit 0 so run_demo.sh flows.
+case "${LANGFUSE_HOST:-http://localhost:3001}" in
+  http://localhost*|http://127.0.0.1*) ;;  # self-hosted: fall through to DB seeding
+  *)
+    echo "Remote Langfuse host detected (${LANGFUSE_HOST}) — managed evaluators can't be DB-seeded."
+    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+      code=$(curl -s -o /tmp/lf-llmconn.json -w '%{http_code}' -X PUT \
+        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        -H 'Content-Type: application/json' \
+        "${LANGFUSE_HOST}/api/public/llm-connections" \
+        -d "{\"provider\":\"anthropic\",\"adapter\":\"anthropic\",\"secretKey\":\"${ANTHROPIC_API_KEY}\"}")
+      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+        green "Anthropic LLM connection upserted via API"
+      else
+        warn "Could not upsert LLM connection (HTTP ${code}) — add it in Settings > LLM Connections"
+      fi
+    else
+      warn "ANTHROPIC_API_KEY not set — add the connection in Settings > LLM Connections"
+    fi
+    cat <<STEPS
+
+  Finish in the Langfuse UI (~2 min), project '${EXPECTED_PROJECT}':
+    1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
+    2. Evaluators (Evals) > Default evaluation model — pick ${EVAL_MODEL}.
+    3. Evaluators > + New evaluator, twice — templates 'Helpfulness' and 'Relevance':
+         target        = live tracing data (New + Existing traces)
+         filter        = tag 'real-estate'
+         variable map  = query -> trace input, generation -> trace output
+         sampling      = 100%
+  Everything else (prompts, datasets, traffic, experiments, annotation queue,
+  code + SDK judge scores) seeds via the public API — no UI steps needed.
+STEPS
+    exit 0
+    ;;
+esac
+
 docker ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$" \
   || { echo "Postgres container ${PG_CONTAINER} not running."; exit 1; }
 
@@ -29,7 +70,6 @@ q(){ docker exec -i "$PG_CONTAINER" sh -c 'psql -v ON_ERROR_STOP=1 -q -t -A -U "
 # Escape single quotes for safe interpolation into SQL string literals.
 sql_esc(){ printf "%s" "$1" | sed "s/'/''/g"; }
 
-EXPECTED_PROJECT="real-estate"
 PK_ESC=$(sql_esc "${LANGFUSE_PUBLIC_KEY}")
 PROJECT_ID=$(echo "SELECT project_id FROM api_keys WHERE public_key='${PK_ESC}' LIMIT 1;" | q)
 [ -n "$PROJECT_ID" ] || { echo "Could not resolve project for the configured public key."; exit 1; }

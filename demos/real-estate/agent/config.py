@@ -35,7 +35,9 @@ os.environ["LANGFUSE_PUBLIC_KEY"] = LANGFUSE_PUBLIC_KEY
 os.environ["LANGFUSE_SECRET_KEY"] = LANGFUSE_SECRET_KEY
 os.environ["LANGFUSE_HOST"] = LANGFUSE_HOST
 
-EXPECTED_PROJECT = "real-estate"
+# Override with LANGFUSE_PROJECT_NAME when targeting e.g. a Langfuse Cloud
+# project that isn't named "real-estate".
+EXPECTED_PROJECT = os.environ.get("LANGFUSE_PROJECT_NAME", "real-estate")
 
 AGENT_MODEL = os.environ.get("AGENT_MODEL", "claude-sonnet-4-6")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "claude-sonnet-4-6")
