@@ -61,6 +61,7 @@ MIRROR_ENABLED = bool(MIRROR_PUBLIC_KEY and MIRROR_SECRET_KEY and MIRROR_HOST)
 _langfuse = None
 _anthropic = None
 _mirror_attached = False
+_mirror_processor = None
 
 
 def _attach_mirror() -> None:
@@ -87,13 +88,27 @@ def _attach_mirror() -> None:
               file=sys.stderr)
         return
     auth = _b64.b64encode(f"{MIRROR_PUBLIC_KEY}:{MIRROR_SECRET_KEY}".encode()).decode()
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
+    global _mirror_processor
+    _mirror_processor = BatchSpanProcessor(OTLPSpanExporter(
         endpoint=f"{MIRROR_HOST}/api/public/otel/v1/traces",
         headers={"Authorization": f"Basic {auth}",
                  "x-langfuse-public-key": MIRROR_PUBLIC_KEY},
-    )))
+    ))
+    provider.add_span_processor(_mirror_processor)
+    # The Langfuse client's flush()/atexit only cover ITS OWN processor —
+    # without these two hooks, short-lived scripts exit before the mirror
+    # batch exports and the mirrored trace is silently lost.
+    import atexit
+    atexit.register(_mirror_processor.shutdown)
     _mirror_attached = True
     print(f"✓ Mirroring traces to {MIRROR_HOST}")
+
+
+def flush_langfuse(lf=None) -> None:
+    """Flush the primary client AND the mirror processor (if attached)."""
+    (lf or get_langfuse()).flush()
+    if _mirror_processor is not None:
+        _mirror_processor.force_flush(10_000)
 
 
 def get_langfuse():

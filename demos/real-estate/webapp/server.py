@@ -24,8 +24,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from agent.config import (get_langfuse, record_score, verify_project,
-                          langfuse_api, LANGFUSE_HOST, AGENT_MODEL)
+from agent.config import (get_langfuse, record_score, flush_langfuse,
+                          verify_project, langfuse_api, LANGFUSE_HOST, AGENT_MODEL)
 from agent.concierge import run_turn
 from agent.catalog import get_listing
 
@@ -148,7 +148,7 @@ def feedback(req: FeedbackRequest):
         data_type="NUMERIC",
         comment=req.comment or ("👍 helpful" if value else "👎 not helpful"),
     )
-    lf.flush()
+    flush_langfuse(lf)
     return {"ok": True, "trace_id": req.trace_id, "value": value}
 
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.config import get_langfuse, record_score, verify_project
+from agent.config import get_langfuse, record_score, flush_langfuse, verify_project
 from agent.concierge import run_turn
 from agent.scoring import judge_groundedness, judge_tone
 
@@ -121,7 +121,7 @@ def main():
         shown = ", ".join(result["listings_shown"]) or "(none)"
         print(f"        -> tools={result['tools_called']} shown={shown} trace={result['trace_id'][:12]}")
 
-    lf.flush()
+    flush_langfuse(lf)
     print("\n✓ Live traffic complete. Managed judges (Helpfulness/Relevance) "
           "score these automatically within ~1 min.")
     print("  View: Langfuse UI > Tracing (filter tag 'real-estate'); Sessions > sess-madrid-buyer-001")
