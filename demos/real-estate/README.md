@@ -96,11 +96,15 @@ just as well — no local Langfuse stack needed:
 
 Everything seeds through the public API — prompts, dataset, live traffic,
 experiments, annotation queue, and all code/SDK-judge scores — identically to
-self-hosted. The one difference: **managed LLM-as-a-Judge evaluators** have no
-public API, so `seed_managed_evaluators.sh` detects the remote host, upserts
-the Anthropic LLM connection via API, and prints the ~2-minute UI recipe for
-the two judges (Helpfulness/Relevance on tag `real-estate`) instead of seeding
-them into the local Postgres.
+self-hosted. **Managed LLM-as-a-Judge evaluators** are provisioned too:
+`seed_managed_evaluators.sh` detects the remote host, upserts the Anthropic
+LLM connection, and creates the two judges (Helpfulness/Relevance) as
+observation-level evaluation rules via the
+[unstable evaluators API](https://langfuse.com/docs/evaluation/evaluation-methods/llm-as-a-judge#api),
+referencing the Langfuse-managed evaluator families. They score **new**
+traffic automatically (allow a few minutes); to score traces ingested before
+the rules existed, use the UI backfill: Traces table → select → Actions →
+Evaluate. If the API is unavailable, the script prints the manual UI recipe.
 
 **Switching targets:** keep one env file per backend (e.g. `.env.cloud`
 alongside your self-hosted `.env`, both gitignored) and copy the one you want
