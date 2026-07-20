@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from langfuse import propagate_attributes
 
-from .config import get_langfuse, AGENT_MODEL, BASE_TAGS
+from .config import get_langfuse, record_score, flush_langfuse, AGENT_MODEL, BASE_TAGS
 from .catalog import LISTINGS
 from .tools import execute_tool
 from .llm import call_llm, tools_for, append_assistant, append_tool_results, provider_of
@@ -323,10 +323,10 @@ def run_turn(
             if not is_experiment:
                 for s in run_code_evaluators(result):
                     if final_gen_id:
-                        lf.create_score(trace_id=trace_id, observation_id=final_gen_id,
-                                        name=s.name, value=s.value, data_type=s.data_type,
-                                        comment=s.comment)
+                        record_score(lf, trace_id=trace_id, observation_id=final_gen_id,
+                                     name=s.name, value=s.value, data_type=s.data_type,
+                                     comment=s.comment)
 
     if not is_experiment:
-        lf.flush()
+        flush_langfuse(lf)
     return result

@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Provision Langfuse-managed LLM-as-a-Judge evaluators for the 'real-estate'
-# project so they run AUTOMATICALLY on live traffic (visible under Evaluators).
+# Provision Langfuse-managed LLM-as-a-Judge evaluators for the demo's project
+# (default 'real-estate', override via LANGFUSE_PROJECT_NAME) so they run
+# AUTOMATICALLY on live traffic (visible under Evaluators).
 #
 # These are Langfuse-native evaluators (not the client-side judges the demo also
 # ships): the Langfuse worker runs them on new traces tagged 'real-estate' using
 # the Anthropic LLM connection you configured, and writes scores back.
 #
-# There is no public REST API for managed evaluators in this Langfuse version,
-# so — like this repo's other evaluator seeders — we insert directly into the
-# Langfuse Postgres. Idempotent.
+# Two modes:
+#   self-hosted (localhost) — managed evaluators have no public REST API, so
+#     like this repo's other evaluator seeders we insert directly into the
+#     Langfuse Postgres. Idempotent.
+#   remote / Langfuse Cloud — no DB access: upsert the LLM connection via the
+#     public API and print the short UI recipe for the judges.
 #
 # Usage:  ./scripts/seed_managed_evaluators.sh
 set -euo pipefail
@@ -22,6 +26,62 @@ EVAL_MODEL="${MANAGED_EVAL_MODEL:-claude-sonnet-4-6}"
 green(){ printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
 warn(){  printf '  \033[1;33m⚠\033[0m %s\n' "$1"; }
 
+EXPECTED_PROJECT="${LANGFUSE_PROJECT_NAME:-real-estate}"
+
+# ---- Langfuse Cloud / remote host: no direct DB access ----------------------
+# job_configurations have no public API, so on Cloud the two judges are set up
+# in the UI. We still provision what the API allows (the Anthropic LLM
+# connection) and print the exact remaining steps. Exit 0 so run_demo.sh flows.
+case "${LANGFUSE_HOST:-http://localhost:3001}" in
+  http://localhost*|https://localhost*|http://127.0.0.1*|https://127.0.0.1*)
+    ;;  # self-hosted: fall through to DB seeding
+  *)
+    echo "Remote Langfuse host detected (${LANGFUSE_HOST}) — managed evaluators can't be DB-seeded."
+    # Key-isolation guard (mirrors config.verify_project): resolve the keys'
+    # project via the public API and refuse to write anywhere unexpected —
+    # the PUT below uploads a real Anthropic secret. `|| true` guards keep
+    # set -e from killing the script before the fallback guidance prints.
+    projects=$(curl -s -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+      "${LANGFUSE_HOST}/api/public/projects" || true)
+    if ! printf '%s' "$projects" | grep -Eq "\"name\":[[:space:]]*\"${EXPECTED_PROJECT}\""; then
+      echo "Refusing: keys do not resolve to project '${EXPECTED_PROJECT}' on ${LANGFUSE_HOST}."
+      echo "  API response: ${projects:-<no response — host unreachable?>}"
+      exit 1
+    fi
+    green "Project verified: ${EXPECTED_PROJECT} @ ${LANGFUSE_HOST}"
+    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+      json_esc(){ printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+      code=$(curl -s -o /tmp/lf-llmconn.json -w '%{http_code}' -X PUT \
+        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        -H 'Content-Type: application/json' \
+        "${LANGFUSE_HOST}/api/public/llm-connections" \
+        -d "{\"provider\":\"anthropic\",\"adapter\":\"anthropic\",\"secretKey\":\"$(json_esc "${ANTHROPIC_API_KEY}")\"}") \
+        || code="000"
+      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+        green "Anthropic LLM connection upserted via API"
+      else
+        warn "Could not upsert LLM connection (HTTP ${code}) — add it in Settings > LLM Connections"
+      fi
+    else
+      warn "ANTHROPIC_API_KEY not set — add the connection in Settings > LLM Connections"
+    fi
+    cat <<STEPS
+
+  Finish in the Langfuse UI (~2 min), project '${EXPECTED_PROJECT}':
+    1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
+    2. Evaluators (Evals) > Default evaluation model — pick ${EVAL_MODEL}.
+    3. Evaluators > + New evaluator, twice — templates 'Helpfulness' and 'Relevance':
+         target        = live tracing data (New + Existing traces)
+         filter        = tag 'real-estate'
+         variable map  = query -> trace input, generation -> trace output
+         sampling      = 100%
+  Everything else (prompts, datasets, traffic, experiments, annotation queue,
+  code + SDK judge scores) seeds via the public API — no UI steps needed.
+STEPS
+    exit 0
+    ;;
+esac
+
 docker ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$" \
   || { echo "Postgres container ${PG_CONTAINER} not running."; exit 1; }
 
@@ -29,13 +89,12 @@ q(){ docker exec -i "$PG_CONTAINER" sh -c 'psql -v ON_ERROR_STOP=1 -q -t -A -U "
 # Escape single quotes for safe interpolation into SQL string literals.
 sql_esc(){ printf "%s" "$1" | sed "s/'/''/g"; }
 
-EXPECTED_PROJECT="real-estate"
 PK_ESC=$(sql_esc "${LANGFUSE_PUBLIC_KEY}")
 PROJECT_ID=$(echo "SELECT project_id FROM api_keys WHERE public_key='${PK_ESC}' LIMIT 1;" | q)
 [ -n "$PROJECT_ID" ] || { echo "Could not resolve project for the configured public key."; exit 1; }
 
 # Key-isolation guard (mirrors config.verify_project): refuse to write to any
-# project other than 'real-estate' so a stale/wrong shell key can't pollute another.
+# project other than the expected one so a stale/wrong shell key can't pollute another.
 PID_ESC=$(sql_esc "${PROJECT_ID}")
 PROJECT_NAME=$(echo "SELECT name FROM projects WHERE id='${PID_ESC}' LIMIT 1;" | q)
 if [ "$PROJECT_NAME" != "$EXPECTED_PROJECT" ]; then

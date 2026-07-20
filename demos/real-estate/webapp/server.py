@@ -24,8 +24,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from agent.config import (get_langfuse, verify_project, langfuse_api,
-                          LANGFUSE_HOST, AGENT_MODEL)
+from agent.config import (get_langfuse, record_score, flush_langfuse,
+                          verify_project, langfuse_api, LANGFUSE_HOST, AGENT_MODEL)
 from agent.concierge import run_turn
 from agent.catalog import get_listing
 
@@ -140,14 +140,15 @@ def feedback(req: FeedbackRequest):
         raise HTTPException(status_code=400, detail="trace_id is required")
     lf = get_langfuse()
     value = 1 if req.value else 0
-    lf.create_score(
+    record_score(
+        lf,
         trace_id=req.trace_id,
         name="user-feedback",
         value=value,
         data_type="NUMERIC",
         comment=req.comment or ("👍 helpful" if value else "👎 not helpful"),
     )
-    lf.flush()
+    flush_langfuse(lf)
     return {"ok": True, "trace_id": req.trace_id, "value": value}
 
 

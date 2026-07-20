@@ -2,8 +2,10 @@
 Shared configuration for the Real Estate Property Concierge demo.
 
 Key-isolation is the #1 landmine: this demo targets a *dedicated* Langfuse
-project ("real-estate"). If the surrounding shell has other LANGFUSE_* keys
-exported, every trace/dataset/score would silently land in the wrong project.
+project ("real-estate" by default; override with LANGFUSE_PROJECT_NAME, e.g.
+for a Langfuse Cloud project named differently). If the surrounding shell has
+other LANGFUSE_* keys exported, every trace/dataset/score would silently land
+in the wrong project.
 
 To prevent that we:
   1. Load this folder's .env explicitly.
@@ -20,7 +22,9 @@ import urllib.error
 import json
 from pathlib import Path
 
-from dotenv import load_dotenv
+import threading
+
+from dotenv import load_dotenv, dotenv_values
 
 # --- Load this folder's .env (overriding any inherited shell values) ---
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -35,7 +39,9 @@ os.environ["LANGFUSE_PUBLIC_KEY"] = LANGFUSE_PUBLIC_KEY
 os.environ["LANGFUSE_SECRET_KEY"] = LANGFUSE_SECRET_KEY
 os.environ["LANGFUSE_HOST"] = LANGFUSE_HOST
 
-EXPECTED_PROJECT = "real-estate"
+# Override with LANGFUSE_PROJECT_NAME when targeting e.g. a Langfuse Cloud
+# project that isn't named "real-estate".
+EXPECTED_PROJECT = os.environ.get("LANGFUSE_PROJECT_NAME", "real-estate")
 
 AGENT_MODEL = os.environ.get("AGENT_MODEL", "claude-sonnet-4-6")
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "claude-sonnet-4-6")
@@ -47,22 +53,133 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPEN_AI_API
 # Tags applied to every trace so the demo's traffic is easy to filter in the UI.
 BASE_TAGS = ["real-estate", "property-concierge"]
 
+# --- Optional trace mirror (e.g. self-hosted primary + Langfuse Cloud) -------
+# When all three are set, every span — live, portal AND experiment — is ALSO
+# exported to the mirror project with the same trace ids. Scores are duplicated
+# only on the live-traffic/portal paths (via record_score below); experiment
+# evaluation scores, prompts, datasets, dataset runs and managed evaluators
+# exist only on the primary, so experiment traces appear on the mirror without
+# scores or run linkage.
+# Read STRICTLY from this folder's .env (never the shell environment): the
+# primary keys' shell-override landmine applies here too, and a stale
+# shell-exported LANGFUSE_MIRROR_* must not silently enable mirroring.
+_env_file = dotenv_values(_ENV_PATH)
+MIRROR_PUBLIC_KEY = _env_file.get("LANGFUSE_MIRROR_PUBLIC_KEY")
+MIRROR_SECRET_KEY = _env_file.get("LANGFUSE_MIRROR_SECRET_KEY")
+MIRROR_HOST = (_env_file.get("LANGFUSE_MIRROR_HOST") or "").rstrip("/") or None
+MIRROR_ENABLED = bool(MIRROR_PUBLIC_KEY and MIRROR_SECRET_KEY and MIRROR_HOST)
+
 _langfuse = None
 _anthropic = None
+_mirror_attached = False
+_mirror_processor = None
+# The portal serves sync FastAPI handlers from a thread pool; without a lock,
+# two cold-start requests could each attach a mirror processor (spans then
+# mirrored twice, one processor orphaned from flush/atexit).
+_langfuse_lock = threading.Lock()
+
+
+def _attach_mirror() -> None:
+    """Fan spans out to the mirror Langfuse via a second OTLP exporter.
+
+    The SDK's own LangfuseSpanProcessor filters spans by public key (so a
+    second Langfuse *client* would reject the primary's spans); a plain
+    BatchSpanProcessor on the same tracer provider exports everything —
+    identical spans, identical trace ids, on both backends.
+    """
+    global _mirror_attached
+    if _mirror_attached or not MIRROR_ENABLED:
+        return
+    import base64 as _b64
+
+    from opentelemetry import trace as _otel_trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    provider = _otel_trace.get_tracer_provider()
+    if not hasattr(provider, "add_span_processor"):
+        print(f"WARN: cannot attach Langfuse mirror ({MIRROR_HOST}): "
+              f"tracer provider {type(provider).__name__} is not the SDK provider.",
+              file=sys.stderr)
+        return
+    auth = _b64.b64encode(f"{MIRROR_PUBLIC_KEY}:{MIRROR_SECRET_KEY}".encode()).decode()
+    global _mirror_processor
+    _mirror_processor = BatchSpanProcessor(OTLPSpanExporter(
+        endpoint=f"{MIRROR_HOST}/api/public/otel/v1/traces",
+        headers={"Authorization": f"Basic {auth}",
+                 "x-langfuse-public-key": MIRROR_PUBLIC_KEY},
+    ))
+    provider.add_span_processor(_mirror_processor)
+    # The Langfuse client's flush()/atexit only cover ITS OWN processor —
+    # without these two hooks, short-lived scripts exit before the mirror
+    # batch exports and the mirrored trace is silently lost.
+    import atexit
+    atexit.register(_mirror_processor.shutdown)
+    _mirror_attached = True
+    print(f"✓ Mirroring traces to {MIRROR_HOST}")
+
+
+def flush_langfuse(lf=None) -> None:
+    """Flush the primary client AND the mirror processor (if attached).
+
+    The mirror flush is capped at 3s so an unreachable mirror adds at most a
+    short delay to a turn/feedback request instead of hanging it.
+    """
+    (lf or get_langfuse()).flush()
+    if _mirror_processor is not None:
+        _mirror_processor.force_flush(3_000)
 
 
 def get_langfuse():
     """Return a singleton Langfuse client bound to the real-estate project keys."""
     global _langfuse
-    if _langfuse is None:
-        from langfuse import Langfuse
+    with _langfuse_lock:
+        if _langfuse is None:
+            from langfuse import Langfuse
 
-        _langfuse = Langfuse(
-            public_key=LANGFUSE_PUBLIC_KEY,
-            secret_key=LANGFUSE_SECRET_KEY,
-            host=LANGFUSE_HOST,
-        )
+            _langfuse = Langfuse(
+                public_key=LANGFUSE_PUBLIC_KEY,
+                secret_key=LANGFUSE_SECRET_KEY,
+                host=LANGFUSE_HOST,
+            )
+            _attach_mirror()
     return _langfuse
+
+
+def record_score(lf, **kwargs) -> None:
+    """create_score on the primary AND (best-effort) on the mirror.
+
+    Trace/observation ids are identical on both backends (same OTel spans),
+    so the same payload lands on the mirror via its public scores API.
+    """
+    lf.create_score(**kwargs)
+    if not MIRROR_ENABLED:
+        return
+    value = kwargs.get("value")
+    if isinstance(value, bool):  # public API wants 1/0 for BOOLEAN scores
+        value = 1 if value else 0
+    body = {
+        "traceId": kwargs.get("trace_id"),
+        "name": kwargs.get("name"),
+        "value": value,
+    }
+    if kwargs.get("observation_id"):
+        body["observationId"] = kwargs["observation_id"]
+    if kwargs.get("data_type"):
+        body["dataType"] = kwargs["data_type"]
+    if kwargs.get("comment"):
+        body["comment"] = kwargs["comment"]
+    try:
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(
+            f"{MIRROR_HOST}/api/public/scores", data=data, method="POST",
+            headers={"Authorization": "Basic " + base64.b64encode(
+                f"{MIRROR_PUBLIC_KEY}:{MIRROR_SECRET_KEY}".encode()).decode(),
+                "Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception as e:  # mirror is best-effort; never break the demo
+        print(f"WARN: mirror score '{kwargs.get('name')}' failed: {e}", file=sys.stderr)
 
 
 def get_anthropic():

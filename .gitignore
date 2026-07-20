@@ -1,5 +1,7 @@
-# Environment files
+# Environment files (any .env variant may hold keys — never commit; templates stay tracked)
 .env
+.env.*
+!.env.example
 
 # Data directories
 data-node/
