@@ -2,7 +2,9 @@
 # ==============================================================================
 # LLM Observability Demo - Idempotent Setup
 # ==============================================================================
-# Safe to run multiple times. Never overwrites existing secrets or config.
+# Safe to run multiple times. Never overwrites your secrets or .env. NOTE:
+# pre-built demo agents ARE reconciled to their canonical definition (model,
+# MCP tools, instructions) on re-run — see ensure_librechat_agents below.
 #
 # Usage:
 #   ./setup.sh                    # Full setup (prompts for key if missing)
@@ -557,8 +559,9 @@ ensure_project_name_dict() {
 }
 
 #######################################
-# Seed LibreChat agents (idempotent — skips existing agents, only
-# updating their model if it drifted from ANTHROPIC_MODEL)
+# Seed LibreChat agents (idempotent — creates missing agents, and on re-run
+# reconciles an existing agent's model, MCP tool bindings, AND instructions to
+# their canonical definition in seed-librechat-agents.sh)
 #######################################
 ensure_librechat_agents() {
     header "Seeding LibreChat Agents"
@@ -824,7 +827,8 @@ main() {
             echo "  - Configures the Langfuse LLM connection (Playground + LLM-as-a-Judge)"
             echo "  - Creates 5 pre-configured LibreChat agents with MCP tools"
             echo "  - Detects and reuses already-running services"
-            echo "  - Never overwrites existing secrets or configuration"
+            echo "  - Never overwrites your secrets or .env"
+            echo "  - Reconciles pre-built demo agents (model, MCP tools, instructions) on re-run"
             echo ""
             exit 0
             ;;

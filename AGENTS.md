@@ -117,6 +117,7 @@ should be ✓).
 |---|---|
 | `ANTHROPIC_API_KEY is not set and no terminal is available` | Re-run with the key: `ANTHROPIC_API_KEY=sk-ant-... ./setup.sh` |
 | Agents created without tools / "No MCP tools found" | MCP servers initialize async. Wait 30s, run `./scripts/seed-librechat-agents.sh` again (idempotent — it now re-syncs tool bindings on existing agents, not just new ones). |
+| *Prompt Engineer* / *LLM Ops* agent has no prompt tools, or `langfuse-prompts` MCP 403s | Self-hosted `/api/public/mcp` rejects LibreChat's internal `Host: langfuse-web:3000` (validated against `NEXTAUTH_URL`). Ensure `LANGFUSE_MCP_ALLOWED_HOSTS=langfuse-web:3000` is set on `langfuse-web` (requires langfuse image ≥ v3.18x; pinned to `v3.221.1`), then `docker compose --profile langfuse up -d langfuse-web`. |
 | Agent chat shows raw `<function_calls>` / `<tool_call>` XML as text | Agent's MCP tools didn't bind, so Claude role-plays the call as text. Verify MCP is healthy, re-run `./scripts/seed-librechat-agents.sh`, then start a **new** conversation. Details: [troubleshoot skill](.agents/skills/troubleshoot/SKILL.md#agent-emits-raw-tool-call-xml). |
 | 401 errors from Langfuse CLI/scripts | Shell-exported keys override `.env`: `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY` and retry. |
 | Langfuse not ready after 2 min | `docker compose --profile langfuse logs langfuse-web --tail 50` — usually slow first-boot migrations; re-run `./setup.sh`. |
