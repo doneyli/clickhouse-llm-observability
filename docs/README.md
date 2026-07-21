@@ -9,6 +9,7 @@ Pick your path by what you're trying to do.
 | [Quickstart Guide](QUICKSTART_GUIDE.md) | Running end to end in 15–30 min, with troubleshooting |
 | [../AGENTS.md](../AGENTS.md) | The non-interactive deploy runbook (humans can follow it too — it's the most battle-tested path) |
 | [Langfuse Integration](LANGFUSE_INTEGRATION.md) | Deep configuration reference: infrastructure, evaluator setup, MCP servers |
+| [LiteLLM Gateway Demo Operations](LITELLM_GATEWAY_DEMO.md) | Separate-project configuration, tags, verification, and upgrade notes for centralized gateway tracing |
 
 ## I want to present it
 

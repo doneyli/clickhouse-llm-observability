@@ -72,13 +72,14 @@ docker compose --profile langfuse --profile dashboard up -d   # Start with dashb
 docker compose run --rm text-to-sql python main.py              # 3 demo queries
 docker compose run --rm text-to-sql python main.py --interactive # Interactive mode
 docker compose run --rm vector-rag python main.py               # 3 RAG queries
+./demos/litellm-gateway/run_demo.sh                             # Gateway call + trace verification
 docker compose --profile tools run --rm test-scenarios           # 40 test scenarios
 ```
 
 ## Code Conventions
 
 - **Langfuse SDK**: v3 patterns — `langfuse.trace()`, `trace.span()`, `trace.generation()`. See `demos/text-to-sql/langfuse_config.py` for setup.
-- **Docker profiles**: `langfuse` (Langfuse stack), `demo` (text-to-sql, vector-rag), `tools` (test-scenarios), `dashboard` (LLM Observatory)
+- **Docker profiles**: `langfuse` (Langfuse stack), `demo` (app demos + LiteLLM gateway), `tools` (test-scenarios), `dashboard` (LLM Observatory)
 - **Environment**: `.env` file sourced by setup.sh. Never commit `.env`. Template is `.env.example`.
 - **LANGFUSE_INTERNAL_URL**: Docker-internal Langfuse URL. Unset in self-hosted (falls back to `http://langfuse-web:3000`), set to cloud URL in cloud mode.
 - **Scripts**: All scripts `cd` to project root and `source .env`. Check `DEPLOY_MODE` before assuming local services.
@@ -91,6 +92,7 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 | Langfuse | http://localhost:3001 (demo@example.com / demodemo1!) |
 | Text-to-SQL API | http://localhost:8002 |
 | Vector RAG API | http://localhost:8003 |
+| LiteLLM Gateway | http://localhost:4000 |
 | LLM Observatory | http://localhost:8005 |
 
 ## Project Layout
@@ -103,6 +105,7 @@ demos/                      # The distinct LLM-app demos (see demos/README.md)
   text-to-sql/              #   Text-to-SQL demo (Python, LangChain, Langfuse SDK)
   vector-rag/               #   Vector RAG demo (Python, LangChain, ChromaDB)
   agentic-rag/              #   Self-correcting RAG on ClickHouse-native vectors (LangGraph)
+  litellm-gateway/          #   LiteLLM proxy + Langfuse OTLP tracing MVP
   real-estate/              #   Standalone agentic concierge — the loop end-to-end (own venv/.env)
   brand-promo-multi-agent/  #   Standalone multi-agent promo assistant (LangGraph + CrewAI, uv)
   langfuse-rls/             #   Standalone trace RLS prototype (Next.js)
