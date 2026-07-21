@@ -289,6 +289,16 @@ create_agent() {
             patch=$(echo "$patch" | jq --arg m "$desired_model" '. + {model: $m}')
             changes+=("model ${current_model} → ${desired_model}")
         fi
+
+        # Keep instructions in sync with this script (the source of truth) so text
+        # edits here propagate to already-created agents on re-run — otherwise an
+        # agent seeded before an instruction change keeps its stale system prompt.
+        local current_instructions
+        current_instructions=$(echo "$detail" | jq -r '.instructions // ""')
+        if [ "$current_instructions" != "$instructions" ]; then
+            patch=$(echo "$patch" | jq --arg i "$instructions" '. + {instructions: $i}')
+            changes+=("instructions updated")
+        fi
         # Re-sync tools only when the desired set differs from what's stored AND
         # every server the agent uses actually resolved its individual tools.
         # Skipping when incomplete guards against overwriting a healthy agent with
@@ -411,6 +421,17 @@ Key tables to explore:
 - observations: Individual LLM calls (generations) with model, tokens, cost, duration
 - scores: Evaluation scores (human or LLM-as-judge) linked to traces
 
+Resolving project names (IMPORTANT):
+- These tables store only project_id (an opaque ID), NOT the human-readable project name.
+- To show the friendly name, use the ClickHouse dictionary:
+      dictGet('default.langfuse_projects','name', project_id) AS project_name
+- ALWAYS display the friendly project name in your output, never the raw project_id. Example:
+      SELECT dictGet('default.langfuse_projects','name', project_id) AS project,
+             count() AS traces
+      FROM traces GROUP BY project_id ORDER BY traces DESC
+- If the dictionary is missing (dictGet errors), fall back to project_id and note that the
+  project-name dictionary has not been seeded (./scripts/seed-clickhouse-project-dict.sh).
+
 Common analyses:
 - Token usage and cost trends over time
 - Latency percentiles (p50, p95, p99) by model or service
@@ -460,6 +481,11 @@ You can help with:
 - Performance debugging: find slow traces, high-latency models, or error spikes
 - Prompt management: review current prompts, suggest iterations, track version performance
 - Data exploration: query any ClickHouse dataset for demos or analysis
+
+When querying Langfuse trace data in ClickHouse, note that the trace tables store only
+project_id (an opaque ID). To show the human-readable project name, resolve it with the
+dictionary: dictGet('default.langfuse_projects','name', project_id) AS project_name — always
+display the friendly name, not the raw project_id.
 
 Start by understanding what the user needs, then use the appropriate tools. You can combine data from multiple sources for comprehensive analysis.
 INST

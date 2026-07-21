@@ -538,6 +538,25 @@ ensure_llm_judge_evaluators() {
 }
 
 #######################################
+# Provision the ClickHouse project-name dictionary (idempotent — lets the
+# langfuse-traces MCP resolve project_id -> friendly name; self-hosted only,
+# see scripts/seed-clickhouse-project-dict.sh)
+#######################################
+ensure_project_name_dict() {
+    if [ "$DEPLOY_MODE" = "cloud" ]; then
+        return 0
+    fi
+
+    header "Provisioning ClickHouse Project-Name Dictionary"
+
+    if "$SCRIPT_DIR/scripts/seed-clickhouse-project-dict.sh"; then
+        success "Project-name dictionary ready (friendly names in the langfuse-traces MCP)"
+    else
+        warn "Could not provision project-name dictionary — run ./scripts/seed-clickhouse-project-dict.sh manually"
+    fi
+}
+
+#######################################
 # Seed LibreChat agents (idempotent — skips existing agents, only
 # updating their model if it drifted from ANTHROPIC_MODEL)
 #######################################
@@ -827,6 +846,7 @@ main() {
     ensure_langfuse_llm_connection
     ensure_code_evaluators
     ensure_llm_judge_evaluators
+    ensure_project_name_dict
     ensure_librechat_agents
 
     if [ "$run_seed" = true ]; then
