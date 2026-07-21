@@ -65,19 +65,66 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
     else
       warn "ANTHROPIC_API_KEY not set — add the connection in Settings > LLM Connections"
     fi
-    cat <<STEPS
+    # Create the two judges as observation-level evaluation rules via the
+    # (unstable) evaluators API, referencing the Langfuse-MANAGED evaluator
+    # families. Rules run on each turn's root span (input={"query"} / output=
+    # final answer), so the scores read like the self-hosted trace-level ones.
+    # Idempotent: existing rule names are skipped. Falls back to a UI recipe
+    # if the API is unavailable on this instance.
+    rules=$(curl -s -m 20 -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+      "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" || true)
+    api_failed=0
+    for judge in Helpfulness Relevance; do
+      if printf '%s' "$rules" | grep -q "\"name\":\"${judge}\""; then
+        green "${judge} rule already present"
+        continue
+      fi
+      body=$(cat <<RULE
+{
+  "name": "${judge}",
+  "evaluator": {"name": "${judge}", "scope": "managed"},
+  "target": "observation",
+  "enabled": true,
+  "sampling": 1,
+  "filter": [
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": ["property-concierge", "conversation"]},
+    {"type": "stringOptions", "column": "name", "operator": "any of",
+     "value": ["property-concierge","turn-1","turn-2","turn-3","turn-4","turn-5","turn-6","turn-7","turn-8"]}
+  ],
+  "mapping": [
+    {"variable": "query", "source": "input", "jsonPath": "\$.query"},
+    {"variable": "generation", "source": "output"}
+  ]
+}
+RULE
+)
+      code=$(curl -s -m 20 -o /tmp/lf-rule.json -w '%{http_code}' -X POST \
+        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        -H 'Content-Type: application/json' \
+        "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" -d "$body") || code="000"
+      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+        green "${judge} (managed judge, observation-level) created via API"
+      else
+        warn "${judge} rule failed (HTTP ${code}) — set it up in the UI (see below)"
+        api_failed=1
+      fi
+    done
+    if [ "$api_failed" = "1" ]; then
+      cat <<STEPS
 
   Finish in the Langfuse UI (~2 min), project '${EXPECTED_PROJECT}':
     1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
-    2. Evaluators (Evals) > Default evaluation model — pick ${EVAL_MODEL}.
-    3. Evaluators > + New evaluator, twice — templates 'Helpfulness' and 'Relevance':
-         target        = live tracing data (New + Existing traces)
-         filter        = tag 'real-estate'
-         variable map  = query -> trace input, generation -> trace output
-         sampling      = 100%
-  Everything else (prompts, datasets, traffic, experiments, annotation queue,
-  code + SDK judge scores) seeds via the public API — no UI steps needed.
+    2. Evaluators > + New evaluator, twice — managed templates 'Helpfulness'
+       and 'Relevance', target = live observations, filter traceName any of
+       [property-concierge, conversation] + name any of [property-concierge,
+       turn-1..turn-8], mapping query -> input (\$.query), generation -> output.
 STEPS
+    else
+      echo ""
+      echo "  Judges score NEW traffic automatically (allow a few minutes)."
+      echo "  To score EXISTING traces: Traces table > select > Actions > Evaluate."
+    fi
     exit 0
     ;;
 esac

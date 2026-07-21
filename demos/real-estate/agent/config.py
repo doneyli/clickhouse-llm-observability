@@ -107,7 +107,11 @@ def _attach_mirror() -> None:
     _mirror_processor = BatchSpanProcessor(OTLPSpanExporter(
         endpoint=f"{MIRROR_HOST}/api/public/otel/v1/traces",
         headers={"Authorization": f"Basic {auth}",
-                 "x-langfuse-public-key": MIRROR_PUBLIC_KEY},
+                 "x-langfuse-public-key": MIRROR_PUBLIC_KEY,
+                 # Observation-level (new-model) evaluators only execute in
+                 # real time on v4-ingested data; without this header the
+                 # mirror's traces render fine but judges never fire.
+                 "x-langfuse-ingestion-version": "4"},
     ))
     provider.add_span_processor(_mirror_processor)
     # The Langfuse client's flush()/atexit only cover ITS OWN processor —
