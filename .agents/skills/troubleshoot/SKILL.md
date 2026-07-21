@@ -44,6 +44,7 @@ Diagnose before acting. Most problems resolve with a targeted fix plus an idempo
    |---|---|
    | 401s from SDK/CLI, traces silently missing | Shell-exported `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` override `.env`. `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY` and retry. |
    | LibreChat agents have no MCP tools | MCP servers init async. Wait 30s, re-run `./scripts/seed-librechat-agents.sh` (idempotent). |
+   | *Prompt Engineer* / *LLM Ops* agent missing prompt tools, or `langfuse-prompts` MCP returns 403 | Self-hosted `/api/public/mcp` validates the `Host` header against `NEXTAUTH_URL` (`localhost:3001`) but LibreChat connects as `langfuse-web:3000`. Ensure `LANGFUSE_MCP_ALLOWED_HOSTS=langfuse-web:3000` is set on `langfuse-web` (needs langfuse image ≥ v3.18x; pinned to `v3.221.1`), then `docker compose --profile langfuse up -d langfuse-web`. |
    | LibreChat agent chat shows raw `<function_calls>` / `<invoke>` / `<tool_call>` XML as text | Agent's MCP tools didn't bind → Claude role-plays the call as text (and may hallucinate the results). See [Agent emits raw tool-call XML](#agent-emits-raw-tool-call-xml) below. |
    | Langfuse not ready after ~2 min | Slow first-boot migrations. Re-run `./setup.sh`. |
    | Traces arrive but no judge scores | Check LLM connection exists (Project Settings > LLM Connections) and `langfuse-worker` logs; evaluators need ~30–60s. |

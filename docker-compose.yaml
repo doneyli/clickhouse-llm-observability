@@ -453,7 +453,7 @@ services:
 
   # Langfuse Worker (background processing)
   langfuse-worker:
-    image: langfuse/langfuse-worker:3
+    image: langfuse/langfuse-worker:3.221.1
     container_name: langfuse-worker
     restart: unless-stopped
     profiles:
@@ -472,7 +472,7 @@ services:
 
   # Langfuse Web (UI and API)
   langfuse-web:
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse:3.221.1
     container_name: langfuse-web
     restart: unless-stopped
     profiles:
@@ -490,6 +490,12 @@ services:
       start_period: 60s
     environment:
       <<: *langfuse-common-env
+      # The self-hosted MCP server (/api/public/mcp) validates the incoming Host
+      # header against NEXTAUTH_URL (localhost:3001). LibreChat's langfuse-prompts
+      # MCP connects to http://langfuse-web:3000, so without allow-listing the
+      # internal host the endpoint returns 403 (per Langfuse docs → MCP Server →
+      # Self-Hosted, reverse-proxy note). Allow the Docker-internal host + port.
+      LANGFUSE_MCP_ALLOWED_HOSTS: langfuse-web:3000
 
   # ClickHouse MCP Server for Langfuse Traces
   # Enables natural language querying of Langfuse trace data via LibreChat agents
