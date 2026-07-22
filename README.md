@@ -128,6 +128,9 @@ docker compose run --rm text-to-sql python main.py
 # Generate Vector RAG traces (3 demo queries)
 docker compose run --rm vector-rag python main.py
 
+# Send a request through LiteLLM and verify its Langfuse trace
+./demos/litellm-gateway/run_demo.sh
+
 # Run interactive mode (type your own questions)
 docker compose run --rm text-to-sql python main.py --interactive
 docker compose run --rm vector-rag python main.py --interactive
@@ -218,6 +221,7 @@ This solution integrates multiple open-source tools—all powered by ClickHouse:
 |-----------|-------------|--------------------:|----------:|
 | **Text-to-SQL** | Converts natural language to SQL and runs it against ClickHouse's public demo database (UK property, GitHub events, OpenSky flights) | `text-to-sql` | `text-to-sql` |
 | **Vector RAG** | Retrieval-augmented generation — embeds documents with sentence-transformers, stores in ChromaDB, retrieves context for LLM answers | `vector-rag` | `vector-rag` |
+| **LiteLLM Gateway** | OpenAI-compatible AI gateway that centrally exports model, token, cost, latency, session, and request data to Langfuse | `litellm-gateway-demo` | `litellm` |
 | **LibreChat** | Full chat UI with native Langfuse tracing — use it like ChatGPT, every conversation is traced | `LibreChat` | `librechat` |
 | **Test Scenarios** | Pre-crafted prompt/response pairs that intentionally fail in different ways — used to demo Langfuse evaluators | per-scenario name | `test-scenario` |
 | **Langfuse** | The observability platform — stores traces in ClickHouse, provides UI for search, cost tracking, and LLM-as-a-Judge evaluation | — | — |
@@ -230,8 +234,9 @@ Every trace source is tagged so you can filter in Langfuse:
 |-----|-----------------|
 | `text-to-sql` | Text-to-SQL demo queries |
 | `vector-rag` | Vector RAG demo queries |
+| `litellm` | Requests captured centrally by the LiteLLM gateway |
 | `librechat` | LibreChat conversations |
-| `demo` | All demo queries (text-to-sql + vector-rag) |
+| `demo` | All demo queries, including LiteLLM gateway requests |
 | `test-scenario` | All test scenario traces |
 
 ### Test Scenarios
@@ -500,6 +505,7 @@ In practice: *"deploy this demo"*, *"prep me for a 45-minute customer demo"*, an
 | **LibreChat** | http://localhost:3080 | Chat UI — register with any email/password | `librechat` |
 | **Text-to-SQL** | http://localhost:8002 | Natural language → SQL against ClickHouse demo data | `text-to-sql` |
 | **Vector RAG** | http://localhost:8003 | RAG with embeddings + ChromaDB | `vector-rag` |
+| **LiteLLM Gateway** | http://localhost:4000 | OpenAI-compatible proxy with centralized Langfuse tracing | `litellm` |
 
 ---
 

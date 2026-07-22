@@ -213,6 +213,37 @@ services:
       - vector-rag-models:/root/.cache
 
   # =============================================================================
+  # LiteLLM Gateway Demo — OpenAI-compatible proxy with centralized tracing
+  # =============================================================================
+  # Run: ./demos/litellm-gateway/run_demo.sh
+  # Every proxy request is exported to Langfuse via the native OTEL callback.
+  # =============================================================================
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:v1.93.0
+    container_name: litellm-proxy
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LITELLM_UPSTREAM_MODEL=${LITELLM_UPSTREAM_MODEL:-anthropic/claude-sonnet-4-6}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-demo}
+      - LANGFUSE_PUBLIC_KEY=${LITELLM_LANGFUSE_PUBLIC_KEY:-${LANGFUSE_PUBLIC_KEY:-}}
+      - LANGFUSE_SECRET_KEY=${LITELLM_LANGFUSE_SECRET_KEY:-${LANGFUSE_SECRET_KEY:-}}
+      - LANGFUSE_OTEL_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+      - OTEL_SERVICE_NAME=litellm-gateway-demo
+    profiles:
+      - demo
+    volumes:
+      - ./demos/litellm-gateway/config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # =============================================================================
   # ClickHouse (dedicated) — native vector store for the Agentic RAG demo
   # =============================================================================
   # Separate from Langfuse's ClickHouse (pinned 25.8) so we can run the latest

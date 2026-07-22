@@ -1,0 +1,13 @@
+model_list:
+  - model_name: demo-model
+    litellm_params:
+      model: os.environ/LITELLM_UPSTREAM_MODEL
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+litellm_settings:
+  # The gateway owns instrumentation: every request through this proxy is
+  # exported to Langfuse without requiring a Langfuse SDK in the client.
+  callbacks: ["langfuse_otel"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
