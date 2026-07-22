@@ -293,6 +293,11 @@ call) and a separate `agentic-rag` trace scored **identically to Act 3** —
 `retrieval_relevance`, `groundedness`, and the managed `faithfulness` /
 `context-relevance` / `answer-relevance` judges.
 
+Ask a **follow-up** in the same chat and the second turn's `agentic-rag` trace
+joins the **same Langfuse Session** — LibreChat passes its per-conversation id to
+the MCP server as a header, so a multi-turn chat groups into one `librechat-<uuid>`
+session (one trace per turn). Start a new conversation → a new session.
+
 **Land.** "Same graded pipeline as the LangGraph service — the exact same loop —
 exposed as one MCP tool behind a no-code chat agent. A developer gets the service, an
 analyst gets the chat, and *both are evaluated the same way*. Governance doesn't fork."

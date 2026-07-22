@@ -27,7 +27,7 @@ import urllib.request
 
 sys.path.insert(0, "/agentic-rag")
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
 from clickhouse_store import ClickHouseVectorStore
 from embeddings import embed_query
@@ -69,8 +69,33 @@ def list_documents() -> list:
     return [row[0] for row in result.result_rows]
 
 
+def _resolve_session_id(session_id: str, ctx: Context) -> str:
+    """Pick the Langfuse session id for this turn, in precedence order.
+
+    1. an explicit non-empty `session_id` argument (direct HTTP callers / tests);
+    2. else the LibreChat conversation id from the `X-LibreChat-Conversation-Id`
+       header, namespaced `librechat-<id>` so it (a) reads clearly in the Langfuse
+       Sessions list and (b) can't collide with CLI sessions (`agentic-rag-<hex8>`);
+    3. else "" -> the graph mints a fresh random session (unchanged fallback).
+
+    LibreChat sets the header from a server-assigned, per-conversation UUID that is
+    stable from turn 1, so every turn of one chat resolves to the same session.
+    The header read touches the `mcp` SDK's request-context internal surface, so it
+    is defensively wrapped: an optional grouping id must never fail the tool.
+    """
+    resolved = session_id.strip()
+    if not resolved and ctx is not None:
+        try:
+            conv = ctx.request_context.request.headers.get("x-librechat-conversation-id")
+            if conv:
+                resolved = f"librechat-{conv}"
+        except Exception:
+            pass  # no request/header available (e.g. non-HTTP caller) -> random fallback
+    return resolved
+
+
 @mcp.tool()
-def agentic_rag_answer(question: str, session_id: str = "") -> dict:
+def agentic_rag_answer(question: str, session_id: str = "", ctx: Context = None) -> dict:
     """Answer a knowledge-base question with the FULL self-correcting agentic-RAG graph.
 
     Runs the complete LangGraph corrective-RAG pipeline in the agentic-rag
@@ -87,14 +112,18 @@ def agentic_rag_answer(question: str, session_id: str = "") -> dict:
 
     Args:
         question: The natural-language question to answer from the knowledge base.
-        session_id: Optional session id to group related turns in one Langfuse session.
+        session_id: Optional session id to group related turns in one Langfuse
+            session. Usually left empty when called from LibreChat: the session is
+            derived from the conversation header so multi-turn chats group
+            automatically (see `_resolve_session_id`).
 
     Returns:
         {question, answer, route, grounded, steps, session_id} from the graph,
         or {error: ...} if the agentic-rag service is unreachable.
     """
+    resolved = _resolve_session_id(session_id, ctx)
     payload = json.dumps(
-        {"question": question, "session_id": session_id or None}
+        {"question": question, "session_id": resolved or None}
     ).encode("utf-8")
     req = urllib.request.Request(
         f"{AGENTIC_RAG_URL}/query",

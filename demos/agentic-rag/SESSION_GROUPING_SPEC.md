@@ -1,9 +1,9 @@
 # Spec: Session grouping for agentic-rag via LibreChat
 
-**Status:** Proposed (spec only — no implementation in this PR)
+**Status:** Implemented (this branch — the recommended approach in §4 was built as-is)
 **Related:** PR #50 (real-estate traces→sessions fix); fleet audit finding #1
-**Owner:** TBD
-**Scope size:** Small (≈3 files, no schema/infra change)
+**Owner:** doneyli
+**Scope size:** Small (≈4 files, no schema/infra change)
 
 ---
 

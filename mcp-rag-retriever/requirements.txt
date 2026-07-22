@@ -1,5 +1,8 @@
-# MCP server framework
-mcp>=1.2.0,<2.0.0
+# MCP server framework.
+# Pinned exactly: agentic_rag_answer reads the LibreChat conversation header via
+# ctx.request_context.request.headers — an internal (non-public-API) surface of
+# FastMCP. Pinning prevents a silent upgrade from breaking session grouping.
+mcp==1.27.2
 
 # Embeddings (same model as agentic-rag / vector-rag)
 langchain-huggingface>=0.1.0,<1.0.0
