@@ -93,8 +93,8 @@ third tab on the AI Engineering loop for the between-act anchor.
 | **Tracing** an agent (nested spans) | Act 2 — `plan → agent-turn → tool:* → synthesis` |
 | **Generations** w/ token usage **+ €cost** | Act 2 — click any generation |
 | **Tool spans** | Act 2 — `tool:search_listings`, `tool:calculate_mortgage`, … |
-| **Multi-turn conversation = ONE trace** | Act 2 — `turn-1 / turn-2 / turn-3` observations in a single trace |
-| **Sessions** (group conversations) | Act 2 — Sessions → `sess-madrid-buyer-001` |
+| **Multi-turn conversation → Session** | Act 2 — each turn its own trace, grouped by `session_id` |
+| **Sessions** (group a conversation's turns) | Act 2 — Sessions → `sess-madrid-buyer-001` |
 | **Tags / Users / Metadata** | Act 2 — filter by tag `real-estate`; `agent_model` in metadata |
 | **Scores on individual observations** (code evals) | Act 3 — 5 code scores on the synthesis obs |
 | **Managed LLM-as-a-Judge** (auto, native) | Act 3 — Helpfulness/Relevance run by Langfuse |
@@ -172,33 +172,39 @@ and how do they even hear about it today?"
 was it the retrieval, the tool, the prompt, or the model?* Without step-level
 visibility you're guessing. Here's what "you're not guessing" looks like.
 
-**Show.** The chat you just ran is **one trace**, each exchange a `turn-N`
-observation. Walk it top → bottom:
-- root trace `conversation` — **input** = first question, **output** = latest
-  answer, metadata `agent_model`; grouped under a **session**.
-- `turn-1`, `turn-2`, … — one per user message; the follow-up resolved "that one"
-  because the agent gets the conversation so far.
-- inside a turn: `plan` (extracts constraints) → `agent-turn-N` (tool decisions) →
-  `tool:*` (**click one** — exact input/output, "no black box") → final synthesis.
+**Show.** The chat you just ran is a **Session** — each turn is its own trace,
+and a shared `session_id` stitches them together. Open **Sessions →
+`sess-madrid-buyer-001`**:
+- the session lists **every turn as its own trace, in order** — the follow-up
+  resolved "that one" because the agent carries the conversation so far. This
+  Sessions view *is* the whole conversation; the flat **Tracing** table is the
+  per-turn list (each turn's question shows in its Input column).
+- open a turn's trace and walk it top → bottom: root `handle-concierge-chat-message`
+  (**input** = that turn's question, **output** = its answer, metadata
+  `agent_model`) → `plan` (extracts constraints) → `agent-turn-N` (tool
+  decisions) → `tool:*` (**click one** — exact input/output, "no black box") →
+  final synthesis.
 - Click a **generation** → **token usage** and **€ cost** per step, model, latency,
   and the **Prompt** it used (`property-concierge-agent` v1), version-linked to the
   generation.
 
-Then: **Sessions** → `sess-madrid-buyer-001`; **Tracing** list → filter by tag
-`real-estate`, note user ids + metadata.
+Then: **Tracing** list → filter by tag `real-estate`, note user ids + metadata.
 
-> **Presenter note — tell the war story.** The first version of this app created a
-> **new trace per turn** — the most common instrumentation mistake in
-> conversational apps, and it quietly breaks debugging *and* scoring (you only
-> ever grade fragments, never the conversation). One propagated `session_id` is
-> the fix. Prove it live: click **New conversation** in the portal, ask anything,
-> and a *separate* trace appears in the Tracing list.
+> **Presenter note — tell the war story.** A common instrumentation mistake in
+> conversational apps is cramming the *entire* conversation into **one** trace (a
+> `turn-N` span per message). It quietly breaks two things: the **Sessions** view
+> collapses to a single trace, and scoring grades the whole blob instead of each
+> exchange. Langfuse's own guidance is the opposite — *one trace = one invocation*,
+> with turns grouped by a propagated `session_id`
+> ([traces vs sessions](https://langfuse.com/academy/tracing#traces-vs-sessions)).
+> That's what this demo does. Prove it live: ask two questions in the same chat,
+> then open **Sessions** — both turns appear as *separate* traces under one session.
 
 **Land.** "Root-cause goes from 'read the logs and guess' to 'open the trace and
 see the step that broke' — with the exact tool input, the cost of every call, and
-the prompt version that produced it. Multi-turn folds into one trace and
-conversations into a session, so you're debugging an *interaction*, not a
-disconnected call."
+the prompt version that produced it. Each turn is its own clean trace, and the
+session stitches them into one interaction — so you can debug a single exchange
+*or* replay the whole conversation."
 
 **Ask.** "When an LLM answer is bad today, what can you actually see — the final
 output only, or the steps? Roughly how long does root-cause take, and who gets
@@ -459,36 +465,35 @@ wrong place — a real operational footgun, handled in ~3 lines.
 **2 · The whole trace tree is one function — `agent/concierge.py` (`run_turn`)**
 ```python
 # every step is one context-manager call; the nesting IS the trace tree
-with lf.start_as_current_observation(as_type="generation", name="plan", ...):   # :177
+with lf.start_as_current_observation(as_type="generation", name="plan", ...):
     ...
 for i in range(MAX_ITERS):
-    with lf.start_as_current_observation(as_type="generation", name=f"agent-turn-{i+1}"):  # :211
+    with lf.start_as_current_observation(as_type="generation", name=f"agent-turn-{i+1}"):
         ...
     for call in res["tool_calls"]:
-        with lf.start_as_current_observation(as_type="span", name=f"tool:{call['name']}"):  # :234
+        with lf.start_as_current_observation(as_type="span", name=f"tool:{call['name']}"):
             ...
 ```
 *Why it matters:* the trace you walked in Act 2 is just these nested `with`
 blocks — `as_type` picks generation vs span, `name` is the label. That's the entire
 instrumentation surface for a whole agent.
 
-**3 · Session wrapping (Act 2 / the Sessions story) — two lines, two files**
+**3 · Session wrapping (Act 2 / the Sessions story) — one call**
 ```python
-# webapp/server.py:95   one conversation = one trace (deterministic id from the session)
-conv_trace_id = get_langfuse().create_trace_id(seed=sid)
-# agent/concierge.py:141 each turn attaches to that shared trace
-root_cm = lf.start_as_current_observation(..., trace_context={"trace_id": conversation_trace_id})
-# agent/concierge.py:148 THIS is what groups traces into a Langfuse Session
-ctx = propagate_attributes(session_id=session_id, user_id=user_id, tags=..., trace_name=...)
+# agent/concierge.py  each turn is its OWN trace, rooted at handle-concierge-chat-message
+with lf.start_as_current_observation(as_type="span", name="handle-concierge-chat-message") as root:
+    # THIS is what groups a conversation's per-turn traces into a Langfuse Session
+    ctx = propagate_attributes(session_id=session_id, user_id=user_id, tags=..., trace_name=...)
 ```
-*Why it matters:* `propagate_attributes(session_id=...)` is the one call that powers
-the entire Sessions view — grouping is a property you *set*, not a pipeline you build.
+*Why it matters:* one trace = one turn (Langfuse's rule of thumb), and
+`propagate_attributes(session_id=...)` is the one call that powers the entire
+Sessions view — grouping is a property you *set*, not a pipeline you build.
 
 **4 · Token usage + € cost (Act 2 cost story) — `agent/llm.py` → folded into the generation**
 ```python
 # agent/llm.py:59  provider-agnostic call returns usage + cost_details (:41 publishes GPT prices)
 res = call_llm(model, system, messages, tools=tools, max_tokens=1500)
-# agent/concierge.py:217  attach them to the generation
+# agent/concierge.py  attach them to the generation
 gen.update(output=..., usage_details=res["usage"], cost_details=res["cost_details"])
 ```
 *Why it matters:* cost per step is captured at source. Claude is auto-priced by
@@ -502,13 +507,13 @@ return get_langfuse().get_prompt(AGENT_PROMPT_NAME, label=label, fallback=AGENT_
 # agent/prompts.py:112  link the fetched version to the generation (skips when fallback)
 def link_kwargs(prompt): return {} if getattr(prompt, "is_fallback", False) else {"prompt": prompt}
 ```
-Used at `concierge.py:178,199` as `**link_kwargs(...)`. *Why it matters:* the prompt
+Used in `concierge.py` as `**link_kwargs(...)`. *Why it matters:* the prompt
 is data in Langfuse, not a string in the app — so promoting a label *is* the deploy
 (Act 6), and the fallback means the app still runs on a fresh clone with nothing seeded.
 
 **6 · Scores on an observation (Act 3) — `agent/scoring.py` → attached in `concierge.py`**
 ```python
-# agent/concierge.py:300  attach each deterministic code score to the SYNTHESIS observation
+# agent/concierge.py  attach each deterministic code score to the SYNTHESIS observation
 for s in run_code_evaluators(result):          # agent/scoring.py:150
     lf.create_score(trace_id=trace_id, observation_id=final_gen_id,
                     name=s.name, value=s.value, data_type=s.data_type, comment=s.comment)

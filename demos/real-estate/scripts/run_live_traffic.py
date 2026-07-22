@@ -92,19 +92,17 @@ def main():
           f"({'no ' if args.no_judge else ''}LLM-judge scores)...\n")
 
     histories: dict = {}   # session_id -> accumulated conversational turns
-    conv_ids: dict = {}    # session_id -> shared conversation trace id
     turns: dict = {}       # session_id -> 0-based turn index
     for i, (query, sess, user, tags, fault) in enumerate(TRAFFIC, 1):
         tag = f" [fault:{fault}]" if fault else ""
         sess_tag = " [session]" if sess else ""
         print(f"[{i:2}/{len(TRAFFIC)}]{sess_tag}{tag} {query[:64]}")
         history = histories.get(sess, []) if sess else []
-        # A session's turns all share one trace (turn-1, turn-2, … in one trace).
-        conv_tid = conv_ids.setdefault(sess, lf.create_trace_id(seed=sess)) if sess else None
+        # Each turn is its own trace; a session's turns are grouped by session_id
+        # (visible together in the Langfuse Sessions view).
         turn_index = turns.get(sess, 0)
         result = run_turn(query, session_id=sess, user_id=user, extra_tags=tags,
-                          fault=fault, history=history,
-                          conversation_trace_id=conv_tid, turn_index=turn_index)
+                          fault=fault, history=history, turn_index=turn_index)
         if sess:
             histories[sess] = history + [{"role": "user", "content": query},
                                          {"role": "assistant", "content": result["answer"]}]

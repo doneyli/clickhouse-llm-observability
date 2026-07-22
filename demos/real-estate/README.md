@@ -29,8 +29,8 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | Agent tracing (nested spans) | `plan → agent-turn → tool:* → synthesis` per turn |
 | Generations with token usage **and € cost** | every LLM call is a `generation` observation |
 | Tool observability | each tool call is its own span with input/output |
-| **Multi-turn conversation = one trace** | each turn is a `turn-N` observation in the same `traceId` |
-| Sessions | group a user's conversations by `session_id` |
+| **Multi-turn conversation → session** | each turn is its own trace; a shared `session_id` groups them in the Sessions view |
+| Sessions | group a conversation's per-turn traces by `session_id` |
 | Tags / users / metadata | every trace tagged `real-estate` + a user id |
 | **Scores on individual observations** | 5 deterministic **code** scores on the synthesis obs |
 | **Managed LLM-as-a-Judge** (native, automatic) | Helpfulness / Relevance, run by the Langfuse worker on `real-estate` traces |
@@ -179,11 +179,12 @@ Key design choices:
   no redeploy, and you can `run_experiment.py --prompt-label candidate` to prove a
   change before shipping it. This is what closes the loop; see
   [`AI_ENGINEERING_LOOP.md`](AI_ENGINEERING_LOOP.md) and [`cicd/`](cicd/).
-- **A conversation is one trace.** Pass `run_turn(conversation_trace_id=..., turn_index=n)`
-  (a deterministic `langfuse.create_trace_id(seed=session_id)`) and every turn lands
-  in the *same* trace as a `turn-N` observation — the portal keeps per-session
-  history + turn index so follow-ups both carry context and share one `traceId`.
-  Single-turn callers (experiment, ad-hoc queries) just omit it and get one trace each.
+- **A conversation is a session, not one trace.** Following Langfuse's rule of thumb —
+  *one trace = one invocation of your system* — every turn is its **own trace**, and a
+  shared `session_id` groups them under a single **Session** (each turn shows up as its
+  own trace, in order). Pass `run_turn(session_id=..., turn_index=n)`; the portal keeps
+  per-session history + turn index so follow-ups carry context. See
+  [Langfuse: traces vs sessions](https://langfuse.com/academy/tracing#traces-vs-sessions).
 - **Three scoring layers.** (1) deterministic **code** scores on the *synthesis
   observation* (agent, live mode); (2) **managed** LLM judges
   (Helpfulness/Relevance) run automatically by Langfuse on

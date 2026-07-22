@@ -160,10 +160,10 @@ const CITY_GRAD = {
 const $ = s => document.querySelector(s);
 const thread = $("#thread");
 
-// session id -> one Langfuse session (= one trace) per conversation.
-// Minted fresh on every page load, so a refresh starts a NEW conversation/trace
-// instead of appending to the previous one. "New conversation" re-mints it too, so
-// a presenter can run several clean, separately-grouped conversations per page load.
+// session id -> one Langfuse session per conversation; each turn is its own trace.
+// Minted fresh on every page load, so a refresh starts a NEW conversation (new
+// session) instead of appending to the previous one. "New conversation" re-mints it
+// too, so a presenter can run several clean, separately-grouped conversations per page load.
 function newSid(){ return "portal-" + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
 let sid = newSid();
 
@@ -248,7 +248,7 @@ function addBot(data){
   scroll();
 }
 
-// Explicit user feedback → a Langfuse score on this conversation's trace.
+// Explicit user feedback → a Langfuse score on this turn's trace.
 async function sendFeedback(fbEl, value){
   const traceId = fbEl.getAttribute("data-trace");
   const clicked = fbEl.querySelector(value ? ".up" : ".down");
@@ -284,7 +284,7 @@ async function send(){
 $("#send").onclick=send;
 $("#q").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
 
-// Start a fresh conversation: new session id (=> new Langfuse trace), clear the
+// Start a fresh conversation: new session id (=> a new Langfuse session), clear the
 // thread and bring back the hero. The backend keys history by session id, so the
 // agent also starts with a clean context — no bleed from the previous chat.
 function resetConversation(){

@@ -67,10 +67,10 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
     fi
     # Create the two judges as observation-level evaluation rules via the
     # (unstable) evaluators API, referencing the Langfuse-MANAGED evaluator
-    # families. Rules run on each turn's root span (input={"query"} / output=
-    # final answer), so the scores read like the self-hosted trace-level ones.
-    # Idempotent: existing rule names are skipped. Falls back to a UI recipe
-    # if the API is unavailable on this instance.
+    # families. Each turn is its own trace rooted at `handle-concierge-chat-message`, so the
+    # rules run on that root span (input={"query"} / output=final answer) — the
+    # scores read like the self-hosted trace-level ones. Idempotent: existing
+    # rule names are skipped. Falls back to a UI recipe if the API is unavailable.
     rules=$(curl -s -m 20 -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
       "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" || true)
     api_failed=0
@@ -88,9 +88,9 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
   "sampling": 1,
   "filter": [
     {"type": "stringOptions", "column": "traceName", "operator": "any of",
-     "value": ["property-concierge", "conversation"]},
+     "value": ["handle-concierge-chat-message"]},
     {"type": "stringOptions", "column": "name", "operator": "any of",
-     "value": ["property-concierge","turn-1","turn-2","turn-3","turn-4","turn-5","turn-6","turn-7","turn-8"]}
+     "value": ["handle-concierge-chat-message"]}
   ],
   "mapping": [
     {"variable": "query", "source": "input", "jsonPath": "\$.query"},
@@ -117,8 +117,8 @@ RULE
     1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
     2. Evaluators > + New evaluator, twice — managed templates 'Helpfulness'
        and 'Relevance', target = live observations, filter traceName any of
-       [property-concierge, conversation] + name any of [property-concierge,
-       turn-1..turn-8], mapping query -> input (\$.query), generation -> output.
+       [handle-concierge-chat-message] + name any of [handle-concierge-chat-message],
+       mapping query -> input (\$.query), generation -> output.
 STEPS
     else
       echo ""

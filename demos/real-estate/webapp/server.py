@@ -69,8 +69,9 @@ class FeedbackRequest(BaseModel):
 
 
 # Per-session state: conversation history (agent context) + a monotonic turn
-# counter (stable turn-N labels — must NOT be derived from the capped history).
-# One conversation = one trace. In-memory (resets on restart) — fine for a demo.
+# counter (stable turn number for the `turn` metadata — must NOT be derived from
+# the capped history). Each turn is its own trace, grouped by session_id.
+# In-memory (resets on restart) — fine for a demo.
 _SESSIONS: dict[str, dict] = {}
 _SESSIONS_LOCK = threading.Lock()
 MAX_HISTORY_TURNS = 8  # cap the history fed to the agent (~4 exchanges)
@@ -88,20 +89,18 @@ def health():
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    # Session-less callers get a unique id so they never share history or a trace.
+    # Session-less callers get a unique id so they never share history or a session.
     sid = req.session_id or f"anon-{uuid.uuid4().hex[:12]}"
-    # One conversation = one trace: a deterministic trace id from the session id,
-    # so every turn of this chat lands in the same trace as turn-1, turn-2, ….
-    conv_trace_id = get_langfuse().create_trace_id(seed=sid)
     with _SESSIONS_LOCK:
         state = _SESSIONS.get(sid, {"history": [], "turns": 0})
         history = list(state["history"])
         turn_index = state["turns"]
 
-    # Pass the resolved sid (not the raw None) so the trace carries the session.
+    # Each turn is its own trace; the shared session_id (the resolved sid, not the
+    # raw None) groups this chat's turns together in Langfuse's Sessions view.
     result = run_turn(req.query, session_id=sid, user_id="portal-visitor",
                       extra_tags=["portal"], history=history,
-                      conversation_trace_id=conv_trace_id, turn_index=turn_index)
+                      turn_index=turn_index)
 
     with _SESSIONS_LOCK:
         prev = _SESSIONS.get(sid, {"history": [], "turns": 0})

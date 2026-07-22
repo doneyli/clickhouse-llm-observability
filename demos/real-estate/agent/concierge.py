@@ -4,7 +4,7 @@ The Real Estate Property Concierge — an instrumented tool-using agent.
 Flow per turn (each step is a Langfuse observation, so the trace tree reads
 top-to-bottom like the agent's reasoning):
 
-    property-concierge            (root span; trace input=query, output=answer)
+    handle-concierge-chat-message (root span; trace input=query, output=answer)
     ├─ plan                       (generation) extract structured constraints
     ├─ agent-turn-1               (generation) Claude decides which tools to call
     ├─ tool:search_listings       (span)       catalog search
@@ -31,6 +31,12 @@ from .scoring import run_code_evaluators, extract_listing_ids, prior_ids_from_hi
 from .prompts import get_plan_prompt, get_agent_prompt, link_kwargs, PRODUCTION_LABEL
 
 MAX_ITERS = 5
+
+# Stable, low-cardinality name for each turn's trace AND its root span (Langfuse
+# best practice — verb-first, like the docs' own `handle-chatbot-message`). The
+# question lives in the trace INPUT, not the name. Keeping the trace name and the
+# root span name identical lets newer Langfuse UIs render them as a single node.
+TRACE_NAME = "handle-concierge-chat-message"
 
 # --- lightweight language detection (Spanish vs English) for language-match ---
 # Only Spanish FUNCTION/verb words — strong language signals. Deliberately NOT
@@ -116,42 +122,38 @@ def run_turn(
     model: Optional[str] = None,
     prompt_label: str = PRODUCTION_LABEL,
     history: Optional[List[Dict[str, Any]]] = None,
-    conversation_trace_id: Optional[str] = None,
     turn_index: int = 0,
 ) -> Dict[str, Any]:
     """Run one agent turn.
 
-    Multi-turn conversations: pass a stable `conversation_trace_id`
-    (e.g. langfuse.create_trace_id(seed=session_id)) plus the 0-based
-    `turn_index`. Every turn of the conversation then lands in the SAME trace as
-    a `turn-N` observation, with its plan/tool/synthesis steps nested underneath —
-    so one conversation = one traceId. `history` gives the agent the prior turns
-    so follow-ups like "keep it under 400k" / "that one" resolve.
+    Every turn is its OWN trace — the Langfuse rule of thumb is "one trace = one
+    invocation of your system" (one API call / one agent execution). Multi-turn
+    conversations are stitched together by a shared `session_id`, so Langfuse's
+    **Sessions** view lists each turn as its own trace, in order. Pass the 0-based
+    `turn_index` (surfaced as the `turn` metadata label) and `history` (the prior
+    turns) so follow-ups like "keep it under 400k" / "that one" resolve against
+    the conversation. See https://langfuse.com/academy/tracing#traces-vs-sessions.
     """
     lf = get_langfuse()
     model = model or AGENT_MODEL
     history = history or []
-    multiturn = conversation_trace_id is not None
 
-    # Multi-turn: this turn is a `turn-N` span attached to the shared conversation
-    # trace. Single-turn: the turn is its own trace root.
-    if multiturn:
-        root_cm = lf.start_as_current_observation(
-            as_type="span", name=f"turn-{turn_index + 1}",
-            trace_context={"trace_id": conversation_trace_id})
-    else:
-        root_cm = lf.start_as_current_observation(as_type="span", name="property-concierge")
-
-    with root_cm as root:
+    # One turn = one trace, rooted at the `handle-concierge-chat-message` span.
+    # The shared session_id (set below) groups a conversation's turns in Sessions.
+    with lf.start_as_current_observation(as_type="span", name=TRACE_NAME) as root:
         # Trace-level attributes (only in live mode; the experiment owns the trace).
         if not is_experiment:
+            # Stable, low-cardinality trace name (Langfuse best practice): the
+            # turn's question lives in the trace INPUT (shown in the Traces table),
+            # NOT the name, so traces stay groupable/filterable/targetable. Turns
+            # are stitched into one conversation by session_id (see Sessions view).
             ctx = propagate_attributes(
                 session_id=session_id,
                 user_id=user_id,
                 # Fault-injected traces self-identify via a `fault:<name>` tag so
                 # they are filterable (and explainable) during a demo.
                 tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
-                trace_name="conversation" if multiturn else "property-concierge",
+                trace_name=TRACE_NAME,
             )
         else:
             from contextlib import nullcontext
@@ -163,8 +165,8 @@ def run_turn(
                         metadata={"agent_model": model, "provider": provider_of(model),
                                   "prompt_label": prompt_label, "turn": turn_index + 1,
                                   **({"fault": fault} if fault else {})})
-            # Trace-level input: set the opening question once (first turn).
-            if not is_experiment and (not multiturn or turn_index == 0):
+            # This turn's question is the trace input.
+            if not is_experiment:
                 lf.update_current_trace(input={"query": query},
                                         metadata={"agent_model": model})
 
@@ -310,7 +312,7 @@ def run_turn(
             }
 
             root.update(output=final_text)
-            # Keep the trace output pointed at the latest answer as turns accrue.
+            # This turn's answer is the trace output.
             if not is_experiment:
                 lf.update_current_trace(output=final_text)
 
