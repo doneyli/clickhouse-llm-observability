@@ -87,6 +87,8 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
   "enabled": true,
   "sampling": 1,
   "filter": [
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": ["property-concierge"]},
     {"type": "stringOptions", "column": "name", "operator": "any of",
      "value": ["property-concierge"]}
   ],
@@ -114,9 +116,9 @@ RULE
   Finish in the Langfuse UI (~2 min), project '${EXPECTED_PROJECT}':
     1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
     2. Evaluators > + New evaluator, twice — managed templates 'Helpfulness'
-       and 'Relevance', target = live observations, filter name any of
-       [property-concierge] (the per-turn root span; traces are named after the
-       question), mapping query -> input (\$.query), generation -> output.
+       and 'Relevance', target = live observations, filter traceName any of
+       [property-concierge] + name any of [property-concierge], mapping
+       query -> input (\$.query), generation -> output.
 STEPS
     else
       echo ""

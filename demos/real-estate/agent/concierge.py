@@ -137,21 +137,17 @@ def run_turn(
     with lf.start_as_current_observation(as_type="span", name="property-concierge") as root:
         # Trace-level attributes (only in live mode; the experiment owns the trace).
         if not is_experiment:
-            # Name the trace after the user's question — Langfuse's documented
-            # pattern (traces vs sessions) — so the Tracing list and the Session
-            # read like the conversation itself, one question per row, instead of
-            # a stack of identical "property-concierge" rows. The root span keeps
-            # the stable `property-concierge` name (the agent run for this turn).
-            trace_name = " ".join(query.split())
-            if len(trace_name) > 70:
-                trace_name = trace_name[:69].rstrip() + "…"
+            # Stable, low-cardinality trace name (Langfuse best practice): the
+            # turn's question lives in the trace INPUT (shown in the Traces table),
+            # NOT the name, so traces stay groupable/filterable/targetable. Turns
+            # are stitched into one conversation by session_id (see Sessions view).
             ctx = propagate_attributes(
                 session_id=session_id,
                 user_id=user_id,
                 # Fault-injected traces self-identify via a `fault:<name>` tag so
                 # they are filterable (and explainable) during a demo.
                 tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
-                trace_name=trace_name or "property-concierge",
+                trace_name="property-concierge",
             )
         else:
             from contextlib import nullcontext

@@ -175,10 +175,10 @@ visibility you're guessing. Here's what "you're not guessing" looks like.
 **Show.** The chat you just ran is a **Session** — each turn is its own trace,
 and a shared `session_id` stitches them together. Open **Sessions →
 `sess-madrid-buyer-001`**:
-- the session lists **every turn as its own trace — named after the question —
-  in order**; the follow-up resolved "that one" because the agent carries the
-  conversation so far. (In the **Tracing** list those same per-turn traces read
-  like the conversation — one question per row — not a stack of look-alikes.)
+- the session lists **every turn as its own trace, in order** — the follow-up
+  resolved "that one" because the agent carries the conversation so far. This
+  Sessions view *is* the whole conversation; the flat **Tracing** table is the
+  per-turn list (each turn's question shows in its Input column).
 - open a turn's trace and walk it top → bottom: root `property-concierge`
   (**input** = that turn's question, **output** = its answer, metadata
   `agent_model`) → `plan` (extracts constraints) → `agent-turn-N` (tool
