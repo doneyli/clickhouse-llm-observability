@@ -4,7 +4,7 @@ The Real Estate Property Concierge — an instrumented tool-using agent.
 Flow per turn (each step is a Langfuse observation, so the trace tree reads
 top-to-bottom like the agent's reasoning):
 
-    property-concierge            (root span; trace input=query, output=answer)
+    handle-concierge-chat-message (root span; trace input=query, output=answer)
     ├─ plan                       (generation) extract structured constraints
     ├─ agent-turn-1               (generation) Claude decides which tools to call
     ├─ tool:search_listings       (span)       catalog search
@@ -31,6 +31,12 @@ from .scoring import run_code_evaluators, extract_listing_ids, prior_ids_from_hi
 from .prompts import get_plan_prompt, get_agent_prompt, link_kwargs, PRODUCTION_LABEL
 
 MAX_ITERS = 5
+
+# Stable, low-cardinality name for each turn's trace AND its root span (Langfuse
+# best practice — verb-first, like the docs' own `handle-chatbot-message`). The
+# question lives in the trace INPUT, not the name. Keeping the trace name and the
+# root span name identical lets newer Langfuse UIs render them as a single node.
+TRACE_NAME = "handle-concierge-chat-message"
 
 # --- lightweight language detection (Spanish vs English) for language-match ---
 # Only Spanish FUNCTION/verb words — strong language signals. Deliberately NOT
@@ -132,9 +138,9 @@ def run_turn(
     model = model or AGENT_MODEL
     history = history or []
 
-    # One turn = one trace, rooted at `property-concierge`. The shared session_id
-    # (set below) groups a conversation's turns together in the Sessions view.
-    with lf.start_as_current_observation(as_type="span", name="property-concierge") as root:
+    # One turn = one trace, rooted at the `handle-concierge-chat-message` span.
+    # The shared session_id (set below) groups a conversation's turns in Sessions.
+    with lf.start_as_current_observation(as_type="span", name=TRACE_NAME) as root:
         # Trace-level attributes (only in live mode; the experiment owns the trace).
         if not is_experiment:
             # Stable, low-cardinality trace name (Langfuse best practice): the
@@ -147,7 +153,7 @@ def run_turn(
                 # Fault-injected traces self-identify via a `fault:<name>` tag so
                 # they are filterable (and explainable) during a demo.
                 tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
-                trace_name="property-concierge",
+                trace_name=TRACE_NAME,
             )
         else:
             from contextlib import nullcontext

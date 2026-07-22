@@ -179,7 +179,7 @@ and a shared `session_id` stitches them together. Open **Sessions →
   resolved "that one" because the agent carries the conversation so far. This
   Sessions view *is* the whole conversation; the flat **Tracing** table is the
   per-turn list (each turn's question shows in its Input column).
-- open a turn's trace and walk it top → bottom: root `property-concierge`
+- open a turn's trace and walk it top → bottom: root `handle-concierge-chat-message`
   (**input** = that turn's question, **output** = its answer, metadata
   `agent_model`) → `plan` (extracts constraints) → `agent-turn-N` (tool
   decisions) → `tool:*` (**click one** — exact input/output, "no black box") →
@@ -480,8 +480,8 @@ instrumentation surface for a whole agent.
 
 **3 · Session wrapping (Act 2 / the Sessions story) — one call**
 ```python
-# agent/concierge.py  each turn is its OWN trace, rooted at property-concierge
-with lf.start_as_current_observation(as_type="span", name="property-concierge") as root:
+# agent/concierge.py  each turn is its OWN trace, rooted at handle-concierge-chat-message
+with lf.start_as_current_observation(as_type="span", name="handle-concierge-chat-message") as root:
     # THIS is what groups a conversation's per-turn traces into a Langfuse Session
     ctx = propagate_attributes(session_id=session_id, user_id=user_id, tags=..., trace_name=...)
 ```

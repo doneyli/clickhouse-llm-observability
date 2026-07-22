@@ -67,7 +67,7 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
     fi
     # Create the two judges as observation-level evaluation rules via the
     # (unstable) evaluators API, referencing the Langfuse-MANAGED evaluator
-    # families. Each turn is its own trace rooted at `property-concierge`, so the
+    # families. Each turn is its own trace rooted at `handle-concierge-chat-message`, so the
     # rules run on that root span (input={"query"} / output=final answer) — the
     # scores read like the self-hosted trace-level ones. Idempotent: existing
     # rule names are skipped. Falls back to a UI recipe if the API is unavailable.
@@ -88,9 +88,9 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
   "sampling": 1,
   "filter": [
     {"type": "stringOptions", "column": "traceName", "operator": "any of",
-     "value": ["property-concierge"]},
+     "value": ["handle-concierge-chat-message"]},
     {"type": "stringOptions", "column": "name", "operator": "any of",
-     "value": ["property-concierge"]}
+     "value": ["handle-concierge-chat-message"]}
   ],
   "mapping": [
     {"variable": "query", "source": "input", "jsonPath": "\$.query"},
@@ -117,8 +117,8 @@ RULE
     1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
     2. Evaluators > + New evaluator, twice — managed templates 'Helpfulness'
        and 'Relevance', target = live observations, filter traceName any of
-       [property-concierge] + name any of [property-concierge], mapping
-       query -> input (\$.query), generation -> output.
+       [handle-concierge-chat-message] + name any of [handle-concierge-chat-message],
+       mapping query -> input (\$.query), generation -> output.
 STEPS
     else
       echo ""
