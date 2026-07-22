@@ -42,7 +42,10 @@ def build_payload(prompt: str, request_id: str, session_id: str) -> Dict[str, An
             # for correlation and use this unique session ID for API verification.
             "request_id": request_id,
             "session_id": session_id,
-            "user_id": "gateway-demo-user",
+            # LiteLLM's langfuse_otel callback maps "trace_user_id" (not
+            # "user_id") to the Langfuse trace user; the wrong key is silently
+            # dropped and never reaches the trace.
+            "trace_user_id": "gateway-demo-user",
             "tags": ["litellm", "gateway", "gateway:litellm", "demo"],
         },
     }
@@ -118,7 +121,10 @@ def wait_for_trace(
             last_error = str(exc)
             if "HTTP 401" in last_error or "HTTP 403" in last_error:
                 raise
-            time.sleep(1)
+        # Back off between polls on BOTH paths — a 200 with the trace not yet
+        # indexed (the common case, ingestion is async) must not spin in a tight
+        # loop hammering the API for the whole timeout window.
+        time.sleep(1)
 
     raise DemoError(
         f"Langfuse did not return the {session_id} session within {timeout:g}s. "

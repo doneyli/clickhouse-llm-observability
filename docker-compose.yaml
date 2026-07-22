@@ -221,15 +221,32 @@ services:
   litellm-proxy:
     image: ghcr.io/berriai/litellm:v1.93.0
     container_name: litellm-proxy
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    # Langfuse export credentials come from env_file (.env), read literally — NOT
+    # as ${LANGFUSE_PUBLIC_KEY} interpolation. Compose resolves ${..} from the
+    # invoking SHELL before .env, so a shell with stale LANGFUSE_* exported (a
+    # common dev footgun) would inject bad creds → 401 on trace export. This is
+    # the same hardening the `api` (LibreChat) service uses. The optional
+    # dedicated-project override is applied INSIDE the container below — written
+    # with $$ so Compose passes it through literally instead of interpolating it
+    # from the host shell — reading the values env_file loaded from .env.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export LANGFUSE_PUBLIC_KEY="$${LITELLM_LANGFUSE_PUBLIC_KEY:-$${LANGFUSE_PUBLIC_KEY:-}}"
+        export LANGFUSE_SECRET_KEY="$${LITELLM_LANGFUSE_SECRET_KEY:-$${LANGFUSE_SECRET_KEY:-}}"
+        exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4000
     ports:
       - "${LITELLM_PORT:-4000}:4000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LITELLM_UPSTREAM_MODEL=${LITELLM_UPSTREAM_MODEL:-anthropic/claude-sonnet-4-6}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-demo}
-      - LANGFUSE_PUBLIC_KEY=${LITELLM_LANGFUSE_PUBLIC_KEY:-${LANGFUSE_PUBLIC_KEY:-}}
-      - LANGFUSE_SECRET_KEY=${LITELLM_LANGFUSE_SECRET_KEY:-${LANGFUSE_SECRET_KEY:-}}
+      # env_file loads .env's host-side LANGFUSE_HOST (localhost:3001); override it
+      # (and the OTEL host) with the Docker-internal URL so in-container export
+      # targets langfuse-web, not the container's own localhost.
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_OTEL_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - OTEL_SERVICE_NAME=litellm-gateway-demo
     profiles:

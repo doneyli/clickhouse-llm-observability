@@ -21,6 +21,7 @@ Pick your path by what you're trying to do.
 | [Text-to-SQL Demo Script](../demos/text-to-sql/DEMO_SCRIPT.md) | Consultative script for the NL-data-assistant demo — SQL-safety guardrail + prompt deploys by label, same flow + code appendix |
 | [Vector RAG Demo Script](../demos/vector-rag/DEMO_SCRIPT.md) | Consultative script for the naive-RAG baseline — tracing, managed prompts, free guardrails, and the designed hand-off to agentic-rag |
 | [Brand-Promo Demo Script](../demos/brand-promo-multi-agent/DEMO_SCRIPT.md) | Consultative script for the multi-agent (LangGraph + CrewAI) fleet demo — 50k-trace scale, persona dashboards, certification gate |
+| [LiteLLM Gateway Demo Script](../demos/litellm-gateway/DEMO_SCRIPT.md) | Short (~5 min) script for the gateway-instrumentation pattern — centralized Langfuse tracing at a LiteLLM proxy, no client SDK, same Frame→Show→Land→Ask flow |
 | [Use Case Catalog](USE_CASES.md) | 10 capabilities, each with a 2-minute demo path; quick-tour combos |
 | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | 45-min screen-by-screen platform demo script with full talk tracks |
 | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | Deep screen-by-screen reference + fallbacks (pairs with the co-located [demo script](../demos/agentic-rag/DEMO_SCRIPT.md)) |
