@@ -40,7 +40,7 @@ The loop clusters into two areas of work:
 
 | # | Loop step | What it is | In this demo | Where to see it |
 |---|-----------|-----------|--------------|-----------------|
-| 1 | **Trace** | Full path of each request: prompts, tools, outputs, latency, cost | `agent/concierge.py` emits `plan → agent-turn → tool:* → synthesis`; multi-turn = one trace; sessions; the **prompt version is linked to each generation** | Langfuse **Tracing** / **Sessions**; DEMO_SCRIPT Act 2 |
+| 1 | **Trace** | Full path of each request: prompts, tools, outputs, latency, cost | `agent/concierge.py` emits `plan → agent-turn → tool:* → synthesis`; each turn is its own trace, grouped into a **session** by `session_id`; the **prompt version is linked to each generation** | Langfuse **Tracing** / **Sessions**; DEMO_SCRIPT Act 2 |
 | 2 | **Monitor** | Surface the traces that deserve attention over time | Managed LLM-as-a-Judge (auto) + custom SDK judges + code scores + **👍/👎 user feedback** from the portal; **Dashboards** for cost/latency/score trends | Langfuse **Evaluators**, **Dashboards**; DEMO_SCRIPT Acts 1, 3 / close |
 | 3 | **Build datasets** | Turn real + designed scenarios into repeatable test cases | `data/dataset.py` → `property-concierge-eval` (18 curated items across Europe, incl. an impossible one); production traces can be added to it from the UI | Langfuse **Datasets**; `scripts/seed_dataset.py`; DEMO_SCRIPT Act 5 |
 | 4 | **Experiment** | Change one variable, compare vs a baseline | Same agent + dataset + evaluators across **models** (Claude vs GPT-4o) **and prompt versions** (production vs candidate) | `scripts/run_experiment.py --model / --prompt-label`; Langfuse **Datasets → Runs → Compare** |
@@ -125,4 +125,4 @@ This is the money path (DEMO_SCRIPT Act 6). Every step is real and runnable:
 | Promote a label to deploy | **Live** — do it in the Langfuse UI |
 | GitHub repository-dispatch CI/CD + sync-to-repo | **Documented** — needs a real repo, PAT, public webhook; see [`cicd/`](cicd/) |
 | Add production trace → dataset | **Live in UI** — one click on a trace |
-| Explicit **user feedback** as a Monitor signal | **Live** — 👍/👎 in the portal writes a `user-feedback` score onto the conversation's trace (`webapp` `/api/feedback`) |
+| Explicit **user feedback** as a Monitor signal | **Live** — 👍/👎 in the portal writes a `user-feedback` score onto that turn's trace (`webapp` `/api/feedback`) |
