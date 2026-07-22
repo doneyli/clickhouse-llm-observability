@@ -21,7 +21,14 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-LANGFUSE_URL="${LANGFUSE_BASE_URL:-http://localhost:3001}"
+# Respect DEPLOY_MODE before assuming a local Langfuse: in cloud mode the health
+# check must target the cloud/remote host, not localhost.
+DEPLOY_MODE="${DEPLOY_MODE:-self-hosted}"
+if [ "$DEPLOY_MODE" = "cloud" ]; then
+  LANGFUSE_URL="${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-https://cloud.langfuse.com}}"
+else
+  LANGFUSE_URL="${LANGFUSE_BASE_URL:-${LANGFUSE_HOST:-http://localhost:3001}}"
+fi
 if ! curl -sf --max-time 5 "$LANGFUSE_URL/api/public/health" >/dev/null; then
   echo "Error: Langfuse is not reachable at $LANGFUSE_URL." >&2
   echo "Run ./setup.sh first, then rerun this script." >&2
