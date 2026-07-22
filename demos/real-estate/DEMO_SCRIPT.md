@@ -465,13 +465,13 @@ wrong place — a real operational footgun, handled in ~3 lines.
 **2 · The whole trace tree is one function — `agent/concierge.py` (`run_turn`)**
 ```python
 # every step is one context-manager call; the nesting IS the trace tree
-with lf.start_as_current_observation(as_type="generation", name="plan", ...):   # :177
+with lf.start_as_current_observation(as_type="generation", name="plan", ...):
     ...
 for i in range(MAX_ITERS):
-    with lf.start_as_current_observation(as_type="generation", name=f"agent-turn-{i+1}"):  # :211
+    with lf.start_as_current_observation(as_type="generation", name=f"agent-turn-{i+1}"):
         ...
     for call in res["tool_calls"]:
-        with lf.start_as_current_observation(as_type="span", name=f"tool:{call['name']}"):  # :234
+        with lf.start_as_current_observation(as_type="span", name=f"tool:{call['name']}"):
             ...
 ```
 *Why it matters:* the trace you walked in Act 2 is just these nested `with`
@@ -493,7 +493,7 @@ Sessions view — grouping is a property you *set*, not a pipeline you build.
 ```python
 # agent/llm.py:59  provider-agnostic call returns usage + cost_details (:41 publishes GPT prices)
 res = call_llm(model, system, messages, tools=tools, max_tokens=1500)
-# agent/concierge.py:217  attach them to the generation
+# agent/concierge.py  attach them to the generation
 gen.update(output=..., usage_details=res["usage"], cost_details=res["cost_details"])
 ```
 *Why it matters:* cost per step is captured at source. Claude is auto-priced by
@@ -507,13 +507,13 @@ return get_langfuse().get_prompt(AGENT_PROMPT_NAME, label=label, fallback=AGENT_
 # agent/prompts.py:112  link the fetched version to the generation (skips when fallback)
 def link_kwargs(prompt): return {} if getattr(prompt, "is_fallback", False) else {"prompt": prompt}
 ```
-Used at `concierge.py:178,199` as `**link_kwargs(...)`. *Why it matters:* the prompt
+Used in `concierge.py` as `**link_kwargs(...)`. *Why it matters:* the prompt
 is data in Langfuse, not a string in the app — so promoting a label *is* the deploy
 (Act 6), and the fallback means the app still runs on a fresh clone with nothing seeded.
 
 **6 · Scores on an observation (Act 3) — `agent/scoring.py` → attached in `concierge.py`**
 ```python
-# agent/concierge.py:300  attach each deterministic code score to the SYNTHESIS observation
+# agent/concierge.py  attach each deterministic code score to the SYNTHESIS observation
 for s in run_code_evaluators(result):          # agent/scoring.py:150
     lf.create_score(trace_id=trace_id, observation_id=final_gen_id,
                     name=s.name, value=s.value, data_type=s.data_type, comment=s.comment)
