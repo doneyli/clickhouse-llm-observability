@@ -16,6 +16,12 @@ mcpServers:
   rag-retriever:
     type: sse
     url: http://mcp-rag-retriever:8000/sse
+    # Pass the stable per-conversation id so the MCP server can group a
+    # multi-turn chat into ONE Langfuse session (one trace per turn). LibreChat
+    # resolves {{LIBRECHAT_BODY_CONVERSATIONID}} per tool call from a
+    # server-assigned UUID (stable from turn 1). server.py reads this header.
+    headers:
+      X-LibreChat-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"
 
   # Langfuse Traces (query LLM trace data via natural language)
   langfuse-traces:
