@@ -28,7 +28,7 @@ it across the whole stack.
 
 | App | What it is | Instrumentation |
 |-----|-----------|-----------------|
-| `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP | LangChain + Langfuse `CallbackHandler` |
+| `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP; optional generate→critique→refine loop (`--refine`) grounded in real EXPLAIN + bounded execution | LangChain + Langfuse `CallbackHandler` + typed observations |
 | `demos/vector-rag/` | RAG over ChromaDB | LangChain + Langfuse `CallbackHandler` |
 | `demos/agentic-rag/` | Self-correcting RAG on ClickHouse-native vectors | LangGraph + Langfuse SDK |
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |

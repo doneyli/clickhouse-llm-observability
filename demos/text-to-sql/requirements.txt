@@ -9,3 +9,7 @@ langfuse>=4.7,<5.0
 # MCP client & utilities
 httpx>=0.27.0,<1.0.0
 python-dotenv>=1.0.0,<2.0.0
+
+# ClickHouse client — the refine loop's evidence runner (EXPLAIN + bounded
+# read-only execution against sql.clickhouse.com); see sql_evidence.py
+clickhouse-connect>=0.7,<1.0
