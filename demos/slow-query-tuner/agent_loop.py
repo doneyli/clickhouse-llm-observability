@@ -222,6 +222,10 @@ def run(goal: Dict[str, Any], *, caps: Optional[budget.Caps] = None,
     """Execute (or resume) one tuning run as a single Langfuse trace."""
     caps = caps or budget.Caps()
     env = env or ch_env.TuningLabEnv()
+    # Re-read at call time (not just the import-time MODEL) so a per-run/per-arm
+    # ANTHROPIC_MODEL override (e.g. run_experiment.py's model pin) actually
+    # reaches the API call and the cost table.
+    model = os.getenv("ANTHROPIC_MODEL", MODEL)
     target_ms = int(goal["target_ms"])
     tool_schemas = tools.RUNAWAY_SCHEMAS if runaway else tools.SCHEMAS
     compact_after = 0 if runaway else COMPACT_AFTER   # runaway lets context grow (realistic)
@@ -266,7 +270,7 @@ def run(goal: Dict[str, Any], *, caps: Optional[budget.Caps] = None,
                                 input=state.compacted_messages(compact_after)) as gen:
                     try:
                         resp = _client().messages.create(
-                            model=MODEL, system=system_text, tools=tool_schemas,
+                            model=model, system=system_text, tools=tool_schemas,
                             messages=state.compacted_messages(compact_after),
                             max_tokens=2000, temperature=TEMPERATURE)
                     except Exception:
@@ -274,11 +278,11 @@ def run(goal: Dict[str, Any], *, caps: Optional[budget.Caps] = None,
                         # the failure so the operator can --resume.
                         checkpoint.save(state.run_id, state)
                         raise
-                    state.cost_usd += budget.cost_of(resp.usage, MODEL)
+                    state.cost_usd += budget.cost_of(resp.usage, model)
                     if gen is not None:
                         _root_update(gen,
                                      output=_text_of(resp) or "[tool_use]",
-                                     model=MODEL,
+                                     model=model,
                                      usage_details={"input_tokens": resp.usage.input_tokens,
                                                     "output_tokens": resp.usage.output_tokens},
                                      metadata={"turn": state.turn, "cost_so_far": round(state.cost_usd, 4),
