@@ -123,6 +123,17 @@ else
     warn "Dataset coding-assistant-security not found — run 'python scripts/seed-datasets.py' then re-run this script"
 fi
 
+# query-router: deterministic exact-match routing accuracy on experiment runs of
+# the router-accuracy dataset (the soft/ambiguous cases go to the categorical
+# route-plausibility LLM judge — scripts/seed-router-judge.sh).
+ROUTER_DS=$(dataset_id "query-router-accuracy")
+if [ -n "$ROUTER_DS" ]; then
+    seed_evaluator "route-match" "route-match" "experiment" \
+        '[{"type":"stringOptions","value":["'"$ROUTER_DS"'"],"column":"experimentDatasetId","operator":"any of"}]' 1
+else
+    warn "Dataset query-router-accuracy not found — run 'python scripts/seed-router-dataset.py' then re-run this script"
+fi
+
 # The worker caches "project has no event/experiment evaluators" in Redis for
 # 10 minutes; clear it so freshly seeded evaluators pick up traffic right away.
 if docker ps --format '{{.Names}}' | grep -q "^${REDIS_CONTAINER}$"; then

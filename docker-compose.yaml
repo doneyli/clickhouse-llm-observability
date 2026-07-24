@@ -171,6 +171,10 @@ services:
     build:
       context: ./demos/text-to-sql
     container_name: text-to-sql
+    # Long-running API server so :8002 actually serves /query (for the
+    # query-router front door). CLI mode is unchanged and overrides this:
+    #   docker compose --profile demo run --rm text-to-sql python main.py
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
     ports:
       - "${TEXT_TO_SQL_PORT:-8002}:8000"
     environment:
@@ -196,6 +200,10 @@ services:
     build:
       context: ./demos/vector-rag
     container_name: vector-rag
+    # Long-running API server so :8003 actually serves /query (for the
+    # query-router front door). CLI mode is unchanged and overrides this:
+    #   docker compose --profile demo run --rm vector-rag python main.py
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
     ports:
       - "${VECTOR_RAG_PORT:-8003}:8000"
     environment:
@@ -368,6 +376,49 @@ services:
     volumes:
       - ./demos/agentic-rag:/agentic-rag:ro
       - vector-rag-models:/root/.cache
+
+  # =============================================================================
+  # Query Router Demo — front-door classification-dispatch (Pattern 2: Routing)
+  # =============================================================================
+  # A thin front door on :8008 that classifies a question (its own `route-query`
+  # generation) and dispatches over HTTP to exactly one specialist handler —
+  # text-to-sql (analytics_sql), vector-rag (docs_simple), agentic-rag
+  # (docs_complex) — or an in-process fallback with HITL escalation. One Langfuse
+  # trace `route-and-dispatch` shows the router decision AND the chosen handler's
+  # nested subtree (SDK v3 distributed tracing).
+  #   API:  docker compose --profile demo up -d query-router
+  #   CLI:  docker compose --profile demo run --rm query-router python main.py
+  # depends_on is service_started (not healthy) on purpose: the router degrades
+  # to fallback if a handler is down (Act 2 of DEMO_SCRIPT).
+  # =============================================================================
+  query-router:
+    build:
+      context: ./demos/query-router
+    container_name: query-router
+    ports:
+      - "${QUERY_ROUTER_PORT:-8008}:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ROUTER_MODEL=${ROUTER_MODEL:-claude-haiku-4-5}
+      - ROUTER_CONFIDENCE_THRESHOLD=${ROUTER_CONFIDENCE_THRESHOLD:-0.70}
+      # Set ROUTER_FAULT=sql-blindness for the seeded-misroute act (Act 3).
+      - ROUTER_FAULT=${ROUTER_FAULT:-}
+      # Handler registry — the existing demo services on the shared demo network.
+      - TEXT_TO_SQL_URL=http://text-to-sql:8000
+      - VECTOR_RAG_URL=http://vector-rag:8000
+      - AGENTIC_RAG_URL=http://agentic-rag:8000
+      # Langfuse instrumentation
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    depends_on:
+      - text-to-sql
+      - vector-rag
+      - agentic-rag
+    profiles:
+      - demo
+    volumes:
+      - ./demos/query-router:/app
 
   # =============================================================================
   # Test Scenarios - Export synthetic conversations for evaluation demos
