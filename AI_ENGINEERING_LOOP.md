@@ -31,6 +31,7 @@ it across the whole stack.
 | `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP | LangChain + Langfuse `CallbackHandler` |
 | `demos/vector-rag/` | RAG over ChromaDB | LangChain + Langfuse `CallbackHandler` |
 | `demos/agentic-rag/` | Self-correcting RAG on ClickHouse-native vectors | LangGraph + Langfuse SDK |
+| `demos/support-triage-parallel/` | Parallel ticket triage — sectioning fan-out + best-of-N SQL voting (Pattern #3) | Anthropic API (asyncio) + Langfuse SDK |
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |
 | `demos/real-estate/` | Self-contained agentic concierge — the loop shown end-to-end in one place | Langfuse SDK |
 | `demos/brand-promo-multi-agent/` | Multi-agent promo-planning assistant (standalone): synthetic history, online + offline evals, persona dashboards | LangGraph + CrewAI + Langfuse `CallbackHandler` |
@@ -45,6 +46,28 @@ it across the whole stack.
 | 4 | **Experiment** | `scripts/run-experiments.py` — compare **models / datasets** on the eval sets | **prompt-variant** experiments: `demos/real-estate/` + `agentic-rag` |
 | 5 | **Evaluate** | Deterministic **code evaluators** (`evaluators/*.ts`, seeded by `scripts/seed-code-evaluators.sh`) + **LLM-as-a-Judge** (`scripts/seed-llm-judge-evaluators.sh`) | human **annotation** queue in `demos/real-estate/` |
 | ⟳ | **Deploy** | **Prompt management by label** — apps fetch prompts from Langfuse at runtime with a local fallback: `agentic-rag` (`scripts/seed-langfuse-prompt.py`), `text-to-sql` + `vector-rag` (`scripts/seed-app-prompts.py`). Promote a label to ship a prompt with no redeploy. | **GitHub CI/CD** reference for gated prompt deploys in `demos/real-estate/cicd/` |
+
+## Parallelization demo — the loop on a fan-out (`demos/support-triage-parallel/`)
+
+Pattern #3 exercises every loop step around a concurrent fan-out:
+
+- **Trace** — 4 sectioning branches + 5 voting samples land as **sibling
+  observations** under one `triage-support-ticket` trace; the Timeline shows them
+  overlapping (parallel) vs a staircase (`--sequential`). The `tally-votes`
+  aggregator carries the literal vote tally in metadata.
+- **Monitor** — parallelization multiplies spend ~N×; a **cost-per-trace** Monitor
+  (Metrics API `sum totalCost` by `traceName`) bounds it, and a `level=WARNING`
+  count Monitor tracks dropped branches.
+- **Datasets / Experiment** — `scripts/run_experiment.py` compares the three
+  aggregation strategies (result-signature / majority-exact / judge-consensus) on
+  `support-triage/sql-voting`, branches held fixed — a run-level
+  `voting_accuracy_rate` decides the winner (`--ci` gates at 0.8).
+- **Evaluate** — runtime scores `consensus_confidence` (trace), `sql_validity_rate`
+  (span), `policy_flagged` (guard span); plus the deterministic
+  `consensus-margin-guard` code evaluator and the independent `correlated-vote-risk`
+  managed judge (`scripts/seed-support-triage-evaluators.sh`).
+- **Deploy** — 7 managed prompts fetched by `label=production` with local
+  fallbacks (`scripts/seed_prompts.py`); the SQL voter ships v1 + v2.
 
 ## The Deploy node across the stack
 

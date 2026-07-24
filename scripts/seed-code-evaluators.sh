@@ -105,6 +105,12 @@ seed_evaluator "credential-leak-guard" "credential-leak" "event" \
 seed_evaluator "response-structure-check" "structure-clean" "event" \
     '[{"type":"stringOptions","value":["GENERATION"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["text-to-sql","vector-rag"],"column":"traceName","operator":"any of"}]' 0
 
+# Support Triage Parallel (Pattern #3): deterministic margin check on the
+# `tally-votes` aggregator span — reads the vote tally the app writes onto
+# metadata (no need to pull in the N candidate child observations).
+seed_evaluator "consensus-margin-guard" "consensus_margin_ok" "event" \
+    '[{"type":"stringOptions","value":["tally-votes"],"column":"name","operator":"any of"},{"type":"stringOptions","value":["triage-support-ticket"],"column":"traceName","operator":"any of"}]' 0
+
 # ─── Experiment evaluators (target: dataset experiment runs) ────────────────
 
 QUALITY_DS=$(dataset_id "coding-assistant-quality")

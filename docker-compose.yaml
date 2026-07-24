@@ -370,6 +370,42 @@ services:
       - vector-rag-models:/root/.cache
 
   # =============================================================================
+  # Support Triage Parallel Demo — sectioning fan-out + best-of-N SQL voting
+  # =============================================================================
+  # Pattern #3 (Parallelization): 4 concurrent analysis branches + a 5-sample
+  # SQL voter arbitrated by executing candidates against the ClickHouse public
+  # playground. Sibling spans + vote-tally metadata land in Langfuse.
+  # Run: docker compose --profile demo run --rm support-triage-parallel python main.py
+  # =============================================================================
+  support-triage-parallel:
+    build:
+      context: ./demos/support-triage-parallel
+    container_name: support-triage-parallel
+    ports:
+      - "${SUPPORT_TRIAGE_PORT:-8008}:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      - BRANCH_MODEL=${BRANCH_MODEL:-claude-haiku-4-5}          # cheap sectioning branches
+      - JUDGE_MODEL=${JUDGE_MODEL:-claude-opus-4-7}             # tie-break judge (repo tiering convention)
+      - TEMPERATURE=${TEMPERATURE:-0.7}
+      - VOTE_SAMPLES=${VOTE_SAMPLES:-5}
+      - VOTE_TEMPERATURE=${VOTE_TEMPERATURE:-0.9}
+      - VOTE_STRATEGY=${VOTE_STRATEGY:-result-signature}
+      # ClickHouse public playground (read-only; same target as text-to-sql / agentic-rag sql_tool)
+      - PUBLIC_CH_HOST=${PUBLIC_CH_HOST:-sql-clickhouse.clickhouse.com}
+      - PUBLIC_CH_USER=${PUBLIC_CH_USER:-demo}
+      - PUBLIC_CH_PASSWORD=${PUBLIC_CH_PASSWORD:-}
+      # Langfuse instrumentation
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    profiles:
+      - demo
+    volumes:
+      - ./demos/support-triage-parallel:/app
+
+  # =============================================================================
   # Test Scenarios - Export synthetic conversations for evaluation demos
   # =============================================================================
   # Exports pre-crafted prompt/response pairs that demonstrate evaluation failures:

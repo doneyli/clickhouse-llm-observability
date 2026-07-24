@@ -1,0 +1,14 @@
+# Anthropic SDK — raw async/sync API (concurrent fan-out; no LangChain needed)
+anthropic>=0.40.0,<1.0.0
+
+# Langfuse - LLM observability (v3 typed observations, scores, managed prompts)
+langfuse>=3.0.0,<4.0.0
+
+# HTTP (Anthropic + Langfuse transitively depend on it; pinned for the seed scripts)
+httpx>=0.27.0,<1.0.0
+
+# SQL canonicalization for the majority-exact voting strategy
+sqlglot>=25.0.0,<27.0.0
+
+# ClickHouse client — EXPLAIN validation + read-only execution vs the playground
+clickhouse-connect>=0.8.0,<1.0.0
