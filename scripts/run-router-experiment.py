@@ -79,7 +79,11 @@ def route_match(*, output, expected_output, **kwargs):
     return Evaluation(
         name="route-match",
         value=1.0 if output.get("route") == expected else 0.0,
-        data_type="NUMERIC",
+        # BOOLEAN to match evaluators/route-match.ts (the same-named `route-match`
+        # code evaluator seed-code-evaluators.sh wires onto this dataset): a score
+        # name binds to ONE data type in Langfuse, so the two must agree or one
+        # write is rejected / the experiment column becomes unusable.
+        data_type="BOOLEAN",
         comment=f"chose '{output.get('route')}', expected '{expected}'",
     )
 
