@@ -580,6 +580,22 @@ ensure_librechat_agents() {
 }
 
 #######################################
+# Seed the slow-query-tuner demo (Pattern #7): managed prompts, root-level
+# dataset, cost/turn Monitors, and the independent goal-drift judge. Guarded,
+# idempotent, non-fatal (the loop runs with local fallbacks if this is skipped).
+#######################################
+ensure_slow_query_tuner() {
+    if [ ! -d "$SCRIPT_DIR/demos/slow-query-tuner" ]; then
+        return 0
+    fi
+    header "Seeding Slow Query Tuner (prompts, dataset, monitors)"
+
+    docker compose --profile demo run --rm slow-query-tuner \
+        python scripts/seed_all.py || warn "slow-query-tuner seeding skipped"
+    "$SCRIPT_DIR/scripts/seed-query-tuner-evaluators.sh" || true
+}
+
+#######################################
 # Wait for critical services to be healthy
 #######################################
 wait_for_services() {
@@ -852,6 +868,7 @@ main() {
     ensure_llm_judge_evaluators
     ensure_project_name_dict
     ensure_librechat_agents
+    ensure_slow_query_tuner
 
     if [ "$run_seed" = true ]; then
         header "Seeding Demo Data"

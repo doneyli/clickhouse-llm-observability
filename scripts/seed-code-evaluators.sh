@@ -105,6 +105,12 @@ seed_evaluator "credential-leak-guard" "credential-leak" "event" \
 seed_evaluator "response-structure-check" "structure-clean" "event" \
     '[{"type":"stringOptions","value":["GENERATION"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["text-to-sql","vector-rag"],"column":"traceName","operator":"any of"}]' 0
 
+# slow-query-tuner (Pattern #7): flag runs that ended on a backstop instead of
+# self-terminating. Targets the AGENT root observation of tune-clickhouse-query
+# traces; emits cap_terminated (BOOLEAN) + termination_class (CATEGORICAL).
+seed_evaluator "runaway-loop-guard" "cap-terminated" "event" \
+    '[{"type":"stringOptions","value":["AGENT"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["tune-clickhouse-query"],"column":"traceName","operator":"any of"}]' 0
+
 # ─── Experiment evaluators (target: dataset experiment runs) ────────────────
 
 QUALITY_DS=$(dataset_id "coding-assistant-quality")
