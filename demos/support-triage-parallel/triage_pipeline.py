@@ -112,14 +112,17 @@ async def run_branch(name: str, short_key: str, as_type: str, temperature: float
         if prompt_obj is not None:
             obs.update(prompt=prompt_obj)  # link managed prompt version to the generation
         try:
-            # Fault injection: force the sentiment branch to blow past the timeout.
-            if fault == "slow-branch" and short_key == "sentiment":
-                await asyncio.sleep(BRANCH_TIMEOUT_S + 1)
-            out = await asyncio.wait_for(
-                anthropic_call(model=BRANCH_MODEL, prompt=text,
-                               temperature=temperature, max_tokens=400, obs=obs),
-                timeout=BRANCH_TIMEOUT_S,
-            )
+            async def _do_call():
+                # Fault injection: force the sentiment branch to blow past the
+                # timeout. The sleep must live INSIDE the coroutine that wait_for
+                # bounds, otherwise it completes uncancelled and the real call
+                # gets a fresh budget — so the branch would never actually drop.
+                if fault == "slow-branch" and short_key == "sentiment":
+                    await asyncio.sleep(BRANCH_TIMEOUT_S + 1)
+                return await anthropic_call(model=BRANCH_MODEL, prompt=text,
+                                            temperature=temperature, max_tokens=400, obs=obs)
+
+            out = await asyncio.wait_for(_do_call(), timeout=BRANCH_TIMEOUT_S)
         except (asyncio.TimeoutError, Exception) as e:  # noqa: B014 - deliberate broad catch
             kind = "timeout" if isinstance(e, asyncio.TimeoutError) else type(e).__name__
             obs.update(level="WARNING", status_message=f"branch dropped: {kind}: {e}")

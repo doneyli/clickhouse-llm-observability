@@ -19,7 +19,6 @@ Usage (from repo root, after sourcing .env):
 """
 
 import argparse
-import asyncio
 import os
 import sys
 
@@ -67,10 +66,13 @@ def mean_consensus_confidence(*, item_results, **kw):
 def make_task(strategy: str, n_samples: int):
     from sql_voting import vote_sql
 
-    def task(*, item, **kwargs):
+    async def task(*, item, **kwargs):
         inp = item.input if hasattr(item, "input") else item.get("input", {})
         question = inp.get("question") if isinstance(inp, dict) else str(inp)
-        return asyncio.run(vote_sql(question, strategy=strategy, n_samples=n_samples))
+        # Langfuse's _run_task invokes this on its own running event loop and awaits
+        # the returned coroutine, so await vote_sql directly — never asyncio.run() here
+        # (that would raise "asyncio.run() cannot be called from a running event loop").
+        return await vote_sql(question, strategy=strategy, n_samples=n_samples)
 
     return task
 
