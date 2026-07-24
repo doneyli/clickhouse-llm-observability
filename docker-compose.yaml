@@ -334,6 +334,44 @@ services:
       - vector-rag-models:/root/.cache
 
   # =============================================================================
+  # Cluster Health Investigator — Orchestrator–Workers (dynamic decomposition)
+  # =============================================================================
+  # A planner LLM decides AT RUNTIME which system-table analyses a symptom
+  # needs, fans out one worker per analysis (LangGraph Send API), re-plans if
+  # coverage is insufficient, and synthesizes a diagnosis. Investigates
+  # langfuse-clickhouse itself. Worker count varies per run — see the Agent
+  # Graph aggregated view: worker (N/N).
+  #   docker compose --profile langfuse --profile demo run --rm cluster-health python main.py
+  # =============================================================================
+  cluster-health:
+    build:
+      context: ./demos/cluster-health-investigator
+    container_name: cluster-health
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}          # planner + synthesizer
+      - WORKER_MODEL=${WORKER_MODEL:-claude-haiku-4-5}                 # model tiering (repo convention)
+      - TEMPERATURE=${TEMPERATURE:-0.2}
+      - MAX_WORKERS_TOTAL=${MAX_WORKERS_TOTAL:-8}
+      - MAX_PLAN_ROUNDS=${MAX_PLAN_ROUNDS:-2}
+      # Investigation target: Langfuse's own ClickHouse (env-swappable to any cluster)
+      - TARGET_CH_HOST=${TARGET_CH_HOST:-langfuse-clickhouse}
+      - TARGET_CH_PORT=${TARGET_CH_PORT:-8123}
+      - TARGET_CH_USER=${TARGET_CH_USER:-langfuse}
+      - TARGET_CH_PASSWORD=${TARGET_CH_PASSWORD:-langfuse123}
+      # Langfuse instrumentation
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    profiles:
+      - demo
+    depends_on:
+      langfuse-clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./demos/cluster-health-investigator:/app
+
+  # =============================================================================
   # MCP RAG Retriever — exposes the agentic-rag pipeline as MCP tools
   # =============================================================================
   # Two granularities for LibreChat agents (single source of truth: mounts

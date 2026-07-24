@@ -31,6 +31,7 @@ Three ways to use it:
 |----------|------|----------|-----|
 | Platform / ML engineering team evaluating LLM observability | 45 min | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | Full arc: tracing → datasets → playground → experiments → evaluators |
 | Technical audience interested in agents / RAG / vector search | 25 min | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | CRAG loop on ClickHouse-native vectors, graph view in Langfuse |
+| Team worried about **multi-agent cost / shape control** | 20 min | [Cluster Health Investigator](../demos/cluster-health-investigator/DEMO_SCRIPT.md) | Orchestrator–workers: the LLM decides the fan-out at runtime, so the trace tree differs every run — open the `worker_count` chart and show fan-out (= cost) as a first-class, monitorable metric in ClickHouse |
 | Execs / first conversation | 10–15 min | 3–4 paths from the [Use Case Catalog](USE_CASES.md) | Each use case has a self-contained 2-minute demo path |
 | Hands-on workshop | 35 min/person | [User Journey](USER_JOURNEY.md) | Attendees drive; works on their laptops via `./setup.sh` |
 | Data/analytics-leaning audience | +5 min add-on | [LLM Observatory dashboard](DASHBOARD.md) | "Your trace data is just ClickHouse tables — build anything on it" |

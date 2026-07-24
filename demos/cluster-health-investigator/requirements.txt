@@ -1,0 +1,16 @@
+# LangGraph orchestrator-workers (dynamic Send fan-out)
+langgraph>=0.2.0,<1.0.0
+langchain-anthropic>=0.3.0,<1.0.0
+langchain-core>=0.3.0,<1.0.0
+
+# Read-only ClickHouse client (investigates langfuse-clickhouse system.* tables)
+clickhouse-connect>=0.8.0,<1.0.0
+
+# Plan / task schema + structured LLM output
+pydantic>=2.0.0,<3.0.0
+
+# Langfuse - LLM observability (agentic instrumentation, prompts, scores, datasets, experiments)
+langfuse>=3.0.0,<4.0.0
+
+# Metrics API / Scores API calls (check_fanout.py, score_delegations.py, seed_*)
+requests>=2.31.0,<3.0.0
