@@ -394,8 +394,12 @@ class Investigator:
                 obs.update(output={"sufficient": verdict.sufficient,
                                    "missing": verdict.missing_analyses,
                                    "replan": replan})
-        lf.score_current_span("coverage_sufficient", 1.0 if verdict.sufficient else 0.0,
-                              comment=f"round {round_no}")
+            # Span-level score on THIS evaluator observation (not trace-level):
+            # the gate can run multiple times across re-plan rounds. Must be
+            # emitted inside the observe block so it attaches to the replan-gate
+            # span rather than the parent once the context manager has exited.
+            lf.score_current_span("coverage_sufficient", 1.0 if verdict.sufficient else 0.0,
+                                  comment=f"round {round_no}")
         line = (f"gate (round {round_no}) → "
                 + ("sufficient" if verdict.sufficient else f"insufficient, missing {verdict.missing_analyses}")
                 + (" → replan" if replan else ""))
