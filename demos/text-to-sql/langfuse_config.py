@@ -162,6 +162,52 @@ def langfuse_span(name: str):
         yield
 
 
+class _NoopSpan:
+    """Span stand-in when Langfuse is disabled/unavailable — .update() no-ops."""
+
+    def update(self, **kwargs):
+        pass
+
+
+@contextmanager
+def langfuse_gate(name: str):
+    """Like langfuse_span(), but yields the span so callers can write the
+    pass/fail verdict into the span output: ``span.update(output=result.as_output())``.
+
+    Gate spans MUST be named ``gate-*`` — the chain-gate-check evaluator and the
+    gate-pass Monitor key off that prefix convention. Any LLM call made while
+    this span is current (e.g. the Haiku grounding grader) nests as a child
+    observation under the gate span. No-op (yields a _NoopSpan) when Langfuse is
+    not configured, so the chain runs with gates active but untraced.
+    """
+    if not LANGFUSE_ENABLED:
+        yield _NoopSpan()
+        return
+
+    try:
+        from langfuse import get_client
+        client = get_client()
+        with client.start_as_current_observation(as_type="span", name=name) as span:
+            yield span
+    except Exception as e:
+        print(f"Failed to create Langfuse gate span '{name}': {e}")
+        yield _NoopSpan()
+
+
+def tag_current_trace(tags: List[str]):
+    """Append tags to the active trace (used by gate abort/escalate routing).
+
+    No-op on error / when Langfuse is disabled — tracing never takes the app down.
+    """
+    if not LANGFUSE_ENABLED:
+        return
+    try:
+        from langfuse import get_client
+        get_client().update_current_trace(tags=tags)
+    except Exception as e:
+        print(f"Failed to tag current trace {tags}: {e}")
+
+
 def get_langfuse_handler():
     """
     Get Langfuse callback handler for LangChain with session support.

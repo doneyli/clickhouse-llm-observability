@@ -105,6 +105,12 @@ seed_evaluator "credential-leak-guard" "credential-leak" "event" \
 seed_evaluator "response-structure-check" "structure-clean" "event" \
     '[{"type":"stringOptions","value":["GENERATION"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["text-to-sql","vector-rag"],"column":"traceName","operator":"any of"}]' 0
 
+# Gate verdicts on the text-to-sql chain: score every gate-* SPAN (incl. each
+# retry attempt) with a gate-pass boolean, so the average is the true gate pass
+# rate. Non-gate spans (retrieve-context, ...) carry no verdict and yield no score.
+seed_evaluator "chain-gate-check" "gate-pass" "event" \
+    '[{"type":"stringOptions","value":["SPAN"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["text-to-sql"],"column":"traceName","operator":"any of"}]' 0
+
 # ─── Experiment evaluators (target: dataset experiment runs) ────────────────
 
 QUALITY_DS=$(dataset_id "coding-assistant-quality")
