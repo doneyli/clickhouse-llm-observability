@@ -8,7 +8,10 @@ each with bounded retry and a distinct fail routing (abort vs escalate). Its
 signature beats: **gates that enforce policy between chain steps** (not just
 observe it after), the same **deterministic SQL-safety guardrail** still scoring
 every response at ingest, and **prompt management** — every prompt (including the
-gate's own rubric) lives in Langfuse and ships by label, no redeploy.
+gate's own rubric) lives in Langfuse and ships by label, no redeploy. An opt-in
+**generate→critique→refine loop** (`--refine`, Pattern #5 evaluator-optimizer)
+swaps the catalog lookup for a critic grounded in real ClickHouse `EXPLAIN` +
+bounded execution — so the gates grade against *executed rows*, not table names.
 
 - **App:** a gated LangChain chain (`analyze → [gate 1] → retrieve context →
   respond → [gate 2]`), CLI batch + interactive modes (container in the root
@@ -17,12 +20,17 @@ gate's own rubric) lives in Langfuse and ships by label, no redeploy.
   (hybrid: deterministic SQL policy + Haiku grounding grader) after the response.
   Bounded retry (`GATE_MAX_ATTEMPTS=2`); Gate 1 exhausted → **abort**, Gate 2
   exhausted → **escalate** (flagged answer + `gate:escalated` tag).
+- **Refine loop (opt-in):** `--refine` replaces the retrieve-context step with a
+  `generate → gather-evidence → critique` cycle, bounded by max-iterations and an
+  oscillation guard. The gates still run, so the two compose rather than compete.
 - **Data context:** the ClickHouse public playground (`sql.clickhouse.com`) —
-  a 24-dataset catalog the analysis stage reasons over, plus live context
-  fetched through the **`mcp-clickhouse`** server
+  a 24-dataset catalog the analysis stage reasons over, live context fetched
+  through the **`mcp-clickhouse`** server, and — in refine mode — **real
+  read-only `EXPLAIN` + bounded execution** as the critic's evidence
 - **Observability backend:** Langfuse (`http://localhost:3001`), trace name `text-to-sql`
-- **Model:** `claude-sonnet-4-6` (both chain steps); `claude-haiku-4-5` (gate grader)
-- **Run length:** 14–18 min full; ~6 min short path (Acts 1–2)
+- **Model:** `claude-sonnet-4-6` (chain steps + refine loop); `claude-haiku-4-5` (gate grader)
+- **Run length:** ~20 min full; ~6 min short path (Acts 1–2); drop Act 3 to run
+  the original 14–18 min gates-only script
 
 > The pipeline, config, and instrumentation live in `demos/text-to-sql/`; the
 > guardrail is `evaluators/sql-safety-guard.ts`, seeded into Langfuse by
@@ -58,7 +66,9 @@ the room. So each act carries four beats:
 - **Ask** — an open question that invites them to map it to their own world.
 
 Don't rush the **Ask** — the answers tell you which acts to go deep on. The short
-path is Acts 1–2 (trace + the gate money moment); add Acts 3–5 when there's appetite.
+path is Acts 1–2 (trace + the gate money moment); add Acts 3–6 when there's
+appetite. Act 3 (the refine loop) is the one to drop first if you are tight on
+time — it is the only act that executes SQL, so it also needs network egress.
 
 ---
 
@@ -73,19 +83,27 @@ docker compose --profile langfuse up -d
 docker compose --profile demo build text-to-sql
 
 # Seed the managed prompts (NOT covered by setup.sh — the Deploy act needs this).
-# Now also seeds the gate's rubric (text-to-sql-gate-grounding, Haiku/temp-0) and
-# a `candidate` label on text-to-sql-analysis for the experiment. Idempotent.
+# Now also seeds the gate's rubric (text-to-sql-gate-grounding, Haiku/temp-0),
+# a `candidate` label on text-to-sql-analysis for the experiment, and the refine
+# loop's generator + critic prompts (production + opinion-only critic +
+# schema-hinted candidate generator). Idempotent.
 python scripts/seed-app-prompts.py
 
 # Seed the code evaluators (setup.sh does this; run it if scores are missing).
 # Now also provisions `chain-gate-check` → the gate-pass boolean on every gate span.
 ./scripts/seed-code-evaluators.sh
 
-# Seed the per-step analysis dataset (for the Act 4/5 experiment)
+# Seed the per-step analysis dataset (for the Act 5/6 experiment)
 python demos/text-to-sql/scripts/seed_step_dataset.py
+
+# (Act 3 only) datasets + experiments for the refine loop
+python demos/text-to-sql/scripts/seed_refine_datasets.py
 
 # Generate fresh traces (10 questions, ~2 min; scores land ~30s after)
 docker compose run --rm text-to-sql python main.py
+
+# (Act 3 only) fresh REFINE traces — executes bounded read-only SQL
+docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine
 ```
 
 **Create the gate-fail-rate Monitor once** (Monitors → New; boolean-average as a
@@ -122,12 +140,17 @@ one-time UI step.)
 | **Bounded retry with stable span names + attempt metadata** | Act 2 — retried step appears twice, `metadata.attempt` 1→2 |
 | **Two fail routings: abort (Gate 1) vs escalate (Gate 2)** | Act 2 — `gate:aborted` / `gate:escalated` trace tags |
 | **Gate-fail rate monitored via a boolean score** | Act 2 — `gate-pass` score + the Monitor/dashboard widget |
-| **Deterministic guardrail scores on 100% of traffic** | Act 3 — `sql-risk`, `sql-read-only`, `credential-leak` |
-| **Evals catch a policy violation live** | Act 3 — ask for a DELETE, watch `sql-risk = destructive` |
-| **Prompt management** (versioned, fetched by label, linked to generations) | Act 4 — `text-to-sql-analysis` / `-response` / `-gate-grounding` |
-| **Ship a prompt change with no redeploy** | Act 4 — edit → re-run → new version on the trace |
-| **Experiment where the gate is the metric** | Act 4/5 — analysis prompt `production` vs `candidate`, gates fixed |
-| **LLM-as-a-Judge at stack level** (test scenarios) | Act 5 — 40 tagged scenarios scored by managed judges |
+| **Evaluator-optimizer loop** (generate → critique → refine) | Act 3 — `generate-sql` → `gather-evidence` → `critique-sql` triplet per iteration |
+| **A critic grounded in real execution, not opinion** | Act 3 — `gather-evidence` holds the real `EXPLAIN` + bounded result rows |
+| **Critique fed back into the next attempt** | Act 3 — iteration 2's `generate-sql` input contains `CRITIQUE 1` |
+| **Convergence as a score you can alert on** | Act 3 — `converged`, `iterations_to_accept`, `sql_quality_delta` |
+| **Reward hacking, reproduced live** | Act 3 — `opinion-only` critic looks better, `execution_success_rate` is worse |
+| **Deterministic guardrail scores on 100% of traffic** | Act 4 — `sql-risk`, `sql-read-only`, `credential-leak` |
+| **Evals catch a policy violation live** | Act 4 — ask for a DELETE, watch `sql-risk = destructive` |
+| **Prompt management** (versioned, fetched by label, linked to generations) | Act 5 — `text-to-sql-analysis` / `-response` / `-gate-grounding` |
+| **Ship a prompt change with no redeploy** | Act 5 — edit → re-run → new version on the trace |
+| **Experiment where the gate is the metric** | Act 5/6 — analysis prompt `production` vs `candidate`, gates fixed |
+| **LLM-as-a-Judge at stack level** (test scenarios) | Act 6 — 40 tagged scenarios scored by managed judges |
 
 ---
 
@@ -187,7 +210,7 @@ stream by. In Langfuse → **Traces**, open the newest `text-to-sql` trace
   with a nested **Haiku generation** (the grounding grader, prompt
   `text-to-sql-gate-grounding` linked).
 - Click either generation → **token usage, cost, latency, model** — and the
-  **Prompt** panel showing which prompt version produced it (that's Act 4's
+  **Prompt** panel showing which prompt version produced it (that's Act 5's
   setup — point at it now, cash it in later).
 
 **Land.** "Three steps, one trace, each with its own cost and its own
@@ -250,7 +273,129 @@ last incident?"
 
 ---
 
-## Act 3 · The SQL safety net (4 min)
+## Act 3 · The critic that runs your SQL (6 min) — the refine loop
+
+**Frame.** A first-pass NL→SQL answer is usually *good-not-great* — a plausible
+query against a column that doesn't exist, or a table name the model guessed.
+You can't see that mid-generation. But a *separate* critic can, if it runs the
+query and grades it against what ClickHouse actually says. That's the
+evaluator-optimizer pattern: **generate → critique → refine**, looping until a
+candidate passes review or a budget trips — and the critic is grounded in real
+`EXPLAIN` + bounded execution, so it can't be talked out of a broken query.
+
+**Beat 1 — one-iteration accept.** Run the refine batch (or one question):
+
+```bash
+docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine
+```
+
+Open the newest `text-to-sql` trace (tag `refine-loop`) for the count question
+(*"How many property sales are recorded in the UK price paid dataset?"*). Inside
+the `sql-refine-loop` span, one triplet:
+
+- **`generate-sql`** (generation, prompt-linked to `text-to-sql-generator`,
+  `metadata.iteration = 1`)
+- **`gather-evidence`** (tool span — output is the real `EXPLAIN` plan + the
+  bounded execution result rows)
+- **`critique-sql`** (a native **`evaluator`** observation — output is the
+  structured Critique JSON, `verdict: accept`, with a span score
+  `sql_critic_score`)
+
+On the trace, **Scores**: `converged = 1`, `iterations_to_accept = 1`.
+
+*Land.* "The critic isn't an opinion — that `gather-evidence` span is a real
+`EXPLAIN` and a real bounded execution on ClickHouse. It accepted because the
+query *actually ran and answered the question*, not because it looked right."
+
+**Beat 2 — multi-iteration refine, the feedback loop on screen.** Use fault
+injection so the refine beat is deterministic on stage:
+
+```bash
+docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql \
+  python main.py --refine --interactive --fault wrong-column
+# then ask:  Which town had the highest average property price in 2021?
+```
+
+Open **iteration 1's `critique-sql`**: structured JSON with
+`cited_evidence: "UNKNOWN_IDENTIFIER 'price_gbp'"` and a one-line `feedback`.
+Then open **iteration 2's `generate-sql` input** — the refinement prompt visibly
+contains `CRITIQUE 1` with that feedback and the cited evidence: the loop is
+feeding the critique back into the next attempt, on screen. Iteration 2 fixes the
+column, evidence passes, `verdict: accept`. On the trace, `sql_quality_delta` is
+positive (critic score climbed across iterations).
+
+*Land.* "That's the whole pattern in one trace: the critic didn't just say 'no' —
+it said *why*, with a quote from ClickHouse, and the generator was made to fix
+exactly that. No mistake gets relitigated."
+
+**Beat 3 — non-convergence hits the guard.** Ask a question the playground can't
+answer (in the same interactive session, or the batch's Uber question):
+
+```
+# ask:  What was the average Uber fare in Manhattan last month?
+```
+
+Three triplets, then `converged = 0`, `stop_reason = max_iterations`; the final
+answer carries the `WARNING: no candidate passed review …` caveat.
+
+*Land.* "The loop is allowed to **fail honestly** — three tries, no valid query,
+so it says so instead of inventing a number. And that failure is a *score you can
+page on*." Show the non-convergence saved view (below).
+
+**Beat 4 — convergence dashboard + the collusion moment.** In **Dashboards**,
+show: avg `iterations_to_accept` over time, the `converged` true-rate, and
+`sql_critic_score` broken down by `metadata.iteration` (the convergence curve).
+Then the teaching moment — run Experiment B:
+
+```bash
+docker compose --profile demo run --rm text-to-sql \
+  python scripts/run_refine_experiment.py --run B
+```
+
+In **Datasets → `text-to-sql/converged-sql` → Runs**, put the two arms
+side-by-side: the `opinion-only` critic (judges the SQL text alone) shows *lower*
+avg iterations and *higher* acceptance — it looks better — while the independent
+`execution_success_rate` run-evaluator (which re-executes each final SQL) is
+*worse*. The critic got happier; the SQL didn't get better. That's reward hacking
+(Pan et al., arXiv:2407.04549), reproduced live on ClickHouse.
+
+*Ask.* "If your critic and your generator share a model, what's your equivalent of
+`EXPLAIN` — the piece of evidence neither of them can talk its way around?"
+
+### Monitors for the refine loop
+
+Two monitors detect the pattern's headline failure mode — a critique loop that
+churns cost without converging (self-hosted: saved views + alerts; Cloud: the
+Monitors UI):
+
+- **Non-convergence rate** — avg of the boolean `converged` score `< 0.7` over
+  1 day.
+
+  ```json
+  {"dataSource": "scores-boolean",
+   "metric": {"measure": "value", "aggregation": "avg"},
+   "filters": [{"column": "name", "operator": "=", "value": "converged"}],
+   "operator": "<", "alertThreshold": 0.7, "window": "1 day"}
+  ```
+
+- **Avg iterations-to-accept** — avg of the numeric `iterations_to_accept` `> 2.5`
+  over 1 day (the loop is working too hard for each answer).
+
+  ```json
+  {"dataSource": "scores-numeric",
+   "metric": {"measure": "value", "aggregation": "avg"},
+   "filters": [{"column": "name", "operator": "=", "value": "iterations_to_accept"}],
+   "operator": ">", "alertThreshold": 2.5, "window": "1 day"}
+  ```
+
+> **Fallback:** if `sql.clickhouse.com` is unreachable, `gather-evidence` records
+> the connection error as evidence and the critic revises — the loop still runs
+> and traces (it will simply never converge). Check network egress to
+> `sql-clickhouse.clickhouse.com:443` before presenting Act 3.
+
+---
+
+## Act 4 · The SQL safety net (4 min)
 
 **Frame.** You cannot put an LLM near a warehouse on vibes. But you also can't
 afford an LLM judge on 100% of traffic just to check a policy that's mechanical:
@@ -306,7 +451,7 @@ schema allowlist? Who owns it, and where is it written down today?"
 
 ---
 
-## Act 4 · Ship a prompt without a deploy — and let the gate be the metric (4 min)
+## Act 5 · Ship a prompt without a deploy — and let the gate be the metric (4 min)
 
 **Frame.** Both steps of this chain are driven by prompts — and prompts are
 the highest-churn artifact in any LLM app. If changing one means a code deploy,
@@ -353,7 +498,7 @@ engineers? Would a PM ship prompt changes if it didn't need a deploy?"
 
 ---
 
-## Act 5 · Optional — judges at stack level (3 min)
+## Act 6 · Optional — judges at stack level (3 min)
 
 **Frame.** Regex catches policy violations; it can't tell you an answer was
 *irrelevant* or *hallucinated*. That's the LLM-as-a-Judge layer — shown here on
@@ -444,7 +589,7 @@ lf_prompt = get_managed_prompt(name)              # get_prompt(name, label="prod
 tmpl = ChatPromptTemplate.from_template(lf_prompt.get_langchain_prompt())
 tmpl.metadata = {"langfuse_prompt": lf_prompt}    # THIS line links version → generation
 ```
-*Why it matters:* that one metadata assignment is the whole Act 4 story — the
+*Why it matters:* that one metadata assignment is the whole Act 5 story — the
 callback sees it and stamps the prompt version on every generation.
 
 **7 · The gates — `gates.py` + `sql_pipeline.py:query()`**
@@ -468,7 +613,7 @@ boolean at ingest. Fail-closed on SQL policy, fail-open only on grader parse err
 /\b(DROP|DELETE|TRUNCATE|ALTER|INSERT|UPDATE|GRANT|REVOKE|...)\b/i
 // :82  SELECT without LIMIT → "missing-limit"
 ```
-*Why it matters:* the Act 3 SQL-safety moment is ~100 lines of reviewable
+*Why it matters:* the Act 4 SQL-safety moment is ~100 lines of reviewable
 TypeScript running inside Langfuse at ingest — no service to run, no LLM to pay.
 The same policy also runs in-pipeline as Gate 2's fail-closed branch (point 7).
 
@@ -486,7 +631,7 @@ The same policy also runs in-pipeline as Gate 2's fail-closed branch (point 7).
   execution, and it's already scoring every response.
 - **"Regex for SQL safety — really?"** For the mechanical policy, yes — it's
   deterministic, auditable, free, and runs on everything. It's a *layer*, not
-  the whole answer: semantic quality is the judges' job (Act 5), and real
+  the whole answer: semantic quality is the judges' job (Act 6), and real
   execution would add a parser-based check. Defense in depth, cheapest layer
   first.
 - **"Won't the gate retries blow up latency/cost?"** Retry is bounded
