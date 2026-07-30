@@ -208,39 +208,40 @@ changed.**
 
 ### The numbers you will see
 
-Measured on Claude (`claude-sonnet-4-6`), 18 items, 2026-07-30. **Note the two
-production columns — that's the same prompt run twice.** Keep that run in the
-compare view; it's the whole rigor beat.
+Measured on Claude (`claude-sonnet-4-6`), 18 items, 2026-07-30. **Each of
+first-draft and production was run twice** — keep both repeats in the compare view,
+they are the whole rigor beat.
 
-| Metric | `first-draft` | `production` | `production` **repeat** | `candidate` |
-|---|---|---|---|---|
-| `budget-adherence` | **0.944** | 1.000 | 1.000 | 1.000 |
-| `language-match` | **0.833** | 1.000 | 1.000 | 1.000 |
-| `used-search-tool` | 1.000 | 1.000 | 1.000 | 1.000 |
-| `grounded-listings` | 1.000 | 1.000 | 1.000 | 1.000 |
-| `location-match` | 1.000 | 1.000 | 1.000 | 1.000 |
-| `helpfulness` (judge) | 0.904 | 0.889 | 0.919 | 0.909 |
-| `relevance` (judge) | 0.889 | 0.892 | 0.933 | 0.918 |
-| `groundedness` (judge) | 0.943 | 0.924 | 0.949 | 0.929 |
+| Metric | `first-draft` | ↻ repeat | `production` | ↻ repeat | `candidate` |
+|---|---|---|---|---|---|
+| `budget-adherence` | **0.944** | 0.944 | 1.000 | 1.000 | 1.000 |
+| `language-match` | **0.833** | 0.833 | 1.000 | 1.000 | 1.000 |
+| `used-search-tool` | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| `grounded-listings` | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| `location-match` | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| `helpfulness` (judge) | 0.904 | 0.894 | 0.889 | 0.919 | 0.909 |
+| `relevance` (judge) | 0.889 | 0.863 | 0.892 | 0.933 | 0.918 |
+| `groundedness` (judge) | 0.943 | 0.893 | 0.924 | 0.949 | 0.929 |
 
 **Land the first half.** "Both bugs are gone. `language-match` went from 83% to
 100% — Spanish questions were being answered in English, and now none are. Same
-suite, same evaluators, prompt as the only variable. And look at the two production
-columns: the code checks are **bit-identical** across runs. That's a test you can
-trust."
+suite, same evaluators, prompt as the only variable. And look across the repeat
+columns: every code check is **bit-identical** — 0.944 and 0.944, 0.833 and 0.833.
+Zero variance. That's a test you can trust."
 
 ### The rigor beat — the most valuable 90 seconds in the demo
 
 **Do not skip this, and do not soften it.** Point at the bottom three rows, then at
-the two production columns.
+the repeat columns.
 
-**Say:** "Now the judges. Same prompt, run twice — relevance moved from 0.892 to
-**0.933**. Nothing changed but the dice. That 0.041 swing is **bigger than every
+**Say:** "Now the judges — and remember, these repeat columns are the *same prompt,
+run again, nothing changed but the dice*. Groundedness on first-draft went 0.943 to
+**0.893**. That's a 0.050 swing from nothing at all, and it's **bigger than every
 prompt-to-prompt judge difference on this table.**"
 
-Then the kill shot: "Look at first-draft's judge scores — 0.904, 0.889, 0.943. Every
-one of them lands *inside* production's own two-run range. So on judges, the prompt
-with two real defects is **indistinguishable** from the prompt that fixed them."
+Then the kill shot: "Look at first-draft's judge scores against production's. They
+overlap completely. So on judges, the prompt with two real defects is
+**indistinguishable** from the prompt that fixed them."
 
 **Land.** "Which means a judge number here tells you which run you happened to open,
 not which prompt is better. If you'd graded these three prompts on helpfulness,
@@ -301,11 +302,11 @@ named, and:
 
 > This prompt version must not be promoted to `production`.
 
-> **Say "a metric", not "these two metrics."** `avg-language-match` (0.833 against
-> a 1.0 bar) is the reliable blocker and will always trip.
-> `avg-budget-adherence` fails by a thin margin (0.944 against 0.95) and may pass
-> on any given run. The build goes red either way — just don't promise the room a
-> specific pair of rows before it renders.
+> **Lead with `avg-language-match`.** Both blockers reproduced exactly across two
+> independent first-draft runs, so the red build is reliable — but language-match
+> misses by a wide margin (0.833 against 1.0) while budget-adherence is only 0.006
+> under the bar, where one differently-chosen listing would flip it. Narrate the
+> robust one.
 
 Point at the skipped **deploy** job. "The gate isn't advice. The deploy literally
 did not run."
