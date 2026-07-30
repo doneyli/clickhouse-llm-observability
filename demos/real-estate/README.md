@@ -127,6 +127,12 @@ warning and continues, adding at most ~3s to a turn.
 
 ## Run it
 
+> **zsh users:** the `#` annotations below are for reading, not pasting.
+> Interactive zsh has `interactive_comments` off by default, so a pasted `#`
+> becomes an *argument* rather than a comment (`cp a b  # note` fails with
+> `cp: note: Not a directory`). Paste the command only, or run
+> `setopt interactive_comments` once.
+
 ```bash
 # 1) prep all the Langfuse data (dataset + live traffic + experiment)
 ./run_demo.sh                 # ~6–10 min   (--quick skips the experiment)
