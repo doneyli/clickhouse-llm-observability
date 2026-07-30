@@ -225,9 +225,18 @@ they are the whole rigor beat.
 
 **Land the first half.** "Both bugs are gone. `language-match` went from 83% to
 100% — Spanish questions were being answered in English, and now none are. Same
-suite, same evaluators, prompt as the only variable. And look across the repeat
-columns: every code check is **bit-identical** — 0.944 and 0.944, 0.833 and 0.833.
-Zero variance. That's a test you can trust."
+suite, same evaluators, prompt as the only variable. And `language-match` reads
+0.833 on the naive prompt in **every** run we've done — four of them — because an
+English-only instruction breaks the same three Spanish items every time. That's a
+test you can trust."
+
+> **Precision matters here, and it cuts against a tempting oversimplification.**
+> Code evaluators are not magically stable — `budget-adherence` ranged 0.944–1.000
+> across those four runs, because *which listings the agent cites* varies. But a
+> code eval is an **exact function of the output**, so when it moves you can open
+> the trace and see why. That's the real distinction from judges: both vary, only
+> one variance is explainable. If an audience member catches the varying
+> `budget-adherence`, that's not a gotcha — it's the better version of the point.
 
 ### The rigor beat — the most valuable 90 seconds in the demo
 
@@ -302,11 +311,11 @@ named, and:
 
 > This prompt version must not be promoted to `production`.
 
-> **Lead with `avg-language-match`.** Both blockers reproduced exactly across two
-> independent first-draft runs, so the red build is reliable — but language-match
-> misses by a wide margin (0.833 against 1.0) while budget-adherence is only 0.006
-> under the bar, where one differently-chosen listing would flip it. Narrate the
-> robust one.
+> **Narrate `avg-language-match`, and only that one.** Across four first-draft
+> runs (2 local, 2 in CI) it was the blocker every time — 0.833 against a 1.0 bar.
+> `avg-budget-adherence` tripped in only 2 of those 4; it sits 0.006 under the bar
+> at worst and one differently-chosen listing flips it. The build goes red either
+> way. Say "a check failed" and read what actually renders.
 
 Point at the skipped **deploy** job. "The gate isn't advice. The deploy literally
 did not run."
@@ -361,6 +370,7 @@ the loop. It isn't a dashboard you look at, it's a cycle you run."
 | No Helpfulness/Relevance on a trace | managed rules score new traffic only | Traces → select → Actions → Evaluate; the dataset runs always have them |
 | Promoted prompt not served yet | SDK prompt cache (~60s) | stall with another question |
 | Actions run doesn't start on promotion | PAT expired or automation misconfigured | fall back to the `workflow_dispatch` dropdown |
+| Run says "⏭️ Skipped — nothing to evaluate" | the changed version has no deployable label, or a different prompt changed | expected behaviour, not a bug — assign `candidate` or `production` to the version. Explain it; it lands well |
 | Gate run takes too long live | 18 items × 4 judges | use a pre-run result; or `--max-concurrency 8` |
 
 ---

@@ -74,6 +74,39 @@ scope, so Langfuse is allowed to trigger the workflow.
 Then promote a prompt version to `production` in Langfuse and watch the run
 appear in the Actions tab.
 
+## What the automation actually fires on (and why the workflow skips things)
+
+Langfuse sends a `repository_dispatch` on **every** prompt-version event in the
+project — `created`, `updated` and `deleted` — and automations **cannot** be
+filtered by prompt name or label ([open feature
+request](https://github.com/orgs/langfuse/discussions/9268)). So the workflow
+receives events it has nothing useful to say about, and decides for itself.
+
+It **skips with a stated reason** in three cases:
+
+| Case | Why skip |
+|---|---|
+| A different prompt changed (e.g. `property-concierge-plan`) | The eval dataset only exercises `property-concierge-agent`; a run is ~12 min of real LLM spend. |
+| The version carries no deployable label (only `latest`, or none) | This is what a version created in the UI *without* promoting it looks like. |
+| The label isn't `production` / `candidate` / `first-draft` | The gate resolves prompts **by label**, and `agent/prompts.py` falls back to a hard-coded baseline for a label it can't find. |
+
+That third reason is the important one, and it's why skipping beats running.
+`prompt_gate.py` asks for a prompt *by label*; if the label doesn't resolve, the
+SDK hands back the local fallback and the eval scores **that** — producing a green
+build for a version it never looked at. A skipped run says so explicitly:
+
+> ⏭️ Skipped — nothing to evaluate. This is a deliberate decision, not a passing
+> gate. No prompt version was evaluated, so this run makes **no claim** about quality.
+
+A skipped gate *succeeds*, so the deploy job carries a third condition
+(`skip == ''`) on top of "eval passed" and "labelled production".
+
+**Consequence worth knowing:** creating a new version in the UI does **not** get
+you a quality signal until you label it. Promote it to `candidate` (validated, not
+deployed) or `production` (validated and deployed). The proper fix is to gate the
+exact `prompt.version` from the payload rather than a label — that needs version
+support in `agent/prompts.py`, and is the natural next change here.
+
 ## Demoing it without promoting a prompt
 
 Promoting a prompt to trigger CI is a slow, one-shot beat. For a live demo use
