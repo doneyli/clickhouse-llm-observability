@@ -192,7 +192,9 @@ The auto-provisioned judges already filter on these tags (each judge watches its
 | Maintenance | You maintain code | Langfuse maintains |
 | Cost | Your API credits | Langfuse credits (or BYO key) |
 
-**Note**: Langfuse still has no public API for creating evaluators ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). In self-hosted mode this demo provisions them headlessly anyway (`scripts/seed-llm-judge-evaluators.sh` and `scripts/seed-code-evaluators.sh` seed the same database rows the UI creates); in cloud mode use the UI.
+**Note**: there is no *stable* public API for creating evaluators ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). In self-hosted mode this demo provisions them headlessly anyway (`scripts/seed-llm-judge-evaluators.sh` and `scripts/seed-code-evaluators.sh` seed the same database rows the UI creates); these main-stack seeders are self-hosted-only and print UI guidance when `DEPLOY_MODE=cloud`.
+
+There *is* an **unstable** evaluation-rules API (`POST /api/public/unstable/evaluation-rules`), and `demos/real-estate/scripts/seed_managed_evaluators.sh` uses it to provision its judges on Langfuse Cloud with no UI steps — see that script's header for the trace-level-vs-observation-level and new-vs-existing-traffic differences between the two mechanisms. So "cloud means clicking in the UI" is true of the main-stack seeders only, not of Langfuse Cloud in general.
 
 ---
 
