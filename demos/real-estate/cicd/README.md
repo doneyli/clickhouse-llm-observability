@@ -1,55 +1,115 @@
 # Deploy as a real CI/CD pipe — GitHub integration
 
-> **Reference material, not wired into this repo's CI.** These files show how the
-> **Deploy** node of the [AI Engineering loop](../AI_ENGINEERING_LOOP.md) becomes a
-> true CI/CD pipeline. They can't run on the localhost demo stack (they need a
-> real repo, a GitHub PAT, and a public webhook endpoint), so they live here as a
-> copy-paste starting point.
+> **This is live now.** The workflow at
+> [`.github/workflows/langfuse-prompt-ci.yml`](../../../.github/workflows/langfuse-prompt-ci.yml)
+> really runs: a prompt change in Langfuse fires it, it re-runs the eval dataset
+> against the changed version, and it **fails the build** if the quality bar in
+> [`thresholds.json`](thresholds.json) is missed. It needs three one-time setup
+> steps (secrets, a PAT, a Langfuse automation) — see [Setup](#setup) below.
 
 ## Why this is part of the loop
 
-In this demo the agent fetches its system prompt from Langfuse **by label** at
-runtime (`property-concierge-agent` @ `production`). So "shipping a better
-prompt" = **moving the `production` label to a new version** — no app redeploy.
-That is already a deployment step. The GitHub integration adds *automation and a
-gate* around it, turning "someone clicked promote in the UI" into "promotion runs
-the evals, then ships on the `production` label" (the example wires the label gate
-and runs the eval; add a score-regression threshold to make it a hard quality gate
-— see the TODO in the workflow):
+The agent fetches its system prompt from Langfuse **by label** at runtime
+(`property-concierge-agent` @ `production`). So "shipping a better prompt" =
+**moving the `production` label to a new version** — no app redeploy. That is
+already a deployment step. CI adds the *gate*, turning "someone clicked promote
+in the UI" into "the eval suite ran and agreed":
 
 ```
 Experiment / Evaluate  ──►  promote version to `production` in Langfuse
-        ▲                              │  (webhook / repository_dispatch)
+        ▲                              │  (repository_dispatch)
         │                              ▼
-   new traces  ◄── Deploy ◄──  GitHub Actions: run eval → (add threshold) → deploy on label
+   new traces  ◄── Deploy ◄──  GitHub Actions: run eval → enforce thresholds → ship
 ```
 
-## Two mechanisms (from the Langfuse docs)
+## The three pieces
 
-1. **Repository Dispatch** — *trigger CI/CD when a prompt changes.* Langfuse fires
-   a `repository_dispatch` event to the GitHub API on prompt change; a workflow
-   runs your tests/evals and deploys only when the version carries the
-   `production` label. No extra infrastructure — just a PAT.
-   → see [`langfuse-ci.yml.example`](langfuse-ci.yml.example)
+| File | Role |
+|---|---|
+| [`../scripts/prompt_gate.py`](../scripts/prompt_gate.py) | Runs `property-concierge-eval` against one prompt label, compares run-level means to the thresholds, exits non-zero on a miss, and writes a verdict table to the Actions job summary. |
+| [`thresholds.json`](thresholds.json) | **The quality bar as code.** Deterministic code evaluators gated hard; LLM judges gated loosely (they carry ±0.05 run-to-run noise, so a tight judge threshold makes builds flaky). |
+| [`.github/workflows/langfuse-prompt-ci.yml`](../../../.github/workflows/langfuse-prompt-ci.yml) | Wires it to GitHub: `repository_dispatch` from Langfuse, plus a `workflow_dispatch` dropdown for demoing on demand. Deploy job runs only for `production`-labelled versions that passed. |
 
-2. **Sync-to-repo** — *version-control prompts in git.* A small webhook server
-   receives Langfuse prompt-version events and commits each one to a file in your
-   repo, so prompt changes get PR review + full git history.
+## Why it targets Langfuse Cloud
 
-## Set up mechanism #1 (Repository Dispatch)
+A GitHub runner cannot reach `localhost:3001`. The gate has to talk to Langfuse
+to fetch the dataset and the prompt version, so **the demo must run against
+Langfuse Cloud** for the CI half to be real. That is why
+`demos/real-estate/.env` points at `us.cloud.langfuse.com`
+(`.env.selfhosted.bak` holds the self-hosted config if you want to switch back).
 
-1. Copy `langfuse-ci.yml.example` → `.github/workflows/langfuse-ci.yml` in the
-   repo that owns your prompts. Add repo **secrets** for `LANGFUSE_HOST`,
-   `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `ANTHROPIC_API_KEY`.
-2. Create a GitHub **Personal Access Token** with `repo` (or fine-grained
-   `actions: read+write`) scope.
-3. In Langfuse: **Prompts → Automations → Create Automation → GitHub Repository
-   Dispatch**:
-   - Dispatch URL: `https://api.github.com/repos/<owner>/<repo>/dispatches`
-   - Event Type: `langfuse-prompt-update` (must match the workflow's `types:`)
-   - GitHub Token: paste the PAT (stored encrypted).
-4. Promote a prompt to `production` in Langfuse → watch the workflow run in the
-   Actions tab. The `deploy` job runs only for `production`-labelled versions.
+On a purely self-hosted stack you can still demo the **trigger** — Langfuse
+makes an *outbound* POST to api.github.com, so the workflow fires and you can
+watch the run appear — but the eval step will fail to reach Langfuse. Use
+`--warn-only` or expect a red build if you go that route.
 
-Full guide, payload schema, and the sync-server code:
-<https://langfuse.com/docs/prompt-management/features/github-integration>
+## Setup
+
+Three one-time steps. **You have to do these yourself** — they involve creating
+credentials.
+
+**1. Repo secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `LANGFUSE_HOST` | `https://us.cloud.langfuse.com` |
+| `LANGFUSE_PUBLIC_KEY` | the Cloud project's public key (`pk-lf-…`) |
+| `LANGFUSE_SECRET_KEY` | the Cloud project's secret key (`sk-lf-…`) |
+| `ANTHROPIC_API_KEY` | agent + judge model calls |
+
+If your Cloud project isn't named `real-estate`, also add a repo **variable**
+`LANGFUSE_PROJECT_NAME` — `agent/config.py` refuses to run against an unexpected
+project on purpose, so the name has to match.
+
+**2. A GitHub PAT** with fine-grained `actions: read+write` (or classic `repo`)
+scope, so Langfuse is allowed to trigger the workflow.
+
+**3. The Langfuse automation** — Prompts → **Automations** → Create Automation →
+**GitHub Repository Dispatch**:
+
+- Dispatch URL: `https://api.github.com/repos/doneyli/clickhouse-llm-observability/dispatches`
+- Event Type: `langfuse-prompt-update` (must match the workflow's `types:`)
+- GitHub Token: the PAT from step 2 (stored encrypted)
+
+Then promote a prompt version to `production` in Langfuse and watch the run
+appear in the Actions tab.
+
+## Demoing it without promoting a prompt
+
+Promoting a prompt to trigger CI is a slow, one-shot beat. For a live demo use
+the **workflow_dispatch** dropdown in the Actions tab instead — it takes a
+`prompt_label`:
+
+- `first-draft` → **the gate blocks it.** `budget-adherence` and `language-match`
+  fall below the bar, the build goes red, and the deploy job never runs. This is
+  the beat worth showing.
+- `candidate` → passes the bar, but the deploy job is skipped because the version
+  isn't labelled `production`. Validated ≠ deployed.
+- `production` → passes and deploys.
+
+Run the exact same gate locally to rehearse:
+
+```bash
+./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft
+```
+
+## The other mechanism: sync-to-repo
+
+Separately from triggering CI, Langfuse can **version-control prompts in git**: a
+small webhook server receives prompt-version events and commits each one to a
+file, so prompt changes get PR review and full git history. That one does need a
+publicly reachable endpoint, so it stays reference-only here. Full guide and the
+receiver code: <https://langfuse.com/docs/prompt-management/features/github-integration>
+
+## Upgrade path: the official action
+
+Langfuse ships [`langfuse/experiment-action`](https://github.com/langfuse/experiment-action),
+which wraps this pattern — you export an `experiment(context)` function and raise
+`RegressionError` instead of hand-rolling threshold checks. It requires the **v4**
+Python SDK; this demo is pinned to `langfuse>=3.0,<4.0`, so `prompt_gate.py`
+implements the gate directly against the pinned SDK. If the demo moves to v4, the
+threshold logic in `evaluate_gate()` is the part to lift across.
+
+[`langfuse-ci.yml.example`](langfuse-ci.yml.example) is kept as a minimal,
+repo-agnostic starting point to hand to a customer whose layout differs from
+ours — the live workflow above is the one to look at first.

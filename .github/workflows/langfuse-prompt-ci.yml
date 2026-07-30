@@ -1,0 +1,142 @@
+# Prompt CI — the Deploy node of the AI Engineering loop, as a real quality gate.
+#
+# WHAT IT DOES
+#   Langfuse fires a `repository_dispatch` when a prompt version changes. This
+#   workflow re-runs the property-concierge eval dataset against the version that
+#   changed, compares the run-level means to demos/real-estate/cicd/thresholds.json,
+#   and FAILS if the bar is missed — which blocks the deploy job.
+#
+# WHY IT CAN ACTUALLY RUN (unlike the reference example in demos/real-estate/cicd/)
+#   The runner has to reach Langfuse. A localhost stack is unreachable from a
+#   GitHub runner, so this workflow targets **Langfuse Cloud** via secrets. That
+#   is the whole reason the demo's .env points at us.cloud.langfuse.com.
+#
+# SETUP (once) — see demos/real-estate/cicd/README.md for the full walkthrough
+#   1. Repo secrets: LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY,
+#      ANTHROPIC_API_KEY.
+#   2. Langfuse -> Prompts -> Automations -> GitHub Repository Dispatch:
+#        URL:        https://api.github.com/repos/<owner>/<repo>/dispatches
+#        Event type: langfuse-prompt-update
+#        Token:      a GitHub PAT with `actions: read+write` (fine-grained) or `repo`
+#   3. Promote a prompt version in Langfuse and watch this run appear.
+#
+# DEMO TIP
+#   You do not need to promote a prompt to show the pipeline. Use the
+#   workflow_dispatch trigger and pick a prompt label from the dropdown —
+#   choose `first-draft` to demo the gate BLOCKING a bad prompt.
+name: Langfuse Prompt CI
+
+on:
+  repository_dispatch:
+    types: [langfuse-prompt-update]
+  workflow_dispatch:
+    inputs:
+      prompt_label:
+        description: "Prompt label to gate"
+        required: true
+        default: candidate
+        type: choice
+        options: [production, candidate, first-draft]
+
+# A burst of label changes in the UI would otherwise queue several full eval runs
+# (each one costs real LLM tokens). Keep only the newest per prompt.
+concurrency:
+  group: prompt-ci-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_label }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Evaluate prompt against the quality bar
+    runs-on: ubuntu-latest
+    outputs:
+      prompt_label: ${{ steps.which.outputs.label }}
+      is_production: ${{ steps.which.outputs.is_production }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide which prompt version to gate
+        id: which
+        env:
+          MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            LABEL="$MANUAL_LABEL"
+            NAME="(manual run)"; VERSION="-"
+            LABELS="$MANUAL_LABEL"
+          else
+            # `latest` is auto-maintained by Langfuse and is never a deploy
+            # target, so it is excluded when picking a label to gate. Prefer
+            # `production` (that is the version users will actually get).
+            NAME=$(jq -r '.client_payload.prompt.name // "?"'    "$GITHUB_EVENT_PATH")
+            VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
+            LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
+            LABEL=$(jq -r '
+              (.client_payload.prompt.labels // [])
+              | map(select(. != "latest"))
+              | (map(select(. == "production")) + .)
+              | first // "production"
+            ' "$GITHUB_EVENT_PATH")
+          fi
+          IS_PROD=false
+          case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
+          echo "label=$LABEL"                >> "$GITHUB_OUTPUT"
+          echo "is_production=$IS_PROD"      >> "$GITHUB_OUTPUT"
+          {
+            echo "### Prompt change"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| prompt | \`$NAME\` |"
+            echo "| version | \`$VERSION\` |"
+            echo "| labels | \`$LABELS\` |"
+            echo "| gating label | \`$LABEL\` |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: demos/real-estate/requirements.txt
+
+      - name: Install deps
+        working-directory: demos/real-estate
+        run: pip install -r requirements.txt
+
+      # Fails the job (exit 1) when any run-level mean misses its threshold in
+      # cicd/thresholds.json. That non-zero exit is the gate.
+      - name: Run the eval suite and enforce the quality bar
+        working-directory: demos/real-estate
+        env:
+          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_PROJECT_NAME: ${{ vars.LANGFUSE_PROJECT_NAME || 'real-estate' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python scripts/prompt_gate.py \
+            --prompt-label "${{ steps.which.outputs.label }}" \
+            --run-name "ci-${{ steps.which.outputs.label }}-${{ github.run_number }}"
+
+  deploy:
+    name: Ship it
+    needs: gate
+    runs-on: ubuntu-latest
+    # Two conditions, deliberately: the eval passed (`needs.gate` succeeded, which
+    # is implicit) AND the version is actually labelled `production`. A passing
+    # candidate is validated, not deployed.
+    if: needs.gate.outputs.is_production == 'true'
+    steps:
+      - name: Announce the deploy
+        run: |
+          {
+            echo "### 🚀 Deployed"
+            echo ""
+            echo "Prompt \`${{ needs.gate.outputs.prompt_label }}\` passed the quality bar and carries the \`production\` label."
+            echo ""
+            echo "The agent fetches the \`production\`-labelled prompt at runtime, so there is nothing to redeploy — the next request serves the new version."
+          } >> "$GITHUB_STEP_SUMMARY"
+      # For a prompt-only change there is genuinely nothing to roll: the app
+      # fetches `production` at runtime. This is where a real pipeline would warm
+      # caches, roll app config, or notify on-call.

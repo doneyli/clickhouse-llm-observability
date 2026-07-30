@@ -60,35 +60,68 @@ Two consequences:
   per-prompt-version metrics (latency, cost, scores) in the Prompts → Metrics
   tab — so you can tell whether the version you shipped actually helped.
 
-**As a true CI/CD pipe:** the [Langfuse GitHub
+**As a true CI/CD pipe (live):** the [Langfuse GitHub
 integration](https://langfuse.com/docs/prompt-management/features/github-integration)
 turns promotion into an automated, gated deploy. A prompt change fires a
-`repository_dispatch` event; a GitHub Actions workflow runs the eval dataset
-against the new version and only ships if it passes and carries the `production`
-label. See [`cicd/`](cicd/) for a ready-to-copy workflow and setup steps.
+`repository_dispatch` event;
+[`langfuse-prompt-ci.yml`](../../.github/workflows/langfuse-prompt-ci.yml) runs
+the eval dataset against the new version via
+[`scripts/prompt_gate.py`](scripts/prompt_gate.py), **fails the build** if any
+run-level mean falls below [`cicd/thresholds.json`](cicd/thresholds.json), and
+ships only if it passes *and* carries the `production` label. Point it at the
+`first-draft` label to watch the gate reject a bad prompt. Setup steps (secrets,
+PAT, Langfuse automation) are in [`cicd/`](cicd/README.md).
 
 ## Closing the loop — the demonstrable cycle
 
 This is the money path (DEMO_SCRIPT Act 6). Every step is real and runnable:
 
-1. **Monitor finds headroom.** Even on good traffic the *subjective* metrics sit
-   below 1.0 — on the 18-item eval set, `production` scores helpfulness 0.90,
-   relevance 0.89, groundedness 0.92 (the deterministic code checks are already
-   1.00). That gap is the improvement target. *(Separately, Act 3's fault-injected traces show
-   evals catching hard failures — but those faults are injected in code, not
-   caused by the prompt, so they belong to "evals catch problems", not here.)*
+1. **Monitor finds headroom.** Two different flavours of it, and they teach
+   different lessons:
+   - **A real defect (the strong case).** The `first-draft` prompt label is the
+     naive prompt a team actually ships first. On the 18-item set it scores
+     `language-match` **0.833** and `budget-adherence` **0.944** — it answers
+     Spanish questions in English and pushes over-budget listings. Those are
+     product bugs with names, and a user 👎 on a portal trace points straight at
+     one of them.
+   - **Diminishing returns (the honest case).** Once those are fixed,
+     `production` sits at **1.00 on every code check** while the *subjective*
+     metrics stay near 0.89–0.92. That residual gap is real but hard to move.
+
+   *(Separately, Act 3's fault-injected traces show evals catching hard failures —
+   but those faults are injected in code, not caused by the prompt, so they belong
+   to "evals catch problems", not here.)*
 2. **Lock the scenarios as tests.** The `property-concierge-eval` dataset already
    encodes the buy/rent, EN/ES, multi-city and impossible-request cases; any real
    production trace worth guarding against can be added to it from the UI.
 3. **Hypothesize a fix — a new prompt.** The `candidate` version
    (`agent/prompts.py`) tightens grounding, adds budget discipline, enforces the
    user's language, and imposes a scannable format.
-4. **Experiment to prove it** — run the *same* dataset + evaluators on
-   `production` vs `candidate`; only the prompt changed:
+4. **Experiment to prove it** — run the *same* dataset + evaluators on two prompt
+   versions; only the prompt changed.
+
+   **`first-draft` → `production` (the decisive case).** Measured on Claude, 18
+   items: `budget-adherence` **0.944 → 1.000** and `language-match` **0.833 →
+   1.000**, with the other three code checks flat at 1.000 — and **bit-identical
+   when production is re-run**, which is what makes them gate-worthy.
+
+   **The judges, by contrast, cannot separate these prompts at all.** Running the
+   *same* production prompt twice moved relevance **0.892 → 0.933** and helpfulness
+   **0.889 → 0.919** — a swing larger than every prompt-to-prompt judge delta
+   measured. first-draft's judge scores (helpfulness 0.904, relevance 0.889,
+   groundedness 0.943) land *inside* production's own two-run range on all three.
+   So the prompt with two real defects is judge-indistinguishable from the prompt
+   that fixed them. Gate on helpfulness and you learn nothing — or, on a bad roll,
+   block a correct fix. This is why [`cicd/thresholds.json`](cicd/thresholds.json)
+   gates code evals hard (1.0 / 0.95) and judges loose (0.80), and it's the most
+   useful single lesson in the demo.
+
+   **`production` → `candidate` (the marginal case):**
    ```bash
+   ./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft   # the decisive case
    ./.venv/bin/python scripts/run_experiment.py --prompt-label production
    ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate
-   # Langfuse → Datasets → property-concierge-eval → Runs → select both → Compare
+   # Langfuse → Datasets → property-concierge-eval → Runs → select two → Compare
    ```
    **Measured result (Claude, 18 items) — a marginal edge, and a lesson in judge
    noise:** on a matched run the candidate nudged the metrics it targeted —
@@ -123,6 +156,7 @@ This is the money path (DEMO_SCRIPT Act 6). Every step is real and runnable:
 | Prompt management, versioning, label-based fetch, prompt↔trace link | **Live** — runs on the local stack |
 | Prompt-variant experiment + compare | **Live** — `run_experiment.py --prompt-label` |
 | Promote a label to deploy | **Live** — do it in the Langfuse UI |
-| GitHub repository-dispatch CI/CD + sync-to-repo | **Documented** — needs a real repo, PAT, public webhook; see [`cicd/`](cicd/) |
+| GitHub repository-dispatch CI/CD **quality gate** | **Live** — [`../../.github/workflows/langfuse-prompt-ci.yml`](../../.github/workflows/langfuse-prompt-ci.yml) + [`scripts/prompt_gate.py`](scripts/prompt_gate.py); needs Langfuse **Cloud** (runner reachability) and 3 setup steps, see [`cicd/`](cicd/README.md) |
+| Prompt sync-to-repo (commit prompt versions to git) | **Documented** — needs a public webhook endpoint; see [`cicd/`](cicd/README.md) |
 | Add production trace → dataset | **Live in UI** — one click on a trace |
 | Explicit **user feedback** as a Monitor signal | **Live** — 👍/👎 in the portal writes a `user-feedback` score onto that turn's trace (`webapp` `/api/feedback`) |

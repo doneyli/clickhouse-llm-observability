@@ -6,6 +6,9 @@ prompts at runtime by label, so a version labelled `production` is what actually
 runs. We seed:
 
   • property-concierge-plan   [production]  — constraint extractor (no variables)
+  • property-concierge-agent  [first-draft] — a deliberately naive first draft,
+                                              the "before" in a demo that shows
+                                              the loop producing a VISIBLE win
   • property-concierge-agent  [production]  — the baseline concierge prompt
   • property-concierge-agent  [candidate]   — an improved variant to experiment
                                               with, then promote ("deploy")
@@ -27,8 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agent.config import get_langfuse, verify_project, LANGFUSE_HOST
 from agent.prompts import (
     PLAN_PROMPT_NAME, AGENT_PROMPT_NAME,
-    PRODUCTION_LABEL, CANDIDATE_LABEL,
-    PLAN_FALLBACK, AGENT_FALLBACK, AGENT_CANDIDATE,
+    PRODUCTION_LABEL, CANDIDATE_LABEL, FIRST_DRAFT_LABEL,
+    PLAN_FALLBACK, AGENT_FALLBACK, AGENT_CANDIDATE, AGENT_FIRST_DRAFT,
 )
 
 
@@ -59,6 +62,12 @@ def main() -> None:
     print("Seeding concierge prompts into Langfuse Prompt Management…")
     ensure_prompt(lf, PLAN_PROMPT_NAME, PLAN_FALLBACK, PRODUCTION_LABEL,
                   "Constraint extractor — baseline")
+    # Seed first-draft BEFORE production so the version numbers read like a real
+    # history in the Prompts tab (v1 naive first draft → v2 production → v3
+    # candidate), which is the story the demo walks through.
+    ensure_prompt(lf, AGENT_PROMPT_NAME, AGENT_FIRST_DRAFT, FIRST_DRAFT_LABEL,
+                  "Concierge system prompt — naive first draft: no budget "
+                  "discipline, English-only output (DEMO 'before' baseline)")
     ensure_prompt(lf, AGENT_PROMPT_NAME, AGENT_FALLBACK, PRODUCTION_LABEL,
                   "Concierge system prompt — baseline (production)")
     ensure_prompt(lf, AGENT_PROMPT_NAME, AGENT_CANDIDATE, CANDIDATE_LABEL,
@@ -70,6 +79,9 @@ def main() -> None:
     print("  The agent fetches 'property-concierge-agent' [production] at runtime.")
     print("  Compare [production] vs [candidate] with:")
     print("    ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate")
+    print("  For a VISIBLE improvement (deterministic scores move), compare the")
+    print("  naive first draft against production:")
+    print("    ./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft")
 
 
 if __name__ == "__main__":
