@@ -41,8 +41,8 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | Experiments / runs + aggregates | `dataset.run_experiment(...)` with run-level averages |
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
 | **Prompt management** (versioned, labelled) | system prompts fetched by label from Langfuse; **linked to every generation** |
-| **Prompt-variant experiment** | same agent + evals on `production` vs `candidate` prompt → compare runs |
-| **Deploy** (close the loop) | promote a prompt label to ship it; GitHub CI/CD reference in [`cicd/`](cicd/) |
+| **Prompt-variant experiment** | same agent + evals across `first-draft` / `production` / `candidate` prompts → compare runs |
+| **Deploy** (close the loop) | promote a prompt label to ship it — **gated by CI**: a prompt change runs the eval suite and blocks the deploy on a regression ([`cicd/`](cicd/README.md)) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
 
 ---
@@ -138,7 +138,7 @@ warning and continues, adding at most ~3s to a turn.
 Or run each piece individually:
 
 ```bash
-./.venv/bin/python scripts/seed_prompts.py            # prompts → Langfuse (production + candidate)
+./.venv/bin/python scripts/seed_prompts.py            # prompts → Langfuse (first-draft + production + candidate)
 ./.venv/bin/python scripts/seed_dataset.py            # create the 18-item dataset
 ./scripts/seed_managed_evaluators.sh                  # native LLM judges (auto, Anthropic)
 ./.venv/bin/python scripts/run_live_traffic.py        # ~13 traces + sessions + code/custom scores
@@ -146,7 +146,22 @@ Or run each piece individually:
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6   # Claude run
 ./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare models)
 ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate    # candidate prompt (compare prompts)
+./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft  # naive prompt (a VISIBLE win vs production)
 ./.venv/bin/python scripts/smoke_test.py              # sanity: keys + obs-level scores
+```
+
+Judge means carry ±0.03–0.04 run-to-run noise, so before citing any prompt
+comparison, run the control — the same prompt twice under different run names:
+
+```bash
+./.venv/bin/python scripts/run_experiment.py --prompt-label production --run-name production-repeat
+```
+
+Rehearse the CI quality gate locally (this is the exact code Actions runs):
+
+```bash
+./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft   # exits 1 — the gate blocking a bad prompt
+./.venv/bin/python scripts/prompt_gate.py --prompt-label production    # exits 0
 ```
 
 ---
@@ -227,15 +242,17 @@ evaluators/
   experiment_evaluators.py   Score -> Langfuse Evaluation adapters + run aggregates
 data/dataset.py   18 evaluation items
 scripts/
-  seed_prompts.py            prompts -> Langfuse (production + candidate labels)
+  seed_prompts.py            prompts -> Langfuse (first-draft + production + candidate labels)
   seed_dataset.py            create the dataset
-  seed_managed_evaluators.sh native LLM-as-a-Judge (Postgres seed, Anthropic)
+  seed_managed_evaluators.sh native LLM-as-a-Judge (Postgres self-hosted / API on Cloud)
   run_live_traffic.py        traces + sessions + code/custom scores + faults
   seed_annotation_queue.py   human-review queue + score configs (public API)
   run_experiment.py          dataset run for a chosen --model / --prompt-label
+  prompt_gate.py             CI quality gate: eval a prompt label, exit 1 below the bar
   smoke_test.py              sanity check
-cicd/             GitHub CI/CD reference (repository-dispatch workflow + guide)
+cicd/             the CI quality gate: thresholds.json (the bar) + setup guide
 webapp/           server.py (FastAPI) + static/index.html (portal UI)
+                  PORTAL_PROMPT_LABEL=<label> serves a non-production prompt
 run_demo.sh       prep all data      run_portal.sh   launch the app
 AI_ENGINEERING_LOOP.md  the loop, mapped to this demo
 DEMO_SCRIPT.md    presenter runbook
