@@ -37,33 +37,63 @@ Not a preference — a constraint. Movement 4 runs a **real GitHub Actions
 workflow**, and a GitHub runner cannot reach `localhost:3001`. So the demo points
 at Langfuse Cloud (`us.cloud.langfuse.com`, project `real-estate`).
 
+> **Paste-safety note (read once).** Every command block below is comment-free on
+> purpose. Interactive **zsh** has `interactive_comments` off by default, so a `#`
+> is *not* a comment — it becomes an argument. Pasting `cp .env.cloud .env  # note`
+> gives you `cp: config: Not a directory` and copies nothing. If you want inline
+> comments to work in your shell, `setopt interactive_comments` first.
+
 ```bash
 cd demos/real-estate
-cp .env.cloud .env          # .env.selfhosted.bak holds the self-hosted config
+cp .env.cloud .env
 ./.venv/bin/python -c "from agent.config import verify_project; verify_project()"
 ```
 
-One-time venv, if it's a fresh clone:
+That should print `✓ Langfuse project verified: real-estate @ https://us.cloud.langfuse.com`.
+Your previous config is preserved in `.env.selfhosted.bak`.
+
+**Only on a fresh clone** — if `.venv/` already exists, skip this entirely:
 
 ```bash
-python3.11 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+python3.11 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
 ```
+
+Note `python -m pip`, not `./.venv/bin/pip`. A venv that was created before this
+demo moved into `demos/` (PR #28) has console scripts with a **hardcoded shebang to
+the old path**, so `./.venv/bin/pip` fails with `bad interpreter: .../real-estate-demo/.venv/bin/python3.11`.
+`./.venv/bin/python` is a symlink and is unaffected — which is why everything else
+works. `python -m venv` without `--clear` does not rewrite those scripts, so
+re-running it does not fix pip. Going through `python -m pip` sidesteps the
+shebang entirely. **Do not rebuild a working venv on demo day** to chase this.
 
 ### Seed the data (~25 min, do this the day before)
 
 ```bash
-./.venv/bin/python scripts/seed_prompts.py            # production + candidate + first-draft
-./.venv/bin/python scripts/seed_dataset.py            # property-concierge-eval, 18 items
-./scripts/seed_managed_evaluators.sh                  # LLM connection + the 2 managed judges
-./.venv/bin/python scripts/seed_annotation_queue.py   # human review queue + score configs
-./.venv/bin/python scripts/run_live_traffic.py        # traces incl. the fault-injected ones
-./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft   # the BEFORE
-./.venv/bin/python scripts/run_experiment.py --prompt-label production    # the AFTER
-./.venv/bin/python scripts/run_experiment.py --prompt-label candidate     # for the rigor beat
+./.venv/bin/python scripts/seed_prompts.py
+./.venv/bin/python scripts/seed_dataset.py
+./scripts/seed_managed_evaluators.sh
+./.venv/bin/python scripts/seed_annotation_queue.py
+./.venv/bin/python scripts/run_live_traffic.py
+./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft
+./.venv/bin/python scripts/run_experiment.py --prompt-label production
+./.venv/bin/python scripts/run_experiment.py --prompt-label candidate
 ```
 
-All of it is idempotent, and `./run_demo.sh` wraps most of it — the three
-`run_experiment.py` calls are the slow part (~12 min each).
+| Step | What it gives you |
+|---|---|
+| `seed_prompts.py` | the three labelled versions: `first-draft`, `production`, `candidate` |
+| `seed_dataset.py` | `property-concierge-eval`, 18 items |
+| `seed_managed_evaluators.sh` | Anthropic LLM connection + the two managed judges |
+| `seed_annotation_queue.py` | human-review queue + score configs |
+| `run_live_traffic.py` | traces including the fault-injected ones |
+| `run_experiment.py --prompt-label first-draft` | **the BEFORE** |
+| `run_experiment.py --prompt-label production` | **the AFTER** |
+| `run_experiment.py --prompt-label candidate` | for the rigor beat |
+
+All of it is idempotent, and `./run_demo.sh --lifecycle` wraps most of it. The
+`run_experiment.py` calls are the slow part — **~12 min each**, so budget ~40 min
+if you run all three.
 
 ### Stage the user complaint (the demo's opening shot)
 
@@ -72,16 +102,29 @@ the naive prompt, ask one question in Spanish, thumb it down, then put the porta
 back:
 
 ```bash
-PORTAL_PROMPT_LABEL=first-draft ./run_portal.sh    # note the "NOT production!" warning
-# ask: "Piso de 2 dormitorios para comprar en Madrid por menos de 400.000 euros"
-# click 👎 on the answer
-# then Ctrl-C and restart clean:
-./run_portal.sh                                     # serves `production` again
+PORTAL_PROMPT_LABEL=first-draft ./run_portal.sh
 ```
 
-**Verify the portal says `serving prompt label: production` before you present.**
+It will print `serving prompt label: first-draft   <-- NOT production!`. Then, in
+the browser:
+
+1. Ask: *"Piso de 2 dormitorios para comprar en Madrid por menos de 400.000 euros"*
+2. It answers in **English** — that's the bug. Click **👎**.
+
+Now put the portal back:
+
+```bash
+./run_portal.sh
+```
+
+**Verify it prints `serving prompt label: production` before you present.**
 Presenting on a staging leftover is the single most embarrassing way to lose this
 demo — which is exactly why the portal prints the label on startup.
+
+One more staging step, easy to forget: the managed judges score **new** traffic
+only, so the complaint trace you just made has code scores and the 👎 but no
+Helpfulness/Relevance. Backfill it so Movement 1 can point at all four feedback
+channels on one trace: **Traces → select the trace → Actions → Evaluate**.
 
 ### Managed judges — scripted, not manual
 
@@ -90,7 +133,7 @@ The Anthropic LLM connection and the two Langfuse-managed judges (`Helpfulness`,
 evaluation-rules API — no UI clicking required:
 
 ```bash
-./scripts/seed_managed_evaluators.sh    # idempotent; also run by run_demo.sh
+./scripts/seed_managed_evaluators.sh
 ```
 
 The rules are **observation-level**, filtered to the root span
