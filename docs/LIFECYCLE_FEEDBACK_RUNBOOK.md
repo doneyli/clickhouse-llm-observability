@@ -378,6 +378,46 @@ worth saying:
 ./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft
 ```
 
+### The counter-beat: the gate catches only what you measure
+
+**Have this ready, because a sharp internal audience will go looking for it** — and
+it's better to hand it over than to be caught by it. Someone will ask "so the gate
+stops anything bad?" The answer is no, and we have a real example.
+
+We took the `candidate` prompt and changed exactly one thing:
+
+> `"You are a professional real-estate concierge…"` → `"You are **NOT** a professional real-estate concierge…"`
+
+Labelled it `candidate`, the automation fired, CI evaluated it — and it **passed
+cleanly**: all five code evaluators at 1.000, and judge scores of
+**0.918 / 0.926 / 0.948**, the *highest* of any run that day.
+
+Two reasons, and both are worth saying out loud:
+
+1. **The sabotage was cosmetic, not behavioural.** Every rule the suite actually
+   tests survived — search before answering, cite only retrieved ids, respect the
+   budget, match the location, match the language. The negation changed the persona
+   framing without instructing different behaviour, so the answers stayed good. In
+   the dimensions we measure, the prompt genuinely is not worse.
+2. **`tone` is measured but not gated.** It's a real judge in
+   `agent/scoring.py`, and it lands on live traffic — but it's **absent from
+   `RUN_EVALUATORS` and from `thresholds.json`**, because it's *categorical*
+   (poor/good/excellent) and the run-level aggregator only averages numerics. So a
+   persona or brand-voice regression **structurally cannot fail this gate.**
+
+**Land it.** "A quality gate is not a safety net. It's a contract: it enforces the
+dimensions you chose to define, precisely, and it is silent about everything else.
+If persona matters to you, that's a scored dimension you have to add — and until
+you do, no amount of CI will catch it."
+
+**Teaching note for SAs:** this is the single best inoculation you can give an
+internal audience, because the failure mode is *believing the green check means
+more than it does*. It also sets up the natural follow-up — "what would you add?"
+— which is a genuinely useful conversation about their own quality criteria. If
+you want the gate to catch this, the fix is a numeric persona/tone score wired
+into `RUN_EVALUATORS` with a threshold; the categorical `tone` judge can't be
+averaged as-is.
+
 ---
 
 ## Movement 5 · Ship it (3 min)
@@ -420,6 +460,13 @@ the loop. It isn't a dashboard you look at, it's a cycle you run."
 
 ## Objections you'll get
 
+- **"So the gate stops anything bad from shipping?"** No, and say so plainly — see
+  the counter-beat in Movement 4. It enforces the dimensions you defined and is
+  silent about the rest. We have a prompt that says *"you are NOT a professional
+  concierge"* and passes with the best judge scores of the day, because `tone` is
+  measured on live traffic but isn't part of the gate (it's categorical, and the
+  run-level aggregator only averages numerics). Volunteering this is far stronger
+  than being caught by it.
 - **"Isn't the first-draft prompt a strawman?"** No — and answer this head-on. It
   gets the mechanics right (searches before answering, cites ids). Its two bugs
   are an English-only instruction and growth-flavoured budget advice. Both are
