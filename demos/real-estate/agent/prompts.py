@@ -35,6 +35,12 @@ PRODUCTION_LABEL = "production"
 # A second labelled version used to demonstrate a prompt experiment + rollout
 # (baseline `production` vs improved `candidate`), i.e. closing the loop.
 CANDIDATE_LABEL = "candidate"
+# A deliberately naive FIRST DRAFT of the prompt, kept as a labelled version so
+# a demo can show the loop delivering a *visible, deterministic* improvement.
+# The production/candidate delta is honest but small (it sits inside judge
+# noise); first-draft -> production moves the code evaluators, which are the
+# metrics you can actually trust. See AGENT_FIRST_DRAFT below.
+FIRST_DRAFT_LABEL = "first-draft"
 
 # --- Fallback: plan prompt (no variables) -----------------------------------
 PLAN_FALLBACK = (
@@ -62,6 +68,32 @@ AGENT_FALLBACK = (
     "- Add neighborhood_insights for context when helpful.\n"
     "- Be concise, warm and professional. Answer in the SAME language as the user "
     "({{lang}}). Do not overpromise.\n"
+    "{{fault_note}}"
+)
+
+# --- FIRST DRAFT agent prompt (the "before" in a visible-improvement demo) ---
+# NOT a strawman: this is the prompt a well-meaning team actually ships first.
+# It gets the mechanics right (search before answering, cite ids) but encodes two
+# extremely common first-draft mistakes:
+#   1. Growth-flavoured budget advice ("buyers often stretch") — trips
+#      `budget-adherence`, which measures the fraction of cited listings at or
+#      under the user's stated cap.
+#   2. English-only output, written by a team that hadn't thought about i18n yet
+#      — trips `language-match` on the dataset's Spanish items.
+# It deliberately KEEPS the search + citation rules: without cited listing ids
+# there is nothing for budget/location/grounding to check and those scores pass
+# vacuously, which would make the "before" look better than it is.
+AGENT_FIRST_DRAFT = (
+    "You are a friendly real-estate assistant for a property marketplace. "
+    "Help people find a home they'll love.\n"
+    "- Call search_listings to find properties, and cite each one's listing id "
+    "in brackets, e.g. [MAD-101].\n"
+    "- Be enthusiastic and always give people options. If nothing matches their "
+    "budget exactly, include slightly pricier properties too — buyers often "
+    "stretch for the right home.\n"
+    "- Use calculate_mortgage and neighborhood_insights when they seem useful.\n"
+    "- Always reply in polished English, whatever language the user wrote in "
+    "({{lang}}), so the listings read professionally.\n"
     "{{fault_note}}"
 )
 
