@@ -4,15 +4,29 @@
 # AUTOMATICALLY on live traffic (visible under Evaluators).
 #
 # These are Langfuse-native evaluators (not the client-side judges the demo also
-# ships): the Langfuse worker runs them on new traces tagged 'real-estate' using
-# the Anthropic LLM connection you configured, and writes scores back.
+# ships): the Langfuse worker runs them using the Anthropic LLM connection and
+# writes scores back, with no evaluator code in our app.
 #
-# Two modes:
-#   self-hosted (localhost) — managed evaluators have no public REST API, so
-#     like this repo's other evaluator seeders we insert directly into the
-#     Langfuse Postgres. Idempotent.
-#   remote / Langfuse Cloud — no DB access: upsert the LLM connection via the
-#     public API and print the short UI recipe for the judges.
+# BOTH modes provision the judges automatically — there is no manual UI step in
+# either. They differ in mechanism, and in two consequences worth knowing:
+#
+#   self-hosted (localhost)
+#     The stable REST API does not expose `job_configurations`, so — like this
+#     repo's other evaluator seeders — we INSERT into the Langfuse Postgres
+#     directly (also needs a `default_llm_models` row). Trace-level, filtered by
+#     tag `real-estate`. Scores NEW *and* EXISTING matching traces.
+#
+#   remote / Langfuse Cloud
+#     No DB access, so we upsert the Anthropic LLM connection and then create the
+#     two judges via the UNSTABLE evaluation-rules API
+#     (POST /api/public/unstable/evaluation-rules), referencing the
+#     Langfuse-managed evaluator families. Observation-level, filtered to the root
+#     span `handle-concierge-chat-message`. Scores NEW traffic only — a trace
+#     ingested before the rules existed gets nothing, so backfill it from the UI:
+#     Traces -> select -> Actions -> Evaluate.
+#     The printed UI recipe is a FALLBACK, shown only if that API call fails.
+#
+# Both are idempotent: existing rules/configs are detected and left alone.
 #
 # Usage:  ./scripts/seed_managed_evaluators.sh
 set -euo pipefail
@@ -29,9 +43,10 @@ warn(){  printf '  \033[1;33m⚠\033[0m %s\n' "$1"; }
 EXPECTED_PROJECT="${LANGFUSE_PROJECT_NAME:-real-estate}"
 
 # ---- Langfuse Cloud / remote host: no direct DB access ----------------------
-# job_configurations have no public API, so on Cloud the two judges are set up
-# in the UI. We still provision what the API allows (the Anthropic LLM
-# connection) and print the exact remaining steps. Exit 0 so run_demo.sh flows.
+# There is no DB to write, so we do it all over HTTP: upsert the Anthropic LLM
+# connection, then create both judges via the UNSTABLE evaluation-rules API. The
+# UI recipe printed at the end is a FALLBACK for when that API is unavailable —
+# not the normal path. Exit 0 either way so run_demo.sh keeps flowing.
 case "${LANGFUSE_HOST:-http://localhost:3001}" in
   http://localhost*|https://localhost*|http://127.0.0.1*|https://127.0.0.1*)
     ;;  # self-hosted: fall through to DB seeding
