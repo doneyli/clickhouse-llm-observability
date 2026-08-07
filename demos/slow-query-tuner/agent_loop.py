@@ -272,7 +272,18 @@ def run(goal: Dict[str, Any], *, caps: Optional[budget.Caps] = None,
                         resp = _client().messages.create(
                             model=model, system=system_text, tools=tool_schemas,
                             messages=state.compacted_messages(compact_after),
-                            max_tokens=2000, temperature=TEMPERATURE)
+                            max_tokens=2000, temperature=TEMPERATURE,
+                            # The loop's contract is ONE tool call per turn
+                            # (extract_tool_call only dispatches the first
+                            # tool_use block and appends exactly one
+                            # tool_result). Without disabling parallel tool
+                            # use, the model can emit 2+ tool_use blocks in a
+                            # single turn; the extra block(s) get silently
+                            # dropped (never dispatched, never scored) and the
+                            # dangling tool_use id corrupts the message
+                            # history, crashing the NEXT call with a 400
+                            # ("tool_use ids were found without tool_result").
+                            tool_choice={"type": "auto", "disable_parallel_tool_use": True})
                     except Exception:
                         # Checkpoint already holds the last completed turn; surface
                         # the failure so the operator can --resume.
