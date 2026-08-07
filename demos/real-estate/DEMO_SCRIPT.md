@@ -392,12 +392,19 @@ under the same name replaces the previous run instead of adding a second one.)*
 
 **Deploy — or iterate.** In the **Prompts** tab, set the `production` label on the
 candidate to promote it. "The app fetches `production`, so it serves the new prompt
-with **no redeploy**. In a real pipeline that promotion is driven by CI — the
-[GitHub integration](https://langfuse.com/docs/prompt-management/features/github-integration)
-runs this exact eval on the new version and ships on the `production` label; blocking
-on a score regression to make it a *hard* quality gate is the marked TODO in
-[`cicd/`](cicd/)." Or, since judge deltas this small are noisy, re-run to confirm
-the win before promoting — and keep a `candidate-v2` ready if a metric slips.
+with **no redeploy**. And that promotion is driven by CI: it fires a
+[GitHub repository dispatch](https://langfuse.com/docs/prompt-management/features/github-integration),
+and [`langfuse-prompt-ci.yml`](../../.github/workflows/langfuse-prompt-ci.yml) re-runs
+this exact eval set against the new version and **fails the build** if any score drops
+below the bar in [`cicd/thresholds.json`](cicd/thresholds.json) — so a regressing
+prompt never reaches the deploy job." Or, since judge deltas this small are noisy,
+re-run to confirm the win before promoting — and keep a `candidate-v2` ready if a
+metric slips.
+
+> **Want to show the gate actually *blocking* something?** That's the
+> `first-draft` prompt label and the [SA enablement
+> runbook](../../docs/LIFECYCLE_FEEDBACK_RUNBOOK.md) — a shorter walkthrough built
+> around one user complaint travelling the whole loop.
 
 Either way, the next portal question produces new traces under the shipped version
 → **back to Act 2**. The loop is closed.
@@ -557,12 +564,14 @@ observation. The custom LLM judges (`groundedness`/`tone`) live in that same
 - **"Is LLM-as-a-Judge reliable enough to act on?"** Pair it with deterministic
   code evaluators (that's why the demo ships both) and calibrate judges against the
   human-annotated set from Act 4.
-- **"How do prompt changes ship — is this real CI/CD?"** Yes. The app reads the
-  `production`-labelled prompt at runtime, so promoting a version *is* the deploy.
-  Langfuse's GitHub integration turns that promotion into a pipeline — run the eval
-  set on the new version, then ship on the `production` label; adding a
-  score-regression threshold to make it a *hard* quality gate is marked as a TODO in
-  the reference workflow. See [`cicd/`](cicd/).
+- **"How do prompt changes ship — is this real CI/CD?"** Yes, and it's wired: the
+  app reads the `production`-labelled prompt at runtime, so promoting a version *is*
+  the deploy. Langfuse's GitHub integration fires a `repository_dispatch` on the
+  change, and [`langfuse-prompt-ci.yml`](../../.github/workflows/langfuse-prompt-ci.yml)
+  re-runs the eval dataset against the new version and exits non-zero if it misses the
+  thresholds in [`cicd/thresholds.json`](cicd/thresholds.json) — a hard quality gate,
+  not just a label check. It requires the demo to run against Langfuse **Cloud** (a
+  GitHub runner can't reach a localhost stack). See [`cicd/`](cicd/README.md).
 - **"Where does data live?"** Langfuse stores traces in **ClickHouse** — that's
   what makes search, score analytics and dashboards fast at scale, and keeps the
   data in a store you can query with SQL rather than a vendor silo. And remember

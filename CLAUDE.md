@@ -42,6 +42,8 @@ ANTHROPIC_API_KEY=sk-... ./setup.sh     # Non-interactive (CI / coding agents)
 ./scripts/seed-llm-judge-evaluators.sh  # Provision observation-level LLM-as-a-Judge evaluators (upgrades legacy ones)
 ./scripts/seed-agentic-rag-evaluators.sh # Independent managed judges for agentic-rag (faithfulness/context-relevance/answer-relevance) — complements the in-graph self-grades
 python scripts/seed-app-prompts.py      # Prompt management (Deploy node): seed text-to-sql + vector-rag prompts to Langfuse
+# Prompt CI quality gate (Deploy node, real-estate demo) — .github/workflows/langfuse-prompt-ci.yml
+cd demos/real-estate && ./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft   # exits 1: gate blocks a bad prompt
 ./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
 ./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
 ```
@@ -116,6 +118,7 @@ dashboard/                  # LLM Observatory analytics dashboard (FastAPI + Alp
 mcp-clickhouse/             # ClickHouse MCP Server
 scripts/                    # Utility scripts (seed, reset, validate, CLI, import, datasets)
 docs/                       # Documentation (see docs/README.md for the persona-based index)
+.github/workflows/          # Prompt CI: eval a changed prompt version, block the deploy on a regression
 .agents/skills/             # Project skills (deploy-demo, run-demo, troubleshoot, langfuse)
 .claude/settings.json       # Shared Claude Code permissions for this repo's common commands
 ```

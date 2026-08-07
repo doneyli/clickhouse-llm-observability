@@ -45,7 +45,7 @@ it across the whole stack.
 | 3 | **Build datasets** | `scripts/seed-datasets.py` (coding-quality + security datasets); production traces → dataset from the UI | `demos/real-estate/` 10-item eval set |
 | 4 | **Experiment** | `scripts/run-experiments.py` — compare **models / datasets** on the eval sets | **prompt-variant** experiments: `demos/real-estate/` + `agentic-rag` |
 | 5 | **Evaluate** | Deterministic **code evaluators** (`evaluators/*.ts`, seeded by `scripts/seed-code-evaluators.sh`) + **LLM-as-a-Judge** (`scripts/seed-llm-judge-evaluators.sh`) | human **annotation** queue in `demos/real-estate/` |
-| ⟳ | **Deploy** | **Prompt management by label** — apps fetch prompts from Langfuse at runtime with a local fallback: `agentic-rag` (`scripts/seed-langfuse-prompt.py`), `text-to-sql` + `vector-rag` (`scripts/seed-app-prompts.py`). Promote a label to ship a prompt with no redeploy. | **GitHub CI/CD** reference for gated prompt deploys in `demos/real-estate/cicd/` |
+| ⟳ | **Deploy** | **Prompt management by label** — apps fetch prompts from Langfuse at runtime with a local fallback: `agentic-rag` (`scripts/seed-langfuse-prompt.py`), `text-to-sql` + `vector-rag` (`scripts/seed-app-prompts.py`). Promote a label to ship a prompt with no redeploy. | **GitHub CI/CD quality gate** — promoting a prompt fires a workflow that re-runs the eval set and blocks a regression: `demos/real-estate/cicd/` |
 
 ## The Deploy node across the stack
 
@@ -61,9 +61,14 @@ python scripts/seed-langfuse-prompt.py    # agentic-rag-generation (v1 + v2 prod
 ```
 
 Editing a prompt in the Langfuse UI — or promoting a new version to `production`
-— changes the app's behaviour on the next run with **no code change**. Gating
-that promotion behind CI (run the eval set, ship only on pass) is the
-GitHub-integration path documented in `demos/real-estate/cicd/`.
+— changes the app's behaviour on the next run with **no code change**. That
+promotion is **gated by CI**: Langfuse fires a `repository_dispatch`,
+[`.github/workflows/langfuse-prompt-ci.yml`](.github/workflows/langfuse-prompt-ci.yml)
+re-runs the eval dataset against the changed version, and the build fails if any
+run-level mean drops below `demos/real-estate/cicd/thresholds.json` — so a
+regressing prompt never reaches the deploy job. Setup and the "show the gate
+blocking a bad prompt" demo path are in
+[`demos/real-estate/cicd/`](demos/real-estate/cicd/README.md).
 
 ## User feedback (Monitor) — how LibreChat's thumbs reach Langfuse
 
@@ -93,4 +98,5 @@ stack using the table above.
 | Model / dataset experiments (`run-experiments.py`) | **Live** |
 | Prompt-variant experiments | **Live** in demos/real-estate + agentic-rag (not the `run-experiments.py` harness) |
 | User feedback → Langfuse (LibreChat thumbs + real-estate portal) | **Live** |
-| GitHub repository-dispatch CI/CD for prompt deploys | **Documented** — needs a real repo, PAT, public webhook (`demos/real-estate/cicd/`) |
+| GitHub repository-dispatch CI/CD **quality gate** for prompt deploys | **Live** — [`.github/workflows/langfuse-prompt-ci.yml`](.github/workflows/langfuse-prompt-ci.yml) runs the eval set on a changed prompt version and fails the build below the bar in `demos/real-estate/cicd/thresholds.json`. Requires the demo to run against **Langfuse Cloud** (a GitHub runner can't reach localhost) plus 3 one-time setup steps — see [`demos/real-estate/cicd/`](demos/real-estate/cicd/README.md) |
+| Prompt **sync-to-repo** (commit each prompt version to git) | **Documented** — needs a publicly reachable webhook endpoint (`demos/real-estate/cicd/`) |

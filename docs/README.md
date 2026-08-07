@@ -24,6 +24,7 @@ Pick your path by what you're trying to do.
 | [LiteLLM Gateway Demo Script](../demos/litellm-gateway/DEMO_SCRIPT.md) | Short (~5 min) script for the gateway-instrumentation pattern — centralized Langfuse tracing at a LiteLLM proxy, no client SDK, same Frame→Show→Land→Ask flow |
 | [Use Case Catalog](USE_CASES.md) | 10 capabilities, each with a 2-minute demo path; quick-tour combos |
 | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | 45-min screen-by-screen platform demo script with full talk tracks |
+| [Lifecycle Feedback Runbook](LIFECYCLE_FEEDBACK_RUNBOOK.md) | 20-min SA-enablement narrative: one user 👎 → test case → proven prompt fix → CI gate → deploy (pairs with the [Property Concierge script](../demos/real-estate/DEMO_SCRIPT.md)) |
 | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | Deep screen-by-screen reference + fallbacks (pairs with the co-located [demo script](../demos/agentic-rag/DEMO_SCRIPT.md)) |
 | [Brand-Promo Multi-Agent Runbook](../demos/brand-promo-multi-agent/docs/DEMO_RUNBOOK.md) | Deep 60-min segment-by-segment reference (pairs with the co-located [demo script](../demos/brand-promo-multi-agent/DEMO_SCRIPT.md)) |
 | [Langfuse RLS Demo Script](../demos/langfuse-rls/DEMO_SCRIPT.md) | Short (~10 min) governance-conversation script for the row-level-security **prototype** over Langfuse traces — simulated feature, loop-adjacent |

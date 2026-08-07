@@ -31,6 +31,8 @@ Three ways to use it:
 |----------|------|----------|-----|
 | Platform / ML engineering team evaluating LLM observability | 45 min | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | Full arc: tracing → datasets → playground → experiments → evaluators |
 | Technical audience interested in agents / RAG / vector search | 25 min | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | CRAG loop on ClickHouse-native vectors, graph view in Langfuse |
+| "How do we actually *improve* an agent?" — teams past tracing, stuck on iteration | 20 min | [Lifecycle Feedback Runbook](LIFECYCLE_FEEDBACK_RUNBOOK.md) | One user's 👎 becomes a test case, a proven prompt fix, a CI gate, and a deploy — the loop closing end to end, with a **visible** quality win |
+| Full AI Engineering loop on one app, six acts | 20–25 min | [Property Concierge script](../demos/real-estate/DEMO_SCRIPT.md) | Self-contained agentic demo: trace → score → annotate → dataset → experiment → deploy |
 | Team worried about **multi-agent cost / shape control** | 20 min | [Cluster Health Investigator](../demos/cluster-health-investigator/DEMO_SCRIPT.md) | Orchestrator–workers: the LLM decides the fan-out at runtime, so the trace tree differs every run — open the `worker_count` chart and show fan-out (= cost) as a first-class, monitorable metric in ClickHouse |
 | Execs / first conversation | 10–15 min | 3–4 paths from the [Use Case Catalog](USE_CASES.md) | Each use case has a self-contained 2-minute demo path |
 | Hands-on workshop | 35 min/person | [User Journey](USER_JOURNEY.md) | Attendees drive; works on their laptops via `./setup.sh` |
