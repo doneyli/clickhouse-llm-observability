@@ -207,6 +207,27 @@ def tally_votes(question: str, candidates: List[dict], strategy: str = VOTE_STRA
         if strategy == "judge-consensus":
             winner_c = tie_break_judge(question, valid)  # judge decides, always
             tie_break_used = True
+        elif tally["empty"]:
+            # Every EXPLAIN-valid candidate still ended up with signature=None
+            # (e.g. execute_readonly timed out/errored for all of them during
+            # result-signature hashing). There is no vote to count: `winner_sig`
+            # would be None here, and `next(c for c in valid if c["signature"] ==
+            # None)` would match the FIRST such candidate purely because None ==
+            # None, and `tally["votes"].get(None, 1)` would then default to 1 —
+            # fabricating a "1/N agreed" consensus_confidence for a run where
+            # zero candidates actually produced a comparable result. Report zero
+            # consensus instead, mirroring the no-valid-candidates branch above.
+            meta = {"votes": {}, "invalid": tally["invalid"], "winner": None,
+                    "margin": 0, "tie_break_used": False, "strategy": strategy}
+            agg.update(metadata=meta,
+                       output={"error": "no candidate produced a usable result signature"})
+            lf.score_current_trace(
+                "consensus_confidence", 0.0,
+                comment="no candidate produced a usable result signature "
+                        f"({tally['valid_count']} EXPLAIN-valid, 0 executed successfully)")
+            return {"winning_sql": None, "result_signature": None, "tally": {},
+                    "consensus_confidence": 0.0, "tie_break_used": False,
+                    "winner": None, "margin": 0, "invalid": tally["invalid"]}
         elif tally["tie"]:
             winner_c = tie_break_judge(question, valid)  # break the split
             tie_break_used = True
