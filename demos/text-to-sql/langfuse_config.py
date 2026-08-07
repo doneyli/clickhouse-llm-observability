@@ -116,10 +116,10 @@ def langfuse_trace(trace_name="text-to-sql", tags=None):
     span is active when a new observation starts — it does not itself keep one
     trace_id alive across sequential, independent top-level calls. The pipeline
     makes several such calls in a row (``analysis_chain.invoke`` ->
-    ``retrieve_context`` -> ``response_chain.invoke``); with no span already
-    open at each call site, every one of them minted its own ROOT span (and
-    therefore its own trace_id) — same trace name/tags, three separate traces
-    in Langfuse instead of one. Opening one root span here (mirroring
+    retrieve-context/refine-loop -> ``response_chain.invoke``); with no span
+    already open at each call site, every one of them minted its own ROOT span
+    (and therefore its own trace_id) — same trace name/tags, three separate
+    traces in Langfuse instead of one. Opening one root span here (mirroring
     ``langfuse_session()`` below) keeps a parent active for the whole block, so
     every LangChain-driven and manually-instrumented step nests under it as a
     single trace.
