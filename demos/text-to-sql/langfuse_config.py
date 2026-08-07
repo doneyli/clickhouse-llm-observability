@@ -125,14 +125,19 @@ def langfuse_trace(trace_name="text-to-sql", tags=None):
     """Context manager that sets trace name and tags for all Langfuse traces within.
 
     Opens an actual root span first (mirrors ``langfuse_session()`` above) — this
-    is REQUIRED, not cosmetic: ``propagate_attributes`` only propagates its
-    attributes to spans created within its context, it does not itself create a
-    span. Without one already active, every ``.invoke()``/``langfuse_span()``/
-    ``langfuse_gate()`` call made inside ``pipeline.query()`` has no parent to
-    nest under and starts its OWN root trace — the "one trace per query" shape
-    the demo script narrates (and that ``gate:aborted``/``gate:escalated``
-    tagging depends on via ``tag_current_trace()`` -> ``update_current_trace()``,
-    which needs a currently-active span) silently breaks otherwise."""
+    is REQUIRED, not cosmetic: ``propagate_attributes`` only stamps *attributes*
+    (name/tags) onto whatever span is active when a new observation starts, it
+    does not itself create a span or keep one trace_id alive across sequential,
+    independent top-level calls. ``pipeline.query()`` makes several such calls in
+    a row (``analysis_chain.invoke`` -> retrieve-context/refine-loop ->
+    ``response_chain.invoke``); without a span already active, every one of them
+    — and every ``langfuse_span()``/``langfuse_gate()`` inside them — has no
+    parent to nest under and mints its OWN root span, so the "one trace per
+    query" shape the demo script narrates silently becomes three separate traces
+    sharing one name and tag set. It also breaks
+    ``gate:aborted``/``gate:escalated`` tagging, which goes through
+    ``tag_current_trace()`` -> ``update_current_trace()`` and needs a
+    currently-active span."""
     if not LANGFUSE_ENABLED:
         yield
         return
