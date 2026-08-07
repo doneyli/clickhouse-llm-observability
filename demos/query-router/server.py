@@ -30,11 +30,37 @@ class QueryRequest(BaseModel):
 
 
 def run(question: str, session_id: Optional[str] = None) -> dict:
-    """Classify -> gate -> dispatch, all under ONE trace named route-and-dispatch."""
+    """Classify -> gate -> dispatch, all under ONE trace named route-and-dispatch.
+
+    BUG FIX (live-testing finding): `lf.trace_context(...)` (= SDK v3
+    `propagate_attributes`) only sets trace-level attributes on the *currently
+    active span* and cascades them to its children — per the SDK's own
+    docstring, it does not, by itself, make independent top-level
+    `start_as_current_observation()` calls share a trace_id. `classify()` and
+    `dispatch()` each open their OWN top-level observation (`route-query`,
+    `dispatch-{route}`); with no active parent span at the time
+    `propagate_attributes` was entered, each one minted its OWN random
+    trace_id, so the router's decision and the dispatched specialist's subtree
+    landed in TWO DISCONNECTED traces — even before the HTTP call to the
+    handler. The handler-side `trace_context` join then correctly attached the
+    specialist's subtree to `dispatch()`'s (wrong, second) trace, not to
+    `route-query`'s trace — confirmed in ClickHouse: two distinct trace ids for
+    the same request, e.g. `route-query` alone in one trace and
+    `dispatch-analytics_sql` + the full text-to-sql subtree in another.
+
+    Fix: open one real root observation FIRST (`route-and-dispatch`), so
+    `classify()`'s and `dispatch()`'s observations become actual OTEL children
+    of it and inherit its trace_id, instead of independent roots. This matches
+    the SDK's own documented pattern (`start_as_current_span` BEFORE
+    `propagate_attributes`).
+    """
     session_id = session_id or lf.new_session_id()
-    with lf.trace_context("route-and-dispatch", session_id=session_id):  # verb-first, stable name
-        decision = classify(question)
-        result = dispatch(decision, question, session_id)
+    with lf.observe("route-and-dispatch", as_type="span", input={"question": question}) as root:
+        with lf.trace_context("route-and-dispatch", session_id=session_id):  # verb-first, stable name
+            decision = classify(question)
+            result = dispatch(decision, question, session_id)
+        if root:
+            root.update(output={"route": decision.get("route"), "handled_by": result.get("handled_by")})
     lf.flush()
     return {"question": question, **decision, **result, "session_id": session_id}
 
