@@ -382,7 +382,7 @@ services:
       context: ./demos/support-triage-parallel
     container_name: support-triage-parallel
     ports:
-      - "${SUPPORT_TRIAGE_PORT:-8008}:8000"
+      - "${SUPPORT_TRIAGE_PORT:-8009}:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
