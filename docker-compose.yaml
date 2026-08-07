@@ -389,6 +389,11 @@ services:
       - CLICKHOUSE_DB=tuning_lab
       - CLICKHOUSE_USER=tuner_admin
       - CLICKHOUSE_PASSWORD=tuner_admin123
+      # Without this, the ClickHouse docker entrypoint creates tuner_admin with
+      # access_management=0 (its default for a non-"default" CLICKHOUSE_USER),
+      # so 03_users.sql's CREATE USER/GRANT for tuner_agent fails with
+      # ACCESS_DENIED and the agent's read-only identity is never created.
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     ulimits:
       nofile:
         soft: 262144
