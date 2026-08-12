@@ -573,7 +573,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 │
 ├── docs/                       # Documentation (docs/README.md = persona-based index)
 │   ├── SA_FIELD_GUIDE.md           # Presenter field guide (demo selection, talk track, Q&A)
-│   ├── USE_CASES.md                # 10 use cases with 2-minute demo paths
+│   ├── USE_CASES.md                # 11 use cases with 2-minute demo paths
 │   ├── QUICKSTART_GUIDE.md
 │   ├── USER_JOURNEY.md
 │   ├── LANGFUSE_DEMO_RUNBOOK.md    # Screen-by-screen demo script (45 min)
@@ -606,7 +606,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | Document | Description |
 |----------|-------------|
 | [SA Field Guide](docs/SA_FIELD_GUIDE.md) | **For presenters** — demo selection, talk track, prep checklist, objection handling |
-| [Use Case Catalog](docs/USE_CASES.md) | 10 observability use cases, each with a 2-minute demo path |
+| [Use Case Catalog](docs/USE_CASES.md) | 11 observability use cases, each with a 2-minute demo path |
 | [Demo Runbook](docs/LANGFUSE_DEMO_RUNBOOK.md) | Screen-by-screen 45-min demo script with full talk tracks |
 | [Agentic RAG Demo Runbook](docs/AGENTIC_RAG_DEMO_RUNBOOK.md) | Screen-by-screen Agentic RAG demo script (25 min) |
 | [User Journey](docs/USER_JOURNEY.md) | Hands-on walkthrough of the complete demo |
