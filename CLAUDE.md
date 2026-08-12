@@ -15,7 +15,7 @@ Lifecycle tasks have project skills in `.agents/skills/` (auto-discovered via
 
 For presenter-facing material, see [docs/SA_FIELD_GUIDE.md](docs/SA_FIELD_GUIDE.md)
 (demo selection, talk track, objections) and [docs/USE_CASES.md](docs/USE_CASES.md)
-(10 use cases with 2-minute demo paths). [docs/README.md](docs/README.md) indexes all
+(11 use cases with 2-minute demo paths). [docs/README.md](docs/README.md) indexes all
 docs by persona.
 
 ## Architecture
