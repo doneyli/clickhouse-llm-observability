@@ -1,5 +1,5 @@
 # Real Estate Property Concierge demo
-langfuse>=3.0,<4.0
+langfuse>=4.7,<5.0
 anthropic>=0.40
 python-dotenv>=1.0
 # OpenAI — agent runs on GPT for the Claude-vs-GPT comparison

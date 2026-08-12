@@ -154,6 +154,10 @@ def run_turn(
                 # they are filterable (and explainable) during a demo.
                 tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
                 trace_name=TRACE_NAME,
+                # SDK v4: trace-level metadata rides on propagate_attributes (v3's
+                # update_current_trace(metadata=) is gone). Values are coerced to
+                # strings and capped at 200 chars, so keep this to short scalars.
+                metadata={"agent_model": model},
             )
         else:
             from contextlib import nullcontext
@@ -165,10 +169,14 @@ def run_turn(
                         metadata={"agent_model": model, "provider": provider_of(model),
                                   "prompt_label": prompt_label, "turn": turn_index + 1,
                                   **({"fault": fault} if fault else {})})
-            # This turn's question is the trace input.
+            # This turn's question is the trace input. The root observation already
+            # carries it (above), which is what v4's observations-first model reads;
+            # set_current_trace_io additionally populates the legacy trace-level
+            # field, which the self-hosted trace-level LLM-as-a-judge evaluators
+            # (seed_managed_evaluators.sh, target_object='trace') still read.
+            # Deprecated in v4 but required for those judges — see the migration spec.
             if not is_experiment:
-                lf.update_current_trace(input={"query": query},
-                                        metadata={"agent_model": model})
+                lf.set_current_trace_io(input={"query": query})
 
             # ---------------- 1) plan: extract structured constraints ----------
             # Include prior turns so references like "keep it under 400k" or
@@ -312,9 +320,10 @@ def run_turn(
             }
 
             root.update(output=final_text)
-            # This turn's answer is the trace output.
+            # This turn's answer is the trace output (see the input note above for
+            # why the deprecated trace-level setter is still used alongside the root).
             if not is_experiment:
-                lf.update_current_trace(output=final_text)
+                lf.set_current_trace_io(output=final_text)
 
             # ---------------- 5) observation-level CODE scores ----------------
             # Live mode: attach deterministic code scores to the synthesis
