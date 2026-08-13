@@ -680,6 +680,244 @@ Sample trace ids — baseline v3: `8ecf1f2db057`, `4a243454bbac`, `1b6102b18bb6`
   than pip-installing into it** when adopting these changes on the main checkout.
 - A migrated portal is **still running on :8081** from the worktree (see §12).
 
+## 11b. Phase 2 — first attempt was a FALSE ALARM (2026-08-12)
+
+> ⛔ **RETRACTED.** This section originally concluded that v4 traces are silently dropped by
+> self-hosted 3.221.1, and Phase 2 was aborted on that basis. **That conclusion was wrong.**
+> The cause was a **key/project mismatch in the operator's shell**, not an SDK
+> incompatibility. See §11c for the correction and the real Phase 2 result. The retracted
+> reasoning is kept below only because the misdiagnosis is instructive.
+
+### The (incorrect) finding as originally written
+
+**Langfuse Python SDK v4 traces are silently dropped by self-hosted Langfuse server
+3.221.1.** The OTLP POST is accepted with **HTTP 200**, `auth_check()` returns `True`, and
+the trace never appears — not after 5 minutes, not after 20.
+
+Controlled comparison — same server, same Docker network, same credentials, same endpoint
+(`POST /api/public/otel/v1/traces`), differing only in SDK version:
+
+| SDK | OTLP HTTP response | Trace queryable |
+|---|---|---|
+| `langfuse` **3.15.0** | 200 | ✅ **immediately** |
+| `langfuse` **4.14.4** | 200 | ❌ **404 after 20 min** |
+
+Evidence gathered:
+- 3 independent minimal probes on v4 (`c21d4a01d009`, `b09e74908fab`, `4edc914e7532`) — all 404.
+- A full `text-to-sql` run under v4.14.4: exited 0, no SDK errors, **zero traces** (polled 5 min).
+- v3 control probe (`e694b51fd3a9`) on the pre-rebuild image: **landed instantly**.
+- `langfuse-web` logs no ingestion error; `langfuse-worker` logs nothing about OTel ingestion.
+  The worker is healthy (no Redis stall, code evals executing normally).
+
+Ruled out:
+- **Not** auth, host, or networking — `auth_check()` True, prompt fetches return 404-with-body
+  (i.e. authenticated round-trips), OTLP POST returns 200.
+- **Not** a span-attribute schema change — v3 and v4 emit the *same* attribute names
+  (`langfuse.observation.input`, `langfuse.observation.type`).
+- **Not** the `x-langfuse-sdk-version` header gate — spoofing it to `3.15.0` via
+  `Langfuse(additional_headers=...)` did **not** make the trace land (`4edc914e7532`).
+- **Not** ingestion latency — 20-minute poll, well past the documented 10-minute worst case.
+- **Not** the worker Redis stall — zero socket-timeout errors in 12h.
+
+Root cause is therefore **inside the 3.221.1 server's handling of v4-SDK OTLP payloads** and
+was not isolated further; doing so means debugging Langfuse server internals, which is a far
+larger scope than a pin bump.
+
+### This corrects §5.3 — the "existing proof" was not proof
+
+§5.3 argued that `brand-promo-multi-agent` (Python `langfuse>=4.0,<5.0`) and LibreChat
+(`@langfuse/* 5.7.0`) already run newer SDKs against 3.221.1, so the combination must work.
+**That inference was unsound**: nobody had verified those components actually *produce
+traces* on self-hosted. Given this finding, the likelihood is that **brand-promo has never
+successfully traced against the self-hosted stack** with its template default of
+`http://localhost:3001` — it would fail exactly this silently (HTTP 200, no trace, no error).
+Worth confirming separately; if true it is a live bug, not a migration artifact.
+
+LibreChat's JS v5 path is untested here and should not be assumed either way — though note
+LibreChat traces *are* known to work in this stack, so the JS ingestion path may differ from
+the Python one.
+
+### What was reverted
+
+All five Phase 2 pin edits reverted in the working tree (never committed):
+`demos/text-to-sql`, `demos/vector-rag`, `demos/agentic-rag`, `test-scenarios` back to
+`langfuse>=3.0.0,<4.0.0`; `brand-promo-multi-agent` back to `>=4.0,<5.0`.
+
+`text-to-sql` and `test-scenarios` images were **rebuilt back to v3** to restore tracing —
+they had been left on 4.14.4 and were silently not tracing. `vector-rag` and `agentic-rag`
+never successfully rebuilt (a PyPI `ReadTimeoutError` failed that build), so their images
+were never on v4.
+
+**Phase 1 (real-estate → Cloud) is unaffected and stays committed** — Cloud runs v4, where
+v4 SDK is the GA pairing, and it was verified end-to-end.
+
+### Revised options for the self-hosted demos
+
+1. **Do nothing — leave them on SDK v3 (recommended for now).** v3 works against 3.221.1
+   today. The repo then intentionally runs v4 for Cloud-facing code and v3 for
+   self-hosted-facing code. This contradicts the original "one SDK story" goal, but it is the
+   only option currently backed by evidence.
+2. **Upgrade the self-hosted server to v4**, then bump the pins. This was explicitly ruled
+   out (§5.4) because it breaks the Postgres-INSERT evaluator seeding and the ClickHouse
+   project dictionary. It now looks like the *only* path to a single SDK version.
+3. **Investigate the 3.221.1 ingestion path** (or raise it with Langfuse) to find whether a
+   server flag enables it — `LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR` is documented as
+   governing v4 OTel ingestion behavior on self-hosted and was **not** tested here. This is
+   the cheapest next experiment if a single SDK version is still the goal.
+
+### Also found while baselining (pre-existing, NOT migration-related)
+
+Both surfaced on **unmodified v3 images** before any pin was touched:
+
+- **`vector-rag` emits zero traces on a container run.** Runs all 10 queries, prints
+  "Langfuse instrumentation enabled", authenticates (prompt fetch returns a real 404 body),
+  exits 0 — and lands nothing. Two runs, no traces.
+- **`text-to-sql` landed 1 trace for a 10-query run** (obs=10 containing *pairs* of LangChain
+  spans, i.e. ~2 queries' worth).
+- Likely contributor: `flush()` in both demos calls **`client.shutdown()`**
+  (`demos/vector-rag/langfuse_config.py:214-215`, `demos/text-to-sql/langfuse_config.py:226-227`),
+  which tears the client down rather than flushing. `demos/agentic-rag/langfuse_config.py:147-152`
+  explicitly warns against this ("Use flush() (non-destructive), NOT shutdown()"), so the
+  correct pattern already exists in-repo. **Not verified as the cause** — needs its own fix
+  and test.
+- `job_configurations` holds **6** `code-eval*` + **4** `obs-eval*` rows, all ACTIVE.
+  `CLAUDE.md` and the troubleshoot skill both say "5 code-eval" — minor doc drift.
+
+---
+
+## 11c. CORRECTION — the §11b abort was a false alarm
+
+### What actually happened
+
+The operator's shell had `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` exported for a
+**different project** than the one being queried:
+
+| Key source | Resolves to project |
+|---|---|
+| root `.env` (`pk-lf-1234567890`) | `demo-project` — "LLM Observability Demo" |
+| **shell export** (`pk-lf-612d504c…`) | **`claude-code`** — "ai-coding-assistants" |
+
+`docker compose run` picks up the shell-exported values, so every containerised probe wrote
+into **`claude-code`**. Verification queries used the `.env` key, which can only see
+`demo-project` → **HTTP 404**. The v3 "control" probes were run via `docker run` with keys
+grepped explicitly from `.env`, so they landed in the project being watched and appeared to
+work. **The comparison was project-vs-project, never SDK-vs-SDK.**
+
+Re-queried with the shell key, every supposedly-dropped trace is present:
+
+| Trace | Name | Result |
+|---|---|---|
+| `c21d4a01d009` | `v4-probe2` | ✅ 200, 1 observation |
+| `b09e74908fab` | `v4-probe3` | ✅ 200, 1 observation |
+| `4edc914e7532` | `v4-spoofed-as-v3` | ✅ 200, 1 observation |
+| `74ee0b8c373a` | `post-revert-healthcheck` | ✅ 200, 1 observation |
+
+**Conclusion: Python SDK v4 ingests correctly against self-hosted Langfuse 3.221.1.** §5's
+compatibility claim stands, and §5.3's reasoning about brand-promo/LibreChat — while still
+an unverified inference — is no longer contradicted.
+
+### The two "pre-existing bugs" in §11b are also retracted
+
+- **`vector-rag` emits zero traces** — retracted. It ran under `docker compose run`, so its
+  traces went to `claude-code`. Not a bug.
+- **`text-to-sql` landed only 1 trace for 10 queries** — retracted for the same reason; the
+  22:10 baseline trace that *did* appear in `demo-project` was the anomaly, not the rule.
+- The `flush()` → `client.shutdown()` observation
+  (`demos/vector-rag/langfuse_config.py:214-215`, `demos/text-to-sql/langfuse_config.py:226-227`)
+  is still **real and still worth fixing** — `demos/agentic-rag/langfuse_config.py:147-152`
+  explicitly warns against it — but it is not proven to drop traces and was not the cause here.
+- The `job_configurations` count (6 code-eval, not 5) is unaffected and still a doc drift.
+
+### Process lesson — this is the repo's #1 documented footgun
+
+`AGENTS.md` and the troubleshoot skill both call out shell-exported `LANGFUSE_*` keys as the
+top failure mode, and `demos/real-estate/agent/config.py:1-14` exists specifically to defend
+against it. It still produced ~40 minutes of confident misdiagnosis.
+
+**Mandatory for any future verification in this repo:**
+
+```bash
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+```
+
+…before running demos *or* queries, and **always confirm which project a key resolves to
+before trusting a 404**:
+
+```bash
+curl -s -u "$PK:$SK" http://localhost:3001/api/public/projects
+```
+
+A 404 on `GET /api/public/traces/{id}` means "not in *this* project", never "does not exist".
+That is the self-hosted twin of the Cloud trap in §2.1 (200 on an empty trace): **in both
+cases the HTTP status alone is not evidence.**
+
+## 11d. Phase 2 execution results — DONE, verified (2026-08-13)
+
+Re-run after the §11c correction, with `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
+LANGFUSE_HOST LANGFUSE_BASE_URL` on **every** command so demo runs and verification queries
+both resolve to `demo-project`.
+
+### Changes
+
+| File | Change |
+|---|---|
+| `demos/text-to-sql/requirements.txt:7` | `>=3.0.0,<4.0.0` → `>=4.7,<5.0` |
+| `demos/vector-rag/requirements.txt:16` | same |
+| `demos/agentic-rag/requirements.txt:20` | same |
+| `test-scenarios/requirements.txt:2` | same |
+| `demos/brand-promo-multi-agent/pyproject.toml:12` | `>=4.0,<5.0` → `>=4.7,<5.0` (floor alignment) |
+
+**Zero code changes** — all four were already v4-clean. All four images rebuilt
+(`BUILD3_EXIT=0`, no errors); every one reports `langfuse 4.14.4`.
+
+### Verification — v4 SDK against self-hosted Langfuse **3.221.1**
+
+**text-to-sql (V4/V5, the controlled comparison)** — clean v3 baseline vs v4, same project:
+
+| | v3.15.0 baseline | v4.14.4 |
+|---|---|---|
+| LLM trace obs | 4 | **4** ✅ |
+| observation names | `ChatAnthropic`, `ChatPromptTemplate`, `RunnableSequence`, `StrOutputParser` | **identical** ✅ |
+| types | `CHAIN`, `GENERATION` | **identical** ✅ |
+| scores per LLM trace | 7–8 | **7–8** ✅ |
+| trace input/output | True | **True** ✅ |
+| `retrieve-context` span trace | present | **present** ✅ |
+
+**No span thinning.** v4's smart span filtering does not drop LangChain-generated spans,
+confirming §3.3 item 5 empirically rather than by allow-list inspection.
+
+**vector-rag** — 10 queries, exit 0, no SDK errors. Traces: `obs=4`, all four LangChain
+names, 5 scores (`credential-leak`, `leak-type`, `output-present`, `response-length`,
+`structure-clean`), trace I/O set. ✅
+
+**agentic-rag** — the richest case, and it exercises the most v4-sensitive surface:
+- imports clean under v4 (`langfuse_config`, LangGraph `graph`)
+- traces carry `obs=10–27` across **all five observation types**: `AGENT`, `CHAIN`,
+  `EVALUATOR`, `GENERATION`, `RETRIEVER`
+- LangGraph node/edge spans intact: `route`, `retrieve`, `grade`, `generate`, `reflect`,
+  `rewrite`, `_route_edge`, `_grade_edge`, `_reflect_edge`, `LangGraph`
+- in-graph self-grades present: `retrieval_relevance`, `groundedness`
+- **managed observation-level judges fired**: `faithfulness`, `context-relevance`,
+  `answer-relevance` — the highest-risk item, since those evaluators filter on
+  `isRootObservation` and observation type/name
+- trace I/O set ✅
+
+**test-scenarios** — exit 0, **95 traces** landed: all 40 scenario traces plus evaluator
+executions (40 × `credential-leak-guard` code evaluator, 15 × `Correctness` LLM judge). ✅
+
+**V8 — evaluators** — `job_configurations` unchanged at **6** `code-eval*` + **4**
+`obs-eval*`, all `ACTIVE`, and demonstrably firing under v4 (scores present on every demo's
+traces above). Server-side provisioning is untouched by the SDK bump, as predicted in §5.4.
+
+### Net conclusion
+
+**A single Langfuse Python SDK v4 (`>=4.7,<5.0`) now serves both backends** — Langfuse Cloud
+(v4 server) and the self-hosted stack on **3.221.1** — with the server left entirely alone.
+§5's central claim holds, verified end-to-end on both sides.
+
+The one v4-server-only dependency in the repo remains `scripts/import-external-traces.py:150`
+(the silent `api.observations` v1→v2 flip), which is **Phase 3**.
+
 ## 12. Execution checklist
 
 Ordered, for whoever runs this:
@@ -690,7 +928,9 @@ Ordered, for whoever runs this:
 - [ ] Inspect Project Settings → Integrations in both projects → unblocks row 6
 - [x] **Phase 1** (atomic): real-estate pin `>=4.7,<5.0` + `concierge.py` B1/B2 + `config.py`
       `base_url=` hardening (§7.4) + mirror comment; V1, V2, V3, V5, V7, V9 all ✅ (§11a)
-- [ ] **Phase 2**: 4 pin bumps + brand-promo floor alignment + `docker compose build`; run V4, V5, V8
+- [x] **Phase 2**: 4 pin bumps + brand-promo floor alignment + `docker compose build`;
+      V4, V5, V8 all ✅ across text-to-sql / vector-rag / agentic-rag / test-scenarios (§11d).
+      First attempt was aborted on a misdiagnosis — see §11b (retracted) and §11c.
 - [ ] **Phase 3**: B3 (`api.legacy.observations_v1`) + 8 inline pin strings; run V6
 - [ ] **Phase 4**: docs sweep (§7.5) incl. the `.env.example` inversion
 - [ ] Restate the seven-row readiness report post-execution
