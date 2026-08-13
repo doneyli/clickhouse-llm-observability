@@ -918,6 +918,43 @@ traces above). Server-side provisioning is untouched by the SDK bump, as predict
 The one v4-server-only dependency in the repo remains `scripts/import-external-traces.py:150`
 (the silent `api.observations` v1→v2 flip), which is **Phase 3**.
 
+## 11e. Phase 3 execution results — DONE, verified (2026-08-13)
+
+### Changes
+
+| File | Change |
+|---|---|
+| `scripts/import-external-traces.py` `fetch_observations` | `api.observations.get_many(page=)` → **`api.legacy.observations_v1.get_many(page=)`**, with a comment explaining why v2 is wrong here |
+| `scripts/import-external-traces.py` `create_source_client` | `host=` → **`base_url=`**, plus `tracing_enabled=False` |
+| 8 inline pin strings | `langfuse>=3.0,<4.0` → `>=4.7,<5.0` in `import-external-traces.py:31,45`, `run-experiments.py:25,38`, `seed-datasets.py:25,37`, `seed-demo-data.sh:182` |
+
+The extra `base_url=` fix was **not** in the original plan but is a genuine v4 correctness bug:
+this script deliberately talks to **two** instances (`SOURCE_*` vs `TARGET_*`), and under v4 an
+inherited `LANGFUSE_BASE_URL` outranks `host=` — which would silently repoint the *source* at
+the wrong instance and import the wrong data. `tracing_enabled=False` was added because the
+source client is read-only and should not spin up a span exporter.
+
+### V6 verification (against self-hosted 3.221.1 as source, `--dry-run`)
+
+- `create_source_client()` resolves `base_url` to `http://localhost:3001` ✅ (immune to env)
+- `fetch_traces(..., limit=150)` → **150 traces**, i.e. **page 2 was traversed** — `page=`
+  pagination and `meta.total_pages` both still work on the legacy v1 path ✅
+- `fetch_observations(...)` → **10 observations, 10 of them carrying `input`/`output`** ✅ —
+  the payload the importer exists to copy is intact. Types `AGENT`, `CHAIN`, `GENERATION`.
+- Full `--dry-run --verbose --limit 150` run: **exit 0**, events transformed correctly.
+
+### Counterfactual — the bug was real
+
+The pre-fix call, executed against v4.14.3:
+
+```
+c.api.observations.get_many(trace_id=..., limit=100, page=1)
+→ TypeError: ObservationsClient.get_many() got an unexpected keyword argument 'page'
+```
+
+Confirming §4.2's B3: the line's *text* never changes between v3 and v4, only its meaning —
+so a grep-for-renames migration pass misses it entirely and the script breaks at runtime.
+
 ## 12. Execution checklist
 
 Ordered, for whoever runs this:
@@ -931,7 +968,7 @@ Ordered, for whoever runs this:
 - [x] **Phase 2**: 4 pin bumps + brand-promo floor alignment + `docker compose build`;
       V4, V5, V8 all ✅ across text-to-sql / vector-rag / agentic-rag / test-scenarios (§11d).
       First attempt was aborted on a misdiagnosis — see §11b (retracted) and §11c.
-- [ ] **Phase 3**: B3 (`api.legacy.observations_v1`) + 8 inline pin strings; run V6
+- [x] **Phase 3**: B3 (`api.legacy.observations_v1`) + `base_url=` fix + 8 inline pin strings; V6 ✅ (§11e)
 - [ ] **Phase 4**: docs sweep (§7.5) incl. the `.env.example` inversion
 - [ ] Restate the seven-row readiness report post-execution
 

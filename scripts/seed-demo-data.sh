@@ -179,7 +179,7 @@ if [[ "$*" == *"--datasets"* ]]; then
         fi
     else
         echo -e "${YELLOW}⚠${NC} Skipping datasets: python3 or langfuse package not available"
-        echo "  Install with: pip install 'langfuse>=3.0,<4.0'"
+        echo "  Install with: pip install 'langfuse>=4.7,<5.0'"
         echo "  Then run: python scripts/seed-datasets.py"
     fi
     echo ""
