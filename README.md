@@ -376,7 +376,7 @@ docker compose --profile tools run --rm test-scenarios  # → traces tagged "tes
 **Seed evaluation datasets** for coding assistant quality and security testing:
 
 ```bash
-# Create datasets (requires pip install 'langfuse>=3.0,<4.0')
+# Create datasets (requires pip install 'langfuse>=4.7,<5.0')
 python scripts/seed-datasets.py
 
 # Or include datasets in the full seed flow

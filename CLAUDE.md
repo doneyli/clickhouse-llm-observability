@@ -80,7 +80,8 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 
 ## Code Conventions
 
-- **Langfuse SDK**: v3 patterns — `langfuse.trace()`, `trace.span()`, `trace.generation()`. See `demos/text-to-sql/langfuse_config.py` for setup.
+- **Langfuse SDK**: **v4** (`langfuse>=4.7,<5.0`) — `start_as_current_observation(as_type=...)`, `propagate_attributes(...)`, `set_current_trace_io(...)`, `dataset.run_experiment(...)`. See `demos/text-to-sql/langfuse_config.py` for setup and [docs/LANGFUSE_V4_MIGRATION_SPEC.md](docs/LANGFUSE_V4_MIGRATION_SPEC.md) for the migration record. The self-hosted server stays on **v3** (`langfuse/langfuse:3.221.1`); the v4 SDK supports it (minimum server 3.63.0). One v4-server-only exception: `api.observations`/`api.metrics` are v2 endpoints, so self-hosted code must use `api.legacy.observations_v1` / `api.legacy.metrics_v1`.
+- **Langfuse keys**: never rely on shell-exported `LANGFUSE_*`. `docker-compose.yaml` resolves `${LANGFUSE_PUBLIC_KEY:-}`, and **shell exports outrank `.env`** — a key for another project silently sends traces there while your queries read a different one, producing false 404s. Before running or verifying demos: `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL`, and confirm which project a key maps to (`GET /api/public/projects`) before trusting a 404.
 - **Docker profiles**: `langfuse` (Langfuse stack), `demo` (app demos + LiteLLM gateway), `tools` (test-scenarios), `dashboard` (LLM Observatory)
 - **Environment**: `.env` file sourced by setup.sh. Never commit `.env`. Template is `.env.example`.
 - **LANGFUSE_INTERNAL_URL**: Docker-internal Langfuse URL. Unset in self-hosted (falls back to `http://langfuse-web:3000`), set to cloud URL in cloud mode.

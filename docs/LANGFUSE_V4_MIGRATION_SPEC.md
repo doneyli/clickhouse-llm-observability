@@ -1,10 +1,19 @@
 # Langfuse v4 Migration Spec
 
-> **Status:** DRAFT — for review. Nothing has been executed.
-> **Scope:** migrate this repo's Langfuse Python SDK usage to v4, starting with the
-> Cloud-facing paths, while the self-hosted stack stays on Langfuse server v3.
+> **Status:** ✅ **EXECUTED** — Phases 1–4 complete and verified (2026-08-13).
+> **Scope:** migrated this repo's Langfuse Python SDK usage to v4 while the self-hosted
+> stack stays on Langfuse server **3.221.1**. One SDK (`langfuse>=4.7,<5.0`) now serves both
+> Langfuse Cloud and self-hosted.
 > **Author:** drafted 2026-08-05 from a three-part repo audit + empirical verification
-> against `langfuse` 3.15.0 and 4.14.2 installed side by side.
+> against `langfuse` 3.15.0 and 4.14.x installed side by side.
+>
+> **Read the corrections.** Two conclusions in this document were wrong and are retracted
+> in place rather than deleted, because both misdiagnoses are instructive:
+> - **§2.1** — the trace-delay/latency rationale was overstated; measured baseline is 1–3s.
+> - **§11b → §11c** — an "SDK v4 is incompatible with self-hosted 3.221.1" finding that was
+>   really a shell-key/project mismatch producing false 404s.
+>
+> Execution records: §11a (Phase 1), §11d (Phase 2), §11e (Phase 3), §11f (Phase 4).
 
 ---
 
@@ -955,22 +964,91 @@ c.api.observations.get_many(trace_id=..., limit=100, page=1)
 Confirming §4.2's B3: the line's *text* never changes between v3 and v4, only its meaning —
 so a grep-for-renames migration pass misses it entirely and the script breaks at runtime.
 
+## 11f. Phase 4 execution results — DONE (2026-08-13)
+
+Documentation sweep. Every stale "v3" assertion corrected, plus two findings that the sweep
+itself turned up.
+
+| File | Change |
+|---|---|
+| `CLAUDE.md:83` | "v3 patterns — `langfuse.trace()`/`trace.span()`/`trace.generation()`" (actually the **v2** API, matching no code in the repo) → v4 API surface, server-version note, and the `api.legacy.*` caveat |
+| `CLAUDE.md` | **new** bullet on the shell-exported-keys footgun and the `unset` prophylactic (§11c) |
+| `docs/LANGFUSE_INTEGRATION.md:288-306` | "SDK v3 Compatibility" → "SDK v4 Compatibility"; added `base_url=` vs `host=` precedence and the v2-endpoints caveat |
+| `docs/LANGFUSE_SKILLS.md:45` | "(v3 API)" → "(v4 API)" |
+| `README.md:379`, `docs/CODE_EVALUATORS.md:72` | pin hints → `langfuse>=4.7,<5.0` |
+| `demos/{text-to-sql,vector-rag}/langfuse_config.py` | module + function docstrings "(v3 API)" → "(v4 SDK)" |
+| `demos/agentic-rag/langfuse_config.py:2` | "(v3 SDK)" → "(v4 SDK)" |
+| `demos/real-estate/scripts/prompt_gate.py:23-28` | no longer claims the demo can't use `langfuse/experiment-action`; states it is unblocked and why the hand-rolled gate is still kept |
+| `demos/real-estate/cicd/README.md:137-144` | same correction |
+| `demos/real-estate/.env.example:8-15` | **fixed the template/reality inversion** — shipped `http://localhost:3001` while the working config is Cloud. Now defaults to Cloud (which the CI gate requires) with self-hosted documented as the swap |
+
+### Finding: the "5 code evaluators" doc drift is really an orphaned evaluator
+
+Chasing the count mismatch found in V8 (docs say 5, DB has 6) turned up something worse than
+a typo: **`code-eval-job-chain-gate-check` is an orphan.** It is `ACTIVE`, its `eval_templates`
+row carries **2610 chars of `source_code`**, and it is demonstrably executing (`Execute
+evaluator: chain-gate-check` traces appear alongside the legitimate five) — but:
+
+- there is **no `evaluators/chain-gate-check.ts`** (only 5 `.ts` files exist)
+- `grep -rn "chain-gate-check"` across the repo returns **zero** matches
+- `git log --diff-filter=D -- 'evaluators/*.ts'` shows **no deleted evaluator file**
+
+Root cause: the seeders `INSERT ... ON CONFLICT (id) DO UPDATE` and **never delete**. An
+evaluator renamed or removed from `evaluators/` leaves a live ACTIVE row that keeps scoring
+from DB-resident source that no longer exists in version control. For a customer-facing demo
+that is a real integrity problem: a score is being produced by code nobody can read or change.
+
+Docs updated to describe reality rather than paper over it — `AGENTS.md:104-107` and
+`.agents/skills/troubleshoot/SKILL.md:66` now say **">= 5"**, explain why the count can
+legitimately exceed the file count, and give the orphan-detection cross-check. **Fixing the
+orphan itself is deliberately out of scope** and queued as its own task, since it is a
+data/provisioning decision (restore the source vs delete the row) plus a possible
+self-healing change to the seeder.
+
+## 11g. Post-execution readiness report
+
+Restates §11's seven rows after Phases 1–4. Supersedes the pre-execution assessment.
+
+| Row | Status | Evidence |
+|---|---|---|
+| **Project access** | `ready` | Read+write verified on both backends. Cloud US (`real-estate`, project `cmrtgeanp0303ad0d6bjhud35`) and self-hosted `demo-project` via API + `docker exec langfuse-postgres`. **Caveat now understood:** a shell-exported key resolves to a *third* project (`claude-code`); §11c. |
+| **SDK / instrumentation** | `changed` | All 3 breakages fixed, 14 pin sites moved to `>=4.7,<5.0` (6 declared + 8 inline). Verified on **both** backends: Cloud (§11a) and self-hosted 3.221.1 (§11d). Trace shape, metadata, scores and session grouping all unchanged; no span thinning. |
+| **Trace evaluators** | `manual action` | **Now inventoried** (self-hosted `demo-project`): **4 ACTIVE** legacy trace/dataset-scoped rows — `Conciseness` (trace), `Conciseness` (dataset), `re-managed-helpfulness` (trace), `re-managed-relevance` (trace) — plus **6 INACTIVE** legacy rows already deactivated by `seed-llm-judge-evaluators.sh`. The two `re-managed-*` rows are `target_object='trace'` and **read trace-level I/O**, which is the concrete justification for keeping the deprecated `set_current_trace_io()` (§5.5, §7.1). They keep working; migrating them to observation-level is a **separate decision**, not a migration blocker. Cloud-side legacy rows not enumerated (no DB access; the unstable evaluation-rules API would be needed). |
+| **Dataset evaluators** | `ready` | `experiment`-scoped rows: **6 ACTIVE**. `dataset.run_experiment(...)` exercised end-to-end under v4 by the CI gate over 19 dataset items with code evaluators *and* LLM judges, correctly failing a bad prompt (§11a V7). One legacy `dataset`-scoped `Conciseness` row remains ACTIVE (listed above). |
+| **Direct APIs** | `changed` | The one real break (silent `api.observations` v1→v2) fixed and verified, including the counterfactual `TypeError` (§11e). Repo is otherwise v1 paths + v2 prompts, all valid on both servers. Deprecated-endpoint readers (`meta.totalItems`/`totalPages`, hand-built `/api/public/ingestion` envelopes, private `/api/admin/projects`) are **unchanged and still working** — they become relevant only on a server upgrade. |
+| **Exports** | `ready` (self-hosted) / `blocked` (Cloud) | Self-hosted **verified empty**: `blob_storage_integrations`, `mixpanel_integrations`, `posthog_integrations`, `slack_integrations` all have **0 rows**, and the worker logs "No … integrations ready for sync" on every cycle. So there is nothing to dual-source and no downstream consumer to coordinate. Cloud integrations remain **unverified** — Project Settings → Integrations has no public API; needs a UI check. |
+| **Verification / rollback** | `ready` | 9 checks executed across the four phases (V1–V9), all passing, each recorded with the trace ids and counts it was judged on. Rollback needs no data or server migration; `git revert` + rebuild. Pre-migration `pip freeze` (47 pkgs, `langfuse==3.15.0`) captured. |
+
+### Honest gaps
+
+1. **Cloud export integrations** — the only genuinely unverified row. Requires a human UI check.
+2. **Cloud legacy evaluator rows** — self-hosted was enumerated from Postgres; Cloud was not.
+3. **V7's literal exit code** — semantics verified, integer not captured (§11a caveat).
+4. **`demos/real-estate/.venv` in the main checkout is still on `langfuse 3.15.0`.** Phase 1 was
+   verified from a *worktree* venv. Before running that demo from the main checkout, **recreate**
+   the venv (do not pip-install into it — its console scripts carry a stale pre-`demos/`-reorg
+   shebang, so `./.venv/bin/pip` fails with "bad interpreter"; only `python -m pip` works).
+5. **`demos/brand-promo-multi-agent`** got a pin-floor bump but was **not run** — it has no
+   `.env` and its own `uv` environment. Out of the verified set.
+6. **`demos/langfuse-rls`** (JS `langfuse@^3.36.0`) and **LibreChat** (bundled `@langfuse/* 5.7.0`)
+   are untouched — separate version track, explicitly out of scope (§6).
+
 ## 12. Execution checklist
 
 Ordered, for whoever runs this:
 
 - [x] Capture real-estate baseline (7 observations, names, 4–5 scores, trace I/O, 1–3s latency)
 - [x] `pip freeze` snapshot for rollback — 47 pkgs, `langfuse==3.15.0`
-- [ ] Inventory Legacy evaluator rows in both projects' Evaluators UI → unblocks rows 3–4
-- [ ] Inspect Project Settings → Integrations in both projects → unblocks row 6
+- [x] Inventory Legacy evaluator rows — self-hosted enumerated (4 ACTIVE, 6 INACTIVE); Cloud not enumerated (§11g)
+- [x] Export integrations — self-hosted verified empty (0 rows in all 4 tables); Cloud still needs a UI check (§11g)
 - [x] **Phase 1** (atomic): real-estate pin `>=4.7,<5.0` + `concierge.py` B1/B2 + `config.py`
       `base_url=` hardening (§7.4) + mirror comment; V1, V2, V3, V5, V7, V9 all ✅ (§11a)
 - [x] **Phase 2**: 4 pin bumps + brand-promo floor alignment + `docker compose build`;
       V4, V5, V8 all ✅ across text-to-sql / vector-rag / agentic-rag / test-scenarios (§11d).
       First attempt was aborted on a misdiagnosis — see §11b (retracted) and §11c.
 - [x] **Phase 3**: B3 (`api.legacy.observations_v1`) + `base_url=` fix + 8 inline pin strings; V6 ✅ (§11e)
-- [ ] **Phase 4**: docs sweep (§7.5) incl. the `.env.example` inversion
-- [ ] Restate the seven-row readiness report post-execution
+- [x] **Phase 4**: docs sweep (§7.5) incl. the `.env.example` inversion — §11f
+- [x] Restate the seven-row readiness report post-execution — §11g
 
 ### Open loose ends from Phase 1
 
