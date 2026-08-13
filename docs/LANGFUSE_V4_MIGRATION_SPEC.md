@@ -1069,3 +1069,37 @@ diff — they are broken today on v3 and v4 does not change them:
 
 - `client.score(...)` → `create_score(...)` in text-to-sql + vector-rag (5 sites)
 - `usage=` → `usage_details=` in `test-scenarios/export_test_scenarios.py:1178`
+
+---
+
+## 13. Follow-up correction — `set_current_trace_io()` was unnecessary (2026-08-13)
+
+Phase 1 (§11a, §7.1) kept the **deprecated-on-arrival** `set_current_trace_io()` calls,
+justified as "required, because the self-hosted `target_object='trace'` judges read
+trace-level I/O". **That justification was wrong, and both calls are now removed.**
+
+Evidence that should have been noticed during Phase 2: `demos/text-to-sql` has **no
+trace-level I/O call of any kind**, yet its traces show `input`/`output` populated in both the
+v3 baseline and the v4 run (§11d). Under v4's observations-first model Langfuse **derives
+trace input/output from the root observation**, so `root.update(input=…, output=…)` is
+sufficient on its own.
+
+Tested directly rather than inferred — one live Cloud turn with both setters deleted:
+
+| | with setters (§11a) | **without setters** |
+|---|---|---|
+| observations | 7 | **7** ✅ |
+| observation names | 7 expected | **identical** ✅ |
+| trace `input` | populated | **populated** (`{'query': 'Find me a 2 bedroom…'}`) ✅ |
+| trace `output` | populated | **populated** (full answer) ✅ |
+| scores | 5–7 | **7** ✅ |
+| trace metadata | `agent_model`, `provider`, `prompt_label`, `turn` | **identical** ✅ |
+
+Net effect: the same observable trace with one less deprecated API call, so there is no
+future removal to absorb. The tech-debt item recorded in §10.3 is retired.
+
+**Residual caveat (untested):** the self-hosted project still has 4 ACTIVE trace-scoped
+judges — `re-managed-helpfulness`, `re-managed-relevance`, and two `Conciseness` rows (§11g).
+Because trace I/O is derived from the root observation either way, they should read exactly
+the same values; this was **not** exercised, since `demos/real-estate` currently points at
+Cloud. If that demo is ever repointed at self-hosted, confirm those judges still score.

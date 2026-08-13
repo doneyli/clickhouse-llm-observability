@@ -165,18 +165,17 @@ def run_turn(
 
         with ctx:
             trace_id = lf.get_current_trace_id()
+            # This turn's question is the trace input, and the answer is the trace
+            # output (set on the root below). Under SDK v4's observations-first model
+            # Langfuse DERIVES trace-level input/output from the root observation, so
+            # setting them here is all that is needed — no `set_current_trace_io()`
+            # call (deprecated on arrival in v4) is required. Verified on a live turn
+            # with the trace-level setters removed: the Traces table still shows the
+            # query and the answer.
             root.update(input={"query": query},
                         metadata={"agent_model": model, "provider": provider_of(model),
                                   "prompt_label": prompt_label, "turn": turn_index + 1,
                                   **({"fault": fault} if fault else {})})
-            # This turn's question is the trace input. The root observation already
-            # carries it (above), which is what v4's observations-first model reads;
-            # set_current_trace_io additionally populates the legacy trace-level
-            # field, which the self-hosted trace-level LLM-as-a-judge evaluators
-            # (seed_managed_evaluators.sh, target_object='trace') still read.
-            # Deprecated in v4 but required for those judges — see the migration spec.
-            if not is_experiment:
-                lf.set_current_trace_io(input={"query": query})
 
             # ---------------- 1) plan: extract structured constraints ----------
             # Include prior turns so references like "keep it under 400k" or
@@ -319,11 +318,9 @@ def run_turn(
                 "fault": fault,
             }
 
+            # Trace output is derived from the root observation — see the input note
+            # above for why no trace-level setter is needed.
             root.update(output=final_text)
-            # This turn's answer is the trace output (see the input note above for
-            # why the deprecated trace-level setter is still used alongside the root).
-            if not is_experiment:
-                lf.set_current_trace_io(output=final_text)
 
             # ---------------- 5) observation-level CODE scores ----------------
             # Live mode: attach deterministic code scores to the synthesis
