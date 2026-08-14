@@ -19,8 +19,10 @@ import sys
 import base64
 import urllib.request
 import urllib.error
+import urllib.parse
 import json
 from pathlib import Path
+from typing import Optional
 
 import threading
 
@@ -235,6 +237,137 @@ def langfuse_api(method: str, path: str, body=None, timeout: int = 20):
             return resp.status, json.loads(resp.read() or "{}")
     except urllib.error.HTTPError as e:
         return e.code, {"error": e.read(300).decode(errors="replace")}
+
+
+def _version_hint(path: str, status: int) -> str:
+    """Explain a 404 on a v2 read endpoint as the server-version issue it usually is.
+
+    The **Observations API v2** is unsupported on self-hosted OSS v3, so pointing
+    this demo at the repo's local stack (LANGFUSE_HOST defaults to
+    http://localhost:3001, which runs a v3 server) makes these reads 404 with no
+    hint as to why. Scores API v3 is fine on v3 (≥ 3.63.0); it is specifically
+    `/v2/` that needs a v4 server or Langfuse Cloud.
+    """
+    if status != 404 or "/v2/" not in path:
+        return ""
+    try:
+        _, health = langfuse_api("GET", "/api/public/health", timeout=5)
+        version = health.get("version", "unknown")
+    except Exception:
+        version = "unreachable"
+    return (f"\n  HINT: {path} requires a Langfuse v4 server or Langfuse Cloud. "
+            f"{LANGFUSE_HOST} reports version {version}. "
+            f"This demo is designed against Langfuse Cloud — check LANGFUSE_HOST in "
+            f"demos/real-estate/.env.")
+
+
+def _paginate(path: str, params: dict, timeout: int = 20) -> list:
+    """Collect every page of a cursor-paginated v2/v3 list endpoint.
+
+    The v1 list endpoints were page-based; v2/v3 are cursor-based and signal the
+    final page by OMITTING `meta.cursor` (an empty `meta` is a complete result,
+    not an error). Callers get one flat list.
+    """
+    out: list = []
+    cursor = None
+    while True:
+        q = dict(params)
+        if cursor:
+            q["cursor"] = cursor
+        status, data = langfuse_api(
+            "GET", f"{path}?{urllib.parse.urlencode(q)}", timeout=timeout)
+        if status != 200:
+            raise RuntimeError(
+                f"GET {path} -> {status}: {data.get('error')}{_version_hint(path, status)}")
+        out.extend(data.get("data") or [])
+        cursor = (data.get("meta") or {}).get("cursor")
+        if not cursor:
+            return out
+
+
+def list_observations(trace_id: str, *, fields: str = "core,basic",
+                      limit: int = 100) -> list:
+    """Observations of a trace, via `GET /api/public/v2/observations`.
+
+    Replaces the deprecated `GET /api/public/traces/{id}` + `.observations`.
+    Note `input`/`output` are returned as RAW JSON STRINGS (the v2 endpoint
+    rejects `parseIoAsJson` outright), so parse them client-side — see
+    `observation_io`. Ask for the `io` field group to get them at all.
+    """
+    return _paginate("/api/public/v2/observations",
+                     {"traceId": trace_id, "limit": limit, "fields": fields})
+
+
+def root_observation(observations: list) -> Optional[dict]:
+    """The logical root of a trace, whose input/output ARE the trace's.
+
+    Match on the `isRootObservation` flag, never on `parentObservationId is
+    None`: the SDK can mark an observation as the app root while it still has a
+    non-null parent, and the observation-level evaluators key off the same flag.
+    Requires the `basic` field group.
+    """
+    return next((o for o in observations if o.get("isRootObservation")), None)
+
+
+def observation_io(observation: dict, key: str):
+    """Parse a v2 observation's `input`/`output` (raw string) into JSON if it is JSON."""
+    raw = (observation or {}).get(key)
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw  # plain text output (e.g. the concierge's answer) — not JSON
+
+
+def root_observations_by_tag(tag: str, *, limit: int = 50,
+                             fields: str = "core,basic") -> list:
+    """Root observations of traces carrying `tag`, newest first.
+
+    Replaces the deprecated `GET /api/public/traces?tags=...`. v2 is
+    observation-scoped, so constrain to `isRootObservation` to get exactly one
+    row per trace rather than one per observation. Deliberately a SINGLE page:
+    callers want the newest N, and following the cursor here would walk the
+    project's entire history.
+    """
+    filter_conditions = json.dumps([
+        {"type": "arrayOptions", "column": "traceTags",
+         "operator": "any of", "value": [tag]},
+        {"type": "boolean", "column": "isRootObservation",
+         "operator": "=", "value": True},
+    ])
+    path = "/api/public/v2/observations"
+    status, data = langfuse_api("GET", path + "?" +
+                               urllib.parse.urlencode({"filter": filter_conditions,
+                                                       "limit": limit,
+                                                       "fields": fields}))
+    if status != 200:
+        raise RuntimeError(f"v2/observations (tag={tag}) -> {status}: "
+                           f"{data.get('error')}{_version_hint(path, status)}")
+    return data.get("data") or []
+
+
+def list_scores(trace_id: str, *, fields: str = "subject", limit: int = 100) -> list:
+    """Scores of a trace, via `GET /api/public/v3/scores`.
+
+    Replaces the removed `GET /api/public/scores` and the deprecated
+    `GET /api/public/traces/{id}` + `.scores`. v3 moved the target of a score
+    into a `subject` object, so the flat `observationId` field is GONE — use
+    `score_observation_id()` rather than `score["observationId"]`, which now
+    silently reads as None on every score.
+    """
+    return _paginate("/api/public/v3/scores",
+                     {"traceId": trace_id, "limit": limit, "fields": fields})
+
+
+def score_observation_id(score: dict) -> Optional[str]:
+    """The observation a score is attached to, or None for a trace-level score.
+
+    v3 shape: `subject = {"kind": "observation"|"trace", "id": ..., "traceId": ...}`.
+    Requires the `subject` field group.
+    """
+    subject = score.get("subject") or {}
+    return subject.get("id") if subject.get("kind") == "observation" else None
 
 
 def verify_project(quiet: bool = False) -> str:

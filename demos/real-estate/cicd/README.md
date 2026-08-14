@@ -139,9 +139,11 @@ receiver code: <https://langfuse.com/docs/prompt-management/features/github-inte
 Langfuse ships [`langfuse/experiment-action`](https://github.com/langfuse/experiment-action),
 which wraps this pattern — you export an `experiment(context)` function and raise
 `RegressionError` instead of hand-rolling threshold checks. It requires the **v4**
-Python SDK; this demo is pinned to `langfuse>=3.0,<4.0`, so `prompt_gate.py`
-implements the gate directly against the pinned SDK. If the demo moves to v4, the
-threshold logic in `evaluate_gate()` is the part to lift across.
+Python SDK, which this demo now uses (`langfuse>=4.10,<5.0`), so the action is a
+supported option here. `prompt_gate.py` still implements the gate directly, on
+purpose: the threshold comparison and the non-zero exit that blocks the deploy are
+the parts worth *showing* in a demo, and the wrapper hides both. If you do adopt
+the action, `evaluate_gate()` is the part to lift across.
 
 [`langfuse-ci.yml.example`](langfuse-ci.yml.example) is kept as a minimal,
 repo-agnostic starting point to hand to a customer whose layout differs from
