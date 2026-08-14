@@ -155,11 +155,13 @@ def run_turn(
                 # they are filterable (and explainable) during a demo.
                 tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
                 trace_name=TRACE_NAME,
-                # SDK v4 replaced `update_current_trace` with this context manager,
-                # which stamps these attributes onto the current observation AND all
-                # of its children. That fan-out is the point: `agent_model` becomes
-                # filterable on every child observation, which is what the
+                # SDK v4 replaced `update_current_trace(metadata=)` with this context
+                # manager, which stamps these attributes onto the current observation
+                # AND all of its children. That fan-out is the point: `agent_model`
+                # becomes filterable on every child observation, which is what the
                 # observation-level evaluators match on.
+                # Values here are coerced to strings and capped at 200 chars, so keep
+                # this to short scalars (rich values belong on the observation below).
                 metadata={"agent_model": model},
             )
         else:
@@ -169,11 +171,14 @@ def run_turn(
         with ctx:
             trace_id = lf.get_current_trace_id()
             # v4 is observations-first: the ROOT observation's input/output IS the
-            # trace's input/output — the Traces table and annotation queues derive
-            # those columns from it. So this single call is all that is needed; the
-            # deprecated `set_current_trace_io()` escape hatch is deliberately NOT
-            # used here (it exists only for legacy *trace*-target LLM-as-a-judge
-            # rules, and this project has none — both rules target observations).
+            # trace's input/output — the Traces table and annotation queues DERIVE
+            # those columns from it, so this single call is all that is needed.
+            # Verified on a live turn with the trace-level setters removed: the
+            # Traces table still shows the query and the answer.
+            # The deprecated `set_current_trace_io()` escape hatch is therefore
+            # deliberately NOT used here. It exists only for legacy *trace*-target
+            # LLM-as-a-judge rules, and this project has none — both rules target
+            # observations.
             root.update(input={"query": query},
                         metadata={"agent_model": model, "provider": provider_of(model),
                                   "prompt_label": prompt_label, "turn": turn_index + 1,
@@ -320,8 +325,9 @@ def run_turn(
                 "fault": fault,
             }
 
-            # This turn's answer, on the root observation — which is what the
-            # trace's output column derives from (see the note on input above).
+            # This turn's answer, on the root observation — which is what the trace's
+            # output column derives from (see the note on input above for why no
+            # trace-level setter is needed).
             root.update(output=final_text)
 
             # ---------------- 5) observation-level CODE scores ----------------

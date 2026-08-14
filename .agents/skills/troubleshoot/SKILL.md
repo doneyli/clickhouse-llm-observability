@@ -63,7 +63,10 @@ Diagnose before acting. Most problems resolve with a targeted fix plus an idempo
    ```bash
    docker exec langfuse-postgres psql -U langfuse -d langfuse -t \
      -c "SELECT id, status FROM job_configurations WHERE id LIKE 'code-eval%' OR id LIKE 'obs-eval%'"
-   # expect 5 code-eval* + 4 obs-eval* rows, all ACTIVE
+   # expect >=5 code-eval* + 4 obs-eval* rows, all ACTIVE.
+   # Higher is not automatically wrong: seeding never deletes, so an evaluator
+   # removed from evaluators/ leaves an orphaned ACTIVE row scoring from stale
+   # source_code. Cross-check ids against `ls evaluators/*.ts`.
    ```
 
    Re-provision with `./scripts/seed-code-evaluators.sh` /

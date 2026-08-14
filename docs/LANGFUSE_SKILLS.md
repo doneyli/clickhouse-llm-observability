@@ -42,7 +42,7 @@ npx skills add langfuse/skills --skill "langfuse"
 
 With Langfuse skills installed, your coding agent can:
 
-- **Instrument code** with the correct Langfuse SDK patterns (v3 API)
+- **Instrument code** with the correct Langfuse SDK patterns (v4 API)
 - **Debug traces** by understanding the trace/span/generation hierarchy
 - **Manage prompts** — migrate hardcoded prompts to Langfuse prompt management
 - **Set up evaluators** — understand LLM-as-a-Judge patterns and configuration

@@ -9,9 +9,15 @@ in the wrong project.
 
 To prevent that we:
   1. Load this folder's .env explicitly.
-  2. HARD-SET os.environ (override, never setdefault) from those values.
-  3. Instantiate Langfuse() with the keys explicitly.
+  2. HARD-SET os.environ (override, never setdefault) from those values —
+     including LANGFUSE_BASE_URL, which SDK v4 reads and which outranks a
+     `host=` constructor argument.
+  3. Instantiate Langfuse() with the keys explicitly, passing `base_url=`
+     (highest precedence of all — no env var can override it).
   4. verify_project() confirms the keys resolve to the expected project name.
+
+Requires Langfuse Python SDK v4 (`langfuse>=4.10,<5.0` — see requirements.txt for
+why the floor is 4.10 rather than the repo-wide 4.7).
 """
 
 import os
@@ -34,12 +40,21 @@ load_dotenv(_ENV_PATH, override=True)
 
 LANGFUSE_PUBLIC_KEY = os.environ["LANGFUSE_PUBLIC_KEY"]
 LANGFUSE_SECRET_KEY = os.environ["LANGFUSE_SECRET_KEY"]
-LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3001")
+# Accept either spelling from .env: v4 standardizes on LANGFUSE_BASE_URL, but this
+# demo (and the repo's other .env files) historically use LANGFUSE_HOST.
+LANGFUSE_HOST = (os.environ.get("LANGFUSE_BASE_URL")
+                 or os.environ.get("LANGFUSE_HOST")
+                 or "http://localhost:3001")
 
 # HARD override so any get_client()/SDK path uses the real-estate project keys.
 os.environ["LANGFUSE_PUBLIC_KEY"] = LANGFUSE_PUBLIC_KEY
 os.environ["LANGFUSE_SECRET_KEY"] = LANGFUSE_SECRET_KEY
 os.environ["LANGFUSE_HOST"] = LANGFUSE_HOST
+# SDK v4 reads LANGFUSE_BASE_URL, and it OUTRANKS a `host=` constructor arg. Pin it
+# to the same value so a stale inherited LANGFUSE_BASE_URL can never silently
+# redirect this demo's traces to another backend (only `base_url=` beats it, which
+# is what get_langfuse() passes).
+os.environ["LANGFUSE_BASE_URL"] = LANGFUSE_HOST
 
 # Override with LANGFUSE_PROJECT_NAME when targeting e.g. a Langfuse Cloud
 # project that isn't named "real-estate".
@@ -113,6 +128,14 @@ def _attach_mirror() -> None:
                  # Observation-level (new-model) evaluators only execute in
                  # real time on v4-ingested data; without this header the
                  # mirror's traces render fine but judges never fire.
+                 #
+                 # Still required even though the primary client is now on SDK
+                 # v4: this is a PLAIN BatchSpanProcessor, so it bypasses the
+                 # Langfuse span processor entirely and inherits none of its
+                 # headers. The server infers real-time eligibility from
+                 # `x-langfuse-sdk-version` (Python >= 4.7.0 qualifies), which
+                 # this exporter never sends — hence the explicit header.
+                 # Harmless when the mirror is a v3 server (no v4 ingestion gate).
                  "x-langfuse-ingestion-version": "4"},
     ))
     provider.add_span_processor(_mirror_processor)
@@ -143,10 +166,13 @@ def get_langfuse():
         if _langfuse is None:
             from langfuse import Langfuse
 
+            # `base_url=` (not `host=`): in SDK v4 it has the highest precedence of
+            # all and cannot be overridden by a LANGFUSE_BASE_URL env var, so the
+            # explicit per-project value always wins.
             _langfuse = Langfuse(
                 public_key=LANGFUSE_PUBLIC_KEY,
                 secret_key=LANGFUSE_SECRET_KEY,
-                host=LANGFUSE_HOST,
+                base_url=LANGFUSE_HOST,
             )
             _attach_mirror()
     return _langfuse

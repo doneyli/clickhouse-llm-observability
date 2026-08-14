@@ -22,11 +22,12 @@ Try the failing case (this is the demo beat — the gate catching a bad prompt):
 
 Note on the official action: Langfuse ships `langfuse/experiment-action`, which
 wraps this pattern with `RunnerContext` + `RegressionError`. It requires the
-**v4** Python SDK, which this demo now uses — so the action is a supported
-option here, and `evaluate_gate()` below is the piece you would lift into its
-`experiment(context)` function. The gate is still implemented directly against
-the SDK on purpose: the threshold comparison and the non-zero exit are the part
-of the Deploy node worth SHOWING in a demo, and a wrapper hides both.
+**v4** Python SDK, which this demo now uses (`langfuse>=4.10,<5.0`) — so adopting
+the official action is unblocked, and both symbols are importable from `langfuse`.
+This hand-rolled gate is kept on purpose: the threshold comparison and the
+non-zero exit are the part of the Deploy node worth SHOWING in a demo, and a
+wrapper hides both. `evaluate_gate()` is the piece you would lift into an
+`experiment(context)` function to switch over.
 """
 
 import argparse

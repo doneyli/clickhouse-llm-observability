@@ -1,5 +1,5 @@
 """
-Langfuse Integration Configuration (v3 API)
+Langfuse Integration Configuration (v4 SDK)
 
 When LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set,
 traces are sent to Langfuse (which uses ClickHouse as its OLAP backend).
@@ -28,7 +28,7 @@ def is_langfuse_enabled() -> bool:
 
 def get_langfuse_client():
     """
-    Get Langfuse client for direct API access (v3 API).
+    Get Langfuse client for direct API access (v4 SDK).
     Returns None if Langfuse is not configured.
     """
     if not LANGFUSE_ENABLED:

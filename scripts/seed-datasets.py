@@ -22,7 +22,7 @@ Environment variables:
     LANGFUSE_SECRET_KEY  (default: sk-lf-1234567890)
 
 Prerequisites:
-    pip install 'langfuse>=3.0,<4.0'
+    pip install 'langfuse>=4.7,<5.0'
 """
 
 import argparse
@@ -34,7 +34,7 @@ from typing import Any, Dict, List
 try:
     from langfuse import Langfuse
 except ImportError:
-    print("Error: langfuse package not installed. Run: pip install 'langfuse>=3.0,<4.0'", file=sys.stderr)
+    print("Error: langfuse package not installed. Run: pip install 'langfuse>=4.7,<5.0'", file=sys.stderr)
     sys.exit(1)
 
 
