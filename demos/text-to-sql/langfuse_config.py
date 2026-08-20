@@ -110,15 +110,30 @@ def langfuse_session(session_id: Optional[str] = None):
 
 @contextmanager
 def langfuse_trace(trace_name="text-to-sql", tags=None):
-    """Context manager that sets trace name and tags for all Langfuse traces within."""
+    """Context manager that sets trace name and tags for all Langfuse traces within.
+
+    ``propagate_attributes`` only stamps *attributes* (name/tags) onto whatever
+    span is active when a new observation starts — it does not itself keep one
+    trace_id alive across sequential, independent top-level calls. The pipeline
+    makes several such calls in a row (``analysis_chain.invoke`` ->
+    ``retrieve_context`` -> ``response_chain.invoke``); with no span already
+    open at each call site, every one of them minted its own ROOT span (and
+    therefore its own trace_id) — same trace name/tags, three separate traces
+    in Langfuse instead of one. Opening one root span here (mirroring
+    ``langfuse_session()`` below) keeps a parent active for the whole block, so
+    every LangChain-driven and manually-instrumented step nests under it as a
+    single trace.
+    """
     if not LANGFUSE_ENABLED:
         yield
         return
 
     try:
-        from langfuse import propagate_attributes
-        with propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"]):
-            yield
+        from langfuse import get_client, propagate_attributes
+        client = get_client()
+        with client.start_as_current_observation(as_type="span", name=trace_name):
+            with propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"]):
+                yield
     except Exception as e:
         print(f"Failed to set Langfuse trace context: {e}")
         yield
