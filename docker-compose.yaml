@@ -173,14 +173,21 @@ services:
     container_name: text-to-sql
     ports:
       - "${TEXT_TO_SQL_PORT:-8002}:8000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
-      # Langfuse instrumentation
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     depends_on:
       - mcp-clickhouse
@@ -198,13 +205,20 @@ services:
     container_name: vector-rag
     ports:
       - "${VECTOR_RAG_PORT:-8003}:8000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
-      # Langfuse instrumentation
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - demo
@@ -307,6 +321,8 @@ services:
     container_name: agentic-rag
     ports:
       - "${AGENTIC_RAG_PORT:-8006}:8000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
@@ -319,9 +335,14 @@ services:
       - CH_VECTORS_PASSWORD=agentic123
       # SQL tool connects directly to the ClickHouse public demo datasets via
       # sql_tool.py (PUBLIC_CH_* env, defaults to sql-clickhouse.clickhouse.com).
-      # Langfuse instrumentation
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - demo
@@ -384,10 +405,17 @@ services:
     build:
       context: ./test-scenarios
     container_name: test-scenarios
+    env_file:
+      - .env
     environment:
-      # Langfuse integration
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - tools
