@@ -20,7 +20,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from agent.config import verify_project, LANGFUSE_HOST, langfuse_api as api  # noqa: E402
+from agent.config import (  # noqa: E402
+    verify_project, LANGFUSE_HOST, root_observations_by_tag,
+    langfuse_api as api,
+)
 
 QUEUE_NAME = "Property Concierge - human review"
 
@@ -59,12 +62,18 @@ def ensure_queue(score_config_ids):
 
 def recent_realestate_traces(limit):
     # Prefer fault-injected traces (more interesting to review), then fill.
+    # Tag lookup goes through v2 observations (the tagged-trace list endpoint is
+    # deprecated), so de-dupe on traceId: one root observation per trace.
     picks = []
     for tag in ("fault-demo", "real-estate"):
-        _, d = api("GET", f"/api/public/traces?tags={tag}&limit=50")
-        for t in d.get("data", []):
-            if t["id"] not in picks:
-                picks.append(t["id"])
+        try:
+            rows = root_observations_by_tag(tag, limit=50)
+        except RuntimeError as e:
+            print(f"  ! tag lookup '{tag}' failed: {e}")
+            continue
+        for o in rows:
+            if o["traceId"] not in picks:
+                picks.append(o["traceId"])
             if len(picks) >= limit:
                 return picks
     return picks

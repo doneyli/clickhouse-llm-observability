@@ -285,25 +285,36 @@ Run the validation script to check your setup:
 
 ## Key Implementation Details
 
-### SDK v3 Compatibility
+### SDK v4 Compatibility
 
-Langfuse SDK v3 uses environment variables for authentication. The CallbackHandler doesn't accept constructor parameters:
+The Langfuse SDK reads credentials from the environment. The LangChain `CallbackHandler`
+takes no credential constructor parameters:
 
 ```python
-# Correct (SDK v3)
+# Correct
 from langfuse.langchain import CallbackHandler
 handler = CallbackHandler()  # Reads from environment
 
-# Incorrect (old SDK)
+# Incorrect (pre-v3 SDK)
 handler = CallbackHandler(
-    public_key="...",  # Not supported in v3
+    public_key="...",  # Not supported
     secret_key="..."
 )
 ```
 
+When constructing a client explicitly, prefer `base_url=` over `host=`: in v4 a
+`LANGFUSE_BASE_URL` env var **outranks** `host=`, while `base_url=` has the highest
+precedence and cannot be overridden. This matters for anything targeting a specific
+project or more than one instance — see `demos/real-estate/agent/config.py`.
+
+Note the `v4` server caveat: `api.observations` and `api.metrics` resolve to the **v2**
+endpoints, which require a Langfuse v4 server. Against the self-hosted stack (v3) use
+`api.legacy.observations_v1` / `api.legacy.metrics_v1` — see
+`scripts/import-external-traces.py`.
+
 ### REST API Usage
 
-The evaluator uses the REST API for trace fetching and score storage because SDK v3 doesn't expose these methods:
+The evaluator uses the REST API for trace fetching and score storage:
 
 ```python
 import httpx

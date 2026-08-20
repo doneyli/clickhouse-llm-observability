@@ -86,6 +86,16 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
     # rules run on that root span (input={"query"} / output=final answer) — the
     # scores read like the self-hosted trace-level ones. Idempotent: existing
     # rule names are skipped. Falls back to a UI recipe if the API is unavailable.
+    #
+    # The second filter is `isRootObservation`, NOT `name`: matching the root by
+    # name means a rename of TRACE_NAME silently stops the judges firing without
+    # any error anywhere. That exact drift had already happened once — the live
+    # Cloud rules were still filtering on the long-gone `property-concierge` /
+    # `turn-N` names and had scored nothing for weeks. `traceName` stays as the
+    # scope guard so the rules ignore experiment and probe traffic.
+    #
+    # NOTE: this "already present" check skips a rule whose FILTER has drifted.
+    # It will not repair one — check the rule in the UI if judges go quiet.
     rules=$(curl -s -m 20 -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
       "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" || true)
     api_failed=0
@@ -104,8 +114,7 @@ case "${LANGFUSE_HOST:-http://localhost:3001}" in
   "filter": [
     {"type": "stringOptions", "column": "traceName", "operator": "any of",
      "value": ["handle-concierge-chat-message"]},
-    {"type": "stringOptions", "column": "name", "operator": "any of",
-     "value": ["handle-concierge-chat-message"]}
+    {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": true}
   ],
   "mapping": [
     {"variable": "query", "source": "input", "jsonPath": "\$.query"},
@@ -184,6 +193,18 @@ green "Default evaluation model set (${EVAL_MODEL})"
 
 # 2) Trace-level judges over 'real-estate' traffic. Clean mapping:
 #    query = trace.input (the question), generation = trace.output (the answer).
+#
+# ⚠️ MIGRATION DEBT — `target_object='trace'` is DEPRECATED in Langfuse v4, and these
+# two judges read TRACE-level input/output. The agent no longer writes those
+# explicitly: `set_current_trace_io()` was removed from agent/concierge.py during the
+# v4 migration, because v4 derives a trace's input/output from its ROOT observation
+# (which `root.update()` sets). That derivation is what keeps these judges fed today.
+#
+# Do NOT "fix" a quiet judge by re-adding `set_current_trace_io()`. The supported
+# successor is an observation-level rule, and this server (3.221.1) already accepts
+# them — the remote branch above builds exactly that payload via
+# /api/public/unstable/evaluation-rules with "target": "observation". Porting these two
+# to that shape is the real fix; until then they stay on the deprecated target.
 MAP='[{"templateVariable":"query","langfuseObject":"trace","selectedColumnId":"input"},{"templateVariable":"generation","langfuseObject":"trace","selectedColumnId":"output"}]'
 FILTER='[{"type":"arrayOptions","value":["real-estate"],"column":"tags","operator":"any of"}]'
 

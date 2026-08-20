@@ -101,10 +101,15 @@ should be ✓).
   pick an agent from the dropdown (5 pre-configured agents with MCP tools).
 - **Langfuse**: http://localhost:3001 — log in as `demo@example.com` / `demodemo1!`,
   traces under Tracing > Traces.
-- **Code evaluators**: provisioned automatically (5 deterministic TypeScript
-  evaluators — see docs/CODE_EVALUATORS.md). Verify with:
+- **Code evaluators**: provisioned automatically from the 5 TypeScript sources in
+  `evaluators/` — see docs/CODE_EVALUATORS.md. Verify with:
   `docker exec langfuse-postgres psql -U langfuse -d langfuse -t -c "SELECT count(*) FROM job_configurations WHERE id LIKE 'code-eval%' AND status='ACTIVE'"`
-  (expect 5 in self-hosted mode; in cloud mode they are a manual UI step).
+  (expect **at least 5** in self-hosted mode; in cloud mode they are a manual UI step).
+  It can legitimately read higher: the seeders `INSERT ... ON CONFLICT DO UPDATE` and
+  **never delete**, so an evaluator that was renamed or removed from `evaluators/`
+  leaves a live ACTIVE row that keeps scoring from stale `source_code` in Postgres.
+  To find orphans, compare row ids against the files on disk:
+  `docker exec langfuse-postgres psql -U langfuse -d langfuse -t -c "SELECT id FROM job_configurations WHERE id LIKE 'code-eval%'"` vs `ls evaluators/*.ts`
 - **LLM-as-a-Judge evaluators**: provisioned automatically as observation-level
   evaluators (3 live judges + 1 experiment judge). Verify with:
   `docker exec langfuse-postgres psql -U langfuse -d langfuse -t -c "SELECT count(*) FROM job_configurations WHERE id LIKE 'obs-eval%' AND status='ACTIVE'"`

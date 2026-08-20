@@ -13,4 +13,4 @@ langchain-huggingface>=0.1.0,<1.0.0
 sentence-transformers>=3.0.0,<4.0.0
 
 # Langfuse - LLM observability
-langfuse>=3.0.0,<4.0.0
+langfuse>=4.7,<5.0

@@ -28,7 +28,7 @@ Environment variables:
     TARGET_LANGFUSE_SECRET_KEY   Target project secret key (default: sk-lf-1234567890)
 
 Prerequisites:
-    pip install 'langfuse>=3.0,<4.0' requests
+    pip install 'langfuse>=4.7,<5.0' requests
 """
 
 import argparse
@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 try:
     from langfuse import Langfuse
 except ImportError:
-    print("Error: langfuse package not installed. Run: pip install 'langfuse>=3.0,<4.0'", file=sys.stderr)
+    print("Error: langfuse package not installed. Run: pip install 'langfuse>=4.7,<5.0'", file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -93,7 +93,12 @@ def create_source_client():
         print("    docker exec <langfuse-web-container> printenv LANGFUSE_INIT_PROJECT_SECRET_KEY", file=sys.stderr)
         sys.exit(1)
 
-    return Langfuse(public_key=pk, secret_key=sk, host=host)
+    # `base_url=` (not `host=`): in SDK v4 a LANGFUSE_BASE_URL env var OUTRANKS the
+    # `host=` argument, and only `base_url=` cannot be overridden. This script
+    # deliberately talks to two different instances (source vs target), so an
+    # inherited LANGFUSE_BASE_URL silently repointing the source would be a
+    # data-correctness bug, not just a config annoyance.
+    return Langfuse(public_key=pk, secret_key=sk, base_url=host, tracing_enabled=False)
 
 
 # --------------- Target Session ---------------
@@ -143,11 +148,26 @@ def fetch_traces(client, tag_filter, since_date, limit, verbose=False):
 
 
 def fetch_observations(client, trace_id):
-    """Fetch all observations for a single trace."""
+    """Fetch all observations for a single trace.
+
+    Uses `api.legacy.observations_v1` deliberately, NOT `api.observations`.
+    In SDK v4 the plain `api.observations` name resolves to the **Observations v2**
+    client, which:
+      - is cursor-based and rejects `page=` (TypeError), and
+      - returns a `meta` with only `cursor` (no `total_pages`), and
+      - gates `input`/`output`/`metadata` behind a `fields=` parameter, so a naive
+        port would silently drop the very payload this importer copies.
+    v2 also requires a Langfuse **v4 server**, while this script routinely targets
+    self-hosted v3 (`TARGET_LANGFUSE_HOST` defaults to localhost:3001) and can
+    straddle two different instances at once. The legacy v1 client is available on
+    both, keeps `page=` pagination, and returns the full payload.
+    """
     observations = []
     page = 1
     while True:
-        batch = client.api.observations.get_many(trace_id=trace_id, limit=100, page=page)
+        batch = client.api.legacy.observations_v1.get_many(
+            trace_id=trace_id, limit=100, page=page
+        )
         if not batch.data:
             break
         observations.extend(batch.data)
