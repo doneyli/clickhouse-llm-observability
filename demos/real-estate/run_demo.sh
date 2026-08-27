@@ -54,7 +54,10 @@ echo -e "\n[3/7] Provisioning managed LLM-as-a-Judge evaluators (Anthropic)…"
 echo -e "\n[4/7] Generating live traffic (traces + code scores + a session)…"
 $PY scripts/run_live_traffic.py $JUDGE_FLAG
 
-echo -e "\n[5/7] Setting up the human annotation queue (+ items from live traffic)…"
+echo -e "\n[5/7] Setting up the human annotation queues — traces AND sessions (+ items from live traffic)…"
+# The session queue picks up whatever multi-turn sessions exist. Live traffic seeds
+# a 3-turn one; for the 12-turn conversation the demo actually shows, run
+# scripts/simulate_long_session.py first (kept out of here: 12 turns + judges).
 $PY scripts/seed_annotation_queue.py
 
 if [ "$QUICK" = "1" ]; then

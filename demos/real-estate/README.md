@@ -37,6 +37,7 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Custom SDK judges** | groundedness / tone pushed from our own code |
 | **User feedback** (👍/👎) | portal thumbs write a `user-feedback` score onto the trace (Monitor signal) |
 | **Human annotation** | queue + score configs (reviewer-verdict, expert-usefulness) |
+| **Human annotation of a whole conversation** | a second queue whose items are **sessions** (conversation-outcome + the two cross-turn scores), so a reviewer judges the conversation, not one turn |
 | Datasets | `property-concierge-eval`, 18 curated items |
 | Experiments / runs + aggregates | `dataset.run_experiment(...)` with run-level averages |
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
@@ -152,7 +153,8 @@ Or run each piece individually:
 ./.venv/bin/python scripts/seed_dataset.py            # create the 18-item dataset
 ./scripts/seed_managed_evaluators.sh                  # native LLM judges (auto, Anthropic)
 ./.venv/bin/python scripts/run_live_traffic.py        # ~13 traces + sessions + code/custom scores
-./.venv/bin/python scripts/seed_annotation_queue.py   # human-review queue + score configs
+./.venv/bin/python scripts/seed_annotation_queue.py   # 2 human-review queues (traces + sessions) + score configs
+./.venv/bin/python scripts/simulate_long_session.py   # one 12-turn session (feeds the conversation queue)
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6   # Claude run
 ./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare models)
 ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate    # candidate prompt (compare prompts)
@@ -223,8 +225,39 @@ agent/concierge.py       is_final_turn=True ──▶ `conversation_end` tag (pr
   re-judge a growing transcript N times per conversation. The snapshot fires once.
   (`history` *is* also on the root from turn 2 on, for per-turn cross-turn checks.)
 - **Session scores** (`create_score(session_id=…)`, see `simulate_long_session.py`)
-  are the only way to attach a number to a whole conversation in production. A
-  human can do it too — annotation queues accept sessions, not just traces.
+  are the only way to attach a number to a whole conversation *from code* in
+  production. A human gets there through the second annotation queue below.
+
+### The human path: a queue of conversations, not turns
+
+`scripts/seed_annotation_queue.py` seeds **two** queues, because a queue item's
+`objectType` decides what the reviewer is shown:
+
+| Queue | Items | Score configs | What the reviewer sees |
+|---|---|---|---|
+| `Property Concierge - human review` | `TRACE` | reviewer-verdict, expert-usefulness | one turn |
+| `Property Concierge - conversation review` | `SESSION` | conversation-outcome, stated-constraint-respected, reference-resolved | the whole conversation, turn by turn |
+
+A constraint stated in turn 3 and broken in turn 9 looks fine in *every* single
+trace, so the trace queue structurally cannot catch it. Session items can, and
+the resulting scores attach to the **session** — the same subject
+`create_score(session_id=…)` writes to, and the only human route to it.
+
+Two of the three configs deliberately reuse the machine score names
+(`stated-constraint-respected`, `reference-resolved`), so the human label is a
+gold standard for the automated one rather than a parallel vocabulary; filter by
+score **source** (`ANNOTATION` vs `EVAL`/`API`) to compare them.
+`conversation-outcome` (resolved / partially-resolved / abandoned) is human-only —
+whether the buyer actually got anywhere is not a per-turn question.
+
+```bash
+./.venv/bin/python scripts/seed_annotation_queue.py --only sessions --min-turns 5
+```
+
+Candidates are sessions whose turn count (root observations named
+`handle-concierge-chat-message`, one per turn) is `>= --min-turns`, longest
+conversation first. In the UI you can add more by hand at any time: **Sessions** →
+checkboxes → **Actions → Add to queue**, or **Annotate** on a single session page.
 
 Cost warning: `--multi-turn` is opt-in in `run_demo.sh`. A simulated conversation is
 up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roughly
@@ -296,7 +329,8 @@ scripts/
   seed_dataset.py            create the dataset
   seed_managed_evaluators.sh native LLM-as-a-Judge (Postgres self-hosted / API on Cloud)
   run_live_traffic.py        traces + sessions + code/custom scores + faults
-  seed_annotation_queue.py   human-review queue + score configs (public API)
+  seed_annotation_queue.py   2 human-review queues — TRACE items + SESSION items
+  simulate_long_session.py   one 12-turn session + a session-level score
   run_experiment.py          dataset run for a chosen --model / --prompt-label
   prompt_gate.py             CI quality gate: eval a prompt label, exit 1 below the bar
   smoke_test.py              sanity check
