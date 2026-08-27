@@ -155,6 +155,11 @@ RULE
     # No tag filter is added: the snapshot only ever exists on the final turn, so
     # `name` already scopes this to once per conversation. `conversation_end` is
     # propagated anyway, for filtering the Traces table by hand during a demo.
+    # A rule references its evaluator by {name, scope} — NOT by id. `scope` is the
+    # discriminator: "managed" for a Langfuse-provided template (as the two rules
+    # above use), "custom" for one created in this project. Passing {"id": ...}
+    # returns HTTP 400 "evaluator.name: expected string, received undefined",
+    # which is easy to misread as a problem with the id.
     CONV_EVALUATOR="stated-constraint-respected"
     CONV_PROMPT="You are scoring an ENTIRE multi-turn conversation between a user and a real-estate assistant, not a single reply.\n\nA constraint is anything the user stated about what they want: a budget, a city or neighbourhood, a number of bedrooms, a required feature, buy vs rent, or the language they are writing in.\n\nScore 1.0 only if EVERY constraint the user stated at ANY point still held for the rest of the conversation. Penalise heavily, toward 0.0:\n- a constraint stated once early and then ignored in a later turn (e.g. the user lowered their budget and a later turn recommended something above it)\n- a reference to an earlier property (\\\"that one\\\", \\\"the second option\\\", a neighbourhood name) resolved to the wrong property or to nothing\n- the assistant re-asking something the user had already answered\n- the assistant switching language away from the user's most recent turn\n\nIn your reasoning, name the specific constraint and the turn number where it was dropped. If nothing was dropped, say so in one sentence.\n\n=== CONVERSATION ===\n{{transcript}}"
 
@@ -168,9 +173,21 @@ print(next((r['id'] for r in data if r.get('name') == '${CONV_EVALUATOR}'), ''))
     if [ -n "$conv_id" ]; then
       green "${CONV_EVALUATOR} rule already present"
     else
-      # Two calls: create the evaluator (prompt + variables + score shape), then
-      # attach it to a rule (which observations it runs on). Read the id back
-      # rather than guessing it — a rule must reference the evaluator by id.
+      # Two INDEPENDENT resources: the evaluator (prompt + variables + score
+      # shape) and the rule (which observations it runs on). They are created
+      # separately, so a half-created state is reachable — evaluator present, rule
+      # absent — and a re-run must not try to create the evaluator twice. Look it
+      # up by name first and only create it if genuinely missing.
+      ev_exists=$(curl -s -m 25 \
+        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        "${LANGFUSE_HOST}/api/public/unstable/evaluators?limit=100" \
+        | python3 -c "
+import json,sys
+try: data = json.load(sys.stdin).get('data') or []
+except Exception: sys.exit(0)
+print(next((e['id'] for e in data if e.get('name') == '${CONV_EVALUATOR}'), ''))
+" 2>/dev/null || true)
+
       ev_body=$(cat <<EVALUATOR
 {
   "name": "${CONV_EVALUATOR}",
@@ -188,23 +205,28 @@ print(next((r['id'] for r in data if r.get('name') == '${CONV_EVALUATOR}'), ''))
 }
 EVALUATOR
 )
-      code=$(curl -s -m 25 -o /tmp/lf-conv-eval.json -w '%{http_code}' -X POST \
-        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-        -H 'Content-Type: application/json' \
-        "${LANGFUSE_HOST}/api/public/unstable/evaluators" -d "$ev_body") || code="000"
-      ev_id=""
-      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-        ev_id=$(python3 -c "import json;print(json.load(open('/tmp/lf-conv-eval.json')).get('id',''))" 2>/dev/null || true)
+      if [ -n "$ev_exists" ]; then
+        ev_id="$ev_exists"
+        green "${CONV_EVALUATOR} evaluator already present (${ev_id})"
+      else
+        code=$(curl -s -m 25 -o /tmp/lf-conv-eval.json -w '%{http_code}' -X POST \
+          -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+          -H 'Content-Type: application/json' \
+          "${LANGFUSE_HOST}/api/public/unstable/evaluators" -d "$ev_body") || code="000"
+        ev_id=""
+        if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+          ev_id=$(python3 -c "import json;print(json.load(open('/tmp/lf-conv-eval.json')).get('id',''))" 2>/dev/null || true)
+        fi
       fi
       if [ -z "$ev_id" ]; then
-        warn "${CONV_EVALUATOR} evaluator failed (HTTP ${code}) — create it in the UI (see below)"
+        warn "${CONV_EVALUATOR} evaluator failed (HTTP ${code:-?}) — create it in the UI (see below)"
         api_failed=1
       else
-        green "${CONV_EVALUATOR} evaluator created (${ev_id})"
+        [ -n "$ev_exists" ] || green "${CONV_EVALUATOR} evaluator created (${ev_id})"
         rule_body=$(cat <<CONVRULE
 {
   "name": "${CONV_EVALUATOR}",
-  "evaluator": {"id": "${ev_id}"},
+  "evaluator": {"name": "${CONV_EVALUATOR}", "scope": "custom"},
   "target": "observation",
   "enabled": true,
   "sampling": 1,
