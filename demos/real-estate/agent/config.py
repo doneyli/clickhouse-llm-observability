@@ -183,6 +183,12 @@ def record_score(lf, **kwargs) -> None:
 
     Trace/observation ids are identical on both backends (same OTel spans),
     so the same payload lands on the mirror via its public scores API.
+
+    A score references EXACTLY ONE subject: a trace, an observation, a session,
+    or a dataset run. `session_id=` is the only way to score a whole
+    conversation — no Langfuse-managed evaluator can target a session, because
+    the server cannot know when a conversation has ended. Session scores are
+    therefore always written from here.
     """
     lf.create_score(**kwargs)
     if not MIRROR_ENABLED:
@@ -190,11 +196,14 @@ def record_score(lf, **kwargs) -> None:
     value = kwargs.get("value")
     if isinstance(value, bool):  # public API wants 1/0 for BOOLEAN scores
         value = 1 if value else 0
-    body = {
-        "traceId": kwargs.get("trace_id"),
-        "name": kwargs.get("name"),
-        "value": value,
-    }
+    body = {"name": kwargs.get("name"), "value": value}
+    # Session scores carry NO traceId. Emitting `traceId: None` (the previous
+    # behaviour) is rejected by the scores API, so pick the subject explicitly
+    # rather than defaulting to a trace that isn't there.
+    if kwargs.get("session_id"):
+        body["sessionId"] = kwargs["session_id"]
+    else:
+        body["traceId"] = kwargs.get("trace_id")
     if kwargs.get("observation_id"):
         body["observationId"] = kwargs["observation_id"]
     if kwargs.get("data_type"):

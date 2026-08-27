@@ -42,6 +42,10 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
 | **Prompt management** (versioned, labelled) | system prompts fetched by label from Langfuse; **linked to every generation** |
 | **Prompt-variant experiment** | same agent + evals across `first-draft` / `production` / `candidate` prompts → compare runs |
+| **N+1 conversation eval** | replay a real conversation prefix, score only turn N+1 → `property-concierge-conversations`, 10 items, one per cross-turn failure mode |
+| **Simulated conversations** | an LLM plays a difficult buyer; judge the whole trajectory → `property-concierge-personas`, 7 personas |
+| **Conversation-level judge** | a `conversation-snapshot` observation on the final turn, scored once per conversation by a managed judge |
+| **Session-level score** | `create_score(session_id=…)` — the one score type no managed evaluator can produce |
 | **Deploy** (close the loop) | promote a prompt label to ship it — **gated by CI**: a prompt change runs the eval suite and blocks the deploy on a regression ([`cicd/`](cicd/README.md)) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
 
@@ -186,6 +190,46 @@ agent/scoring.py    code evaluators + LLM judges  ◀─────────
 evaluators/         adapters exposing scoring as experiment Evaluations + run-level aggregates
 data/dataset.py     the 18 evaluation items
 ```
+
+### Evaluating the conversation, not just the turn
+
+A per-turn score cannot tell you the agent forgot a budget the user set four turns
+ago. Langfuse cannot close that gap for you either: an LLM-as-a-Judge rule targets
+an **observation** or an **experiment**, never a session, because the server has no
+way to know a conversation has ended. So the app declares it. Three paths, one
+shared score vocabulary:
+
+```
+data/conversations.py   10 N+1 items: a real prefix as `history` + the turn under test
+   └─ scripts/run_n_plus_1_experiment.py ──▶ replays the prefix, scores ONLY turn N+1
+                                             (deterministic: catches a dropped constraint exactly)
+
+data/personas.py         7 personas, each difficult in ONE named way
+   └─ scripts/run_simulation_experiment.py ─▶ agent/simulated_user.py plays the buyer
+                                             until [[DONE]]; judges the whole trajectory
+
+agent/concierge.py       is_final_turn=True ──▶ `conversation_end` tag (propagated)
+                                            └▶ `conversation-snapshot` observation
+                                               = the ONE observation a managed
+                                                 conversation judge can match
+```
+
+- **`stated-constraint-respected`** and **`reference-resolved`** are produced by all
+  three: deterministically in N+1, by judge in simulation, by the managed rule on
+  live traffic. Same name everywhere, so offline and production are comparable.
+- **Why a snapshot observation** rather than history on the root of every turn: an
+  observation-level judge sees only the observation it matched, so it needs *one*
+  observation holding the whole conversation. Putting it on every root would
+  re-judge a growing transcript N times per conversation. The snapshot fires once.
+  (`history` *is* also on the root from turn 2 on, for per-turn cross-turn checks.)
+- **Session scores** (`create_score(session_id=…)`, see `simulate_long_session.py`)
+  are the only way to attach a number to a whole conversation in production. A
+  human can do it too — annotation queues accept sessions, not just traces.
+
+Cost warning: `--multi-turn` is opt-in in `run_demo.sh`. A simulated conversation is
+up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roughly
+an order of magnitude more than a single-turn item. The runner prints an upper bound
+and refuses to start without `--yes`.
 
 Key design choices:
 

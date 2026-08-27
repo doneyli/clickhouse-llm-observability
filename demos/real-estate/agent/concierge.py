@@ -39,6 +39,29 @@ MAX_ITERS = 5
 # root span name identical lets newer Langfuse UIs render them as a single node.
 TRACE_NAME = "handle-concierge-chat-message"
 
+# --- conversation-level evaluation hooks -------------------------------------
+# A Langfuse LLM-as-a-Judge rule can target an OBSERVATION or an EXPERIMENT —
+# never a session, because "Langfuse does not inherently know when a session has
+# concluded" (langfuse.com/resources/engineering/evaluating-sessions-conversations).
+# The app therefore has to declare the end of a conversation itself, and hand the
+# judge a single observation that holds the whole thing. Two mechanisms, both used
+# below:
+#
+#   CONVERSATION_END_TAG  propagated on the final turn only, so a rule can be
+#                         scoped to fire ONCE per conversation instead of paying
+#                         to re-judge a growing transcript on every turn.
+#   SNAPSHOT_NAME         a dedicated observation on that final turn whose input
+#                         IS the full transcript. An observation-level evaluator
+#                         sees only the observation it matched — not siblings, not
+#                         children — so without this (or history on the root, also
+#                         added below) no judge can reason across turns at all.
+#
+# The sanctioned alternative — stuffing the transcript into metadata — is
+# deliberately NOT used: metadata values are coerced to strings and capped, so a
+# judge would silently score a clipped conversation.
+CONVERSATION_END_TAG = "conversation_end"
+SNAPSHOT_NAME = "conversation-snapshot"
+
 # --- lightweight language detection (Spanish vs English) for language-match ---
 # Only Spanish FUNCTION/verb words — strong language signals. Deliberately NOT
 # real-estate nouns or place names (piso, terraza, barrio, familia, Malasaña…):
@@ -124,6 +147,7 @@ def run_turn(
     prompt_label: str = PRODUCTION_LABEL,
     history: Optional[List[Dict[str, Any]]] = None,
     turn_index: int = 0,
+    is_final_turn: bool = False,
 ) -> Dict[str, Any]:
     """Run one agent turn.
 
@@ -134,6 +158,12 @@ def run_turn(
     `turn_index` (surfaced as the `turn` metadata label) and `history` (the prior
     turns) so follow-ups like "keep it under 400k" / "that one" resolve against
     the conversation. See https://langfuse.com/academy/tracing#traces-vs-sessions.
+
+    `is_final_turn=True` marks this turn as the end of the conversation: it adds
+    the `conversation_end` tag and emits a `conversation-snapshot` observation
+    carrying the full transcript, which is what a conversation-level judge runs
+    on. Only the CALLER knows a conversation is over (Langfuse cannot infer it),
+    so this is always explicit. See CONVERSATION_END_TAG above.
     """
     lf = get_langfuse()
     model = model or AGENT_MODEL
@@ -153,7 +183,14 @@ def run_turn(
                 user_id=user_id,
                 # Fault-injected traces self-identify via a `fault:<name>` tag so
                 # they are filterable (and explainable) during a demo.
-                tags=BASE_TAGS + (extra_tags or []) + ([f"fault:{fault}"] if fault else []),
+                # `conversation_end` is what scopes a conversation-level judge to
+                # one execution per conversation. It MUST go through
+                # propagate_attributes rather than onto the trace alone:
+                # observation-level rules check filter attributes on the
+                # OBSERVATION, so an un-propagated tag matches nothing.
+                tags=(BASE_TAGS + (extra_tags or [])
+                      + ([f"fault:{fault}"] if fault else [])
+                      + ([CONVERSATION_END_TAG] if is_final_turn else [])),
                 trace_name=TRACE_NAME,
                 # SDK v4 replaced `update_current_trace(metadata=)` with this context
                 # manager, which stamps these attributes onto the current observation
@@ -179,10 +216,18 @@ def run_turn(
             # deliberately NOT used here. It exists only for legacy *trace*-target
             # LLM-as-a-judge rules, and this project has none — both rules target
             # observations.
-            root.update(input={"query": query},
+            # `history` rides along on the ROOT input on multi-turn calls. Without
+            # it, a judge targeting the root observation sees only this turn's
+            # question and is structurally incapable of catching a cross-turn
+            # failure (a budget stated three turns ago, "that one", a language
+            # switch) — no rubric can fix that. Omitted entirely on turn 1 so
+            # single-turn traces stay clean, and so the existing `query`-only
+            # variable mapping on the seeded Cloud rules keeps working unchanged.
+            root.update(input={"query": query, **({"history": history} if history else {})},
                         metadata={"agent_model": model, "provider": provider_of(model),
                                   "prompt_label": prompt_label, "turn": turn_index + 1,
-                                  **({"fault": fault} if fault else {})})
+                                  **({"fault": fault} if fault else {}),
+                                  **({"conversation_end": True} if is_final_turn else {})})
 
             # ---------------- 1) plan: extract structured constraints ----------
             # Include prior turns so references like "keep it under 400k" or
@@ -330,7 +375,35 @@ def run_turn(
             # trace-level setter is needed).
             root.update(output=final_text)
 
-            # ---------------- 5) observation-level CODE scores ----------------
+            # ---------------- 5) conversation snapshot (final turn only) ------
+            # ONE observation that owns the whole conversation, so a
+            # conversation-level judge has something to match. This is the
+            # sanctioned shape for a value that spans observations: "add a
+            # dedicated evaluation observation only when no existing observation
+            # can own them" (Langfuse evaluator-migration guidance).
+            #
+            # Why not just point the judge at the root on every turn? Because the
+            # root's history grows with the conversation, so a per-turn rule
+            # re-judges an ever-longer transcript N times and the cost scales
+            # quadratically. This fires once.
+            #
+            # A rule on this observation MUST filter by `name` (unlike the seeded
+            # per-turn rules, which filter on `isRootObservation` precisely so a
+            # rename cannot silently break them). That drift risk is real here:
+            # renaming SNAPSHOT_NAME without updating the rule stops the judge
+            # firing with no error anywhere. Keep the constant and the rule in
+            # sync — scripts/seed_managed_evaluators.sh reads it.
+            if is_final_turn:
+                transcript = history + [{"role": "user", "content": query},
+                                        {"role": "assistant", "content": final_text}]
+                with lf.start_as_current_observation(as_type="span", name=SNAPSHOT_NAME) as snap:
+                    snap.update(input={"transcript": transcript,
+                                       "turns": len(transcript) // 2},
+                                output=final_text)
+                    result["snapshot_observation_id"] = snap.id
+                result["transcript"] = transcript
+
+            # ---------------- 6) observation-level CODE scores ----------------
             # Live mode: attach deterministic code scores to the synthesis
             # observation so every live trace carries scores on an observation.
             # Experiment mode: skip — the experiment evaluators score each item

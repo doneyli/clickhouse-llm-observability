@@ -58,7 +58,21 @@ ALL_EVALUATORS = CODE_EVALUATORS + LLM_EVALUATORS
 
 
 # Run-level aggregate evaluators ---------------------------------------------
-def _mean_evaluator(score_name: str):
+def _percent_comment(score_name: str, avg: float, n: int) -> str:
+    return f"mean {score_name}: {avg:.1%} over {n} items"
+
+
+def _count_comment(score_name: str, avg: float, n: int) -> str:
+    return f"mean {score_name}: {avg:.2f} over {n} items"
+
+
+def _mean_evaluator(score_name: str, comment_fmt=_percent_comment):
+    """Mean of one score name across a run, for the Runs-tab comparison.
+
+    `comment_fmt` exists because the default percentage rendering is right for a
+    pass rate and nonsense for a count — a mean of 3.8 turns would read
+    "380.0%". Pass `_count_comment` for scores whose unit is not a fraction.
+    """
     def evaluator(*, item_results, **kwargs):
         vals = []
         for r in item_results:
@@ -73,7 +87,7 @@ def _mean_evaluator(score_name: str):
             return Evaluation(name=f"avg-{score_name}", value=None, comment="no values")
         avg = sum(vals) / len(vals)
         return Evaluation(name=f"avg-{score_name}", value=round(avg, 3),
-                          comment=f"mean {score_name}: {avg:.1%} over {len(vals)} items")
+                          comment=comment_fmt(score_name, avg, len(vals)))
     evaluator.__name__ = f"avg_{score_name}".replace("-", "_")
     return evaluator
 

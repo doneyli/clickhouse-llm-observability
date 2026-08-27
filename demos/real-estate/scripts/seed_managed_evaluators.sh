@@ -134,6 +134,105 @@ RULE
         api_failed=1
       fi
     done
+
+    # ---- conversation-level judge: the one managed templates cannot express ---
+    # Helpfulness and Relevance above each score ONE reply. Neither can answer
+    # "did this CONVERSATION hold together", because an observation-level
+    # evaluator sees ONLY the observation it matched — not siblings, not children.
+    # So this is a CUSTOM evaluator whose single variable is the whole transcript,
+    # wired to the `conversation-snapshot` observation the agent emits on the
+    # final turn (see SNAPSHOT_NAME / CONVERSATION_END_TAG in agent/concierge.py).
+    #
+    # Two deliberate differences from the rules above:
+    #   * Filtered by observation `name`, NOT `isRootObservation` — the snapshot is
+    #     a CHILD of the root span, so the root filter would never match it. That
+    #     makes this rule name-coupled: rename SNAPSHOT_NAME without updating it
+    #     here and the judge goes quiet with no error anywhere. Keep them in sync.
+    #   * The metric is named after the failure it detects, not a generic quality
+    #     word. Langfuse's own eval guidance is explicit that `helpfulness` /
+    #     `relevance` / `task completion` style names are hard to act on.
+    #
+    # No tag filter is added: the snapshot only ever exists on the final turn, so
+    # `name` already scopes this to once per conversation. `conversation_end` is
+    # propagated anyway, for filtering the Traces table by hand during a demo.
+    CONV_EVALUATOR="stated-constraint-respected"
+    CONV_PROMPT="You are scoring an ENTIRE multi-turn conversation between a user and a real-estate assistant, not a single reply.\n\nA constraint is anything the user stated about what they want: a budget, a city or neighbourhood, a number of bedrooms, a required feature, buy vs rent, or the language they are writing in.\n\nScore 1.0 only if EVERY constraint the user stated at ANY point still held for the rest of the conversation. Penalise heavily, toward 0.0:\n- a constraint stated once early and then ignored in a later turn (e.g. the user lowered their budget and a later turn recommended something above it)\n- a reference to an earlier property (\\\"that one\\\", \\\"the second option\\\", a neighbourhood name) resolved to the wrong property or to nothing\n- the assistant re-asking something the user had already answered\n- the assistant switching language away from the user's most recent turn\n\nIn your reasoning, name the specific constraint and the turn number where it was dropped. If nothing was dropped, say so in one sentence.\n\n=== CONVERSATION ===\n{{transcript}}"
+
+    conv_id=$(printf '%s' "$rules" | python3 -c "
+import json,sys
+try: data = json.load(sys.stdin).get('data') or []
+except Exception: sys.exit(0)
+print(next((r['id'] for r in data if r.get('name') == '${CONV_EVALUATOR}'), ''))
+" 2>/dev/null || true)
+
+    if [ -n "$conv_id" ]; then
+      green "${CONV_EVALUATOR} rule already present"
+    else
+      # Two calls: create the evaluator (prompt + variables + score shape), then
+      # attach it to a rule (which observations it runs on). Read the id back
+      # rather than guessing it — a rule must reference the evaluator by id.
+      ev_body=$(cat <<EVALUATOR
+{
+  "name": "${CONV_EVALUATOR}",
+  "type": "llm_as_judge",
+  "prompt": "${CONV_PROMPT}",
+  "variables": ["transcript"],
+  "mapping": [
+    {"variable": "transcript", "source": "input", "jsonPath": "\$.transcript"}
+  ],
+  "outputDefinition": {
+    "dataType": "NUMERIC",
+    "score": {"description": "1.0 if every constraint the user stated held for the whole conversation; 0.0 if one was dropped, mis-resolved, or re-asked"},
+    "reasoning": {"description": "Name the specific constraint and the turn it was dropped at, or state that none were"}
+  }
+}
+EVALUATOR
+)
+      code=$(curl -s -m 25 -o /tmp/lf-conv-eval.json -w '%{http_code}' -X POST \
+        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        -H 'Content-Type: application/json' \
+        "${LANGFUSE_HOST}/api/public/unstable/evaluators" -d "$ev_body") || code="000"
+      ev_id=""
+      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+        ev_id=$(python3 -c "import json;print(json.load(open('/tmp/lf-conv-eval.json')).get('id',''))" 2>/dev/null || true)
+      fi
+      if [ -z "$ev_id" ]; then
+        warn "${CONV_EVALUATOR} evaluator failed (HTTP ${code}) — create it in the UI (see below)"
+        api_failed=1
+      else
+        green "${CONV_EVALUATOR} evaluator created (${ev_id})"
+        rule_body=$(cat <<CONVRULE
+{
+  "name": "${CONV_EVALUATOR}",
+  "evaluator": {"id": "${ev_id}"},
+  "target": "observation",
+  "enabled": true,
+  "sampling": 1,
+  "filter": [
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": ["handle-concierge-chat-message"]},
+    {"type": "stringOptions", "column": "name", "operator": "any of",
+     "value": ["conversation-snapshot"]}
+  ],
+  "mapping": [
+    {"variable": "transcript", "source": "input", "jsonPath": "\$.transcript"}
+  ]
+}
+CONVRULE
+)
+        code=$(curl -s -m 25 -o /tmp/lf-conv-rule.json -w '%{http_code}' -X POST \
+          -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+          -H 'Content-Type: application/json' \
+          "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" -d "$rule_body") || code="000"
+        if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+          green "${CONV_EVALUATOR} rule created (conversation-level, fires once per conversation)"
+        else
+          warn "${CONV_EVALUATOR} rule failed (HTTP ${code}) — attach it in the UI (see below)"
+          api_failed=1
+        fi
+      fi
+    fi
+
     if [ "$api_failed" = "1" ]; then
       cat <<STEPS
 
@@ -143,6 +242,13 @@ RULE
        and 'Relevance', target = live observations, filter traceName any of
        [handle-concierge-chat-message] + name any of [handle-concierge-chat-message],
        mapping query -> input (\$.query), generation -> output.
+    3. Evaluators > + New evaluator > LLM-as-a-Judge (blank, NOT a template) —
+       name 'stated-constraint-respected', one variable {{transcript}}, numeric
+       score. Target = live observations, filter traceName any of
+       [handle-concierge-chat-message] + name any of [conversation-snapshot],
+       mapping transcript -> input (\$.transcript). This is the conversation-level
+       judge: it runs once per conversation, on the snapshot observation the agent
+       emits on the final turn.
 STEPS
     else
       echo ""

@@ -7,6 +7,10 @@
 #   ./run_demo.sh --no-gpt         # skip the GPT comparison run
 #   ./run_demo.sh --prompt-variant # ALSO run the candidate prompt (closes the loop:
 #                                  #   production vs candidate compare, same model)
+#   ./run_demo.sh --multi-turn     # ALSO run the two CONVERSATION experiments:
+#                                  #   N+1 (replay a real prefix, score turn N+1) and
+#                                  #   simulation (an LLM plays the buyer, judge the
+#                                  #   whole trajectory). Costs ~10x a normal run.
 #   ./run_demo.sh --lifecycle      # ALSO run the naive first-draft prompt AND a
 #                                  #   same-prompt control run. This is the prep for
 #                                  #   docs/LIFECYCLE_FEEDBACK_RUNBOOK.md: first-draft
@@ -19,13 +23,14 @@ PY=./.venv/bin/python
 
 [ -d .venv ] || { echo "No .venv. Run: python3.11 -m venv .venv && ./.venv/bin/pip install -r requirements.txt"; exit 1; }
 
-QUICK=0; JUDGE_FLAG=""; GPT=1; PROMPT_VARIANT=0; LIFECYCLE=0
+QUICK=0; JUDGE_FLAG=""; GPT=1; PROMPT_VARIANT=0; LIFECYCLE=0; MULTI_TURN=0
 for a in "$@"; do
   [ "$a" = "--quick" ] && QUICK=1
   [ "$a" = "--no-judge" ] && JUDGE_FLAG="--no-judge"
   [ "$a" = "--no-gpt" ] && GPT=0
   [ "$a" = "--prompt-variant" ] && PROMPT_VARIANT=1
   [ "$a" = "--lifecycle" ] && LIFECYCLE=1
+  [ "$a" = "--multi-turn" ] && MULTI_TURN=1
 done
 
 echo "════════════════════════════════════════════════════════"
@@ -35,8 +40,13 @@ echo "════════════════════════�
 echo -e "\n[1/7] Seeding prompts into Langfuse Prompt Management (first-draft + production + candidate)…"
 $PY scripts/seed_prompts.py
 
-echo -e "\n[2/7] Seeding evaluation dataset (18 items)…"
+echo -e "\n[2/7] Seeding evaluation datasets (single-turn 18 + N+1 conversations 10 + personas 7)…"
 $PY scripts/seed_dataset.py
+# Seeding all three is cheap (dataset writes only, no LLM calls) and keeps every
+# dataset fresh. RUNNING the conversation experiments is not cheap, so those stay
+# behind --multi-turn below.
+$PY scripts/seed_conversation_dataset.py
+$PY scripts/seed_persona_dataset.py
 
 echo -e "\n[3/7] Provisioning managed LLM-as-a-Judge evaluators (Anthropic)…"
 ./scripts/seed_managed_evaluators.sh || echo "  (managed evaluators step skipped — self-hosted: check Docker/Postgres; cloud: see steps above)"
@@ -71,6 +81,18 @@ else
     $PY scripts/run_experiment.py --model claude-sonnet-4-6 --prompt-label production \
       --run-name production-repeat
   fi
+
+  # Multi-turn evaluation. Opt-in because the cost profile is different in kind:
+  # the N+1 run is one agent turn per item (comparable to the runs above), but a
+  # simulated conversation is up-to-6 agent turns PLUS a simulated-user call per
+  # turn PLUS three trajectory judges — roughly an order of magnitude more per
+  # item. run_simulation_experiment.py prints its own upper bound and needs --yes.
+  if [ "$MULTI_TURN" = "1" ]; then
+    echo -e "\n[+]   N+1 experiment — replay real conversation prefixes, score turn N+1…"
+    $PY scripts/run_n_plus_1_experiment.py --model claude-sonnet-4-6
+    echo -e "\n[+]   Simulation experiment — an LLM plays the buyer, judge the whole trajectory…"
+    $PY scripts/run_simulation_experiment.py --model claude-sonnet-4-6 --yes
+  fi
 fi
 
 LF_HOST=$(grep -E '^LANGFUSE_HOST=' .env 2>/dev/null | tail -1 | cut -d= -f2-)
@@ -78,4 +100,6 @@ LF_PROJECT=$(grep -E '^LANGFUSE_PROJECT_NAME=' .env 2>/dev/null | tail -1 | cut 
 echo -e "\n✓ Done. Open Langfuse (${LF_HOST:-http://localhost:3001}) → project '${LF_PROJECT:-real-estate}'."
 echo "  Prompts, Evaluators, Datasets > Runs (compare Claude vs gpt-4o, production vs candidate),"
 echo "  Annotation Queues, Tracing."
+echo "  Multi-turn: Sessions (one conversation, N traces, a session-level score) and"
+echo "  Datasets > property-concierge-conversations / -personas > Runs (--multi-turn)."
 echo "  Then start the portal:  ./run_portal.sh   → http://localhost:8080"
