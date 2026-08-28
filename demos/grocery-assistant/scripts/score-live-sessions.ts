@@ -36,6 +36,7 @@ import {
   LANGFUSE_SECRET_KEY,
   verifyProject,
 } from "../src/env.js";
+import { TRACE_NAME } from "../src/assistant.js";
 import { unverifiedCartClaim, type EvalContext } from "../src/evaluators/deterministic.js";
 import { langfuseClient } from "./seed-dataset.js";
 
@@ -97,26 +98,36 @@ async function readRecentSessions(maxSessions: number): Promise<Array<{ sessionI
   return [...grouped.entries()].slice(0, maxSessions).map(([sessionId, rows]) => ({ sessionId, traces: rows }));
 }
 
+/**
+ * One turn's observations.
+ *
+ * `GET /api/public/traces/{id}` returns the trace WITH its full `observations`
+ * array, so a turn costs one request instead of a paged list — and on this v3
+ * server input/output arrive already parsed as objects.
+ */
 async function readObservations(traceId: string): Promise<ObsRow[]> {
-  const out: ObsRow[] = [];
-  for (let page = 1; ; page += 1) {
-    const body = await api<{ data: ObsRow[] }>(
-      `/api/public/observations?traceId=${encodeURIComponent(traceId)}&page=${page}&limit=100`,
-    );
-    out.push(...body.data);
-    if (body.data.length < 100) break;
-  }
-  return out;
+  const trace = await api<{ observations?: ObsRow[] }>(
+    `/api/public/traces/${encodeURIComponent(traceId)}`,
+  );
+  return trace.observations ?? [];
 }
 
 // ----------------------------------------------------------- reconstruction ---
+type CartOp = { action: string; sku: string | undefined; failed: boolean };
+
 type ReconstructedTurn = {
   turn: number;
   message: string;
   answer: string;
   toolsCalled: string[];
-  /** Cart AFTER the turn. Undefined when this turn never touched the cart. */
-  cartSkus: string[] | undefined;
+  /**
+   * The cart exactly as one `manage_cart` call reported it, when the turn made
+   * exactly one such call. That snapshot is authoritative; see `cartOps` for why
+   * it is not usable when there were several.
+   */
+  cartSnapshot: string[] | undefined;
+  /** The cart mutations this turn attempted, for replaying onto the carried cart. */
+  cartOps: CartOp[];
 };
 
 function asString(value: unknown): string | undefined {
@@ -147,28 +158,103 @@ function turnNumberFrom(metadata: unknown, fallback: number): number {
   return fallback;
 }
 
-function reconstructTurn(observations: ObsRow[], fallbackTurn: number): ReconstructedTurn | undefined {
-  const root = observations.find((o) => o.parentObservationId == null);
-  if (!root) return undefined;
-
-  const message = messageFrom(root.input);
-  const answer = asString(root.output);
-  if (message === undefined || answer === undefined) return undefined;
-
-  const tools = observations.filter((o) => o.type === "TOOL");
-  // Last by start time: the cart as it stood when the turn ended.
-  const cartCalls = tools
-    .filter((o) => o.name === "manage_cart")
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
-  const lastCart = cartCalls[cartCalls.length - 1];
-
+function cartOpFrom(o: ObsRow): CartOp {
+  const input = (o.input ?? {}) as { action?: unknown; sku?: unknown };
+  const output = (o.output ?? {}) as { error?: unknown };
   return {
-    turn: turnNumberFrom(root.metadata, fallbackTurn),
-    message,
-    answer,
-    toolsCalled: tools.map((o) => o.name ?? "(unnamed)"),
-    cartSkus: lastCart ? cartFrom(lastCart.output) : undefined,
+    action: typeof input.action === "string" ? input.action : "view",
+    sku: typeof input.sku === "string" ? input.sku.trim().toUpperCase() : undefined,
+    // An out-of-stock add returns `{ error, suggestedSubstitute }` and changes
+    // nothing. Treating it as a successful add would make the evaluator agree
+    // with the very claim it exists to catch.
+    failed: typeof output.error === "string",
   };
+}
+
+/**
+ * Every turn inside one trace.
+ *
+ * A turn is a `handle-chat-message` observation carrying both a message and an
+ * answer — NOT "the root observation of a trace". Those are the same thing for a
+ * conversation played by run-conversation or compare-traces, where each turn is
+ * its own trace, and they are emphatically not the same thing for a dataset run:
+ * the experiment runner owns the item's trace root and all seven turns hang
+ * underneath it, so one trace holds the whole conversation. Keying on the trace
+ * root reported those sessions as "0 of 1 turns reconstructable" — the score
+ * silently vanished for exactly the runs a presenter is most likely to open.
+ *
+ * So turns are found by name, and each turn's tools are its DESCENDANTS rather
+ * than every TOOL in the trace, which would smear seven turns' cart operations
+ * into each one.
+ */
+function reconstructTurns(observations: ObsRow[]): ReconstructedTurn[] {
+  const childrenOf = new Map<string, ObsRow[]>();
+  for (const o of observations) {
+    const parent = o.parentObservationId ?? "";
+    childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), o]);
+  }
+
+  const turnRoots = observations.filter(
+    (o) =>
+      o.name === TRACE_NAME &&
+      messageFrom(o.input) !== undefined &&
+      asString(o.output) !== undefined,
+  );
+
+  return turnRoots.flatMap((turnRoot, index) => {
+    const message = messageFrom(turnRoot.input);
+    const answer = asString(turnRoot.output);
+    if (message === undefined || answer === undefined) return [];
+
+    // Descendants of this turn only, stopping at any nested turn so a
+    // conversation-in-one-trace cannot bleed across turn boundaries.
+    const descendants: ObsRow[] = [];
+    const stack = [...(childrenOf.get(turnRoot.id) ?? [])];
+    while (stack.length > 0) {
+      const next = stack.pop();
+      if (!next || next.name === TRACE_NAME) continue;
+      descendants.push(next);
+      stack.push(...(childrenOf.get(next.id) ?? []));
+    }
+
+    const tools = descendants.filter((o) => o.type === "TOOL");
+    const cartCalls = tools.filter((o) => o.name === "manage_cart");
+
+    // Why not simply take the last cart snapshot by startTime: tool calls the
+    // model issues in one step run in parallel and are stamped with start times
+    // equal to the millisecond, so the ordering is not recoverable and "last"
+    // silently picks a snapshot taken BEFORE a sibling add. That produced a
+    // confident, wrong FAIL — the assistant really had added the milk. With more
+    // than one call the mutations are replayed onto the carried cart instead,
+    // which does not depend on an order that was never recorded.
+    const only = cartCalls.length === 1 ? cartCalls[0] : undefined;
+
+    return [
+      {
+        turn: turnNumberFrom(turnRoot.metadata, index + 1),
+        message,
+        answer,
+        toolsCalled: tools.map((o) => o.name ?? "(unnamed)"),
+        cartSnapshot: only ? cartFrom(only.output) : undefined,
+        cartOps: cartCalls.map(cartOpFrom),
+      },
+    ];
+  });
+}
+
+/** Apply one turn's cart mutations to the cart as it stood before the turn. */
+function applyCartOps(before: string[], ops: CartOp[]): string[] {
+  const cart = [...before];
+  for (const op of ops) {
+    if (!op.sku || op.failed) continue;
+    if (op.action === "add") {
+      if (!cart.includes(op.sku)) cart.push(op.sku);
+    } else if (op.action === "remove") {
+      const at = cart.indexOf(op.sku);
+      if (at >= 0) cart.splice(at, 1);
+    }
+  }
+  return cart;
 }
 
 // -------------------------------------------------------------------- scoring ---
@@ -184,14 +270,11 @@ export type SessionScore = {
 
 export async function scoreSession(sessionId: string, traces: TraceRow[]): Promise<SessionScore> {
   const turns: ReconstructedTurn[] = [];
-  for (const [index, trace] of traces.entries()) {
-    const turn = reconstructTurn(await readObservations(trace.id), index + 1);
-    if (turn) turns.push(turn);
+  for (const trace of traces) {
+    turns.push(...reconstructTurns(await readObservations(trace.id)));
   }
   turns.sort((a, b) => a.turn - b.turn);
 
-  // Cart carried forward: a turn that answered a question without touching the
-  // cart leaves it exactly as the previous turn did.
   let carried: string[] = [];
   const history: Array<{ role: "user" | "assistant"; content: string }> = [];
   let applicableTurns = 0;
@@ -200,7 +283,11 @@ export async function scoreSession(sessionId: string, traces: TraceRow[]): Promi
   const failComments: string[] = [];
 
   for (const turn of turns) {
-    if (turn.cartSkus !== undefined) carried = turn.cartSkus;
+    // A single reported snapshot beats a replay; several calls make the snapshot
+    // ambiguous, so replay. A turn that never touched the cart leaves it exactly
+    // as the previous turn did.
+    carried =
+      turn.cartSnapshot !== undefined ? turn.cartSnapshot : applyCartOps(carried, turn.cartOps);
 
     const ctx: EvalContext = {
       message: turn.message,
@@ -227,7 +314,7 @@ export async function scoreSession(sessionId: string, traces: TraceRow[]): Promi
   const comment =
     applicableTurns === 0
       ? `No turn of this session made a verifiable add-to-cart claim, so there is nothing to score. ` +
-        `${turns.length} of ${traces.length} turn(s) were reconstructable.`
+        `${turns.length} turn(s) reconstructed from ${traces.length} trace(s).`
       : failingTurns.length === 0
         ? `${passedTurns} of ${applicableTurns} cart claim(s) verified across ${turns.length} turns. No turn misreported the cart.`
         : `${passedTurns} of ${applicableTurns} cart claim(s) verified. Misreported on turn ${failingTurns.join(", ")}. ` +
@@ -296,11 +383,9 @@ export async function scoreLiveSessions(maxSessions: number): Promise<SessionSco
   console.log(`${BOLD}${written} session score(s) written${OFF}, ${results.length - written} skipped for lack of evidence.`);
   if (written === 0 && results.length > 0) {
     console.log(
-      `${DIM}  Every session came back with zero applicable turns. That is a property of the ` +
-        `evaluator, not of the sessions: unverifiedCartClaim in src/evaluators/deterministic.ts ` +
-        `scans FORWARD from the add verb to the next sentence break, and the assistant writes ` +
-        `"**Whole Milk** (DRY-2001) — added!", putting the SKU before the verb. See the note in ` +
-        `the report accompanying these scripts.${OFF}`,
+      `${DIM}  Every session came back with zero applicable turns, which means no turn made a ` +
+        `verifiable add-to-cart claim. Broken-mode sessions land here by construction: their ` +
+        `root observations carry no output, so there is no answer to read a claim out of.${OFF}`,
     );
   }
   return results;

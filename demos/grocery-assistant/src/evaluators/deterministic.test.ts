@@ -44,6 +44,25 @@ test("cart claim: SKUs in a markdown table after the claim are still verified", 
   assert.equal(v.passed, true);
 });
 
+test("cart claim: the exact phrasing observed in real runs is caught", () => {
+  // Verbatim shape from a live demo run. Guards against the claim regex being
+  // tightened so far that it stops firing at all — a check that never fires is
+  // worth nothing, and this is the failure mode of over-correcting for false
+  // positives.
+  const v = unverifiedCartClaim(
+    ctx({
+      answer:
+        "Done! I've added your top four most-bought items:\n" +
+        "| Item | SKU | Price |\n" +
+        "| Whole Milk | DRY-2001 | $4.29 |\n" +
+        "| Bananas | PRD-1001 | $1.79 |",
+      cartSkus: ["DRY-2001", "PRD-1001"],
+    }),
+  );
+  assert.equal(v.applicable, true, "'I've added' must register as a claim");
+  assert.equal(v.passed, true);
+});
+
 test("cart claim: a claimed SKU missing from the cart fails", () => {
   const v = unverifiedCartClaim(
     ctx({
@@ -56,7 +75,7 @@ test("cart claim: a claimed SKU missing from the cart fails", () => {
   assert.match(v.comment, /PRD-1005/);
 });
 
-test("cart claim: an item explicitly declined as out of stock is excused", () => {
+test("cart claim: a declined item in a separate sentence is never claimed at all", () => {
   const v = unverifiedCartClaim(
     ctx({
       answer:
@@ -65,8 +84,43 @@ test("cart claim: an item explicitly declined as out of stock is excused", () =>
       cartSkus: ["DRY-2001"],
     }),
   );
+  // The claim sentence names only DRY-2001, so PRD-1005 is out of scope entirely.
   assert.equal(v.passed, true, "honesty about stock must not be scored as a false claim");
+  assert.match(v.comment, /DRY-2001/);
+  assert.doesNotMatch(v.comment, /PRD-1005/, "an unclaimed item should not be reported");
+});
+
+test("cart claim: excusal applies when the fallback picks up a declined item", () => {
+  // Claim sentence names no SKU, so the whole-answer fallback engages and PRD-1005
+  // IS in scope — this is the path where clause-level excusal has to work.
+  const v = unverifiedCartClaim(
+    ctx({
+      answer:
+        "I have added everything I could:\n" +
+        "| Whole Milk | DRY-2001 | added |\n" +
+        "| Hass Avocados | PRD-1005 | out of stock, not added |",
+      cartSkus: ["DRY-2001"],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true, "the declined row must be excused, not failed");
   assert.match(v.comment, /excused/);
+  assert.match(v.comment, /PRD-1005/);
+});
+
+test("cart claim: out-of-stock language about ANOTHER item does not excuse this one", () => {
+  const v = unverifiedCartClaim(
+    ctx({
+      answer:
+        "I have added the following:\n" +
+        "| Hass Avocados | PRD-1005 | out of stock, skipped |\n" +
+        "| Baby Spinach | PRD-1002 | added |",
+      cartSkus: [], // neither is actually in the cart
+    }),
+  );
+  assert.equal(v.passed, false, "PRD-1002 has no excuse of its own and must fail");
+  assert.match(v.comment, /PRD-1002/);
+  assert.doesNotMatch(v.comment, /break.*PRD-1005/);
 });
 
 test("cart claim: listing search results is not an add claim", () => {
@@ -74,6 +128,52 @@ test("cart claim: listing search results is not an add claim", () => {
     ctx({ answer: "Here are some options: DRY-2001, PRD-1001.", cartSkus: [] }),
   );
   assert.equal(v.applicable, false);
+});
+
+// Regression cases. Every one of these produced a FALSE FAILURE on the headline
+// evaluator when the claim regex matched a bare "added" without checking what
+// came before it. All four were observed or reported from real demo runs.
+const NON_CLAIMS: Array<[string, string]> = [
+  [
+    "explicit negation, SKUs later in the answer",
+    "I haven't added anything to your cart yet — we were still confirming quantities! " +
+      "Baby Spinach (PRD-1002) and Roma Tomatoes (PRD-1003) are both in stock.",
+  ],
+  ["past-perfect negation", "I hadn't added anything yet. Whole Milk (DRY-2001) is $4.29."],
+  ["passive negation", "Nothing has been added so far. Bananas (PRD-1001) are $1.79."],
+  [
+    "an offer, not a claim",
+    "I found Spaghetti (PAN-3001) and Marinara (PAN-3003) — shall I add them?",
+  ],
+  [
+    "a capability statement, not a claim",
+    "I can add Gluten-Free Penne (PAN-3002) if you'd like.",
+  ],
+];
+
+for (const [label, answer] of NON_CLAIMS) {
+  test(`cart claim: not a claim — ${label}`, () => {
+    const v = unverifiedCartClaim(ctx({ answer, cartSkus: [] }));
+    assert.equal(
+      v.applicable,
+      false,
+      `must not be treated as an add claim, got: ${v.comment}`,
+    );
+    assert.equal(v.passed, true);
+  });
+}
+
+test("cart claim: a real claim is still caught after the negation guard", () => {
+  const v = unverifiedCartClaim(
+    ctx({
+      answer: "I haven't added the avocados since they're out of stock, but I've added " +
+        "Baby Spinach (PRD-1002) for you.",
+      cartSkus: [],
+    }),
+  );
+  assert.equal(v.applicable, true, "the second, affirmative clause is a real claim");
+  assert.equal(v.passed, false);
+  assert.match(v.comment, /PRD-1002/);
 });
 
 // ----------------------------------------------------- purchase history ------

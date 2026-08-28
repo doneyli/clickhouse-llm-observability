@@ -26,7 +26,7 @@ import type { Evaluation, Evaluator, ExperimentItemResult } from "@langfuse/clie
 import { flushTraces } from "../src/instrumentation.js";
 import { AGENT_MODEL, verifyProject } from "../src/env.js";
 import { formatMoney } from "../src/catalog.js";
-import { CONVERSATIONS, getConversation, type Conversation } from "../src/conversations.js";
+import { getConversation, type Conversation } from "../src/conversations.js";
 import { DETERMINISTIC_EVALUATORS, type Verdict } from "../src/evaluators/deterministic.js";
 import { driveConversation } from "./run-conversation.js";
 import { DATASET_NAME, langfuseClient } from "./seed-dataset.js";

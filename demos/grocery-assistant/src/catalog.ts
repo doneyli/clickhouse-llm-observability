@@ -74,7 +74,7 @@ export const PRODUCTS: Product[] = [
   { sku: "PAN-3009", name: "Gluten-Free Sandwich Bread", brand: "Harvest Lane", category: "bakery", priceCents: 599, unit: "18 oz", aisle: "Bakery", inStock: true, dietaryTags: ["vegetarian", "gluten_free", "dairy_free", "nut_free"], substituteFor: "PAN-3008" },
 
   // --- meat & seafood ---
-  { sku: "MET-4001", name: "Boneless Chicken Breast", brand: "Northwind", category: "meat", priceCents: 749, unit: "lb", aisle: "Meat", inStock: true, dietaryTags: ["gluten_free", "dairy_free", "nut_free"] },
+  { sku: "MET-4001", name: "Boneless Chicken Breast", brand: "Northwind", category: "meat", priceCents: 749, unit: "lb", aisle: "Meat", inStock: true, dietaryTags: ["gluten_free", "dairy_free", "nut_free"], substituteFor: "MET-4003" },
   { sku: "MET-4002", name: "Ground Beef, 85/15", brand: "Northwind", category: "meat", priceCents: 699, unit: "lb", aisle: "Meat", inStock: true, dietaryTags: ["gluten_free", "dairy_free", "nut_free"] },
   { sku: "MET-4003", name: "Atlantic Salmon Fillet", brand: "Northwind", category: "seafood", priceCents: 1299, unit: "lb", aisle: "Seafood", inStock: false, dietaryTags: ["gluten_free", "dairy_free", "nut_free"] },
   { sku: "MET-4004", name: "Firm Tofu", brand: "Harvest Lane", category: "meat_alternative", priceCents: 279, unit: "14 oz", aisle: "Produce", inStock: true, dietaryTags: ["vegan", "vegetarian", "gluten_free", "dairy_free", "nut_free"], substituteFor: "MET-4001" },

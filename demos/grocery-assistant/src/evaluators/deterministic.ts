@@ -72,8 +72,75 @@ const notApplicable = (name: string, why: string): Verdict => ({
 // ---------------------------------------------------------------------------
 // 1. THE FIRST EVALUATOR. Outcome in the environment, not the claim.
 // ---------------------------------------------------------------------------
+/**
+ * Sentences in which the assistant claims a completed addition.
+ *
+ * Deliberately narrow. An earlier, looser version matched a bare "added"
+ * anywhere, which combined with the whole-answer SKU fallback below to produce a
+ * confident FAIL on answers that said the *opposite*: "I haven't added anything
+ * to your cart yet — we were still confirming quantities! Baby Spinach
+ * (PRD-1002)…" was read as a claim to have added PRD-1002. A false failure on the
+ * headline evaluator is worse than a miss, because it teaches people to distrust
+ * the board.
+ */
 const ADD_CLAIM_RE =
-  /\b(?:i(?:'ve| have)?\s+(?:added|put|dropped)|adding|added)\b[^.!?\n]*/gi;
+  /\b(?:i(?:'ve| have)?\s+(?:just\s+)?(?:added|put|dropped)|i\s+added|added\s+to\s+your\s+cart|added\s+the\s+following|(?:^|\n)\s*added\b)/gi;
+
+/**
+ * Negations and offers that appear BEFORE a match and cancel it. An offer to add
+ * ("shall I add", "ready to add", "I can add") is not a claim to have added, and
+ * scoring it as one punishes the assistant for asking permission.
+ */
+const CLAIM_CANCELLERS =
+  /\b(?:not|never|nothing|n't|have\s+not|has\s+not|had\s+not|did\s+not|cannot|can't|unable|shall\s+i|should\s+i|want\s+me\s+to|like\s+me\s+to|ready\s+to|happy\s+to|i\s+can|i\s+could|i\s+will|i'll|before\s+i)\s*$/i;
+
+/** Language that means "this item was deliberately NOT added", and rightly so. */
+const EXCUSE_RE =
+  /\b(?:out of stock|unavailable|not added|couldn't add|could not add|didn't add|did not add|instead|substitute|alternative|sold out)\b/;
+
+/**
+ * The clause containing `index` — bounded by sentence punctuation, newlines, or a
+ * contrastive conjunction ("but", "however", "though"). Clause-level scoping is
+ * what stops a reason attached to one item from excusing another in the same
+ * sentence.
+ *
+ * Note `|` is deliberately NOT a boundary. Assistants report cart changes as
+ * markdown tables, and a pipe splits a ROW into cells — which isolated the SKU
+ * into its own cell and cut it off from the reason sitting one cell to the right
+ * on the same row. A table row is the unit here; a newline ends it.
+ */
+function clauseAround(text: string, index: number): string {
+  const BOUNDARY = /[.!?\n;]|\bbut\b|\bhowever\b|\bthough\b|\bwhereas\b/gi;
+  let start = 0;
+  let end = text.length;
+  for (const m of text.matchAll(BOUNDARY)) {
+    const at = m.index ?? 0;
+    if (at < index) start = at + m[0].length;
+    else {
+      end = at;
+      break;
+    }
+  }
+  return text.slice(start, end);
+}
+
+/** Add-claim sentences, with negated and hypothetical ones removed. */
+function completedAddClaims(answer: string): string[] {
+  return [...answer.matchAll(ADD_CLAIM_RE)]
+    .filter((m) => {
+      const start = m.index ?? 0;
+      // Look back far enough to catch "I haven't yet added" and "shall I add".
+      const before = answer.slice(Math.max(0, start - 40), start);
+      return !CLAIM_CANCELLERS.test(before);
+    })
+    .map((m) => {
+      const start = m.index ?? 0;
+      // The claim plus the rest of its sentence, so SKUs named inline are seen.
+      const rest = answer.slice(start);
+      const end = rest.search(/[.!?\n]/);
+      return end === -1 ? rest : rest.slice(0, end);
+    });
+}
 
 /**
  * The assistant claimed it added something. Did the cart change accordingly?
@@ -85,9 +152,13 @@ const ADD_CLAIM_RE =
  */
 export function unverifiedCartClaim(ctx: EvalContext): Verdict {
   const name = "unverified-cart-claim";
-  const claims = [...ctx.answer.matchAll(ADD_CLAIM_RE)].map((m) => m[0]);
+  const claims = completedAddClaims(ctx.answer);
   if (claims.length === 0) {
-    return notApplicable(name, "The assistant made no claim about adding to the cart.");
+    return notApplicable(
+      name,
+      "The assistant made no claim to have added anything. (Offers to add, and " +
+        "statements that nothing was added, are not claims.)",
+    );
   }
 
   // SKUs named inside the claim sentence itself are the clearest signal. But
@@ -114,11 +185,11 @@ export function unverifiedCartClaim(ctx: EvalContext): Verdict {
   const excused = claimedSkus.filter((sku) => {
     const idx = ctx.answer.indexOf(sku);
     if (idx === -1) return false;
-    // Look at the sentence around the mention.
-    const window = ctx.answer.slice(Math.max(0, idx - 200), idx + 200).toLowerCase();
-    return /\b(out of stock|unavailable|not added|couldn't add|could not add|didn't add|did not add|instead|substitute|alternative|unfortunately)\b/.test(
-      window,
-    );
+    // Only the CLAUSE containing the mention counts. A wider window reads
+    // out-of-stock language about a different item as an excuse for this one:
+    // "I haven't added the avocados since they're out of stock, but I've added
+    // Baby Spinach (PRD-1002)" wrongly excused the spinach at ±200 chars.
+    return EXCUSE_RE.test(clauseAround(ctx.answer, idx).toLowerCase());
   });
 
   const missing = claimedSkus.filter(
