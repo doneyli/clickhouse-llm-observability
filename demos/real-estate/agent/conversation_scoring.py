@@ -155,20 +155,24 @@ def code_stated_constraint_respected(result: Dict[str, Any]) -> Score:
                          f"honour the accumulated constraints: {', '.join(active)}.{note}")
 
 
-def code_reference_resolved(result: Dict[str, Any]) -> Score:
+def code_reference_resolved(result: Dict[str, Any]) -> Optional[Score]:
     """Did the answer resolve turn N+1's reference to the listing it points at?
 
     Deterministic wherever the dataset says what the right answer is: an item
     carrying `expected.referenced_listing` asserts that id shows up among the
-    answer's citations. When the item has no reference, this passes with a comment
-    saying so — the same shape `code_budget_adherence` uses for a missing budget
-    constraint, so the score is present on every item of the run and its mean over
-    the run stays comparable.
+    answer's citations.
+
+    Returns **None** — no score at all — when the item carries no reference,
+    rather than a free pass. This was a real defect: 6 of 10 items had no
+    `referenced_listing`, each scored True with "No reference to resolve.", and
+    the run mean read a confident 1.000 that was 4 real passes plus 6 freebies.
+    Worse than flattering, it was INSENSITIVE — a regression on any of those six
+    could not move the number. Emitting nothing makes the mean a pass rate over
+    the items that actually tested something, and makes the item count visible.
     """
     wanted = _reference_ids(_constraints(result))
     if not wanted:
-        return Score("reference-resolved", True, "BOOLEAN", kind="code",
-                     comment="No reference to resolve.")
+        return None
     cited = _cited_ids(result)
     missing = [i for i in wanted if i not in cited]
     if missing:

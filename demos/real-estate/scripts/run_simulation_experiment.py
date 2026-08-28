@@ -194,8 +194,8 @@ def confirm(args, n_items) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--max-turns", type=int, default=6,
-                    help="Hard cap on agent turns per conversation (default 6). The "
+    ap.add_argument("--max-turns", type=int, default=9,
+                    help="Hard cap on agent turns per conversation (default 9). The "
                          "simulated buyer usually finishes sooner via [[DONE]].")
     ap.add_argument("--model", default=AGENT_MODEL,
                     help="Agent model under test, e.g. claude-sonnet-4-6 or gpt-4o")

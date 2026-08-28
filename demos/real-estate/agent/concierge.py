@@ -92,7 +92,14 @@ def detect_language(text: str) -> str:
         return "en"
     es = sum(1 for w in words if w in _ES_MARKERS)
     en = sum(1 for w in words if w in _EN_MARKERS)
-    return "es" if (es > en and es >= 2) else "en"
+    # The `es >= 2` guard exists to stop Spanish place/feature names (Malasaña,
+    # terraza, El Palo) tipping a genuinely English answer to 'es'. But it only
+    # makes sense when there IS competing English evidence: with en == 0, the one
+    # Spanish marker is the only signal present, and demanding a second one
+    # misclassified short Spanish turns as English. That produced false
+    # `language-match` failures on a mid-conversation EN->ES switch — the agent
+    # answered Spanish to Spanish and was scored wrong.
+    return "es" if es > en and (es >= 2 or en == 0) else "en"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:

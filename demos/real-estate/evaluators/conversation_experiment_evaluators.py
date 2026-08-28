@@ -40,8 +40,17 @@ def _with_conversation(input: Any, output: Any,
 
 
 def _conversation_evaluator(fn):
+    """Adapt a scorer, honouring a `None` return as NOT APPLICABLE.
+
+    A scorer that returns None emits no Evaluation for that item, so the item is
+    absent from the run-level mean rather than counted as a pass. Without this,
+    `reference-resolved` averaged 6 non-applicable items in as 1.0 and the metric
+    could not detect a regression on them. `run_experiment` tolerates an
+    evaluator returning None (no score is recorded).
+    """
     def evaluator(*, input=None, output=None, expected_output=None, metadata=None, **kwargs):
-        return _score_to_eval(fn(_with_conversation(input, output, expected_output)))
+        score = fn(_with_conversation(input, output, expected_output))
+        return _score_to_eval(score) if score is not None else None
     evaluator.__name__ = fn.__name__
     return evaluator
 
