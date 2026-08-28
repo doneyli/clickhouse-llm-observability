@@ -29,6 +29,8 @@ multi-turn behaviour comes from — and `stated-constraint-respected` /
 and the conversation judge emit, so human and machine stay comparable.
 
 Idempotent: re-running reuses existing configs/queues and only adds new items.
+Full write-up (score schema rationale, reading the labels back, API gotchas):
+CONVERSATION_REVIEW.md.
 
 Run:
     ./.venv/bin/python scripts/seed_annotation_queue.py                    # both queues

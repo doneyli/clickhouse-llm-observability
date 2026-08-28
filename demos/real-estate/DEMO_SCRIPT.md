@@ -305,6 +305,7 @@ separate queue: a budget stated in turn 3 and broken in turn 9 looks perfectly
 fine in every individual trace, so a queue of turns structurally cannot catch it.
 The score lands on the **session** — the only human route to a session-scoped
 score, since no automated evaluator can target one.
+(Depth, if asked: [`CONVERSATION_REVIEW.md`](CONVERSATION_REVIEW.md).)
 
 **Land.** "Your experts review real production traces in a structured queue, and
 their labels land as scores on the very same trace. That human-labeled set is what

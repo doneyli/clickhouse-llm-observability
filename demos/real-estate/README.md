@@ -230,34 +230,29 @@ agent/concierge.py       is_final_turn=True ──▶ `conversation_end` tag (pr
 
 ### The human path: a queue of conversations, not turns
 
-`scripts/seed_annotation_queue.py` seeds **two** queues, because a queue item's
-`objectType` decides what the reviewer is shown:
+`scripts/seed_annotation_queue.py` seeds **two** annotation queues, because a
+queue item's `objectType` decides what the reviewer is shown:
 
-| Queue | Items | Score configs | What the reviewer sees |
+| Queue | Items | Score configs | The reviewer sees |
 |---|---|---|---|
 | `Property Concierge - human review` | `TRACE` | reviewer-verdict, expert-usefulness | one turn |
 | `Property Concierge - conversation review` | `SESSION` | conversation-outcome, stated-constraint-respected, reference-resolved | the whole conversation, turn by turn |
 
 A constraint stated in turn 3 and broken in turn 9 looks fine in *every* single
-trace, so the trace queue structurally cannot catch it. Session items can, and
-the resulting scores attach to the **session** — the same subject
-`create_score(session_id=…)` writes to, and the only human route to it.
-
-Two of the three configs deliberately reuse the machine score names
-(`stated-constraint-respected`, `reference-resolved`), so the human label is a
-gold standard for the automated one rather than a parallel vocabulary; filter by
-score **source** (`ANNOTATION` vs `EVAL`/`API`) to compare them.
-`conversation-outcome` (resolved / partially-resolved / abandoned) is human-only —
-whether the buyer actually got anywhere is not a per-turn question.
+trace, so a queue of turns structurally cannot catch it. Session items can, and
+their scores land on the **session** — the same subject
+`create_score(session_id=…)` writes to, and the only human route to it. Two of
+the three configs reuse the machine score names on purpose, so the human label is
+a gold standard for the automated one (compare by score `source`).
 
 ```bash
 ./.venv/bin/python scripts/seed_annotation_queue.py --only sessions --min-turns 5
 ```
 
-Candidates are sessions whose turn count (root observations named
-`handle-concierge-chat-message`, one per turn) is `>= --min-turns`, longest
-conversation first. In the UI you can add more by hand at any time: **Sessions** →
-checkboxes → **Actions → Add to queue**, or **Annotate** on a single session page.
+→ **[CONVERSATION_REVIEW.md](CONVERSATION_REVIEW.md)** for the score schema
+rationale, what qualifies as a candidate session, reading the labels back via
+`v3/scores`, and the API gotchas (the `sessionId` filter that silently returns
+nothing, session-discovery deprecation, no queue-delete endpoint).
 
 Cost warning: `--multi-turn` is opt-in in `run_demo.sh`. A simulated conversation is
 up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roughly
@@ -340,4 +335,5 @@ webapp/           server.py (FastAPI) + static/index.html (portal UI)
 run_demo.sh       prep all data      run_portal.sh   launch the app
 AI_ENGINEERING_LOOP.md  the loop, mapped to this demo
 DEMO_SCRIPT.md    presenter runbook
+CONVERSATION_REVIEW.md  human review of whole conversations (session queues)
 ```
