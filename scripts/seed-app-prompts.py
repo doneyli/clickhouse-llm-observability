@@ -95,12 +95,46 @@ VECTOR_RAG_GENERATION = (
     "Answer:"
 )
 
+# Gate-2 grounding grader (prompt chaining "gate" rubric). Mirrors
+# GATE_GROUNDING_FALLBACK in demos/text-to-sql/sql_pipeline.py — keep in sync.
+# The literal JSON braces below are NOT variables; get_langchain_prompt() escapes
+# them for LangChain, and {{question}}/etc. convert to {question}/etc.
+TEXT_TO_SQL_GATE_GROUNDING = (
+    "You are a strict verifier for a data-assistant pipeline. The assistant does NOT\n"
+    "execute SQL — it drafts analysis and example queries only.\n\n"
+    "Question: {{question}}\n"
+    "Analysis: {{analysis}}\n"
+    "Context: {{context}}\n"
+    "Response: {{response}}\n\n"
+    "FAIL the response if ANY of these hold:\n"
+    "- It presents specific numbers or rankings as if they were executed query results.\n"
+    "- It references databases or tables not present in the analysis or context.\n"
+    "- It does not address the question.\n"
+    "Otherwise PASS.\n\n"
+    "Reply with EXACTLY one JSON object, no prose:\n"
+    '{"verdict": "pass" | "fail", "reason": "<one sentence>"}'
+)
+
+# Candidate variant of the analysis prompt — this is the ONLY thing the
+# experiment runner (demos/text-to-sql/scripts/run_experiment.py) varies; the
+# response prompt and both gates stay byte-identical across variants.
+TEXT_TO_SQL_ANALYSIS_CANDIDATE = (
+    TEXT_TO_SQL_ANALYSIS
+    + "\n\nFor each database you choose, state in one clause why it fits."
+)
+
+GATE_CONFIG = {"model": "claude-haiku-4-5", "temperature": 0}
+
+# (name, text, commitMessage, label, config)
 PROMPTS = [
-    ("text-to-sql-analysis", TEXT_TO_SQL_ANALYSIS, "Query-analysis prompt (baseline)"),
-    ("text-to-sql-response", TEXT_TO_SQL_RESPONSE, "Response-generation prompt (baseline)"),
-    ("vector-rag-generation", VECTOR_RAG_GENERATION, "RAG generation prompt (baseline)"),
+    ("text-to-sql-analysis", TEXT_TO_SQL_ANALYSIS, "Query-analysis prompt (baseline)", "production", CONFIG),
+    ("text-to-sql-response", TEXT_TO_SQL_RESPONSE, "Response-generation prompt (baseline)", "production", CONFIG),
+    ("vector-rag-generation", VECTOR_RAG_GENERATION, "RAG generation prompt (baseline)", "production", CONFIG),
+    ("text-to-sql-gate-grounding", TEXT_TO_SQL_GATE_GROUNDING,
+     "Gate-2 grounding grader (Haiku, temp 0)", "production", GATE_CONFIG),
+    ("text-to-sql-analysis", TEXT_TO_SQL_ANALYSIS_CANDIDATE,
+     "Query-analysis prompt (candidate: justify each pick)", "candidate", CONFIG),
 ]
-LABEL = "production"
 
 
 def _get(name: str, label: str):
@@ -115,9 +149,9 @@ def _get(name: str, label: str):
         raise
 
 
-def _create(name: str, text: str, label: str, message: str) -> dict:
+def _create(name: str, text: str, label: str, message: str, config: dict) -> dict:
     body = {"name": name, "type": "text", "prompt": text, "labels": [label],
-            "config": CONFIG, "commitMessage": message}
+            "config": config, "commitMessage": message}
     req = urllib.request.Request(f"{HOST}/api/public/v2/prompts",
                                  data=json.dumps(body).encode(), headers=_HEADERS, method="POST")
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -128,15 +162,15 @@ def main():
     if not PK or not SK:
         raise SystemExit("LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set (source .env first).")
     print(f"Seeding app prompts at {HOST} ...")
-    for name, text, message in PROMPTS:
-        existing = _get(name, LABEL)
+    for name, text, message, label, config in PROMPTS:
+        existing = _get(name, label)
         if existing is not None and (existing.get("prompt") or "").strip() == text.strip():
-            print(f"  ✓ {name} [{LABEL}] already up to date (v{existing.get('version')})")
+            print(f"  ✓ {name} [{label}] already up to date (v{existing.get('version')})")
             continue
-        created = _create(name, text, LABEL, message)
+        created = _create(name, text, label, message, config)
         verb = "updated" if existing is not None else "created"
-        print(f"  + {name} [{LABEL}] {verb} (v{created.get('version')})")
-    print(f"\nDone. View: {HOST} → Prompts. The apps fetch these by label=production at runtime.")
+        print(f"  + {name} [{label}] {verb} (v{created.get('version')})")
+    print(f"\nDone. View: {HOST} → Prompts. The apps fetch these by label at runtime.")
 
 
 if __name__ == "__main__":
