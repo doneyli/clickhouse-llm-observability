@@ -23,7 +23,7 @@ Design notes for the parallelization pattern:
 
 import os
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Optional
 
 # Langfuse is enabled only when both keys are present (repo convention).
@@ -86,17 +86,27 @@ def trace_context(name: str = "triage-support-ticket", session_id: Optional[str]
     if not LANGFUSE_ENABLED:
         yield
         return
+    # Guard only the SETUP of instrumentation — never the caller's block. Holding
+    # the `yield` inside `try: ... except Exception` routes any exception raised by
+    # the CALLER into this generator, where it is swallowed, printed as if Langfuse
+    # had failed, and followed by a second `yield` — which Python converts into
+    # "RuntimeError: generator didn't stop after throw()", destroying the real
+    # traceback. Enter the context eagerly and let the body's exceptions through.
+    stack = ExitStack()
     try:
         from langfuse import propagate_attributes
-        with propagate_attributes(
+        stack.enter_context(propagate_attributes(
             trace_name=name,
             session_id=session_id,
             user_id=user_id,
             tags=tags or ["support-triage-parallel", "demo"],
-        ):
-            yield
+        ))
     except Exception as e:  # pragma: no cover - defensive
-        print(f"Langfuse trace context failed: {e}")
+        print(f"Langfuse trace context unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
@@ -116,25 +126,34 @@ def observe(name: str, as_type: str = "span", input=None, metadata=None, **kwarg
     if client is None:
         yield _NullObs()
         return
+    # Setup guarded, body not. Previously the caller's block sat inside
+    # `try: ... except TypeError:`, so a TypeError raised by the CALLER triggered
+    # the "unknown as_type" fallback below and RAN THE CALLER'S BLOCK A SECOND
+    # TIME; any other caller exception was mislabelled a Langfuse failure and
+    # replaced by "RuntimeError: generator didn't stop after throw()".
+    stack = ExitStack()
+    obs = None
     try:
-        with client.start_as_current_observation(
+        obs = stack.enter_context(client.start_as_current_observation(
             as_type=as_type, name=name, input=input, metadata=metadata, **kwargs
-        ) as obs:
-            yield obs
+        ))
     except TypeError:
-        # Unknown as_type or unsupported kwarg for this SDK build — fall back to
+        # Unknown as_type or unsupported kwarg for this SDK build — retry once as
         # a plain span so the observation still lands.
         try:
-            with client.start_as_current_observation(
+            obs = stack.enter_context(client.start_as_current_observation(
                 as_type="span", name=name, input=input, metadata=metadata
-            ) as obs:
-                yield obs
+            ))
         except Exception as e:  # pragma: no cover - defensive
-            print(f"Langfuse observation '{name}' failed: {e}")
-            yield _NullObs()
+            print(f"Langfuse observation '{name}' unavailable: {e}")
     except Exception as e:  # pragma: no cover - defensive
-        print(f"Langfuse observation '{name}' failed: {e}")
+        print(f"Langfuse observation '{name}' unavailable: {e}")
+    if obs is None:
+        stack.close()
         yield _NullObs()
+        return
+    with stack:
+        yield obs
 
 
 def score_current_trace(name: str, value, comment: Optional[str] = None, data_type="NUMERIC"):
