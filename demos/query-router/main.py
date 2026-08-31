@@ -58,7 +58,10 @@ def run_demo():
             print(f"Error: {e}")
     print("=" * 64)
     if lf.is_langfuse_enabled():
-        print("View traces (name=route-and-dispatch): http://localhost:3001 (Langfuse → Traces)")
+        print("View traces: http://localhost:3001 (Langfuse → Traces)")
+        print("  fallback/escalated routes -> trace name 'route-and-dispatch'")
+        print("  dispatched routes         -> trace name '<handler>-handler' (e.g. text-to-sql-handler),")
+        print("                               which holds the router spans AND the handler subtree")
     print("=" * 64 + "\n")
 
 
