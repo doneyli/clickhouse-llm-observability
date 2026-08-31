@@ -151,6 +151,14 @@ Verified against Langfuse Cloud v4.22.0, project `real-estate`.
   is what the helper already does for turn counts). Its rows carry no turn count.
 - **Cloud/v4 only**, like the rest of this demo: `v2/observations` 404s on the
   repo's self-hosted v3 server, and the error carries a version hint saying so.
+- **`source: ANNOTATION` cannot be produced from the API.** `ScoreBody` has no
+  `source` field, so every score you POST is `API` no matter what — a genuine
+  human annotation only comes from the UI flow. Plan demos accordingly: you can
+  seed the queue programmatically, but somebody has to click.
+- **Session-level notes go through the comments API** (`POST /api/public/comments`
+  with `objectType: "SESSION"`, `projectId`, `objectId`, `content`), which is the
+  only way to attach prose to a session without the UI. Score *comments* are
+  UI-only in the same way `source` is.
 - **There is no API to delete a queue** — only to delete items
   (`DELETE /api/public/annotation-queues/{queueId}/items/{itemId}`). Remove the
   queue itself from the UI; score configs can be archived, not deleted.
