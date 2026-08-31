@@ -394,9 +394,16 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - demo
-    depends_on:
-      langfuse-clickhouse:
-        condition: service_healthy
+    # NO depends_on. This demo investigates Langfuse's OWN ClickHouse
+    # (TARGET_CH_HOST above), which lives in the `langfuse` profile — and a
+    # `demo`-profile service cannot depend on a `langfuse`-profile one: with only
+    # `--profile demo` active the referenced service is undefined and Compose
+    # rejects the WHOLE project ("depends_on undefined service
+    # langfuse-clickhouse"), which broke `--profile demo` for every other demo
+    # too. Every other demo service here depends only on profile-less or
+    # same-profile services; this was the lone exception.
+    # Bring the target up yourself — the documented invocation already does:
+    #   docker compose --profile langfuse --profile demo run --rm cluster-health python main.py
     volumes:
       - ./demos/cluster-health-investigator:/app
 
