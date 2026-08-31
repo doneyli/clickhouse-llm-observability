@@ -593,6 +593,9 @@ ensure_slow_query_tuner() {
     docker compose --profile demo run --rm slow-query-tuner \
         python scripts/seed_all.py || warn "slow-query-tuner seeding skipped"
     "$SCRIPT_DIR/scripts/seed-query-tuner-evaluators.sh" || true
+}
+
+#######################################
 # Seed the Cluster Health Investigator demo (idempotent, non-fatal): 3 managed
 # prompts, plan-quality + worker-quality datasets, and 2 managed judges. Runs
 # via the demo container's scripts/seed_all.py entry point.
