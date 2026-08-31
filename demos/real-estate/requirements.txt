@@ -14,3 +14,16 @@ openai>=1.40
 # Portal (the show-able app)
 fastapi>=0.110
 uvicorn[standard]>=0.29
+
+# --- photo-audit path (multi-modal eval) -------------------------------------
+# The listing-photo audit runs as a LangGraph graph so the demo has a real
+# trajectory to trace (nodes, a tool call, a conditional self-correct branch).
+langgraph>=1.0,<2.0
+langchain-anthropic>=1.0,<2.0
+# `langchain` is the META-package and is NOT optional: `langfuse.langchain`
+# imports `langchain` directly, so installing only langchain-core (which
+# langgraph pulls in) fails at import with ModuleNotFoundError. Found the hard
+# way — do not "tidy" this away as a transitive dependency.
+langchain>=1.0,<2.0
+# NOTE: photo fixtures are rendered with the STDLIB (zlib + struct) on purpose —
+# no Pillow. See data/photo_scenes.py for why.
