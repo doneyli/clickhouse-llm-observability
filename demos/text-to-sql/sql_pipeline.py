@@ -143,10 +143,36 @@ class ClickHouseSQLPipeline:
         self.gate_log = []
 
     def _setup_llm(self):
+        # `timeout` and `max_retries` are NOT optional here, and their absence is
+        # what made the first live run of this demo unusable: 10 questions took
+        # 8+ hours, with individual questions stalling 3h14m and 4h38m at 0.03%
+        # CPU — i.e. blocked on a socket, not computing. Without an explicit
+        # read timeout a half-open connection to the API hangs until the OS gives
+        # up, which can be hours.
+        #
+        # The gated chain made this much more likely than the pre-gate pipeline
+        # did: it issues up to 3 LLM calls per question (analysis, response, and
+        # the Gate-2 grader) instead of one, so each question has three chances
+        # to hit a stalled socket.
+        #
+        # NOTE the field name: this langchain-anthropic (>=0.3,<1) exposes
+        # `default_request_timeout`, NOT `timeout`. Passing `timeout=` is
+        # silently ignored — the model accepts unknown kwargs — so the fix would
+        # have looked applied and changed nothing. Verified against the field
+        # list in the built image.
+        #
+        # 120s is generous for these prompts (max_tokens is small) and still
+        # fails fast enough to be watchable in a demo. 2 retries bounds the worst
+        # case per call at ~6 minutes rather than unbounded.
+        llm_timeout = float(os.getenv("LLM_TIMEOUT_S", "120"))
+        llm_retries = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
         self.llm = ChatAnthropic(
             model=self.config.model_name,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
+            default_request_timeout=llm_timeout,
+            max_retries=llm_retries,
         )
         # Cheap tier for the Gate-2 grounding grader (repo convention: Haiku for
         # checks). temp=0 so the verdict is as stable as an LLM check can be.
@@ -154,6 +180,8 @@ class ClickHouseSQLPipeline:
             model=os.getenv("GATE_MODEL", "claude-haiku-4-5"),
             temperature=0,
             max_tokens=300,
+            default_request_timeout=llm_timeout,
+            max_retries=llm_retries,
         )
 
     def _rebuild_analysis_chain(self):
