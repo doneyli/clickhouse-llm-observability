@@ -110,6 +110,8 @@ demos/                      # The distinct LLM-app demos (see demos/README.md)
   agentic-rag/              #   Self-correcting RAG on ClickHouse-native vectors (LangGraph)
   litellm-gateway/          #   LiteLLM proxy + Langfuse OTLP tracing MVP
   real-estate/              #   Standalone agentic concierge — the loop end-to-end (own venv/.env)
+  grocery-assistant/        #   Retail-grocery assistant (TypeScript/Vercel AI SDK 7) — good vs
+                            #   broken instrumentation + evaluator-selection teaching demo (own .env)
   brand-promo-multi-agent/  #   Standalone multi-agent promo assistant (LangGraph + CrewAI, uv)
   langfuse-rls/             #   Standalone trace RLS prototype (Next.js)
 librechat/                  # LibreChat customizations (Dockerfile.api, entrypoint.sh, nginx.conf)
