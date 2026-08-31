@@ -127,6 +127,25 @@ GATE_GROUNDING_FALLBACK = (
 )
 
 
+def _capped(reason: Optional[str], limit: int = 180) -> Optional[str]:
+    """Shorten a gate reason for the PROPAGATED metadata path.
+
+    LangChain's ``config={"metadata": ...}`` is turned into propagated trace
+    metadata by the Langfuse callback handler, and propagated metadata values are
+    capped at 200 characters — over that, Langfuse DROPS the value and logs
+    "Propagated attribute ... is over 200 characters ... Dropping value". Gate
+    reasons are grader sentences and routinely run 240-290 chars, so the field was
+    being discarded exactly when it mattered (on a retry).
+
+    The full, untruncated reason is still on the gate span's own output
+    (``span.update(output=result.as_output())``) — observation metadata has no such
+    cap. This is only the short copy that rides along on the retried generation.
+    """
+    if not reason:
+        return None
+    return reason if len(reason) <= limit else reason[: limit - 1].rstrip() + "…"
+
+
 class ClickHouseSQLPipeline:
     """Text-to-SQL pipeline that queries ClickHouse via MCP."""
 
@@ -289,7 +308,7 @@ class ClickHouseSQLPipeline:
                 {"question": self._apply_fault(step_input)},
                 config={**config, "metadata": {"purpose": "query_analysis",
                                                "attempt": attempt,
-                                               "gate_failure_reason": None if attempt == 1 else gate1.reason}})
+                                               "gate_failure_reason": None if attempt == 1 else _capped(gate1.reason)}})
             with langfuse_gate("gate-database-selection") as span:
                 gate1 = gate_database_selection(analysis)
                 span.update(input={"analysis": analysis[:500]},
@@ -326,7 +345,7 @@ class ClickHouseSQLPipeline:
                      f"and never present numbers as executed query results.]")},
                 config={**config, "metadata": {"purpose": "response_generation",
                                                "attempt": attempt,
-                                               "gate_failure_reason": None if attempt == 1 else gate2.reason}})
+                                               "gate_failure_reason": None if attempt == 1 else _capped(gate2.reason)}})
             with langfuse_gate("gate-response-quality") as span:
                 gate2 = gate_response_quality(question, analysis, context, answer,
                                               grader_chain)

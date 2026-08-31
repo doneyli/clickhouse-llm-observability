@@ -192,17 +192,43 @@ def langfuse_gate(name: str):
 
 
 def tag_current_trace(tags: List[str]):
-    """Append tags to the active trace (used by gate abort/escalate routing).
+    """Record a gate outcome (abort / escalate) that is only known mid-trace.
 
-    No-op on error / when Langfuse is disabled — tracing never takes the app down.
+    This used to call ``update_current_trace(tags=...)``, which **does not exist on
+    SDK v4** — the call raised, the except below swallowed it, and every escalated
+    or aborted run went unlabelled while printing a one-line warning nobody reads.
+    Tags in v4 are immutable and set at observation creation, so a trace genuinely
+    cannot be retro-tagged.
+
+    Langfuse's own guidance covers exactly this case: "If you need to label traces
+    based on something determined after the fact ... use scores instead."
+    (docs/observability/best-practices). So each tag becomes a BOOLEAN score on the
+    current trace — which, unlike a tag, is filterable, aggregatable in dashboards,
+    and can be added at any point.
+
+    Score names are the tag with ':' -> '-', because ':' is not a useful character
+    in a score name you will later group by.
+
+    No-op when Langfuse is disabled; never takes the app down.
     """
     if not LANGFUSE_ENABLED:
         return
     try:
         from langfuse import get_client
-        get_client().update_current_trace(tags=tags)
+        client = get_client()
+        trace_id = client.get_current_trace_id()
+        if not trace_id:
+            return
+        for tag in tags:
+            client.create_score(
+                trace_id=trace_id,
+                name=tag.replace(":", "-"),
+                value=1,
+                data_type="BOOLEAN",
+                comment=f"Gate routing outcome: {tag}",
+            )
     except Exception as e:
-        print(f"Failed to tag current trace {tags}: {e}")
+        print(f"Failed to record gate outcome {tags}: {e}")
 
 
 def get_langfuse_handler():
