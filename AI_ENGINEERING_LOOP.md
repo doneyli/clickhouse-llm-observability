@@ -31,6 +31,7 @@ it across the whole stack.
 | `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP — the P1 **prompt-chaining-with-gates** demo (deterministic catalog gate + hybrid grounding gate, bounded retry, abort/escalate) | LangChain + Langfuse `CallbackHandler` |
 | `demos/vector-rag/` | RAG over ChromaDB | LangChain + Langfuse `CallbackHandler` |
 | `demos/agentic-rag/` | Self-correcting RAG on ClickHouse-native vectors | LangGraph + Langfuse SDK |
+| `demos/cluster-health-investigator/` | Orchestrator–workers: a planner LLM decides fan-out at runtime (LangGraph `Send`) and diagnoses the stack's own ClickHouse | LangGraph + Langfuse SDK |
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |
 | `demos/real-estate/` | Self-contained agentic concierge — the loop shown end-to-end in one place | Langfuse SDK |
 | `demos/brand-promo-multi-agent/` | Multi-agent promo-planning assistant (standalone): synthetic history, online + offline evals, persona dashboards | LangGraph + CrewAI + Langfuse `CallbackHandler` |
@@ -40,7 +41,7 @@ it across the whole stack.
 | # | Step | Across the main stack | Deep-dive example |
 |---|------|----------------------|-------------------|
 | 1 | **Trace** | All apps emit full traces (prompts, tools, retrieval, cost) to the Langfuse project | `demos/agentic-rag/graph.py`, `demos/text-to-sql/sql_pipeline.py` |
-| 2 | **Monitor** | **LLM Observatory** dashboard (`dashboard/`, `:8005`); code + LLM-judge scores; **👍/👎 user feedback** — LibreChat thumbs → `user-feedback` score natively (v0.8.6+), and the `demos/real-estate/` portal | Langfuse **Dashboards** / **Evaluators** |
+| 2 | **Monitor** | **LLM Observatory** dashboard (`dashboard/`, `:8005`); code + LLM-judge scores; **👍/👎 user feedback** — LibreChat thumbs → `user-feedback` score natively (v0.8.6+), and the `demos/real-estate/` portal | **fan-out / cost** monitoring in `demos/cluster-health-investigator/` (`worker_count` trace score + `scripts/check_fanout.py` Metrics API gate + `sql/worker_count_by_trace.sql`) |
 | 3 | **Build datasets** | `scripts/seed-datasets.py` (coding-quality + security datasets); production traces → dataset from the UI | `demos/real-estate/` 10-item eval set |
 | 4 | **Experiment** | `scripts/run-experiments.py` — compare **models / datasets** on the eval sets | **prompt-variant** experiments: `demos/real-estate/` + `agentic-rag` |
 | 5 | **Evaluate** | Deterministic **code evaluators** (`evaluators/*.ts`, seeded by `scripts/seed-code-evaluators.sh`) + **LLM-as-a-Judge** (`scripts/seed-llm-judge-evaluators.sh`) | human **annotation** queue in `demos/real-estate/` |

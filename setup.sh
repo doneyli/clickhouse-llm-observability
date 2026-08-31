@@ -580,6 +580,26 @@ ensure_librechat_agents() {
 }
 
 #######################################
+# Seed the Cluster Health Investigator demo (idempotent, non-fatal): 3 managed
+# prompts, plan-quality + worker-quality datasets, and 2 managed judges. Runs
+# via the demo container's scripts/seed_all.py entry point.
+#######################################
+ensure_cluster_health_seed() {
+    if [ ! -d "$SCRIPT_DIR/demos/cluster-health-investigator" ]; then
+        return 0
+    fi
+
+    header "Seeding Cluster Health Investigator"
+
+    if docker compose --profile langfuse --profile demo run --rm cluster-health \
+        python scripts/seed_all.py; then
+        success "Cluster-health prompts, datasets, and judges seeded"
+    else
+        warn "Cluster-health seeding skipped — run: docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_all.py"
+    fi
+}
+
+#######################################
 # Wait for critical services to be healthy
 #######################################
 wait_for_services() {
@@ -852,6 +872,7 @@ main() {
     ensure_llm_judge_evaluators
     ensure_project_name_dict
     ensure_librechat_agents
+    ensure_cluster_health_seed
 
     if [ "$run_seed" = true ]; then
         header "Seeding Demo Data"
