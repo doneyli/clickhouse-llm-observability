@@ -121,7 +121,11 @@ def update_current_observation(metadata=None, output=None, input=None):
         if input is not None:
             kwargs["input"] = input
         if kwargs:
-            client.update_current_observation(**kwargs)
+            # v4 removed `update_current_observation`; the typed accessors
+            # replaced it. `update_current_span` is the right one here — every
+            # call site in this demo is inside a span, not a generation.
+            # Verified against langfuse 4.14.4.
+            client.update_current_span(**kwargs)
     except Exception as e:  # pragma: no cover - defensive
         print(f"Langfuse update_current_observation failed: {e}")
 

@@ -89,12 +89,23 @@ def observe(name: str, as_type: str = "span", input=None):
 
 
 def update_current_trace(**kwargs):
-    """Set trace-level input/output/metadata on the active trace."""
+    """Set the trace's input/output/metadata.
+
+    The name is kept for its call sites in agent_loop.py, but note it no longer
+    maps to a client method of the same name: SDK v4 removed
+    `update_current_trace`, and trace-level input/output is derived from the root
+    observation instead. The body writes to the current span accordingly.
+    """
     client = get_client()
     if client is None:
         return
     try:
-        client.update_current_trace(**kwargs)
+        # v4 removed `update_current_trace`. Trace-level input/output is now
+        # DERIVED from the root observation, so setting it on the current span —
+        # which is the root when the agent loop calls this — is the equivalent.
+        # Verified against langfuse 4.14.4: update_current_trace absent,
+        # update_current_span present.
+        client.update_current_span(**kwargs)
     except Exception as e:  # pragma: no cover - defensive
         print(f"Langfuse update_current_trace failed: {e}")
 

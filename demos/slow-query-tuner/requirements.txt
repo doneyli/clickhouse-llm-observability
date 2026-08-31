@@ -2,7 +2,9 @@
 anthropic>=0.40.0,<1.0.0
 
 # Langfuse — LLM observability (agentic instrumentation, v3 SDK)
-langfuse>=3.0.0,<4.0.0
+# v4: this demo uses propagate_attributes / start_as_current_observation,
+# which are v4 APIs. The <4 pin it shipped with could never have run it.
+langfuse>=4.7,<5.0
 
 # ClickHouse driver — the live tuning-lab environment
 clickhouse-connect>=0.8.0,<1.0.0

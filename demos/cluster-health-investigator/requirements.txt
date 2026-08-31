@@ -11,7 +11,9 @@ clickhouse-connect>=0.8.0,<1.0.0
 pydantic>=2.0.0,<3.0.0
 
 # Langfuse - LLM observability (agentic instrumentation, prompts, scores, datasets, experiments)
-langfuse>=3.0.0,<4.0.0
+# v4: this demo uses propagate_attributes / start_as_current_observation,
+# which are v4 APIs. The <4 pin it shipped with could never have run it.
+langfuse>=4.7,<5.0
 
 # Metrics API / Scores API calls (check_fanout.py, score_delegations.py, seed_*)
 requests>=2.31.0,<3.0.0

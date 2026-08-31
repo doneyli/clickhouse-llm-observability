@@ -2,7 +2,9 @@
 anthropic>=0.40.0,<1.0.0
 
 # Langfuse - LLM observability (v3 typed observations, scores, managed prompts)
-langfuse>=3.0.0,<4.0.0
+# v4: this demo uses propagate_attributes / start_as_current_observation,
+# which are v4 APIs. The <4 pin it shipped with could never have run it.
+langfuse>=4.7,<5.0
 
 # HTTP (Anthropic + Langfuse transitively depend on it; pinned for the seed scripts)
 httpx>=0.27.0,<1.0.0
