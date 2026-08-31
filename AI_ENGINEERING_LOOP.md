@@ -31,6 +31,7 @@ it across the whole stack.
 | `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP — the P1 **prompt-chaining-with-gates** demo (deterministic catalog gate + hybrid grounding gate, bounded retry, abort/escalate) | LangChain + Langfuse `CallbackHandler` |
 | `demos/vector-rag/` | RAG over ChromaDB | LangChain + Langfuse `CallbackHandler` |
 | `demos/agentic-rag/` | Self-correcting RAG on ClickHouse-native vectors | LangGraph + Langfuse SDK |
+| `demos/support-triage-parallel/` | Parallel ticket triage — sectioning fan-out + best-of-N SQL voting (Pattern #3) | Anthropic API (asyncio) + Langfuse SDK |
 | `demos/query-router/` | Front-door classification-dispatch over the other demos (Pattern 2: Routing) — the cleanest full-loop story after real-estate, at a fraction of the size | raw Anthropic SDK + `httpx` + Langfuse SDK |
 | `demos/cluster-health-investigator/` | Orchestrator–workers: a planner LLM decides fan-out at runtime (LangGraph `Send`) and diagnoses the stack's own ClickHouse | LangGraph + Langfuse SDK |
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |
@@ -71,6 +72,28 @@ loop step at a fraction of a full agent's size:
    categorical `route-plausibility` LLM judge (`scripts/seed-router-judge.sh`);
    misroutes recorded as post-hoc **scores** (`routing_correct`), never
    retroactive tags. **Deploy** = promote the router prompt's `production` label.
+
+## Parallelization demo — the loop on a fan-out (`demos/support-triage-parallel/`)
+
+Pattern #3 exercises every loop step around a concurrent fan-out:
+
+- **Trace** — 4 sectioning branches + 5 voting samples land as **sibling
+  observations** under one `triage-support-ticket` trace; the Timeline shows them
+  overlapping (parallel) vs a staircase (`--sequential`). The `tally-votes`
+  aggregator carries the literal vote tally in metadata.
+- **Monitor** — parallelization multiplies spend ~N×; a **cost-per-trace** Monitor
+  (Metrics API `sum totalCost` by `traceName`) bounds it, and a `level=WARNING`
+  count Monitor tracks dropped branches.
+- **Datasets / Experiment** — `scripts/run_experiment.py` compares the three
+  aggregation strategies (result-signature / majority-exact / judge-consensus) on
+  `support-triage/sql-voting`, branches held fixed — a run-level
+  `voting_accuracy_rate` decides the winner (`--ci` gates at 0.8).
+- **Evaluate** — runtime scores `consensus_confidence` (trace), `sql_validity_rate`
+  (span), `policy_flagged` (guard span); plus the deterministic
+  `consensus-margin-guard` code evaluator and the independent `correlated-vote-risk`
+  managed judge (`scripts/seed-support-triage-evaluators.sh`).
+- **Deploy** — 7 managed prompts fetched by `label=production` with local
+  fallbacks (`scripts/seed_prompts.py`); the SQL voter ships v1 + v2.
 
 ## The Deploy node across the stack
 

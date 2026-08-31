@@ -105,6 +105,11 @@ seed_evaluator "credential-leak-guard" "credential-leak" "event" \
 seed_evaluator "response-structure-check" "structure-clean" "event" \
     '[{"type":"stringOptions","value":["GENERATION"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["text-to-sql","vector-rag"],"column":"traceName","operator":"any of"}]' 0
 
+# Support Triage Parallel (Pattern #3): deterministic margin check on the
+# `tally-votes` aggregator span — reads the vote tally the app writes onto
+# metadata (no need to pull in the N candidate child observations).
+seed_evaluator "consensus-margin-guard" "consensus_margin_ok" "event" \
+    '[{"type":"stringOptions","value":["tally-votes"],"column":"name","operator":"any of"},{"type":"stringOptions","value":["triage-support-ticket"],"column":"traceName","operator":"any of"}]' 0
 # slow-query-tuner (Pattern #7): flag runs that ended on a backstop instead of
 # self-terminating. Targets the AGENT root observation of tune-clickhouse-query
 # traces; emits cap_terminated (BOOLEAN) + termination_class (CATEGORICAL).
