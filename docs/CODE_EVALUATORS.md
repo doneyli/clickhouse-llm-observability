@@ -69,7 +69,7 @@ sources in [`evaluators/`](../evaluators/):
 
 4. **Experiments**: run the datasets through a model —
    ```bash
-   pip install 'langfuse>=3.0,<4.0' anthropic   # one-time
+   pip install 'langfuse>=4.7,<5.0' anthropic   # one-time
    python scripts/run-experiments.py --dataset security
    ```
    Open Datasets → `coding-assistant-security` → the new run. Every item is

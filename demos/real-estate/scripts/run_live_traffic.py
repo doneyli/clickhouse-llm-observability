@@ -93,6 +93,16 @@ def main():
 
     histories: dict = {}   # session_id -> accumulated conversational turns
     turns: dict = {}       # session_id -> 0-based turn index
+    # A conversation-level judge can only run if the APP declares the end of the
+    # conversation — Langfuse never knows when a session has concluded. Find the
+    # last row of each session up front so that turn can be flagged, which tags it
+    # `conversation_end` and emits the `conversation-snapshot` observation the
+    # managed `stated-constraint-respected` rule fires on (see
+    # scripts/seed_managed_evaluators.sh).
+    last_row_of_session: dict = {}
+    for row_index, row in enumerate(TRAFFIC):
+        if row[1]:
+            last_row_of_session[row[1]] = row_index
     for i, (query, sess, user, tags, fault) in enumerate(TRAFFIC, 1):
         tag = f" [fault:{fault}]" if fault else ""
         sess_tag = " [session]" if sess else ""
@@ -101,8 +111,11 @@ def main():
         # Each turn is its own trace; a session's turns are grouped by session_id
         # (visible together in the Langfuse Sessions view).
         turn_index = turns.get(sess, 0)
+        # `enumerate(..., 1)` makes i 1-based; last_row_of_session is 0-based.
+        is_final_turn = bool(sess) and last_row_of_session.get(sess) == i - 1
         result = run_turn(query, session_id=sess, user_id=user, extra_tags=tags,
-                          fault=fault, history=history, turn_index=turn_index)
+                          fault=fault, history=history, turn_index=turn_index,
+                          is_final_turn=is_final_turn)
         if sess:
             histories[sess] = history + [{"role": "user", "content": query},
                                          {"role": "assistant", "content": result["answer"]}]
@@ -122,6 +135,10 @@ def main():
     flush_langfuse(lf)
     print("\n✓ Live traffic complete. Managed judges (Helpfulness/Relevance) "
           "score these automatically within ~1 min.")
+    print("  Conversation-level: the final turn of each session carries a "
+          "'conversation-snapshot' observation, which the")
+    print("  'stated-constraint-respected' judge scores once per conversation "
+          "(one score for the whole thread, not per turn).")
     print("  View: Langfuse UI > Tracing (filter tag 'real-estate'); Sessions > sess-madrid-buyer-001")
 
 

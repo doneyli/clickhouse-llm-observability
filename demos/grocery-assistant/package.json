@@ -1,0 +1,38 @@
+{
+  "name": "grocery-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Retail-grocery conversational shopping assistant, instrumented with Langfuse. A teaching demo: what a well-shaped trace looks like, and which evaluator to build first.",
+  "scripts": {
+    "provision": "./scripts/provision-project.sh",
+    "chat": "tsx scripts/run-conversation.ts",
+    "chat:broken": "tsx scripts/run-conversation.ts --instrumentation broken",
+    "compare": "tsx scripts/compare-traces.ts",
+    "seed:dataset": "tsx scripts/seed-dataset.ts",
+    "experiment": "tsx scripts/run-experiment.ts",
+    "evaluate:live": "tsx scripts/score-live-sessions.ts",
+    "demo": "tsx scripts/run-demo.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.44",
+    "@langfuse/client": "^5.11.0",
+    "@langfuse/otel": "^5.11.0",
+    "@langfuse/tracing": "^5.11.0",
+    "@langfuse/vercel-ai-sdk": "^5.11.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "ai": "^7.0.83",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

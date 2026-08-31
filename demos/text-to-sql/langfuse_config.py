@@ -1,5 +1,5 @@
 """
-Langfuse Integration Configuration (v3 API)
+Langfuse Integration Configuration (v4 SDK)
 
 When LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set,
 traces are sent to Langfuse (which uses ClickHouse as its OLAP backend).
@@ -28,7 +28,7 @@ def is_langfuse_enabled() -> bool:
 
 def get_langfuse_client():
     """
-    Get Langfuse client for direct API access (v3 API).
+    Get Langfuse client for direct API access (v4 SDK).
     Returns None if Langfuse is not configured.
     """
     if not LANGFUSE_ENABLED:
@@ -110,15 +110,27 @@ def langfuse_session(session_id: Optional[str] = None):
 
 @contextmanager
 def langfuse_trace(trace_name="text-to-sql", tags=None):
-    """Context manager that sets trace name and tags for all Langfuse traces within."""
+    """Context manager that sets trace name and tags for all Langfuse traces within.
+
+    Opens an actual root span first (mirrors ``langfuse_session()`` above) — this
+    is REQUIRED, not cosmetic: ``propagate_attributes`` only propagates its
+    attributes to spans created within its context, it does not itself create a
+    span. Without one already active, every ``.invoke()``/``langfuse_span()``/
+    ``langfuse_gate()`` call made inside ``pipeline.query()`` has no parent to
+    nest under and starts its OWN root trace — the "one trace per query" shape
+    the demo script narrates (and that ``gate:aborted``/``gate:escalated``
+    tagging depends on via ``tag_current_trace()`` -> ``update_current_trace()``,
+    which needs a currently-active span) silently breaks otherwise."""
     if not LANGFUSE_ENABLED:
         yield
         return
 
     try:
-        from langfuse import propagate_attributes
-        with propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"]):
-            yield
+        from langfuse import get_client, propagate_attributes
+        client = get_client()
+        with client.start_as_current_observation(as_type="span", name=trace_name):
+            with propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"]):
+                yield
     except Exception as e:
         print(f"Failed to set Langfuse trace context: {e}")
         yield
@@ -145,6 +157,52 @@ def langfuse_span(name: str):
     except Exception as e:
         print(f"Failed to create Langfuse span '{name}': {e}")
         yield
+
+
+class _NoopSpan:
+    """Span stand-in when Langfuse is disabled/unavailable — .update() no-ops."""
+
+    def update(self, **kwargs):
+        pass
+
+
+@contextmanager
+def langfuse_gate(name: str):
+    """Like langfuse_span(), but yields the span so callers can write the
+    pass/fail verdict into the span output: ``span.update(output=result.as_output())``.
+
+    Gate spans MUST be named ``gate-*`` — the chain-gate-check evaluator and the
+    gate-pass Monitor key off that prefix convention. Any LLM call made while
+    this span is current (e.g. the Haiku grounding grader) nests as a child
+    observation under the gate span. No-op (yields a _NoopSpan) when Langfuse is
+    not configured, so the chain runs with gates active but untraced.
+    """
+    if not LANGFUSE_ENABLED:
+        yield _NoopSpan()
+        return
+
+    try:
+        from langfuse import get_client
+        client = get_client()
+        with client.start_as_current_observation(as_type="span", name=name) as span:
+            yield span
+    except Exception as e:
+        print(f"Failed to create Langfuse gate span '{name}': {e}")
+        yield _NoopSpan()
+
+
+def tag_current_trace(tags: List[str]):
+    """Append tags to the active trace (used by gate abort/escalate routing).
+
+    No-op on error / when Langfuse is disabled — tracing never takes the app down.
+    """
+    if not LANGFUSE_ENABLED:
+        return
+    try:
+        from langfuse import get_client
+        get_client().update_current_trace(tags=tags)
+    except Exception as e:
+        print(f"Failed to tag current trace {tags}: {e}")
 
 
 def get_langfuse_handler():

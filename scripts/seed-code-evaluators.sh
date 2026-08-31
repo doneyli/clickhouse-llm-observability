@@ -110,6 +110,11 @@ seed_evaluator "response-structure-check" "structure-clean" "event" \
 # traces; emits cap_terminated (BOOLEAN) + termination_class (CATEGORICAL).
 seed_evaluator "runaway-loop-guard" "cap-terminated" "event" \
     '[{"type":"stringOptions","value":["AGENT"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["tune-clickhouse-query"],"column":"traceName","operator":"any of"}]' 0
+# Gate verdicts on the text-to-sql chain: score every gate-* SPAN (incl. each
+# retry attempt) with a gate-pass boolean, so the average is the true gate pass
+# rate. Non-gate spans (retrieve-context, ...) carry no verdict and yield no score.
+seed_evaluator "chain-gate-check" "gate-pass" "event" \
+    '[{"type":"stringOptions","value":["SPAN"],"column":"type","operator":"any of"},{"type":"stringOptions","value":["text-to-sql"],"column":"traceName","operator":"any of"}]' 0
 
 # ─── Experiment evaluators (target: dataset experiment runs) ────────────────
 
@@ -127,6 +132,17 @@ if [ -n "$SECURITY_DS" ]; then
         '[{"type":"stringOptions","value":["'"$SECURITY_DS"'"],"column":"experimentDatasetId","operator":"any of"}]' 1
 else
     warn "Dataset coding-assistant-security not found — run 'python scripts/seed-datasets.py' then re-run this script"
+fi
+
+# query-router: deterministic exact-match routing accuracy on experiment runs of
+# the router-accuracy dataset (the soft/ambiguous cases go to the categorical
+# route-plausibility LLM judge — scripts/seed-router-judge.sh).
+ROUTER_DS=$(dataset_id "query-router-accuracy")
+if [ -n "$ROUTER_DS" ]; then
+    seed_evaluator "route-match" "route-match" "experiment" \
+        '[{"type":"stringOptions","value":["'"$ROUTER_DS"'"],"column":"experimentDatasetId","operator":"any of"}]' 1
+else
+    warn "Dataset query-router-accuracy not found — run 'python scripts/seed-router-dataset.py' then re-run this script"
 fi
 
 # The worker caches "project has no event/experiment evaluators" in Redis for

@@ -12,6 +12,7 @@ Run:
     # or: ./run_portal.sh
 """
 
+import os
 import sys
 import threading
 import uuid
@@ -30,6 +31,15 @@ from agent.concierge import run_turn
 from agent.catalog import get_listing
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Which prompt version the portal serves. Defaults to `production` — i.e. the
+# app behaves exactly like the deployed agent, which is the point of the Deploy
+# node. Override it to STAGE a demo artifact: running the portal on `first-draft`
+# produces a genuinely bad answer you can thumb down, so the walkthrough can open
+# with a real user complaint instead of a synthetic one.
+#
+#   PORTAL_PROMPT_LABEL=first-draft ./run_portal.sh
+PORTAL_PROMPT_LABEL = os.environ.get("PORTAL_PROMPT_LABEL", "production")
 
 app = FastAPI(title="Property Concierge")
 
@@ -53,6 +63,10 @@ def _startup():
     get_langfuse()  # warm the client
     PROJECT_ID = _project_id()
     print(f"Property Concierge portal ready — Langfuse project id={PROJECT_ID}")
+    # Say the served prompt label out loud: presenting on the wrong one (a
+    # staging leftover) is a silent, confusing way to lose a demo.
+    note = "" if PORTAL_PROMPT_LABEL == "production" else "   <-- NOT production!"
+    print(f"  serving prompt label: {PORTAL_PROMPT_LABEL}{note}")
 
 
 class ChatRequest(BaseModel):
@@ -100,7 +114,7 @@ def chat(req: ChatRequest):
     # raw None) groups this chat's turns together in Langfuse's Sessions view.
     result = run_turn(req.query, session_id=sid, user_id="portal-visitor",
                       extra_tags=["portal"], history=history,
-                      turn_index=turn_index)
+                      turn_index=turn_index, prompt_label=PORTAL_PROMPT_LABEL)
 
     with _SESSIONS_LOCK:
         prev = _SESSIONS.get(sid, {"history": [], "turns": 0})

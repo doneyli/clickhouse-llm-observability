@@ -171,16 +171,27 @@ services:
     build:
       context: ./demos/text-to-sql
     container_name: text-to-sql
+    # Long-running API server so :8002 actually serves /query (for the
+    # query-router front door). CLI mode is unchanged and overrides this:
+    #   docker compose --profile demo run --rm text-to-sql python main.py
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
     ports:
       - "${TEXT_TO_SQL_PORT:-8002}:8000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MCP_SERVER_URL=http://mcp-clickhouse:8000/sse
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
-      # Langfuse instrumentation
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     depends_on:
       - mcp-clickhouse
@@ -196,15 +207,26 @@ services:
     build:
       context: ./demos/vector-rag
     container_name: vector-rag
+    # Long-running API server so :8003 actually serves /query (for the
+    # query-router front door). CLI mode is unchanged and overrides this:
+    #   docker compose --profile demo run --rm vector-rag python main.py
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
     ports:
       - "${VECTOR_RAG_PORT:-8003}:8000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - TEMPERATURE=${TEMPERATURE:-0.7}
-      # Langfuse instrumentation
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - demo
@@ -307,6 +329,8 @@ services:
     container_name: agentic-rag
     ports:
       - "${AGENTIC_RAG_PORT:-8006}:8000"
+    env_file:
+      - .env
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
@@ -319,9 +343,14 @@ services:
       - CH_VECTORS_PASSWORD=agentic123
       # SQL tool connects directly to the ClickHouse public demo datasets via
       # sql_tool.py (PUBLIC_CH_* env, defaults to sql-clickhouse.clickhouse.com).
-      # Langfuse instrumentation
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - demo
@@ -332,6 +361,44 @@ services:
       - ./demos/agentic-rag:/app
       - ./demos/vector-rag:/shared-corpus:ro
       - vector-rag-models:/root/.cache
+
+  # =============================================================================
+  # Cluster Health Investigator — Orchestrator–Workers (dynamic decomposition)
+  # =============================================================================
+  # A planner LLM decides AT RUNTIME which system-table analyses a symptom
+  # needs, fans out one worker per analysis (LangGraph Send API), re-plans if
+  # coverage is insufficient, and synthesizes a diagnosis. Investigates
+  # langfuse-clickhouse itself. Worker count varies per run — see the Agent
+  # Graph aggregated view: worker (N/N).
+  #   docker compose --profile langfuse --profile demo run --rm cluster-health python main.py
+  # =============================================================================
+  cluster-health:
+    build:
+      context: ./demos/cluster-health-investigator
+    container_name: cluster-health
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}          # planner + synthesizer
+      - WORKER_MODEL=${WORKER_MODEL:-claude-haiku-4-5}                 # model tiering (repo convention)
+      - TEMPERATURE=${TEMPERATURE:-0.2}
+      - MAX_WORKERS_TOTAL=${MAX_WORKERS_TOTAL:-8}
+      - MAX_PLAN_ROUNDS=${MAX_PLAN_ROUNDS:-2}
+      # Investigation target: Langfuse's own ClickHouse (env-swappable to any cluster)
+      - TARGET_CH_HOST=${TARGET_CH_HOST:-langfuse-clickhouse}
+      - TARGET_CH_PORT=${TARGET_CH_PORT:-8123}
+      - TARGET_CH_USER=${TARGET_CH_USER:-langfuse}
+      - TARGET_CH_PASSWORD=${TARGET_CH_PASSWORD:-langfuse123}
+      # Langfuse instrumentation
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    profiles:
+      - demo
+    depends_on:
+      langfuse-clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./demos/cluster-health-investigator:/app
 
   # =============================================================================
   # MCP RAG Retriever — exposes the agentic-rag pipeline as MCP tools
@@ -437,6 +504,35 @@ services:
       - TUNING_CH_AGENT_PASSWORD=tuner_agent123
       - TUNING_CH_ADMIN_USER=tuner_admin          # used ONLY inside the approved-DDL path
       - TUNING_CH_ADMIN_PASSWORD=tuner_admin123
+  # Query Router Demo — front-door classification-dispatch (Pattern 2: Routing)
+  # =============================================================================
+  # A thin front door on :8008 that classifies a question (its own `route-query`
+  # generation) and dispatches over HTTP to exactly one specialist handler —
+  # text-to-sql (analytics_sql), vector-rag (docs_simple), agentic-rag
+  # (docs_complex) — or an in-process fallback with HITL escalation. One Langfuse
+  # trace `route-and-dispatch` shows the router decision AND the chosen handler's
+  # nested subtree (SDK v3 distributed tracing).
+  #   API:  docker compose --profile demo up -d query-router
+  #   CLI:  docker compose --profile demo run --rm query-router python main.py
+  # depends_on is service_started (not healthy) on purpose: the router degrades
+  # to fallback if a handler is down (Act 2 of DEMO_SCRIPT).
+  # =============================================================================
+  query-router:
+    build:
+      context: ./demos/query-router
+    container_name: query-router
+    ports:
+      - "${QUERY_ROUTER_PORT:-8008}:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ROUTER_MODEL=${ROUTER_MODEL:-claude-haiku-4-5}
+      - ROUTER_CONFIDENCE_THRESHOLD=${ROUTER_CONFIDENCE_THRESHOLD:-0.70}
+      # Set ROUTER_FAULT=sql-blindness for the seeded-misroute act (Act 3).
+      - ROUTER_FAULT=${ROUTER_FAULT:-}
+      # Handler registry — the existing demo services on the shared demo network.
+      - TEXT_TO_SQL_URL=http://text-to-sql:8000
+      - VECTOR_RAG_URL=http://vector-rag:8000
+      - AGENTIC_RAG_URL=http://agentic-rag:8000
       # Langfuse instrumentation
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
@@ -448,6 +544,14 @@ services:
         condition: service_healthy
     volumes:
       - ./demos/slow-query-tuner:/app     # includes ./checkpoints — state survives `run --rm` for --resume
+    depends_on:
+      - text-to-sql
+      - vector-rag
+      - agentic-rag
+    profiles:
+      - demo
+    volumes:
+      - ./demos/query-router:/app
 
   # =============================================================================
   # Test Scenarios - Export synthetic conversations for evaluation demos
@@ -464,10 +568,17 @@ services:
     build:
       context: ./test-scenarios
     container_name: test-scenarios
+    env_file:
+      - .env
     environment:
-      # Langfuse integration
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      # Langfuse keys come from env_file (.env), read literally — NOT as
+      # ${LANGFUSE_PUBLIC_KEY} interpolation, which Compose resolves from the
+      # invoking SHELL before .env (a shell exporting another project's keys
+      # silently redirects every trace). Same hardening as `api`/`litellm-proxy`.
+      # Override BOTH URL vars: .env's are host-side (localhost:3001), and SDK v4
+      # reads LANGFUSE_BASE_URL which OUTRANKS LANGFUSE_HOST — overriding only HOST
+      # leaves the SDK dialling localhost inside the container, silently losing traces.
+      - LANGFUSE_BASE_URL=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
     profiles:
       - tools
