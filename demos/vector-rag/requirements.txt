@@ -13,4 +13,9 @@ langchain-huggingface>=0.1.0,<1.0.0
 sentence-transformers>=3.0.0,<4.0.0
 
 # Langfuse - LLM observability
+langfuse>=3.0.0,<4.0.0
+
+# API server (server.py — makes port 8003 serve /query; CLI mode unchanged)
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0
 langfuse>=4.7,<5.0

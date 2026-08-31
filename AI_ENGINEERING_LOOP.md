@@ -31,6 +31,7 @@ it across the whole stack.
 | `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP — the P1 **prompt-chaining-with-gates** demo (deterministic catalog gate + hybrid grounding gate, bounded retry, abort/escalate) | LangChain + Langfuse `CallbackHandler` |
 | `demos/vector-rag/` | RAG over ChromaDB | LangChain + Langfuse `CallbackHandler` |
 | `demos/agentic-rag/` | Self-correcting RAG on ClickHouse-native vectors | LangGraph + Langfuse SDK |
+| `demos/query-router/` | Front-door classification-dispatch over the other demos (Pattern 2: Routing) — the cleanest full-loop story after real-estate, at a fraction of the size | raw Anthropic SDK + `httpx` + Langfuse SDK |
 | `demos/cluster-health-investigator/` | Orchestrator–workers: a planner LLM decides fan-out at runtime (LangGraph `Send`) and diagnoses the stack's own ClickHouse | LangGraph + Langfuse SDK |
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |
 | `demos/real-estate/` | Self-contained agentic concierge — the loop shown end-to-end in one place | Langfuse SDK |
@@ -46,6 +47,29 @@ it across the whole stack.
 | 4 | **Experiment** | `scripts/run-experiments.py` — compare **models / datasets** on the eval sets | **prompt-variant** experiments: `demos/real-estate/` + `agentic-rag` |
 | 5 | **Evaluate** | Deterministic **code evaluators** (`evaluators/*.ts`, seeded by `scripts/seed-code-evaluators.sh`) + **LLM-as-a-Judge** (`scripts/seed-llm-judge-evaluators.sh`) | human **annotation** queue in `demos/real-estate/` |
 | ⟳ | **Deploy** | **Prompt management by label** — apps fetch prompts from Langfuse at runtime with a local fallback: `agentic-rag` (`scripts/seed-langfuse-prompt.py`), `text-to-sql` + `vector-rag` (`scripts/seed-app-prompts.py`). Promote a label to ship a prompt with no redeploy. | **GitHub CI/CD quality gate** — promoting a prompt fires a workflow that re-runs the eval set and blocks a regression: `demos/real-estate/cicd/` |
+
+### `demos/query-router/` closes the whole loop on the cheapest surface (Pattern 2: Routing)
+
+The front-door router is a one-LLM-call classifier, so it demonstrates every
+loop step at a fraction of a full agent's size:
+
+1. **Trace** — the router decision is its own `route-query` **generation**
+   (`{route, confidence, rationale}`, `metadata.route`, prompt-linked) under a
+   stable `route-and-dispatch` trace, with exactly one handler's full subtree
+   nested beneath it (SDK v3 distributed tracing across services).
+2. **Monitor** — a **Router Ops** dashboard: route-distribution-over-time
+   (drift), fallback rate, avg `router_confidence`, misroute rate — seeded with
+   14 days of history by `scripts/seed-router-history.py`.
+3. **Datasets** — `query-router-accuracy` (`scripts/seed-router-dataset.py`);
+   production misroutes pinned via `source_observation_id` on the `route-query`
+   generation.
+4. **Experiment** — `scripts/run-router-experiment.py` varies ONLY the router
+   prompt label/model, scoring `route-match` + run-level `avg_route_accuracy`
+   (`--ci` gate).
+5. **Evaluate** — deterministic `evaluators/route-match.ts` (code) +
+   categorical `route-plausibility` LLM judge (`scripts/seed-router-judge.sh`);
+   misroutes recorded as post-hoc **scores** (`routing_correct`), never
+   retroactive tags. **Deploy** = promote the router prompt's `production` label.
 
 ## The Deploy node across the stack
 
