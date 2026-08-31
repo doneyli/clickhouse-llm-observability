@@ -445,6 +445,7 @@ services:
   # Run: docker compose --profile demo run --rm support-triage-parallel python main.py
   # =============================================================================
   support-triage-parallel:
+    profiles: [demo]
     build:
       context: ./demos/support-triage-parallel
     container_name: support-triage-parallel
@@ -463,6 +464,10 @@ services:
       - PUBLIC_CH_HOST=${PUBLIC_CH_HOST:-sql-clickhouse.clickhouse.com}
       - PUBLIC_CH_USER=${PUBLIC_CH_USER:-demo}
       - PUBLIC_CH_PASSWORD=${PUBLIC_CH_PASSWORD:-}
+    volumes:
+      - ./demos/support-triage-parallel:/app
+
+  # =============================================================================
   # ClickHouse Tuning Lab — dedicated sandbox for the slow-query-tuner agent
   # =============================================================================
   # Disposable CH 26.3 with a deliberately pessimal 30M-row table. The agent's
@@ -510,6 +515,7 @@ services:
   #   docker compose --profile demo run --rm slow-query-tuner python main.py --query q1
   # =============================================================================
   slow-query-tuner:
+    profiles: [demo]
     build:
       context: ./demos/slow-query-tuner
     container_name: slow-query-tuner
@@ -530,6 +536,13 @@ services:
       - TUNING_CH_AGENT_PASSWORD=tuner_agent123
       - TUNING_CH_ADMIN_USER=tuner_admin          # used ONLY inside the approved-DDL path
       - TUNING_CH_ADMIN_PASSWORD=tuner_admin123
+    depends_on:
+      clickhouse-tuning:
+        condition: service_healthy
+    volumes:
+      - ./demos/slow-query-tuner:/app     # includes ./checkpoints — state survives `run --rm` for --resume
+
+  # =============================================================================
   # Query Router Demo — front-door classification-dispatch (Pattern 2: Routing)
   # =============================================================================
   # A thin front door on :8008 that classifies a question (its own `route-query`
@@ -563,15 +576,6 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
-    profiles:
-      - demo
-    volumes:
-      - ./demos/support-triage-parallel:/app
-    depends_on:
-      clickhouse-tuning:
-        condition: service_healthy
-    volumes:
-      - ./demos/slow-query-tuner:/app     # includes ./checkpoints — state survives `run --rm` for --resume
     depends_on:
       - text-to-sql
       - vector-rag
