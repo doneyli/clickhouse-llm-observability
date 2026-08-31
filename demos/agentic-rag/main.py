@@ -76,4 +76,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Flush on the way out, always. Short-lived `docker compose run --rm` process +
+    # background batch export = traces dropped at interpreter exit without this.
+    try:
+        main()
+    finally:
+        lf.flush()

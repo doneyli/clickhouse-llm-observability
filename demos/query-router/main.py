@@ -80,10 +80,19 @@ def run_interactive():
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "--interactive":
-        run_interactive()
-    else:
-        run_demo()
+    # Flush on the way out, always. This is a short-lived `docker compose run --rm`
+    # process, and the SDK exports spans from a background batch processor — so
+    # without this the interpreter exits while spans are still queued and traces
+    # are dropped non-deterministically (observed: 3 of 10 routes landing, and
+    # dispatched handler subtrees intermittently missing from the router's trace,
+    # which made cross-process nesting look broken when it was not).
+    try:
+        if len(sys.argv) > 1 and sys.argv[1] == "--interactive":
+            run_interactive()
+        else:
+            run_demo()
+    finally:
+        lf.flush()
 
 
 if __name__ == "__main__":

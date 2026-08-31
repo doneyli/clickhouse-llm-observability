@@ -156,4 +156,11 @@ def _report(result: "agent_loop.RunResult") -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Flush on the way out, always — including the --resume/killed paths that exit
+    # non-zero. This is a short-lived `docker compose run --rm` process and the SDK
+    # exports spans from a background batch processor, so without this the
+    # interpreter can exit with spans still queued and silently drop the trace.
+    try:
+        sys.exit(main())
+    finally:
+        lf.flush()
