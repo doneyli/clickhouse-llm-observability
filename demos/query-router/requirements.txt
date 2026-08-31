@@ -1,0 +1,12 @@
+# Thin by design: raw Anthropic SDK (no LangChain) + httpx for HTTP dispatch.
+anthropic>=0.40.0,<1.0.0
+httpx>=0.27.0,<1.0.0
+
+# API server (front door)
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0
+
+# Langfuse - LLM observability (typed observations, managed prompts, scores)
+langfuse>=3.0.0,<4.0.0
+
+python-dotenv>=1.0.0,<2.0.0

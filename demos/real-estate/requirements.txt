@@ -1,5 +1,11 @@
 # Real Estate Property Concierge demo
-langfuse>=3.0,<4.0
+# Floor is >=4.10, which is the STRICTER of two independent requirements:
+#   >=4.7  — Langfuse Cloud grants real-time ingestion off `x-langfuse-sdk-version`,
+#            and only Python >= 4.7.0 qualifies.
+#   >=4.10 — multi-modal dataset items / experiments (LangfuseMediaReference
+#            hydration), which this demo's eval path uses.
+# Needs Python >=3.10 — the SDK will not install on 3.9, still the macOS system python.
+langfuse>=4.10,<5.0
 anthropic>=0.40
 python-dotenv>=1.0
 # OpenAI — agent runs on GPT for the Claude-vs-GPT comparison

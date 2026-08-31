@@ -1,0 +1,4 @@
+# Run state + kill sentinels are runtime artifacts — keep the directory (so the
+# volume mount + `run --rm` resume path works), ignore its contents.
+*
+!.gitignore

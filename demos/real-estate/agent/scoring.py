@@ -92,9 +92,28 @@ def _constraints(result: Dict[str, Any]) -> Dict[str, Any]:
 # =============================================================================
 def code_used_search_tool(result: Dict[str, Any]) -> Score:
     used = "search_listings" in (result.get("tools_called") or [])
-    return Score("used-search-tool", used, "BOOLEAN", kind="code",
-                 comment="Agent grounded its answer in a catalog search."
-                 if used else "Agent answered without calling search_listings.")
+    if used:
+        return Score("used-search-tool", True, "BOOLEAN", kind="code",
+                     comment="Agent grounded its answer in a catalog search.")
+    # Not searching is only a failure if the agent had nothing to answer FROM.
+    # Answering a follow-up entirely out of earlier turns ("what's the mortgage on
+    # that one?") is the correct behaviour — re-running the search would be waste,
+    # and scoring it 0 punishes exactly the cross-turn memory the conversation
+    # datasets exist to reward. So: if every listing cited was already surfaced in
+    # a prior turn, this passes.
+    #
+    # This cannot rescue the fault-injected demo traces, which is the point of
+    # checking `prior_ids` rather than just "cited nothing new": those are
+    # single-turn, so `prior_ids` is empty and the exemption can never fire.
+    shown = result.get("listings_shown") or []
+    prior = set(result.get("prior_ids") or [])
+    if shown and all(i in prior for i in shown):
+        return Score("used-search-tool", True, "BOOLEAN", kind="code",
+                     comment=f"Answered from prior-turn context: every listing cited "
+                             f"({', '.join(shown)}) was already surfaced earlier in the "
+                             f"conversation, so no new search was needed.")
+    return Score("used-search-tool", False, "BOOLEAN", kind="code",
+                 comment="Agent answered without calling search_listings.")
 
 
 def code_grounded_listings(result: Dict[str, Any]) -> Score:

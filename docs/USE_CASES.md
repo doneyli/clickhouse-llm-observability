@@ -95,6 +95,10 @@ labels. Then Playground → load a prompt, run the same input against two models
 side-by-side, tweak the system prompt, re-run. Close the loop: "promote the winner"
 by setting its label — apps fetch by label, so rollout is instant, no deploy.
 
+> Asked "so anyone can promote a prompt straight to production?" — that's
+> [use case 11](#11-cicd-quality-gate-on-prompt-deploys), which puts an eval suite
+> and an exit code in front of the promotion.
+
 ## 7. Agentic RAG observability
 
 **What:** A corrective-RAG (CRAG) agent — retrieve → grade → rewrite/web-fallback →
@@ -166,6 +170,44 @@ SOURCE_LANGFUSE_PUBLIC_KEY=<pk> SOURCE_LANGFUSE_SECRET_KEY=<sk> \
 In the demo: filter traces by `claude-code-demo` → "these are real traces from the AI
 agent that maintains this repo."
 
+## 11. CI/CD quality gate on prompt deploys
+
+**What:** Promoting a prompt version in Langfuse fires a `repository_dispatch`; a
+GitHub Actions workflow re-runs the eval dataset against that version and **fails the
+build** — blocking the deploy job — if any score misses a threshold checked into git.
+**Why customers care:** It answers "what stops a bad prompt reaching our users?" with
+an exit code instead of a process document. Prompts get the same gate as code, and the
+quality bar becomes a reviewable, diffable file.
+
+> **Different prerequisites from every other use case here.** This one lives in the
+> standalone [real-estate demo](../demos/real-estate/) (own `.venv` and `.env`), and it
+> requires **Langfuse Cloud** — a GitHub runner cannot reach a `localhost:3001` stack.
+> It also needs three one-time setup steps (repo secrets, a GitHub PAT, and the
+> Langfuse **Prompts → Automations → GitHub Repository Dispatch** automation), all
+> walked through in [`demos/real-estate/cicd/README.md`](../demos/real-estate/cicd/README.md).
+
+**Demo path:** Open [`cicd/thresholds.json`](../demos/real-estate/cicd/thresholds.json) —
+"the quality bar as code: deterministic checks gated hard (1.0 / 0.95), LLM judges gated
+loose at 0.80 on purpose, because a tight judge threshold gives you flaky builds." Then GitHub
+→ **Actions** → *Langfuse Prompt CI* → a run on the **`first-draft`** label: it's **red**,
+the job summary names the failing check, and the **deploy job never ran**. Re-run on
+`candidate` → green, but deploy is *still* skipped, because that version isn't labelled
+`production` — validated ≠ deployed.
+
+The eval is 18 items of real LLM calls, so start the run before the session (**Run
+workflow** → pick a label) and show the completed one, or rehearse the identical gate
+locally:
+```bash
+cd demos/real-estate && ./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft   # exits 1
+```
+
+Expect the follow-up "so the gate stops anything bad from shipping?" — no, and
+`thresholds.json` documents why: `tone` is judged on live traffic but is categorical, so
+it can't be averaged into a run-level threshold, and a persona regression structurally
+cannot fail this gate. A gate enforces the dimensions you chose. The 4-minute presenter
+version of this beat, with that counter-argument scripted, is Movement 4 of the
+[Lifecycle Feedback Runbook](LIFECYCLE_FEEDBACK_RUNBOOK.md).
+
 ---
 
 ## Suggested quick-tour combos
@@ -174,3 +216,4 @@ agent that maintains this repo."
 - **Platform team, 15 min:** 1 → 3 → 4 → 5.
 - **Agent-curious, 15 min:** 1 → 7 → 8.
 - **Data team, 15 min:** 1 → 2 → 9.
+- **"How do we ship changes safely?", 15 min:** 5 → 6 → 11 (needs the Cloud-backed real-estate demo).

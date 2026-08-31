@@ -192,7 +192,9 @@ The auto-provisioned judges already filter on these tags (each judge watches its
 | Maintenance | You maintain code | Langfuse maintains |
 | Cost | Your API credits | Langfuse credits (or BYO key) |
 
-**Note**: Langfuse still has no public API for creating evaluators ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). In self-hosted mode this demo provisions them headlessly anyway (`scripts/seed-llm-judge-evaluators.sh` and `scripts/seed-code-evaluators.sh` seed the same database rows the UI creates); in cloud mode use the UI.
+**Note**: there is no *stable* public API for creating evaluators ([GitHub Discussion #8241](https://github.com/orgs/langfuse/discussions/8241)). In self-hosted mode this demo provisions them headlessly anyway (`scripts/seed-llm-judge-evaluators.sh` and `scripts/seed-code-evaluators.sh` seed the same database rows the UI creates); these main-stack seeders are self-hosted-only and print UI guidance when `DEPLOY_MODE=cloud`.
+
+There *is* an **unstable** evaluation-rules API (`POST /api/public/unstable/evaluation-rules`), and `demos/real-estate/scripts/seed_managed_evaluators.sh` uses it to provision its judges on Langfuse Cloud with no UI steps — see that script's header for the trace-level-vs-observation-level and new-vs-existing-traffic differences between the two mechanisms. So "cloud means clicking in the UI" is true of the main-stack seeders only, not of Langfuse Cloud in general.
 
 ---
 
@@ -283,25 +285,36 @@ Run the validation script to check your setup:
 
 ## Key Implementation Details
 
-### SDK v3 Compatibility
+### SDK v4 Compatibility
 
-Langfuse SDK v3 uses environment variables for authentication. The CallbackHandler doesn't accept constructor parameters:
+The Langfuse SDK reads credentials from the environment. The LangChain `CallbackHandler`
+takes no credential constructor parameters:
 
 ```python
-# Correct (SDK v3)
+# Correct
 from langfuse.langchain import CallbackHandler
 handler = CallbackHandler()  # Reads from environment
 
-# Incorrect (old SDK)
+# Incorrect (pre-v3 SDK)
 handler = CallbackHandler(
-    public_key="...",  # Not supported in v3
+    public_key="...",  # Not supported
     secret_key="..."
 )
 ```
 
+When constructing a client explicitly, prefer `base_url=` over `host=`: in v4 a
+`LANGFUSE_BASE_URL` env var **outranks** `host=`, while `base_url=` has the highest
+precedence and cannot be overridden. This matters for anything targeting a specific
+project or more than one instance — see `demos/real-estate/agent/config.py`.
+
+Note the `v4` server caveat: `api.observations` and `api.metrics` resolve to the **v2**
+endpoints, which require a Langfuse v4 server. Against the self-hosted stack (v3) use
+`api.legacy.observations_v1` / `api.legacy.metrics_v1` — see
+`scripts/import-external-traces.py`.
+
 ### REST API Usage
 
-The evaluator uses the REST API for trace fetching and score storage because SDK v3 doesn't expose these methods:
+The evaluator uses the REST API for trace fetching and score storage:
 
 ```python
 import httpx

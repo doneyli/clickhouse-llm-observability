@@ -293,6 +293,10 @@ Langfuse is auto-configured with a demo account on first boot (headless init):
   monitor → dataset → experiment (models *and* prompts) → evaluate → **deploy a
   prompt by label / GitHub CI/CD** → repeat. Presenter runbook:
   [`demos/real-estate/DEMO_SCRIPT.md`](demos/real-estate/DEMO_SCRIPT.md).
+- **[Lifecycle Feedback Runbook](docs/LIFECYCLE_FEEDBACK_RUNBOOK.md)** — a 20-min
+  narrative cut of that demo for the question teams past tracing actually ask:
+  *how do we get from a bad answer to a better agent?* One user's 👎 becomes a
+  test case, a proven prompt fix, a **blocked CI build**, and a deploy.
 - **[Guided User Journey](docs/USER_JOURNEY.md)** — Hands-on walkthrough (~35 min)
 - **[Quickstart Guide](docs/QUICKSTART_GUIDE.md)** — Step-by-step manual setup
 
@@ -372,7 +376,7 @@ docker compose --profile tools run --rm test-scenarios  # → traces tagged "tes
 **Seed evaluation datasets** for coding assistant quality and security testing:
 
 ```bash
-# Create datasets (requires pip install 'langfuse>=3.0,<4.0')
+# Create datasets (requires pip install 'langfuse>=4.7,<5.0')
 python scripts/seed-datasets.py
 
 # Or include datasets in the full seed flow
@@ -564,12 +568,16 @@ See [`.env.example`](.env.example) for the full configuration reference.
 ├── .agents/skills/             # Project skills for AI agents (deploy-demo, run-demo,
 │                               #   troubleshoot, langfuse) — symlinked into .claude/skills/
 │
+├── .github/workflows/          # Prompt CI — a prompt change runs the eval suite and
+│                               #   blocks the deploy on a score regression
+│
 ├── docs/                       # Documentation (docs/README.md = persona-based index)
 │   ├── SA_FIELD_GUIDE.md           # Presenter field guide (demo selection, talk track, Q&A)
-│   ├── USE_CASES.md                # 10 use cases with 2-minute demo paths
+│   ├── USE_CASES.md                # 11 use cases with 2-minute demo paths
 │   ├── QUICKSTART_GUIDE.md
 │   ├── USER_JOURNEY.md
 │   ├── LANGFUSE_DEMO_RUNBOOK.md    # Screen-by-screen demo script (45 min)
+│   ├── LIFECYCLE_FEEDBACK_RUNBOOK.md # Feedback → agent engineering (20 min, SA enablement)
 │   ├── AGENTIC_RAG_DEMO_RUNBOOK.md # Agentic RAG demo script (25 min)
 │   ├── AGENTIC_RAG_ARCHITECTURE.md # Agentic RAG architecture + diagram
 │   ├── DASHBOARD.md
@@ -598,7 +606,7 @@ See [`.env.example`](.env.example) for the full configuration reference.
 | Document | Description |
 |----------|-------------|
 | [SA Field Guide](docs/SA_FIELD_GUIDE.md) | **For presenters** — demo selection, talk track, prep checklist, objection handling |
-| [Use Case Catalog](docs/USE_CASES.md) | 10 observability use cases, each with a 2-minute demo path |
+| [Use Case Catalog](docs/USE_CASES.md) | 11 observability use cases, each with a 2-minute demo path |
 | [Demo Runbook](docs/LANGFUSE_DEMO_RUNBOOK.md) | Screen-by-screen 45-min demo script with full talk tracks |
 | [Agentic RAG Demo Runbook](docs/AGENTIC_RAG_DEMO_RUNBOOK.md) | Screen-by-screen Agentic RAG demo script (25 min) |
 | [User Journey](docs/USER_JOURNEY.md) | Hands-on walkthrough of the complete demo |

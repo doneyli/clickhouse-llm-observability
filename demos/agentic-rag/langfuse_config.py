@@ -1,5 +1,5 @@
 """
-Langfuse instrumentation for the Agentic RAG demo (v3 SDK).
+Langfuse instrumentation for the Agentic RAG demo (v4 SDK).
 
 Two layers of instrumentation:
 

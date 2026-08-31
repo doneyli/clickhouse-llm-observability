@@ -18,7 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.config import get_langfuse, verify_project, langfuse_api, LANGFUSE_HOST
+from agent.config import (get_langfuse, verify_project, LANGFUSE_HOST,
+                          list_observations, list_scores, score_observation_id)
 
 
 def main():
@@ -53,26 +54,32 @@ def main():
     print("  flushed; waiting for ingestion...")
 
     # Poll the API to confirm the trace + observation-level score landed.
+    # Reads go through the v2 observations / v3 scores endpoints — the v1
+    # `GET /traces/{id}` shape (with nested `.observations` / `.scores`) is
+    # deprecated, and v3 moved a score's target into its `subject` object.
+    # Wait for the thing this test actually asserts — a score attached to the
+    # child generation. Trace-level and observation-level scores are ingested
+    # independently, so breaking as soon as *any* score appears reports a
+    # spurious failure whenever the trace-level one lands first.
     ok = False
     for attempt in range(15):
         time.sleep(2)
         try:
-            status, trace = langfuse_api("GET", f"/api/public/traces/{trace_id}")
-            if status != 200:
-                continue
+            observations = list_observations(trace_id)
+            scores = list_scores(trace_id)
         except Exception:
             continue
-        scores = trace.get("scores", [])
-        obs_scores = [s for s in scores if s.get("observationId")]
-        trace_scores = [s for s in scores if not s.get("observationId")]
-        n_obs = len(trace.get("observations", []))
-        if scores and n_obs >= 2:
+        obs_scores = [s for s in scores if score_observation_id(s)]
+        trace_scores = [s for s in scores if not score_observation_id(s)]
+        n_obs = len(observations)
+        if n_obs >= 2 and any(score_observation_id(s) == gen_id for s in obs_scores):
             print(f"\n✓ Trace found: {n_obs} observations, {len(scores)} scores")
-            print(f"  observation-level scores: {[(s['name'], s['value'], s.get('observationId')==gen_id) for s in obs_scores]}")
+            print(f"  observation-level scores: {[(s['name'], s['value'], score_observation_id(s)==gen_id) for s in obs_scores]}")
             print(f"  trace-level scores:       {[(s['name'], s['value']) for s in trace_scores]}")
-            ok = obs_scores and any(s.get("observationId") == gen_id for s in obs_scores)
+            ok = True
             break
-        print(f"  attempt {attempt+1}: obs={n_obs} scores={len(scores)} (waiting)")
+        print(f"  attempt {attempt+1}: obs={n_obs} scores={len(scores)} "
+              f"(obs-level={len(obs_scores)}) (waiting)")
 
     print()
     if ok:
