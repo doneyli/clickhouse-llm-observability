@@ -28,7 +28,7 @@ import urllib.error
 import urllib.parse
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import threading
 
@@ -183,6 +183,12 @@ def record_score(lf, **kwargs) -> None:
 
     Trace/observation ids are identical on both backends (same OTel spans),
     so the same payload lands on the mirror via its public scores API.
+
+    A score references EXACTLY ONE subject: a trace, an observation, a session,
+    or a dataset run. `session_id=` is the only way to score a whole
+    conversation — no Langfuse-managed evaluator can target a session, because
+    the server cannot know when a conversation has ended. Session scores are
+    therefore always written from here.
     """
     lf.create_score(**kwargs)
     if not MIRROR_ENABLED:
@@ -190,11 +196,14 @@ def record_score(lf, **kwargs) -> None:
     value = kwargs.get("value")
     if isinstance(value, bool):  # public API wants 1/0 for BOOLEAN scores
         value = 1 if value else 0
-    body = {
-        "traceId": kwargs.get("trace_id"),
-        "name": kwargs.get("name"),
-        "value": value,
-    }
+    body = {"name": kwargs.get("name"), "value": value}
+    # Session scores carry NO traceId. Emitting `traceId: None` (the previous
+    # behaviour) is rejected by the scores API, so pick the subject explicitly
+    # rather than defaulting to a trace that isn't there.
+    if kwargs.get("session_id"):
+        body["sessionId"] = kwargs["session_id"]
+    else:
+        body["traceId"] = kwargs.get("trace_id")
     if kwargs.get("observation_id"):
         body["observationId"] = kwargs["observation_id"]
     if kwargs.get("data_type"):
@@ -371,6 +380,49 @@ def root_observations_by_tag(tag: str, *, limit: int = 50,
         raise RuntimeError(f"v2/observations (tag={tag}) -> {status}: "
                            f"{data.get('error')}{_version_hint(path, status)}")
     return data.get("data") or []
+
+
+def list_sessions(limit: int = 50) -> list:
+    """The project's sessions, newest first, via `GET /api/public/sessions`.
+
+    Page-based (not cursor-based) and **deprecated on Langfuse Cloud** — it is
+    removed on 2026-11-16, after which "which sessions exist?" is answered by
+    grouping `GET /api/public/v2/observations` rows on their `sessionId`. Until
+    then this is the only single-call answer, so it stays the discovery route
+    and `root_observations_by_sessions()` below does the per-session work.
+    Rows carry only id/createdAt/projectId/environment — no turn count.
+    """
+    path = "/api/public/sessions"
+    status, data = langfuse_api(
+        "GET", f"{path}?{urllib.parse.urlencode({'limit': limit, 'page': 1})}")
+    if status != 200:
+        raise RuntimeError(f"GET {path} -> {status}: {data.get('error')}")
+    return data.get("data") or []
+
+
+def root_observations_by_sessions(session_ids: Sequence[str], *,
+                                  fields: str = "core,basic") -> list:
+    """Root observations — one row per TURN — for a batch of sessions.
+
+    Filtering on `sessionId` needs the **stringOptions / "any of"** filter type.
+    `{"type": "string", "column": "sessionId", "operator": "="}` is accepted with
+    a 200 and returns ZERO rows: a silent empty result rather than an error, so a
+    per-session "=" lookup reads as "that conversation has no turns". Batching
+    every id into one "any of" call is both correct and a single round trip.
+
+    Ask for the `io` field group as well to get each turn's input/output (raw
+    JSON strings — parse with `observation_io`).
+    """
+    if not session_ids:
+        return []
+    filter_conditions = json.dumps([
+        {"type": "stringOptions", "column": "sessionId",
+         "operator": "any of", "value": list(session_ids)},
+        {"type": "boolean", "column": "isRootObservation",
+         "operator": "=", "value": True},
+    ])
+    return _paginate("/api/public/v2/observations",
+                     {"filter": filter_conditions, "limit": 100, "fields": fields})
 
 
 def list_scores(trace_id: str, *, fields: str = "subject", limit: int = 100) -> list:

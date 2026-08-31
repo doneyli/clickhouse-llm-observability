@@ -37,11 +37,16 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Custom SDK judges** | groundedness / tone pushed from our own code |
 | **User feedback** (👍/👎) | portal thumbs write a `user-feedback` score onto the trace (Monitor signal) |
 | **Human annotation** | queue + score configs (reviewer-verdict, expert-usefulness) |
+| **Human annotation of a whole conversation** | a second queue whose items are **sessions** (conversation-outcome + the two cross-turn scores), so a reviewer judges the conversation, not one turn |
 | Datasets | `property-concierge-eval`, 18 curated items |
 | Experiments / runs + aggregates | `dataset.run_experiment(...)` with run-level averages |
 | **Model comparison** | same agent + evals on Claude vs GPT-4o → compare runs |
 | **Prompt management** (versioned, labelled) | system prompts fetched by label from Langfuse; **linked to every generation** |
 | **Prompt-variant experiment** | same agent + evals across `first-draft` / `production` / `candidate` prompts → compare runs |
+| **N+1 conversation eval** | replay a real conversation prefix, score only turn N+1 → `property-concierge-conversations`, 10 items, one per cross-turn failure mode |
+| **Simulated conversations** | an LLM plays a difficult buyer; judge the whole trajectory → `property-concierge-personas`, 7 personas |
+| **Conversation-level judge** | a `conversation-snapshot` observation on the final turn, scored once per conversation by a managed judge |
+| **Session-level score** | `create_score(session_id=…)` — the one score type no managed evaluator can produce |
 | **Deploy** (close the loop) | promote a prompt label to ship it — **gated by CI**: a prompt change runs the eval suite and blocks the deploy on a regression ([`cicd/`](cicd/README.md)) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
 
@@ -148,7 +153,8 @@ Or run each piece individually:
 ./.venv/bin/python scripts/seed_dataset.py            # create the 18-item dataset
 ./scripts/seed_managed_evaluators.sh                  # native LLM judges (auto, Anthropic)
 ./.venv/bin/python scripts/run_live_traffic.py        # ~13 traces + sessions + code/custom scores
-./.venv/bin/python scripts/seed_annotation_queue.py   # human-review queue + score configs
+./.venv/bin/python scripts/seed_annotation_queue.py   # 2 human-review queues (traces + sessions) + score configs
+./.venv/bin/python scripts/simulate_long_session.py   # one 12-turn session (feeds the conversation queue)
 ./.venv/bin/python scripts/run_experiment.py --model claude-sonnet-4-6   # Claude run
 ./.venv/bin/python scripts/run_experiment.py --model gpt-4o              # GPT run (compare models)
 ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate    # candidate prompt (compare prompts)
@@ -186,6 +192,72 @@ agent/scoring.py    code evaluators + LLM judges  ◀─────────
 evaluators/         adapters exposing scoring as experiment Evaluations + run-level aggregates
 data/dataset.py     the 18 evaluation items
 ```
+
+### Evaluating the conversation, not just the turn
+
+A per-turn score cannot tell you the agent forgot a budget the user set four turns
+ago. Langfuse cannot close that gap for you either: an LLM-as-a-Judge rule targets
+an **observation** or an **experiment**, never a session, because the server has no
+way to know a conversation has ended. So the app declares it. Three paths, one
+shared score vocabulary:
+
+```
+data/conversations.py   10 N+1 items: a real prefix as `history` + the turn under test
+   └─ scripts/run_n_plus_1_experiment.py ──▶ replays the prefix, scores ONLY turn N+1
+                                             (deterministic: catches a dropped constraint exactly)
+
+data/personas.py         7 personas, each difficult in ONE named way
+   └─ scripts/run_simulation_experiment.py ─▶ agent/simulated_user.py plays the buyer
+                                             until [[DONE]]; judges the whole trajectory
+
+agent/concierge.py       is_final_turn=True ──▶ `conversation_end` tag (propagated)
+                                            └▶ `conversation-snapshot` observation
+                                               = the ONE observation a managed
+                                                 conversation judge can match
+```
+
+- **`stated-constraint-respected`** and **`reference-resolved`** are produced by all
+  three: deterministically in N+1, by judge in simulation, by the managed rule on
+  live traffic. Same name everywhere, so offline and production are comparable.
+- **Why a snapshot observation** rather than history on the root of every turn: an
+  observation-level judge sees only the observation it matched, so it needs *one*
+  observation holding the whole conversation. Putting it on every root would
+  re-judge a growing transcript N times per conversation. The snapshot fires once.
+  (`history` *is* also on the root from turn 2 on, for per-turn cross-turn checks.)
+- **Session scores** (`create_score(session_id=…)`, see `simulate_long_session.py`)
+  are the only way to attach a number to a whole conversation *from code* in
+  production. A human gets there through the second annotation queue below.
+
+### The human path: a queue of conversations, not turns
+
+`scripts/seed_annotation_queue.py` seeds **two** annotation queues, because a
+queue item's `objectType` decides what the reviewer is shown:
+
+| Queue | Items | Score configs | The reviewer sees |
+|---|---|---|---|
+| `Property Concierge - human review` | `TRACE` | reviewer-verdict, expert-usefulness | one turn |
+| `Property Concierge - conversation review` | `SESSION` | conversation-outcome, stated-constraint-respected, reference-resolved | the whole conversation, turn by turn |
+
+A constraint stated in turn 3 and broken in turn 9 looks fine in *every* single
+trace, so a queue of turns structurally cannot catch it. Session items can, and
+their scores land on the **session** — the same subject
+`create_score(session_id=…)` writes to, and the only human route to it. Two of
+the three configs reuse the machine score names on purpose, so the human label is
+a gold standard for the automated one (compare by score `source`).
+
+```bash
+./.venv/bin/python scripts/seed_annotation_queue.py --only sessions --min-turns 5
+```
+
+→ **[CONVERSATION_REVIEW.md](CONVERSATION_REVIEW.md)** for the score schema
+rationale, what qualifies as a candidate session, reading the labels back via
+`v3/scores`, and the API gotchas (the `sessionId` filter that silently returns
+nothing, session-discovery deprecation, no queue-delete endpoint).
+
+Cost warning: `--multi-turn` is opt-in in `run_demo.sh`. A simulated conversation is
+up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roughly
+an order of magnitude more than a single-turn item. The runner prints an upper bound
+and refuses to start without `--yes`.
 
 Key design choices:
 
@@ -252,7 +324,8 @@ scripts/
   seed_dataset.py            create the dataset
   seed_managed_evaluators.sh native LLM-as-a-Judge (Postgres self-hosted / API on Cloud)
   run_live_traffic.py        traces + sessions + code/custom scores + faults
-  seed_annotation_queue.py   human-review queue + score configs (public API)
+  seed_annotation_queue.py   2 human-review queues — TRACE items + SESSION items
+  simulate_long_session.py   one 12-turn session + a session-level score
   run_experiment.py          dataset run for a chosen --model / --prompt-label
   prompt_gate.py             CI quality gate: eval a prompt label, exit 1 below the bar
   smoke_test.py              sanity check
@@ -262,4 +335,5 @@ webapp/           server.py (FastAPI) + static/index.html (portal UI)
 run_demo.sh       prep all data      run_portal.sh   launch the app
 AI_ENGINEERING_LOOP.md  the loop, mapped to this demo
 DEMO_SCRIPT.md    presenter runbook
+CONVERSATION_REVIEW.md  human review of whole conversations (session queues)
 ```

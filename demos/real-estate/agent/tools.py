@@ -6,9 +6,71 @@ them through Anthropic tool-use; the concierge loop wraps every execution in a
 Langfuse span so tool calls show up in the trace tree.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .catalog import LISTINGS, get_listing, NEIGHBORHOODS, neighborhood_key
+
+# --------------------------------------------------------- feature vocabulary ---
+# Derived from the catalog rather than hard-coded, so the tool schema can never
+# drift from the data. Advertised as a JSON-Schema `enum` below, which is the
+# actual fix for a real bug the simulated-conversation experiment caught:
+# the schema used to give only EXAMPLES, so the model invented tokens from the
+# user's own words — `lift`, `air conditioning`, `balcony` — and exact
+# set-subset matching turned each into a permanent zero-result search. Worst
+# case observed: a user needed a lift (their mother cannot manage stairs), the
+# agent searched `features=['lift']`, got nothing, told them no flats existed,
+# and offered to drop the lift requirement — while LIS-102 (€620k, 2-bed,
+# `elevator`) matched every criterion they had stated.
+FEATURE_VOCABULARY: List[str] = sorted({f for l in LISTINGS for f in (l.get("features") or [])})
+
+# Second line of defence, because an enum constrains but does not guarantee.
+# Maps the words users actually say onto catalog tokens.
+FEATURE_SYNONYMS: Dict[str, str] = {
+    "lift": "elevator",
+    "ac": "air_conditioning",
+    "aircon": "air_conditioning",
+    "a_c": "air_conditioning",
+    "garage": "parking",
+    "car_park": "parking",
+    "car_parking": "parking",
+    "swimming_pool": "pool",
+    "yard": "garden",
+    "patio": "terrace",
+    "roof_terrace": "terrace",
+    "ocean_view": "sea_view",
+    "sea_views": "sea_view",
+    "underground": "metro",
+    "subway": "metro",
+    "tube": "metro",
+    "refurbished": "renovated",
+    "remodeled": "renovated",
+    "remodelled": "renovated",
+}
+
+
+def normalize_features(features: Optional[List[str]]) -> Tuple[List[str], List[str]]:
+    """Split requested features into (recognised catalog tokens, unrecognised).
+
+    Casing, spaces and hyphens are all normalised to the catalog's snake_case, so
+    'Air Conditioning', 'air-conditioning' and 'air conditioning' all land on
+    `air_conditioning`. Synonyms are then applied.
+
+    Unrecognised tokens are RETURNED rather than filtered on. Filtering on a
+    token no listing can have guarantees zero results, and — as the experiment
+    showed — the agent reports that as market scarcity ("nothing available")
+    instead of as an unsupported filter. Handing them back lets the caller
+    search on what it understands and say plainly what it could not honour.
+    """
+    known, unknown = [], []
+    for raw in features or []:
+        token = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+        token = FEATURE_SYNONYMS.get(token, token)
+        if token in FEATURE_VOCABULARY:
+            if token not in known:
+                known.append(token)
+        elif raw not in unknown:
+            unknown.append(str(raw))
+    return known, unknown
 
 
 # ------------------------------------------------------------- tool schemas ---
@@ -29,8 +91,18 @@ ANTHROPIC_TOOLS: List[Dict[str, Any]] = [
                 "min_bedrooms": {"type": "integer", "description": "Minimum number of bedrooms."},
                 "property_type": {"type": "string",
                                   "description": "apartment, house, penthouse, studio, etc. Optional."},
-                "features": {"type": "array", "items": {"type": "string"},
-                             "description": "Desired features, e.g. ['metro','terrace','parking','pool','sea_view']."},
+                # `enum`, not examples: the model must choose from the catalog's
+                # actual vocabulary instead of inventing a token from the user's
+                # phrasing. Anything unrecognised is reported back in
+                # `unsupported_features` rather than silently zeroing the search.
+                "features": {"type": "array",
+                             "items": {"type": "string", "enum": FEATURE_VOCABULARY},
+                             "description": "Desired features. ONLY these exact values are "
+                                            "supported: " + ", ".join(FEATURE_VOCABULARY) +
+                                            ". Map the user's wording onto them (a 'lift' is "
+                                            "'elevator'; a 'garage' is 'parking'). If the user "
+                                            "asks for something not in this list, omit it here "
+                                            "and tell them it cannot be filtered on."},
             },
             "required": ["city", "operation"],
         },
@@ -89,6 +161,9 @@ def search_listings(city: str, operation: str, max_price: Optional[float] = None
                     property_type: Optional[str] = None,
                     features: Optional[List[str]] = None, **_) -> Dict[str, Any]:
     city_l = (city or "").strip().lower()
+    # Unrecognised feature words are dropped from the filter and reported back;
+    # see normalize_features for why filtering on them is worse than ignoring them.
+    wanted_features, unsupported_features = normalize_features(features)
     results = []
     for l in LISTINGS:
         # Match the location term against BOTH city and neighborhood, so a query
@@ -105,14 +180,24 @@ def search_listings(city: str, operation: str, max_price: Optional[float] = None
             continue
         if property_type and property_type.lower() not in l["property_type"].lower():
             continue
-        if features:
-            wanted = {f.strip().lower() for f in features}
+        if wanted_features:
             have = {f.lower() for f in l["features"]}
-            if not wanted.issubset(have):
+            if not set(wanted_features).issubset(have):
                 continue
         results.append(_summary(l))
     results.sort(key=lambda r: r["price"])
-    return {"count": len(results), "listings": results}
+    out: Dict[str, Any] = {"count": len(results), "listings": results}
+    if wanted_features:
+        out["filtered_on_features"] = wanted_features
+    if unsupported_features:
+        # Surfaced so the agent can say WHICH request it could not honour, rather
+        # than presenting an empty result as "nothing on the market".
+        out["unsupported_features"] = unsupported_features
+        out["note"] = ("These features are not tracked in the catalog and were NOT used as "
+                       "filters: " + ", ".join(unsupported_features) + ". Say so explicitly "
+                       "instead of implying no properties exist. Supported features: "
+                       + ", ".join(FEATURE_VOCABULARY) + ".")
+    return out
 
 
 def get_listing_details(listing_id: str, **_) -> Dict[str, Any]:

@@ -38,6 +38,7 @@ Pick your path by what you're trying to do.
 | [Evaluation Architecture](EVALUATION_ARCHITECTURE.md) | Production evaluation strategy: real-time guardrails vs async quality evals |
 | [Evaluation Scenarios](EVALUATION_SCENARIOS.md) | The three LLM failure modes the test scenarios demonstrate |
 | [Code Evaluators](CODE_EVALUATORS.md) | Deterministic TypeScript evaluators — why, when, and how |
+| [Conversation Review](../demos/real-estate/CONVERSATION_REVIEW.md) | Human review of **multi-turn** conversations: session-scoped annotation queues, why a queue of turns can't catch cross-turn failures, and the API gotchas |
 | [Agentic RAG Architecture](AGENTIC_RAG_ARCHITECTURE.md) | CRAG loop on ClickHouse-native vectors, typed observations |
 | [Langfuse CLI](LANGFUSE_CLI.md) | Terminal access to traces, prompts, datasets, scores |
 

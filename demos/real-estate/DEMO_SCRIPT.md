@@ -295,6 +295,18 @@ item. Point at the **score schema**: a categorical **reviewer-verdict**
 (approve / minor-issues / reject) and a 1–5 **expert-usefulness** rating. Annotate
 one live — the score lands on the trace next to the automated ones.
 
+**Show (multi-turn).** Now open the second queue, **Property Concierge -
+conversation review**. Its items are **sessions**, not traces: one item is the
+whole 12-turn conversation, in order. Same idea, different unit of judgment —
+**conversation-outcome** (resolved / partially-resolved / abandoned) plus the two
+cross-turn checks the code and the judge also emit
+(**stated-constraint-respected**, **reference-resolved**). Say why it has to be a
+separate queue: a budget stated in turn 3 and broken in turn 9 looks perfectly
+fine in every individual trace, so a queue of turns structurally cannot catch it.
+The score lands on the **session** — the only human route to a session-scoped
+score, since no automated evaluator can target one.
+(Depth, if asked: [`CONVERSATION_REVIEW.md`](CONVERSATION_REVIEW.md).)
+
 **Land.** "Your experts review real production traces in a structured queue, and
 their labels land as scores on the very same trace. That human-labeled set is what
 you calibrate your LLM judges *against* — so 'is the judge trustworthy?' becomes a
