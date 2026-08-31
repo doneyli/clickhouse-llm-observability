@@ -8,6 +8,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langfuse_config import langfuse_span, get_managed_prompt
 
+# Refine mode (Pattern #5 — evaluator-optimizer) is opt-in so the default demo
+# path (catalog-only, no execution) is unchanged. When on, the retrieve-context
+# step is replaced by a generate -> critique -> refine loop grounded in real
+# ClickHouse EXPLAIN + bounded execution.
+REFINE_MODE = os.getenv("REFINE_MODE", "0") == "1"
+
 
 def _managed_or_fallback(name: str, fallback_template: str) -> ChatPromptTemplate:
     """Build a ChatPromptTemplate from a Langfuse-managed prompt (Deploy node),
@@ -125,17 +131,26 @@ class ClickHouseSQLPipeline:
                 self._context = f"[MCP unavailable: {e}]"
                 return self._context
 
-    def query(self, question: str, callbacks: list = None) -> str:
+    def query(self, question: str, callbacks: list = None, fault: str = None) -> str:
         """Execute the full Text-to-SQL pipeline.
 
         Args:
             question: The user's question
             callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+            fault: Optional deterministic fault to inject in refine mode
+                (e.g. "wrong-column") so the multi-iteration beat is reproducible.
         """
         config = {"callbacks": callbacks} if callbacks else {}
 
         analysis = self.analysis_chain.invoke({"question": question}, config=config)
-        context = self.retrieve_context(question, analysis)
+        if REFINE_MODE:
+            # generate -> critique -> refine, grounded in real EXPLAIN + execution.
+            # The response_chain is unchanged, but its context is now REAL executed
+            # rows (closing the DEMO_SCRIPT honesty note), not just catalog names.
+            from sql_refine_loop import run_refine_loop
+            context = run_refine_loop(question, analysis, fault=fault).as_context()
+        else:
+            context = self.retrieve_context(question, analysis)  # legacy catalog-only path
         answer = self.response_chain.invoke({
             "question": question,
             "analysis": analysis,

@@ -116,10 +116,10 @@ def langfuse_trace(trace_name="text-to-sql", tags=None):
     span is active when a new observation starts — it does not itself keep one
     trace_id alive across sequential, independent top-level calls. The pipeline
     makes several such calls in a row (``analysis_chain.invoke`` ->
-    ``retrieve_context`` -> ``response_chain.invoke``); with no span already
-    open at each call site, every one of them minted its own ROOT span (and
-    therefore its own trace_id) — same trace name/tags, three separate traces
-    in Langfuse instead of one. Opening one root span here (mirroring
+    retrieve-context/refine-loop -> ``response_chain.invoke``); with no span
+    already open at each call site, every one of them minted its own ROOT span
+    (and therefore its own trace_id) — same trace name/tags, three separate
+    traces in Langfuse instead of one. Opening one root span here (mirroring
     ``langfuse_session()`` below) keeps a parent active for the whole block, so
     every LangChain-driven and manually-instrumented step nests under it as a
     single trace.
@@ -160,6 +160,64 @@ def langfuse_span(name: str):
     except Exception as e:
         print(f"Failed to create Langfuse span '{name}': {e}")
         yield
+
+
+@contextmanager
+def langfuse_observe(name: str, as_type: str = "span", input=None):
+    """Create a typed observation (agent-graph semantics) nested under the trace.
+
+    ``as_type`` values other than ``span``/``generation`` (e.g. ``tool``,
+    ``evaluator``) are what make Langfuse render an agentic graph. Yields the
+    observation handle so callers can ``.update(output=..., prompt=..., metadata=...)``
+    or ``None`` when Langfuse is not configured (the app still runs untraced).
+
+    Mirrors ``demos/agentic-rag/langfuse_config.py:observe`` — the evaluator-optimizer
+    loop needs the same generation/tool/evaluator observation types.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        yield None
+        return
+    try:
+        with client.start_as_current_observation(as_type=as_type, name=name, input=input) as obs:
+            yield obs
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"Langfuse observation '{name}' failed: {e}")
+        yield None
+
+
+def score_current_span(name: str, value, comment: Optional[str] = None, data_type: str = "NUMERIC"):
+    """Attach a score to the active observation/span.
+
+    Use for step-level verdicts that can repeat within one trace (e.g.
+    ``sql_critic_score`` on each per-iteration ``critique-sql`` observation) so a
+    multi-iteration run shows the score climbing across iterations — the same
+    convention as ``retrieval_relevance`` in ``demos/agentic-rag/graph.py``.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return
+    try:
+        client.score_current_span(name=name, value=value, comment=comment, data_type=data_type)
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"Langfuse span score '{name}' failed: {e}")
+
+
+def score_current_trace(name: str, value, comment: Optional[str] = None, data_type: str = "NUMERIC"):
+    """Attach an evaluation score to the active trace (once per run).
+
+    Use for app-computed cross-iteration summaries the loop holds the history for
+    (``converged``, ``iterations_to_accept``, ``sql_quality_delta``) — a Langfuse
+    code evaluator sees only one matched observation and cannot read sibling
+    iterations, so these must be pushed by the loop.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return
+    try:
+        client.score_current_trace(name=name, value=value, comment=comment, data_type=data_type)
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"Langfuse trace score '{name}' failed: {e}")
 
 
 def get_langfuse_handler():

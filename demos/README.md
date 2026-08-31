@@ -8,7 +8,7 @@ Engineering loop, see [`../AI_ENGINEERING_LOOP.md`](../AI_ENGINEERING_LOOP.md).
 
 | Demo | What it shows | Best loop steps | Run |
 |------|---------------|-----------------|-----|
-| **[text-to-sql](text-to-sql/)** | NL → SQL over ClickHouse via MCP (LangChain) | Trace · Deploy (managed prompts) | `docker compose --profile demo run --rm text-to-sql python main.py` · client script: [`DEMO_SCRIPT.md`](text-to-sql/DEMO_SCRIPT.md) |
+| **[text-to-sql](text-to-sql/)** | NL → SQL with a generate→critique→refine loop grounded in real EXPLAIN/execution evidence (LangChain) | Trace · Evaluate · Experiment · Deploy | `docker compose --profile demo run --rm text-to-sql python main.py` (legacy) · `-e REFINE_MODE=1 … python main.py --refine` (Pattern #5) · client script: [`DEMO_SCRIPT.md`](text-to-sql/DEMO_SCRIPT.md) |
 | **[vector-rag](vector-rag/)** | RAG over ChromaDB (LangChain) | Trace · Evaluate · Deploy | `docker compose --profile demo run --rm vector-rag python main.py` · client script: [`DEMO_SCRIPT.md`](vector-rag/DEMO_SCRIPT.md) |
 | **[agentic-rag](agentic-rag/)** | Self-correcting RAG on ClickHouse-native vectors (LangGraph) | Trace · Experiment · Deploy | see [`DEMO_SCRIPT.md`](agentic-rag/DEMO_SCRIPT.md) (client script) or [`../docs/AGENTIC_RAG_DEMO_RUNBOOK.md`](../docs/AGENTIC_RAG_DEMO_RUNBOOK.md) (deep reference) |
 | **[litellm-gateway](litellm-gateway/)** | LiteLLM AI gateway with centralized Langfuse OTLP tracing | Trace · Gateway | `./demos/litellm-gateway/run_demo.sh` · client script: [`DEMO_SCRIPT.md`](litellm-gateway/DEMO_SCRIPT.md) |
