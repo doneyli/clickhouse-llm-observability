@@ -616,6 +616,58 @@ ensure_cluster_health_seed() {
 }
 
 #######################################
+# Seed the Query Router demo (idempotent, non-fatal): the classifier prompt, the
+# routing dataset, seeded misroute history, and the independent misroute judge.
+#
+# The prompt seeder matters more than it looks: without it the router's
+# get_prompt('query-router-classifier') 404s and it silently falls back to the
+# local template baked into router.py. Observed effect — every question
+# classified out_of_scope, so the demo escalated everything to a human and never
+# dispatched to a specialist handler at all, which is the entire point of the
+# pattern. It exited 0 while doing it.
+#######################################
+ensure_query_router_seed() {
+    if [ ! -d "$SCRIPT_DIR/demos/query-router" ]; then
+        return 0
+    fi
+
+    header "Seeding Query Router (prompt, dataset, history, judge)"
+
+    local ok=1
+    python3 "$SCRIPT_DIR/scripts/seed-router-prompt.py"  || ok=0
+    python3 "$SCRIPT_DIR/scripts/seed-router-dataset.py" || ok=0
+    python3 "$SCRIPT_DIR/scripts/seed-router-history.py" || ok=0
+    "$SCRIPT_DIR/scripts/seed-router-judge.sh"           || ok=0
+
+    if [ "$ok" -eq 1 ]; then
+        success "Query-router prompt, dataset, history, and judge seeded"
+    else
+        warn "Query-router seeding incomplete — without the classifier prompt the router falls back to its local template and routes everything to out_of_scope"
+    fi
+}
+
+#######################################
+# Seed the Support Triage (parallelisation) demo (idempotent, non-fatal):
+# managed prompts + the vote/tie-break datasets, via its own seed_all.py.
+#######################################
+ensure_support_triage_seed() {
+    if [ ! -d "$SCRIPT_DIR/demos/support-triage-parallel" ]; then
+        return 0
+    fi
+
+    header "Seeding Support Triage (prompts, datasets)"
+
+    if docker compose --profile langfuse --profile demo run --rm support-triage-parallel \
+        python scripts/seed_all.py; then
+        success "Support-triage prompts and datasets seeded"
+    else
+        warn "Support-triage seeding skipped — run: docker compose --profile langfuse --profile demo run --rm support-triage-parallel python scripts/seed_all.py"
+    fi
+    "$SCRIPT_DIR/scripts/seed-support-triage-evaluators.sh" || \
+        warn "Support-triage evaluators skipped — run ./scripts/seed-support-triage-evaluators.sh"
+}
+
+#######################################
 # Wait for critical services to be healthy
 #######################################
 wait_for_services() {
@@ -890,6 +942,8 @@ main() {
     ensure_librechat_agents
     ensure_slow_query_tuner
     ensure_cluster_health_seed
+    ensure_query_router_seed
+    ensure_support_triage_seed
 
     if [ "$run_seed" = true ]; then
         header "Seeding Demo Data"
