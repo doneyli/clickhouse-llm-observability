@@ -9,9 +9,15 @@ in the wrong project.
 
 To prevent that we:
   1. Load this folder's .env explicitly.
-  2. HARD-SET os.environ (override, never setdefault) from those values.
-  3. Instantiate Langfuse() with the keys explicitly.
+  2. HARD-SET os.environ (override, never setdefault) from those values —
+     including LANGFUSE_BASE_URL, which SDK v4 reads and which outranks a
+     `host=` constructor argument.
+  3. Instantiate Langfuse() with the keys explicitly, passing `base_url=`
+     (highest precedence of all — no env var can override it).
   4. verify_project() confirms the keys resolve to the expected project name.
+
+Requires Langfuse Python SDK v4 (`langfuse>=4.10,<5.0` — see requirements.txt for
+why the floor is 4.10 rather than the repo-wide 4.7).
 """
 
 import os
@@ -19,8 +25,10 @@ import sys
 import base64
 import urllib.request
 import urllib.error
+import urllib.parse
 import json
 from pathlib import Path
+from typing import Optional, Sequence
 
 import threading
 
@@ -32,12 +40,21 @@ load_dotenv(_ENV_PATH, override=True)
 
 LANGFUSE_PUBLIC_KEY = os.environ["LANGFUSE_PUBLIC_KEY"]
 LANGFUSE_SECRET_KEY = os.environ["LANGFUSE_SECRET_KEY"]
-LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://localhost:3001")
+# Accept either spelling from .env: v4 standardizes on LANGFUSE_BASE_URL, but this
+# demo (and the repo's other .env files) historically use LANGFUSE_HOST.
+LANGFUSE_HOST = (os.environ.get("LANGFUSE_BASE_URL")
+                 or os.environ.get("LANGFUSE_HOST")
+                 or "http://localhost:3001")
 
 # HARD override so any get_client()/SDK path uses the real-estate project keys.
 os.environ["LANGFUSE_PUBLIC_KEY"] = LANGFUSE_PUBLIC_KEY
 os.environ["LANGFUSE_SECRET_KEY"] = LANGFUSE_SECRET_KEY
 os.environ["LANGFUSE_HOST"] = LANGFUSE_HOST
+# SDK v4 reads LANGFUSE_BASE_URL, and it OUTRANKS a `host=` constructor arg. Pin it
+# to the same value so a stale inherited LANGFUSE_BASE_URL can never silently
+# redirect this demo's traces to another backend (only `base_url=` beats it, which
+# is what get_langfuse() passes).
+os.environ["LANGFUSE_BASE_URL"] = LANGFUSE_HOST
 
 # Override with LANGFUSE_PROJECT_NAME when targeting e.g. a Langfuse Cloud
 # project that isn't named "real-estate".
@@ -111,6 +128,14 @@ def _attach_mirror() -> None:
                  # Observation-level (new-model) evaluators only execute in
                  # real time on v4-ingested data; without this header the
                  # mirror's traces render fine but judges never fire.
+                 #
+                 # Still required even though the primary client is now on SDK
+                 # v4: this is a PLAIN BatchSpanProcessor, so it bypasses the
+                 # Langfuse span processor entirely and inherits none of its
+                 # headers. The server infers real-time eligibility from
+                 # `x-langfuse-sdk-version` (Python >= 4.7.0 qualifies), which
+                 # this exporter never sends — hence the explicit header.
+                 # Harmless when the mirror is a v3 server (no v4 ingestion gate).
                  "x-langfuse-ingestion-version": "4"},
     ))
     provider.add_span_processor(_mirror_processor)
@@ -141,10 +166,13 @@ def get_langfuse():
         if _langfuse is None:
             from langfuse import Langfuse
 
+            # `base_url=` (not `host=`): in SDK v4 it has the highest precedence of
+            # all and cannot be overridden by a LANGFUSE_BASE_URL env var, so the
+            # explicit per-project value always wins.
             _langfuse = Langfuse(
                 public_key=LANGFUSE_PUBLIC_KEY,
                 secret_key=LANGFUSE_SECRET_KEY,
-                host=LANGFUSE_HOST,
+                base_url=LANGFUSE_HOST,
             )
             _attach_mirror()
     return _langfuse
@@ -155,6 +183,12 @@ def record_score(lf, **kwargs) -> None:
 
     Trace/observation ids are identical on both backends (same OTel spans),
     so the same payload lands on the mirror via its public scores API.
+
+    A score references EXACTLY ONE subject: a trace, an observation, a session,
+    or a dataset run. `session_id=` is the only way to score a whole
+    conversation — no Langfuse-managed evaluator can target a session, because
+    the server cannot know when a conversation has ended. Session scores are
+    therefore always written from here.
     """
     lf.create_score(**kwargs)
     if not MIRROR_ENABLED:
@@ -162,11 +196,14 @@ def record_score(lf, **kwargs) -> None:
     value = kwargs.get("value")
     if isinstance(value, bool):  # public API wants 1/0 for BOOLEAN scores
         value = 1 if value else 0
-    body = {
-        "traceId": kwargs.get("trace_id"),
-        "name": kwargs.get("name"),
-        "value": value,
-    }
+    body = {"name": kwargs.get("name"), "value": value}
+    # Session scores carry NO traceId. Emitting `traceId: None` (the previous
+    # behaviour) is rejected by the scores API, so pick the subject explicitly
+    # rather than defaulting to a trace that isn't there.
+    if kwargs.get("session_id"):
+        body["sessionId"] = kwargs["session_id"]
+    else:
+        body["traceId"] = kwargs.get("trace_id")
     if kwargs.get("observation_id"):
         body["observationId"] = kwargs["observation_id"]
     if kwargs.get("data_type"):
@@ -235,6 +272,180 @@ def langfuse_api(method: str, path: str, body=None, timeout: int = 20):
             return resp.status, json.loads(resp.read() or "{}")
     except urllib.error.HTTPError as e:
         return e.code, {"error": e.read(300).decode(errors="replace")}
+
+
+def _version_hint(path: str, status: int) -> str:
+    """Explain a 404 on a v2 read endpoint as the server-version issue it usually is.
+
+    The **Observations API v2** is unsupported on self-hosted OSS v3, so pointing
+    this demo at the repo's local stack (LANGFUSE_HOST defaults to
+    http://localhost:3001, which runs a v3 server) makes these reads 404 with no
+    hint as to why. Scores API v3 is fine on v3 (≥ 3.63.0); it is specifically
+    `/v2/` that needs a v4 server or Langfuse Cloud.
+    """
+    if status != 404 or "/v2/" not in path:
+        return ""
+    try:
+        _, health = langfuse_api("GET", "/api/public/health", timeout=5)
+        version = health.get("version", "unknown")
+    except Exception:
+        version = "unreachable"
+    return (f"\n  HINT: {path} requires a Langfuse v4 server or Langfuse Cloud. "
+            f"{LANGFUSE_HOST} reports version {version}. "
+            f"This demo is designed against Langfuse Cloud — check LANGFUSE_HOST in "
+            f"demos/real-estate/.env.")
+
+
+def _paginate(path: str, params: dict, timeout: int = 20) -> list:
+    """Collect every page of a cursor-paginated v2/v3 list endpoint.
+
+    The v1 list endpoints were page-based; v2/v3 are cursor-based and signal the
+    final page by OMITTING `meta.cursor` (an empty `meta` is a complete result,
+    not an error). Callers get one flat list.
+    """
+    out: list = []
+    cursor = None
+    while True:
+        q = dict(params)
+        if cursor:
+            q["cursor"] = cursor
+        status, data = langfuse_api(
+            "GET", f"{path}?{urllib.parse.urlencode(q)}", timeout=timeout)
+        if status != 200:
+            raise RuntimeError(
+                f"GET {path} -> {status}: {data.get('error')}{_version_hint(path, status)}")
+        out.extend(data.get("data") or [])
+        cursor = (data.get("meta") or {}).get("cursor")
+        if not cursor:
+            return out
+
+
+def list_observations(trace_id: str, *, fields: str = "core,basic",
+                      limit: int = 100) -> list:
+    """Observations of a trace, via `GET /api/public/v2/observations`.
+
+    Replaces the deprecated `GET /api/public/traces/{id}` + `.observations`.
+    Note `input`/`output` are returned as RAW JSON STRINGS (the v2 endpoint
+    rejects `parseIoAsJson` outright), so parse them client-side — see
+    `observation_io`. Ask for the `io` field group to get them at all.
+    """
+    return _paginate("/api/public/v2/observations",
+                     {"traceId": trace_id, "limit": limit, "fields": fields})
+
+
+def root_observation(observations: list) -> Optional[dict]:
+    """The logical root of a trace, whose input/output ARE the trace's.
+
+    Match on the `isRootObservation` flag, never on `parentObservationId is
+    None`: the SDK can mark an observation as the app root while it still has a
+    non-null parent, and the observation-level evaluators key off the same flag.
+    Requires the `basic` field group.
+    """
+    return next((o for o in observations if o.get("isRootObservation")), None)
+
+
+def observation_io(observation: dict, key: str):
+    """Parse a v2 observation's `input`/`output` (raw string) into JSON if it is JSON."""
+    raw = (observation or {}).get(key)
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return raw  # plain text output (e.g. the concierge's answer) — not JSON
+
+
+def root_observations_by_tag(tag: str, *, limit: int = 50,
+                             fields: str = "core,basic") -> list:
+    """Root observations of traces carrying `tag`, newest first.
+
+    Replaces the deprecated `GET /api/public/traces?tags=...`. v2 is
+    observation-scoped, so constrain to `isRootObservation` to get exactly one
+    row per trace rather than one per observation. Deliberately a SINGLE page:
+    callers want the newest N, and following the cursor here would walk the
+    project's entire history.
+    """
+    filter_conditions = json.dumps([
+        {"type": "arrayOptions", "column": "traceTags",
+         "operator": "any of", "value": [tag]},
+        {"type": "boolean", "column": "isRootObservation",
+         "operator": "=", "value": True},
+    ])
+    path = "/api/public/v2/observations"
+    status, data = langfuse_api("GET", path + "?" +
+                               urllib.parse.urlencode({"filter": filter_conditions,
+                                                       "limit": limit,
+                                                       "fields": fields}))
+    if status != 200:
+        raise RuntimeError(f"v2/observations (tag={tag}) -> {status}: "
+                           f"{data.get('error')}{_version_hint(path, status)}")
+    return data.get("data") or []
+
+
+def list_sessions(limit: int = 50) -> list:
+    """The project's sessions, newest first, via `GET /api/public/sessions`.
+
+    Page-based (not cursor-based) and **deprecated on Langfuse Cloud** — it is
+    removed on 2026-11-16, after which "which sessions exist?" is answered by
+    grouping `GET /api/public/v2/observations` rows on their `sessionId`. Until
+    then this is the only single-call answer, so it stays the discovery route
+    and `root_observations_by_sessions()` below does the per-session work.
+    Rows carry only id/createdAt/projectId/environment — no turn count.
+    """
+    path = "/api/public/sessions"
+    status, data = langfuse_api(
+        "GET", f"{path}?{urllib.parse.urlencode({'limit': limit, 'page': 1})}")
+    if status != 200:
+        raise RuntimeError(f"GET {path} -> {status}: {data.get('error')}")
+    return data.get("data") or []
+
+
+def root_observations_by_sessions(session_ids: Sequence[str], *,
+                                  fields: str = "core,basic") -> list:
+    """Root observations — one row per TURN — for a batch of sessions.
+
+    Filtering on `sessionId` needs the **stringOptions / "any of"** filter type.
+    `{"type": "string", "column": "sessionId", "operator": "="}` is accepted with
+    a 200 and returns ZERO rows: a silent empty result rather than an error, so a
+    per-session "=" lookup reads as "that conversation has no turns". Batching
+    every id into one "any of" call is both correct and a single round trip.
+
+    Ask for the `io` field group as well to get each turn's input/output (raw
+    JSON strings — parse with `observation_io`).
+    """
+    if not session_ids:
+        return []
+    filter_conditions = json.dumps([
+        {"type": "stringOptions", "column": "sessionId",
+         "operator": "any of", "value": list(session_ids)},
+        {"type": "boolean", "column": "isRootObservation",
+         "operator": "=", "value": True},
+    ])
+    return _paginate("/api/public/v2/observations",
+                     {"filter": filter_conditions, "limit": 100, "fields": fields})
+
+
+def list_scores(trace_id: str, *, fields: str = "subject", limit: int = 100) -> list:
+    """Scores of a trace, via `GET /api/public/v3/scores`.
+
+    Replaces the removed `GET /api/public/scores` and the deprecated
+    `GET /api/public/traces/{id}` + `.scores`. v3 moved the target of a score
+    into a `subject` object, so the flat `observationId` field is GONE — use
+    `score_observation_id()` rather than `score["observationId"]`, which now
+    silently reads as None on every score.
+    """
+    return _paginate("/api/public/v3/scores",
+                     {"traceId": trace_id, "limit": limit, "fields": fields})
+
+
+def score_observation_id(score: dict) -> Optional[str]:
+    """The observation a score is attached to, or None for a trace-level score.
+
+    v3 shape: `subject = {"kind": "observation"|"trace", "id": ..., "traceId": ...}`.
+    Requires the `subject` field group.
+    """
+    subject = score.get("subject") or {}
+    return subject.get("id") if subject.get("kind") == "observation" else None
 
 
 def verify_project(quiet: bool = False) -> str:

@@ -22,7 +22,7 @@ Environment variables:
     OPENAI_API_KEY       (required for GPT models)
 
 Prerequisites:
-    pip install 'langfuse>=3.0,<4.0' anthropic openai
+    pip install 'langfuse>=4.7,<5.0' anthropic openai
 """
 
 import argparse
@@ -35,7 +35,7 @@ try:
     from langfuse import get_client, Evaluation
     from langfuse.openai import OpenAI as LangfuseOpenAI
 except ImportError:
-    print("Error: langfuse package not installed. Run: pip install 'langfuse>=3.0,<4.0'", file=sys.stderr)
+    print("Error: langfuse package not installed. Run: pip install 'langfuse>=4.7,<5.0'", file=sys.stderr)
     sys.exit(1)
 
 try:
