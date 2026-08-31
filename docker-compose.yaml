@@ -437,6 +437,73 @@ services:
       - vector-rag-models:/root/.cache
 
   # =============================================================================
+  # ClickHouse Tuning Lab — dedicated sandbox for the slow-query-tuner agent
+  # =============================================================================
+  # Disposable CH 26.3 with a deliberately pessimal 30M-row table. The agent's
+  # user (tuner_agent) is SELECT-only with hard quotas; tuner_admin exists only
+  # for seeding and the human-approved DDL path. Langfuse's own ClickHouse is
+  # never touched (same isolation rationale as clickhouse-vectors).
+  # =============================================================================
+  clickhouse-tuning:
+    image: clickhouse/clickhouse-server:26.3
+    container_name: clickhouse-tuning
+    restart: unless-stopped
+    profiles:
+      - demo
+    ports:
+      - "${CLICKHOUSE_TUNING_HTTP_PORT:-8126}:8123"
+    environment:
+      - CLICKHOUSE_DB=tuning_lab
+      - CLICKHOUSE_USER=tuner_admin
+      - CLICKHOUSE_PASSWORD=tuner_admin123
+      # Without this, the ClickHouse docker entrypoint creates tuner_admin with
+      # access_management=0 (its default for a non-"default" CLICKHOUSE_USER),
+      # so 03_users.sql's CREATE USER/GRANT for tuner_agent fails with
+      # ACCESS_DENIED and the agent's read-only identity is never created.
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-tuning-data:/var/lib/clickhouse
+      - ./demos/slow-query-tuner/sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "tuner_admin", "--password", "tuner_admin123", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =============================================================================
+  # Slow Query Tuner — Autonomous Agent Loop (open-ended plan-act-observe)
+  # =============================================================================
+  # Pattern #7: the agent EXPLAINs/rewrites/re-runs a slow query against the
+  # live tuning lab and decides FOR ITSELF when it is fast enough. Turn count is
+  # unknown in advance; MAX_TURNS / MAX_BUDGET_USD / watchdog are backstops only.
+  # --runaway deliberately trips the Langfuse cost Monitor.
+  #   docker compose --profile demo run --rm slow-query-tuner python main.py --query q1
+  # =============================================================================
+  slow-query-tuner:
+    build:
+      context: ./demos/slow-query-tuner
+    container_name: slow-query-tuner
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      - TEMPERATURE=${TEMPERATURE:-0.2}
+      # Loop backstops (safety rails, NOT the termination mechanism)
+      - TUNER_MAX_TURNS=${TUNER_MAX_TURNS:-15}
+      - TUNER_MAX_BUDGET_USD=${TUNER_MAX_BUDGET_USD:-0.75}
+      - TUNER_WATCHDOG_S=${TUNER_WATCHDOG_S:-600}
+      - TUNER_COMPACT_AFTER=${TUNER_COMPACT_AFTER:-6}
+      # Tuning-lab environment (agent acts as the sandboxed read-only user)
+      - TUNING_CH_HOST=clickhouse-tuning
+      - TUNING_CH_PORT=8123
+      - TUNING_CH_DB=tuning_lab
+      - TUNING_CH_AGENT_USER=tuner_agent
+      - TUNING_CH_AGENT_PASSWORD=tuner_agent123
+      - TUNING_CH_ADMIN_USER=tuner_admin          # used ONLY inside the approved-DDL path
+      - TUNING_CH_ADMIN_PASSWORD=tuner_admin123
   # Query Router Demo — front-door classification-dispatch (Pattern 2: Routing)
   # =============================================================================
   # A thin front door on :8008 that classifies a question (its own `route-query`
@@ -470,6 +537,13 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
+    profiles:
+      - demo
+    depends_on:
+      clickhouse-tuning:
+        condition: service_healthy
+    volumes:
+      - ./demos/slow-query-tuner:/app     # includes ./checkpoints — state survives `run --rm` for --resume
     depends_on:
       - text-to-sql
       - vector-rag
@@ -724,5 +798,7 @@ volumes:
   langfuse-clickhouse-data:
   # Dedicated ClickHouse for the Agentic RAG native vector store
   clickhouse-vectors-data:
+  # Disposable ClickHouse for the slow-query-tuner tuning lab
+  clickhouse-tuning-data:
   # Model cache shared by vector-rag and agentic-rag (sentence-transformers downloads)
   vector-rag-models:

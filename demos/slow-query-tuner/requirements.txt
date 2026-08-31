@@ -1,0 +1,11 @@
+# Anthropic tool-use API (the planner/policy)
+anthropic>=0.40.0,<1.0.0
+
+# Langfuse — LLM observability (agentic instrumentation, v3 SDK)
+langfuse>=3.0.0,<4.0.0
+
+# ClickHouse driver — the live tuning-lab environment
+clickhouse-connect>=0.8.0,<1.0.0
+
+# Data shaping
+pydantic>=2.0.0,<3.0.0

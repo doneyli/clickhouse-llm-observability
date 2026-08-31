@@ -1,0 +1,3 @@
+-r requirements.txt
+# LLM-free, DB-free unit tests (mock env + mock Anthropic).
+pytest>=8.0.0,<9.0.0

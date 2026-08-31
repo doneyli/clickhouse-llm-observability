@@ -36,6 +36,7 @@ it across the whole stack.
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |
 | `demos/real-estate/` | Self-contained agentic concierge — the loop shown end-to-end in one place | Langfuse SDK |
 | `demos/brand-promo-multi-agent/` | Multi-agent promo-planning assistant (standalone): synthetic history, online + offline evals, persona dashboards | LangGraph + CrewAI + Langfuse `CallbackHandler` |
+| `demos/slow-query-tuner/` | Autonomous agent loop: open-ended query optimization against a live ClickHouse lab (Pattern #7) | Raw Anthropic tool-use + Langfuse SDK (typed observations) |
 
 ## Where each loop step lives
 
@@ -112,6 +113,36 @@ trace → monitor → dataset → experiment (models **and** prompts) → evalua
 **deploy a prompt by label** → repeat — with a presenter runbook. Start there to
 see the whole loop close in ~20 minutes, then map the same pattern onto the main
 stack using the table above.
+
+## The loop for an autonomous agent — `demos/slow-query-tuner/`
+
+Pattern #7 (open-ended plan-act-observe) maps onto the loop differently from a
+bounded pipeline, because the step count is agent-decided:
+
+- **Trace** — a variable-depth `tune-clickhouse-query` trace: `plan-next-action`
+  (generation) → `run-query`/`explain-query`/… (tool) → `assess-progress`
+  (evaluator), repeated as many times as the *agent* chooses. Short vs long runs
+  look visibly different in the Agent Graph Expanded view; the Aggregated view
+  collapses the loop to one cycle. Pause/resume reuses one `session_id`.
+- **Monitor** — the **headline**: a `max(totalCost)` Monitor on the trace name
+  catches runaway loops burning tokens (the `--runaway` beat trips it); a second
+  Monitor on the `turns_used` score catches "self-assessment failed, the backstop
+  stopped it". (Monitors are a Langfuse v4+ feature — `scripts/seed_monitors.py`
+  prints the exact UI fields on this v3 stack.)
+- **Datasets** — `query-tuner/goals`, ROOT-LEVEL items only (goal in, completion
+  criteria out): the same goal yields different valid trajectories, so per-step
+  ground truth would be actively wrong.
+- **Experiment** — `scripts/run_experiment.py` varies one component (system-prompt
+  `v1-naive` vs `v2-disciplined`) with caps + tool list pinned; outcome-graded
+  (pass_rate / avg_cost / avg_turns / cap_hit_rate), `--ci` gate.
+- **Evaluate** — step-level code scores on live observations
+  (`semantics_preserved`, `improvement_delta`), an app-assembled trajectory score
+  set (`turns_used`, `run_cost_usd`, `verified_speedup`, `task_completed`,
+  `trajectory_efficiency`), the deterministic `runaway-loop-guard.ts` code
+  evaluator, and an independent managed `goal_drift` judge.
+- **Deploy** — both system-prompt versions are Langfuse-managed;
+  `v2-disciplined` carries the `production` label (flipping the label is the
+  deploy beat, reused as the Experiment's variable).
 
 ## Honest scope (what's live vs documented)
 
