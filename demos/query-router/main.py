@@ -58,7 +58,10 @@ def run_demo():
             print(f"Error: {e}")
     print("=" * 64)
     if lf.is_langfuse_enabled():
-        print("View traces (name=route-and-dispatch): http://localhost:3001 (Langfuse → Traces)")
+        print("View traces: http://localhost:3001 (Langfuse → Traces)")
+        print("  fallback/escalated routes -> trace name 'route-and-dispatch'")
+        print("  dispatched routes         -> trace name '<handler>-handler' (e.g. text-to-sql-handler),")
+        print("                               which holds the router spans AND the handler subtree")
     print("=" * 64 + "\n")
 
 
@@ -80,10 +83,19 @@ def run_interactive():
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "--interactive":
-        run_interactive()
-    else:
-        run_demo()
+    # Flush on the way out, always. This is a short-lived `docker compose run --rm`
+    # process, and the SDK exports spans from a background batch processor — so
+    # without this the interpreter exits while spans are still queued and traces
+    # are dropped non-deterministically (observed: 3 of 10 routes landing, and
+    # dispatched handler subtrees intermittently missing from the router's trace,
+    # which made cross-process nesting look broken when it was not).
+    try:
+        if len(sys.argv) > 1 and sys.argv[1] == "--interactive":
+            run_interactive()
+        else:
+            run_demo()
+    finally:
+        lf.flush()
 
 
 if __name__ == "__main__":

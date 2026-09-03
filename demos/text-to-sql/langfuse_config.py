@@ -10,7 +10,7 @@ Supports session tracking via propagate_attributes.
 import os
 import uuid
 from typing import Optional, List
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 # Check if Langfuse is configured
 LANGFUSE_ENABLED = bool(
@@ -94,17 +94,29 @@ def langfuse_session(session_id: Optional[str] = None):
         yield
         return
 
+    # Guard only the SETUP of instrumentation — never the caller's block. Holding
+    # the `yield` inside `try: ... except Exception` routes any exception raised by
+    # the CALLER into this generator, where it is swallowed, printed as if Langfuse
+    # had failed, and followed by a second `yield` — which Python converts into
+    # "RuntimeError: generator didn't stop after throw()", destroying the real
+    # traceback. Enter the contexts eagerly and let the body's exceptions through.
+    stack = ExitStack()
     try:
         from langfuse import get_client, propagate_attributes
 
         sid = session_id or get_session_id()
         client = get_client()
 
-        with client.start_as_current_observation(as_type="span", name="session-root"):
-            with propagate_attributes(session_id=sid):
-                yield
+        stack.enter_context(
+            client.start_as_current_observation(as_type="span", name="session-root")
+        )
+        stack.enter_context(propagate_attributes(session_id=sid))
     except Exception as e:
-        print(f"Failed to create Langfuse session: {e}")
+        print(f"Langfuse session unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
@@ -125,14 +137,23 @@ def langfuse_trace(trace_name="text-to-sql", tags=None):
         yield
         return
 
+    # Setup guarded, body not — see the note in langfuse_session().
+    stack = ExitStack()
     try:
         from langfuse import get_client, propagate_attributes
         client = get_client()
-        with client.start_as_current_observation(as_type="span", name=trace_name):
-            with propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"]):
-                yield
+        stack.enter_context(
+            client.start_as_current_observation(as_type="span", name=trace_name)
+        )
+        stack.enter_context(
+            propagate_attributes(trace_name=trace_name, tags=tags or ["text-to-sql", "demo"])
+        )
     except Exception as e:
-        print(f"Failed to set Langfuse trace context: {e}")
+        print(f"Langfuse trace context unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
@@ -148,14 +169,19 @@ def langfuse_span(name: str):
         yield
         return
 
+    # Setup guarded, body not — see the note in langfuse_session().
+    stack = ExitStack()
     try:
         from langfuse import get_client
 
         client = get_client()
-        with client.start_as_current_observation(as_type="span", name=name):
-            yield
+        stack.enter_context(client.start_as_current_observation(as_type="span", name=name))
     except Exception as e:
-        print(f"Failed to create Langfuse span '{name}': {e}")
+        print(f"Langfuse span '{name}' unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
@@ -181,28 +207,61 @@ def langfuse_gate(name: str):
         yield _NoopSpan()
         return
 
+    # Setup guarded, body not — see the note in langfuse_session().
+    stack = ExitStack()
     try:
         from langfuse import get_client
         client = get_client()
-        with client.start_as_current_observation(as_type="span", name=name) as span:
-            yield span
+        span = stack.enter_context(
+            client.start_as_current_observation(as_type="span", name=name)
+        )
     except Exception as e:
-        print(f"Failed to create Langfuse gate span '{name}': {e}")
+        print(f"Langfuse gate span '{name}' unavailable: {e}")
+        stack.close()
         yield _NoopSpan()
+        return
+    with stack:
+        yield span
 
 
 def tag_current_trace(tags: List[str]):
-    """Append tags to the active trace (used by gate abort/escalate routing).
+    """Record a gate outcome (abort / escalate) that is only known mid-trace.
 
-    No-op on error / when Langfuse is disabled — tracing never takes the app down.
+    This used to call ``update_current_trace(tags=...)``, which **does not exist on
+    SDK v4** — the call raised, the except below swallowed it, and every escalated
+    or aborted run went unlabelled while printing a one-line warning nobody reads.
+    Tags in v4 are immutable and set at observation creation, so a trace genuinely
+    cannot be retro-tagged.
+
+    Langfuse's own guidance covers exactly this case: "If you need to label traces
+    based on something determined after the fact ... use scores instead."
+    (docs/observability/best-practices). So each tag becomes a BOOLEAN score on the
+    current trace — which, unlike a tag, is filterable, aggregatable in dashboards,
+    and can be added at any point.
+
+    Score names are the tag with ':' -> '-', because ':' is not a useful character
+    in a score name you will later group by.
+
+    No-op when Langfuse is disabled; never takes the app down.
     """
     if not LANGFUSE_ENABLED:
         return
     try:
         from langfuse import get_client
-        get_client().update_current_trace(tags=tags)
+        client = get_client()
+        trace_id = client.get_current_trace_id()
+        if not trace_id:
+            return
+        for tag in tags:
+            client.create_score(
+                trace_id=trace_id,
+                name=tag.replace(":", "-"),
+                value=1,
+                data_type="BOOLEAN",
+                comment=f"Gate routing outcome: {tag}",
+            )
     except Exception as e:
-        print(f"Failed to tag current trace {tags}: {e}")
+        print(f"Failed to record gate outcome {tags}: {e}")
 
 
 def get_langfuse_handler():

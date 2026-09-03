@@ -1,0 +1,157 @@
+name: Demo integrity
+
+# The cheap gates that would have caught most of the defects found in the first
+# live pass over the spec demos (PR #71). None of them run the demos or need a
+# Langfuse instance, an API key, or Docker services — they are seconds of CI that
+# close off whole classes of silent breakage:
+#
+#   - dependency resolution: four demos pinned `langfuse<4.0.0` while importing
+#     v4-only `propagate_attributes`, so under their own pins they could not
+#     import at all. A static review reported them clean; `pip install` catches it
+#     immediately. A keep-both-sides merge conflict also left two conflicting
+#     langfuse pins in one requirements.txt, which pip refuses outright.
+#   - shell syntax: a merge artifact left setup.sh unparseable ("line 912: syntax
+#     error: unexpected end of file"), i.e. the repo's documented entry point
+#     could not run, and nothing noticed.
+#   - compose validity PER PROFILE: `yaml.safe_load` silently accepts duplicate
+#     mapping keys (last wins) where Docker's parser rejects them, so a Python
+#     "it parses" check passes on a file Docker refuses. And a cross-profile
+#     depends_on invalidates the WHOLE project under one profile combination
+#     while validating fine under another — so each combination must be checked.
+#   - instrumentation wrappers: the tracing contextmanagers used to hold the
+#     caller's block inside `try/except Exception`, which swallowed application
+#     exceptions, mislabelled them as Langfuse failures, and replaced them with
+#     "RuntimeError: generator didn't stop after throw()".
+
+on:
+  pull_request:
+    paths:
+      - 'demos/**/requirements.txt'
+      - 'demos/**/langfuse_config.py'
+      - 'docker-compose.yaml'
+      - 'setup.sh'
+      - 'scripts/**.sh'
+      - '.github/workflows/demo-integrity.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deps-resolve:
+    name: requirements.txt resolves
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo:
+          - agentic-rag
+          - cluster-health-investigator
+          - query-router
+          - real-estate
+          - slow-query-tuner
+          - support-triage-parallel
+          - text-to-sql
+          - vector-rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: pip install --dry-run (resolution only, no build)
+        run: |
+          cd "demos/${{ matrix.demo }}"
+          # --dry-run still runs the full resolver, so a conflicting pin fails
+          # here, but nothing is installed or compiled — keeps this to seconds.
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install --dry-run -r requirements.txt
+
+  shell-syntax:
+    name: shell scripts parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n every shell script
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            if ! bash -n "$f" 2>/tmp/err; then
+              echo "::error file=$f::$(head -1 /tmp/err)"
+              fail=1
+            fi
+          done < <(find . -name '*.sh' -not -path './.git/*' -print0)
+          # setup.sh is the documented entry point — call it out explicitly.
+          if ! bash -n setup.sh; then
+            echo "::error file=setup.sh::setup.sh does not parse"
+            fail=1
+          fi
+          exit $fail
+
+  compose-valid:
+    name: compose validates per profile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config for each profile combination
+        run: |
+          # A real .env is required, not just --env-file: services declare
+          # `env_file: - .env` (the shell-key hardening), and Compose resolves
+          # that path itself regardless of --env-file, so config fails with
+          # "env file .../.env not found" without it. The runner is ephemeral.
+          cp .env.example .env
+          fail=0
+          check() {
+            if docker compose "$@" config >/dev/null 2>/tmp/err; then
+              echo "  ok    [$*]"
+            else
+              echo "::error::docker compose $* config failed: $(head -1 /tmp/err)"
+              fail=1
+            fi
+          }
+          check
+          check --profile demo
+          check --profile langfuse
+          check --profile tools
+          check --profile dashboard
+          check --profile langfuse --profile demo
+          check --profile langfuse --profile demo --profile tools --profile dashboard
+          exit $fail
+
+  instrumentation-safety:
+    name: tracing wrappers do not swallow caller exceptions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: no yield inside a try body that has except handlers
+        run: |
+          python - <<'PY'
+          import ast, glob, sys
+          bad = []
+          for path in sorted(glob.glob('demos/*/langfuse_config.py')):
+              tree = ast.parse(open(path).read())
+              for fn in ast.walk(tree):
+                  if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                      continue
+                  deco = [getattr(d, 'id', getattr(d, 'attr', None)) for d in fn.decorator_list]
+                  if 'contextmanager' not in deco:
+                      continue
+                  # A `yield` inside Try.body where the Try has handlers means an
+                  # exception raised by the CALLER is thrown in at that yield and
+                  # caught by the handler — swallowing the application's own error.
+                  # (A yield inside an `except` handler is fine: that is the
+                  # setup-failure degradation path.)
+                  for node in ast.walk(fn):
+                      if isinstance(node, ast.Try) and node.handlers:
+                          for stmt in node.body:
+                              if any(isinstance(s, (ast.Yield, ast.YieldFrom))
+                                     for s in ast.walk(stmt)):
+                                  bad.append(f'{path}:{fn.lineno} {fn.name}()')
+                                  break
+          for b in sorted(set(bad)):
+              print(f'::error::{b} yields inside a guarded try — caller exceptions '
+                    f'will be swallowed and replaced by RuntimeError. Guard only '
+                    f'instrumentation SETUP (see contextlib.ExitStack pattern).')
+          sys.exit(1 if bad else 0)
+          PY

@@ -127,6 +127,25 @@ GATE_GROUNDING_FALLBACK = (
 )
 
 
+def _capped(reason: Optional[str], limit: int = 180) -> Optional[str]:
+    """Shorten a gate reason for the PROPAGATED metadata path.
+
+    LangChain's ``config={"metadata": ...}`` is turned into propagated trace
+    metadata by the Langfuse callback handler, and propagated metadata values are
+    capped at 200 characters — over that, Langfuse DROPS the value and logs
+    "Propagated attribute ... is over 200 characters ... Dropping value". Gate
+    reasons are grader sentences and routinely run 240-290 chars, so the field was
+    being discarded exactly when it mattered (on a retry).
+
+    The full, untruncated reason is still on the gate span's own output
+    (``span.update(output=result.as_output())``) — observation metadata has no such
+    cap. This is only the short copy that rides along on the retried generation.
+    """
+    if not reason:
+        return None
+    return reason if len(reason) <= limit else reason[: limit - 1].rstrip() + "…"
+
+
 class ClickHouseSQLPipeline:
     """Text-to-SQL pipeline that queries ClickHouse via MCP."""
 
@@ -143,10 +162,36 @@ class ClickHouseSQLPipeline:
         self.gate_log = []
 
     def _setup_llm(self):
+        # `timeout` and `max_retries` are NOT optional here, and their absence is
+        # what made the first live run of this demo unusable: 10 questions took
+        # 8+ hours, with individual questions stalling 3h14m and 4h38m at 0.03%
+        # CPU — i.e. blocked on a socket, not computing. Without an explicit
+        # read timeout a half-open connection to the API hangs until the OS gives
+        # up, which can be hours.
+        #
+        # The gated chain made this much more likely than the pre-gate pipeline
+        # did: it issues up to 3 LLM calls per question (analysis, response, and
+        # the Gate-2 grader) instead of one, so each question has three chances
+        # to hit a stalled socket.
+        #
+        # NOTE the field name: this langchain-anthropic (>=0.3,<1) exposes
+        # `default_request_timeout`, NOT `timeout`. Passing `timeout=` is
+        # silently ignored — the model accepts unknown kwargs — so the fix would
+        # have looked applied and changed nothing. Verified against the field
+        # list in the built image.
+        #
+        # 120s is generous for these prompts (max_tokens is small) and still
+        # fails fast enough to be watchable in a demo. 2 retries bounds the worst
+        # case per call at ~6 minutes rather than unbounded.
+        llm_timeout = float(os.getenv("LLM_TIMEOUT_S", "120"))
+        llm_retries = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
         self.llm = ChatAnthropic(
             model=self.config.model_name,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
+            default_request_timeout=llm_timeout,
+            max_retries=llm_retries,
         )
         # Cheap tier for the Gate-2 grounding grader (repo convention: Haiku for
         # checks). temp=0 so the verdict is as stable as an LLM check can be.
@@ -154,6 +199,8 @@ class ClickHouseSQLPipeline:
             model=os.getenv("GATE_MODEL", "claude-haiku-4-5"),
             temperature=0,
             max_tokens=300,
+            default_request_timeout=llm_timeout,
+            max_retries=llm_retries,
         )
 
     def _rebuild_analysis_chain(self):
@@ -261,7 +308,7 @@ class ClickHouseSQLPipeline:
                 {"question": self._apply_fault(step_input)},
                 config={**config, "metadata": {"purpose": "query_analysis",
                                                "attempt": attempt,
-                                               "gate_failure_reason": None if attempt == 1 else gate1.reason}})
+                                               "gate_failure_reason": None if attempt == 1 else _capped(gate1.reason)}})
             with langfuse_gate("gate-database-selection") as span:
                 gate1 = gate_database_selection(analysis)
                 span.update(input={"analysis": analysis[:500]},
@@ -298,7 +345,7 @@ class ClickHouseSQLPipeline:
                      f"and never present numbers as executed query results.]")},
                 config={**config, "metadata": {"purpose": "response_generation",
                                                "attempt": attempt,
-                                               "gate_failure_reason": None if attempt == 1 else gate2.reason}})
+                                               "gate_failure_reason": None if attempt == 1 else _capped(gate2.reason)}})
             with langfuse_gate("gate-response-quality") as span:
                 gate2 = gate_response_quality(question, analysis, context, answer,
                                               grader_chain)

@@ -7,6 +7,7 @@ fastapi>=0.115.0,<1.0.0
 uvicorn>=0.30.0,<1.0.0
 
 # Langfuse - LLM observability (typed observations, managed prompts, scores)
-langfuse>=3.0.0,<4.0.0
+# v4: this demo imports `propagate_attributes`, which does not exist in v3.
+langfuse>=4.7,<5.0
 
 python-dotenv>=1.0.0,<2.0.0

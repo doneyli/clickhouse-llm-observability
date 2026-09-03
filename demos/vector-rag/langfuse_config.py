@@ -10,7 +10,7 @@ Supports session tracking via propagate_attributes.
 import os
 import uuid
 from typing import Optional, List
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 # Check if Langfuse is configured
 LANGFUSE_ENABLED = bool(
@@ -94,17 +94,29 @@ def langfuse_session(session_id: Optional[str] = None):
         yield
         return
 
+    # Guard only the SETUP of instrumentation — never the caller's block. Holding
+    # the `yield` inside `try: ... except Exception` routes any exception raised by
+    # the CALLER into this generator, where it is swallowed, printed as if Langfuse
+    # had failed, and followed by a second `yield` — which Python converts into
+    # "RuntimeError: generator didn't stop after throw()", destroying the real
+    # traceback. Enter the contexts eagerly and let the body's exceptions through.
+    stack = ExitStack()
     try:
         from langfuse import get_client, propagate_attributes
 
         sid = session_id or get_session_id()
         client = get_client()
 
-        with client.start_as_current_observation(as_type="span", name="session-root"):
-            with propagate_attributes(session_id=sid):
-                yield
+        stack.enter_context(
+            client.start_as_current_observation(as_type="span", name="session-root")
+        )
+        stack.enter_context(propagate_attributes(session_id=sid))
     except Exception as e:
-        print(f"Failed to create Langfuse session: {e}")
+        print(f"Langfuse session unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
@@ -115,12 +127,19 @@ def langfuse_trace(trace_name="vector-rag", tags=None):
         yield
         return
 
+    # Setup guarded, body not — see the note in langfuse_session().
+    stack = ExitStack()
     try:
         from langfuse import propagate_attributes
-        with propagate_attributes(trace_name=trace_name, tags=tags or ["vector-rag", "demo"]):
-            yield
+        stack.enter_context(
+            propagate_attributes(trace_name=trace_name, tags=tags or ["vector-rag", "demo"])
+        )
     except Exception as e:
-        print(f"Failed to set Langfuse trace context: {e}")
+        print(f"Langfuse trace context unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
