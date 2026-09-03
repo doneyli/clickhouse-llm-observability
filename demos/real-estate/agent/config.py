@@ -38,6 +38,11 @@ from dotenv import load_dotenv, dotenv_values
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_ENV_PATH, override=True)
 
+# PII redaction policy. Imported after load_dotenv so LANGFUSE_MASK_PII can be
+# set in .env; deliberately NOT listed in .env, so `LANGFUSE_MASK_PII=false
+# <cmd>` works from the shell for the masked/unmasked comparison.
+from agent import masking  # noqa: E402  (must follow load_dotenv)
+
 LANGFUSE_PUBLIC_KEY = os.environ["LANGFUSE_PUBLIC_KEY"]
 LANGFUSE_SECRET_KEY = os.environ["LANGFUSE_SECRET_KEY"]
 # Accept either spelling from .env: v4 standardizes on LANGFUSE_BASE_URL, but this
@@ -107,6 +112,19 @@ def _attach_mirror() -> None:
     global _mirror_attached
     if _mirror_attached or not MIRROR_ENABLED:
         return
+
+    # PII redaction runs in the Langfuse client's own export path, so it does
+    # NOT apply here: this is a plain BatchSpanProcessor and receives its own
+    # unmasked copy of every span. Refuse the combination rather than silently
+    # ship unredacted payloads to the mirror.
+    if masking.enabled():
+        print("ERROR: LANGFUSE_MASK_PII is on and trace mirroring is configured. "
+              "The mirror uses a separate OTLP exporter, which the Langfuse "
+              "masking hook cannot reach — it would receive UNREDACTED spans.\n"
+              "  Set LANGFUSE_MASK_PII=false, or unset the LANGFUSE_MIRROR_* "
+              "keys in demos/real-estate/.env.", file=sys.stderr)
+        sys.exit(1)
+
     import base64 as _b64
 
     from opentelemetry import trace as _otel_trace
@@ -166,6 +184,14 @@ def get_langfuse():
         if _langfuse is None:
             from langfuse import Langfuse
 
+            # Redact PII in span attributes at EXPORT stage, inside this
+            # process. `mask_otel_spans` (SDK >= 4.9.0) sees the final raw OTel
+            # attributes of every span this client exports — including spans
+            # from third-party instrumentation, which the legacy `mask=` hook
+            # never sees. See agent/masking.py for the policy and its limits.
+            mask_kwargs = ({"mask_otel_spans": masking.mask_otel_spans}
+                           if masking.enabled() else {})
+
             # `base_url=` (not `host=`): in SDK v4 it has the highest precedence of
             # all and cannot be overridden by a LANGFUSE_BASE_URL env var, so the
             # explicit per-project value always wins.
@@ -173,6 +199,7 @@ def get_langfuse():
                 public_key=LANGFUSE_PUBLIC_KEY,
                 secret_key=LANGFUSE_SECRET_KEY,
                 base_url=LANGFUSE_HOST,
+                **mask_kwargs,
             )
             _attach_mirror()
     return _langfuse
@@ -474,4 +501,14 @@ def verify_project(quiet: bool = False) -> str:
 
     if not quiet:
         print(f"✓ Langfuse project verified: {EXPECTED_PROJECT} @ {LANGFUSE_HOST}")
+        # State the redaction posture out loud. Silent masking is how a demo
+        # ends up claiming a guarantee nobody watched it switch on — and silent
+        # *un*masking is worse.
+        if masking.enabled():
+            print("✓ PII redaction ON — emails, phones, IBANs, national ids and "
+                  "card numbers are scrubbed before export (LANGFUSE_MASK_PII=false "
+                  "to disable)")
+        else:
+            print("! PII redaction OFF — raw payloads will be exported "
+                  "(LANGFUSE_MASK_PII)")
     return EXPECTED_PROJECT

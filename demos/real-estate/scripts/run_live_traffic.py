@@ -43,22 +43,30 @@ TRAFFIC = [
      SESSION, "maria.g", ["live", "session-demo"], None),
     ("Actually, let's keep it under €400,000 and make sure it's close to a metro.",
      SESSION, "maria.g", ["live", "session-demo"], None),
-    ("Great — what would the estimated monthly mortgage be on that one?",
-     SESSION, "maria.g", ["live", "session-demo"], None),
+    # PII arrives mid-conversation, exactly as it does in production — the buyer
+    # volunteers a contact detail without being asked. The exported span carries
+    # [REDACTED_EMAIL]; the agent still saw the real address (see agent/masking.py).
+    ("Great — what would the estimated monthly mortgage be on that one? "
+     "Please email the numbers to maria.gonzalez@example.com.",
+     SESSION, "maria.g", ["live", "session-demo", "pii-demo"], None),
 
     # --- single-turn, clean ---
-    ("We want to buy a house near the beach in Málaga with a pool and sea views, budget about €500,000.",
-     None, "james.p", ["live"], None),
+    ("We want to buy a house near the beach in Málaga with a pool and sea views, "
+     "budget about €500,000. Call me on +34 612 345 678 to arrange a viewing.",
+     None, "james.p", ["live", "pii-demo"], None),
     ("What furnished two-bedroom apartments can I rent in the Ruzafa area of Valencia?",
      None, "sofia.r", ["live"], None),
-    ("I'd like to buy a 3-bed apartment in central Bilbao near the Guggenheim; what's the mortgage on a €410,000 place?",
-     None, "koldo.e", ["live"], None),
+    ("I'd like to buy a 3-bed apartment in central Bilbao near the Guggenheim; "
+     "what's the mortgage on a €410,000 place? My NIE is X1234567L if that matters "
+     "for the paperwork.",
+     None, "koldo.e", ["live", "pii-demo"], None),
     ("Busca un piso de 2 habitaciones en Gràcia, Barcelona, por menos de 450.000 euros. ¿Cómo es el barrio?",
      None, "nuria.m", ["live"], None),
 
     # --- single-turn, clean, across Europe (same agent, wider catalog) ---
-    ("I want to buy a 2-bedroom apartment in central Berlin's Mitte for under €600,000; what's the mortgage?",
-     None, "jonas.b", ["live"], None),
+    ("I want to buy a 2-bedroom apartment in central Berlin's Mitte for under €600,000; "
+     "what's the mortgage? The deposit would come from ES91 2100 0418 4502 0005 1332.",
+     None, "jonas.b", ["live", "pii-demo"], None),
     ("Show me a renovated 2-bed to buy in Lisbon's Alfama for around €450,000. How's the neighborhood?",
      None, "ana.f", ["live"], None),
     ("Find a furnished 2-bedroom apartment to rent near Canal Saint-Martin in Paris, budget €2,500 a month.",

@@ -49,6 +49,7 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Session-level score** | `create_score(session_id=…)` — the one score type no managed evaluator can produce |
 | **Deploy** (close the loop) | promote a prompt label to ship it — **gated by CI**: a prompt change runs the eval suite and blocks the deploy on a regression ([`cicd/`](cicd/README.md)) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
+| **PII redaction** | emails, phones, IBANs, national ids and card numbers are scrubbed **client-side** before export — the agent sees the real text, Langfuse never does |
 
 ---
 
@@ -160,6 +161,7 @@ Or run each piece individually:
 ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate    # candidate prompt (compare prompts)
 ./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft  # naive prompt (a VISIBLE win vs production)
 ./.venv/bin/python scripts/smoke_test.py              # sanity: keys + obs-level scores
+./.venv/bin/python scripts/verify_masking.py          # prove PII never reaches Langfuse
 ```
 
 Judge means carry ±0.03–0.04 run-to-run noise, so before citing any prompt
@@ -259,6 +261,54 @@ up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roug
 an order of magnitude more than a single-turn item. The runner prints an upper bound
 and refuses to start without `--yes`.
 
+### Keeping PII out of the platform
+
+A concierge collects contact details as a matter of course — "email me the
+brochure", "my mobile is…", "the deposit comes from this account" — and every one
+of those lands in an LLM payload. [`agent/masking.py`](agent/masking.py) redacts
+them **inside this process**, via the SDK's export-stage `mask_otel_spans` hook,
+so the sensitive text never reaches Langfuse at all. The agent still sees the
+real query; only the exported span changes.
+
+| Redacted | Left alone |
+|---|---|
+| emails, phone numbers (intl + ES mobile + 3-3-4), IBANs, Spanish NIE/DNI, card numbers | `user_id` — a pseudonymous handle, and the dimension the Users view, sessions and cost chargeback all build on |
+
+On by default. The comparison is the demo:
+
+```bash
+./.venv/bin/python scripts/run_live_traffic.py                       # redacted
+LANGFUSE_MASK_PII=false ./.venv/bin/python scripts/run_live_traffic.py   # raw, for contrast
+./.venv/bin/python scripts/verify_masking.py                         # prove it
+```
+
+Four of the live-traffic queries carry PII and are tagged `pii-demo`, so you can
+filter straight to them. `verify_masking.py` checks both halves — that the
+patterns fire, that prices and listing ids are **not** mangled, and that a real
+round trip comes back redacted *with the rest of the payload intact*. That last
+assertion is the one that counts: "no PII in the trace" also passes when the
+payload was never exported.
+
+Two limits worth stating to a customer rather than letting them assume:
+
+- **Names and street addresses are not caught.** They have no reliable surface
+  form; a regex cannot find them. That needs a NER model or an LLM classifier in
+  the mask function. A redactor that quietly misses names is worse than none,
+  because it buys confidence it hasn't earned.
+- **A second exporter gets its own unmasked copy.** The hook only patches spans
+  the Langfuse client exports, so masking and trace mirroring are mutually
+  exclusive here — `agent/config.py` refuses to start with both on. The
+  server-side complement is ingestion masking (self-hosted Enterprise), which
+  enforces one policy across every client instead of per application.
+- **Server-side judges see the redacted payload.** That is the point, and it is
+  also a real trade-off: the managed Helpfulness/Relevance evaluators grade
+  `[REDACTED_EMAIL]`, not the address. It is why the tokens are descriptive
+  placeholders rather than deletions — a judge reads "an email was here" and
+  scores the answer sensibly, where a missing attribute would just look like a
+  broken trace. The code evaluators and SDK judges in
+  [`agent/scoring.py`](agent/scoring.py) run in-process on the real text, so if
+  an eval genuinely needs the sensitive value, that is the layer it belongs in.
+
 Key design choices:
 
 - **One provider-agnostic agent, many surfaces.** The portal, the live-traffic
@@ -315,6 +365,7 @@ agent/
   llm.py          provider-agnostic LLM layer (Anthropic + OpenAI)
   prompts.py      Langfuse prompt fetch by label + hard fallback (Deploy node)
   concierge.py    the instrumented tool-use agent (run_turn, any model/prompt)
+  masking.py      PII redaction — scrubs span payloads before export
   scoring.py      code evaluators + LLM-as-a-Judge (pure functions -> Score)
 evaluators/
   experiment_evaluators.py   Score -> Langfuse Evaluation adapters + run aggregates
@@ -329,6 +380,8 @@ scripts/
   run_experiment.py          dataset run for a chosen --model / --prompt-label
   prompt_gate.py             CI quality gate: eval a prompt label, exit 1 below the bar
   smoke_test.py              sanity check
+  verify_masking.py          PII redaction: policy unit checks + live round trip
+  seed_dashboards.py         3 custom dashboards / 26 widgets, as code
 cicd/             the CI quality gate: thresholds.json (the bar) + setup guide
 webapp/           server.py (FastAPI) + static/index.html (portal UI)
                   PORTAL_PROMPT_LABEL=<label> serves a non-production prompt
