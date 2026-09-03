@@ -93,11 +93,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: docker compose config for each profile combination
         run: |
+          # A real .env is required, not just --env-file: services declare
+          # `env_file: - .env` (the shell-key hardening), and Compose resolves
+          # that path itself regardless of --env-file, so config fails with
+          # "env file .../.env not found" without it. The runner is ephemeral.
+          cp .env.example .env
           fail=0
-          # --env-file rather than copying to .env: interpolation needs the vars
-          # to exist, but nothing here should mutate the checkout.
           check() {
-            if docker compose --env-file .env.example "$@" config >/dev/null 2>/tmp/err; then
+            if docker compose "$@" config >/dev/null 2>/tmp/err; then
               echo "  ok    [$*]"
             else
               echo "::error::docker compose $* config failed: $(head -1 /tmp/err)"
