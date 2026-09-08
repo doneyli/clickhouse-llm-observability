@@ -5,6 +5,7 @@ import argparse
 import base64
 import json
 import os
+import socket
 import sys
 import time
 import uuid
@@ -46,7 +47,9 @@ def build_payload(prompt: str, request_id: str, session_id: str) -> Dict[str, An
             # "user_id") to the Langfuse trace user; the wrong key is silently
             # dropped and never reaches the trace.
             "trace_user_id": "gateway-demo-user",
-            "tags": ["litellm", "gateway", "gateway:litellm", "demo"],
+            # path:proxy pairs with sdk_client.py's path:sdk so both instrumentation
+            # models can be filtered apart in one Langfuse trace list.
+            "tags": ["litellm", "gateway", "gateway:litellm", "path:proxy", "demo"],
         },
     }
 
@@ -73,6 +76,12 @@ def request_json(
         raise DemoError(f"{method} {url} returned HTTP {exc.code}: {detail}") from exc
     except URLError as exc:
         raise DemoError(f"Could not reach {url}: {exc.reason}") from exc
+    # A read timeout raises socket.timeout, which is NOT a URLError subclass, so
+    # it would otherwise escape as an unhandled traceback and abort the run. Wrap
+    # it as a DemoError so wait_for_trace's retry loop treats one slow poll as
+    # retryable — Langfuse queries can stall briefly after a ClickHouse restart.
+    except (TimeoutError, socket.timeout) as exc:
+        raise DemoError(f"{method} {url} timed out after {timeout:g}s") from exc
     except json.JSONDecodeError as exc:
         raise DemoError(f"{method} {url} returned invalid JSON") from exc
 
