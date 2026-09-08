@@ -50,6 +50,7 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Deploy** (close the loop) | promote a prompt label to ship it — **gated by CI**: a prompt change runs the eval suite and blocks the deploy on a regression ([`cicd/`](cicd/README.md)) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
 | **PII redaction** | emails, phones, IBANs, national ids and card numbers are scrubbed **client-side** before export — the agent sees the real text, Langfuse never does |
+| **Dashboards as code** | 3 dashboards / 26 widgets created over the dashboards API, in version control — plus a minimal narrated example to copy |
 
 ---
 
@@ -162,6 +163,8 @@ Or run each piece individually:
 ./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft  # naive prompt (a VISIBLE win vs production)
 ./.venv/bin/python scripts/smoke_test.py              # sanity: keys + obs-level scores
 ./.venv/bin/python scripts/verify_masking.py          # prove PII never reaches Langfuse
+./.venv/bin/python scripts/dashboard_api_example.py   # dashboards-as-code, narrated (--delete to clean up)
+./.venv/bin/python scripts/seed_dashboards.py         # the 3 real dashboards / 26 widgets
 ```
 
 Judge means carry ±0.03–0.04 run-to-run noise, so before citing any prompt
@@ -260,6 +263,74 @@ Cost warning: `--multi-turn` is opt-in in `run_demo.sh`. A simulated conversatio
 up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roughly
 an order of magnitude more than a single-turn item. The runner prints an upper bound
 and refuses to start without `--yes`.
+
+### Dashboards as code
+
+Langfuse dashboards and widgets are fully manageable over the API, so a
+monitoring setup can live in version control, be reviewed in a pull request, and
+be applied identically across projects and environments. Two scripts, on purpose:
+
+| Script | What it is |
+|---|---|
+| [`scripts/dashboard_api_example.py`](scripts/dashboard_api_example.py) | **The teaching example.** One dashboard, two widgets, stdlib only, no imports from this demo — it lifts straight into another repo. Prints every request and response as it goes, so the contract is visible rather than described. `--delete` cleans up. |
+| [`scripts/seed_dashboards.py`](scripts/seed_dashboards.py) | **The real thing.** The 3 dashboards / 26 widgets this demo ships, idempotent (upserts by name, so URLs stay stable), with every widget query validated against the Metrics API before the widget is created. |
+
+```bash
+./.venv/bin/python scripts/dashboard_api_example.py           # build + narrate
+./.venv/bin/python scripts/dashboard_api_example.py --delete  # clean up
+
+./.venv/bin/python scripts/seed_dashboards.py --dry-run       # validate 26 queries, write nothing
+./.venv/bin/python scripts/seed_dashboards.py                 # create/update all three
+```
+
+Three endpoints under `/api/public/unstable`, and the order matters:
+
+```
+1. POST /dashboard-widgets           -> a chart definition (standalone, reusable)
+2. POST /dashboards                  -> an empty container
+3. POST /dashboards/{id}/placements   -> put widget #1 on dashboard #2
+```
+
+Widgets being standalone is the point: one person defines "p95 latency, filtered
+to production" and every dashboard references that definition, instead of six
+teams each re-deriving it slightly differently. The same endpoints back the
+[Langfuse CLI](https://langfuse.com/docs/api-and-data-platform/features/cli) and
+[MCP server](https://langfuse.com/docs/api-and-data-platform/features/mcp-server),
+so "dashboards as code" and "ask the assistant to build me a dashboard" are the
+same API underneath.
+
+**Discover the schema rather than guessing it.** Send a field name that cannot
+exist and the 400 comes back carrying every valid one for that view — faster than
+the reference docs, and true for the version you are actually talking to. This is
+step 0 of the example script:
+
+```bash
+curl -sG -u "$PK:$SK" --data-urlencode 'query={"view":"observations",
+  "metrics":[{"measure":"count","aggregation":"count"}],
+  "dimensions":[{"field":"__does_not_exist__"}],"filters":[],
+  "fromTimestamp":"2026-08-01T00:00:00Z","toTimestamp":"2026-09-01T00:00:00Z"}' \
+  "$LANGFUSE_HOST/api/public/v2/metrics"
+# -> Invalid dimension __does_not_exist__. Must be one of id,evaluatorId,…
+```
+
+Five things that cost real debugging time and are worth knowing before you write
+a seeder — all verified against Cloud, September 2026:
+
+| Gotcha | What happens |
+|---|---|
+| Updates are **PATCH**, not PUT | PUT returns `405 Method not allowed` |
+| Placement sizes are **`width`/`height`** | `x_size`/`y_size` — the names in the *stored* dashboard definition — are rejected as unrecognized keys. The body also needs `"type": "widget"`, or you get a bare `No matching discriminator` |
+| **A widget sees fewer dimensions than the Metrics API does** | `experimentName` and `datasetRunId` are queryable but not chartable, so experiment comparison stays in the Experiments UI. `promptName` works as a *dimension* but not as a *filter column*. Validate against the Metrics API first — then be ready for the widget endpoint to refuse anyway, which is why `seed_dashboards.py` skips a rejected widget instead of abandoning the dashboard |
+| The Metrics API says `aggregation`, the widget says **`agg`** | Same concept, two spellings, one silent 400 |
+| `limit` on the list endpoints **caps at 100** | Asking for 200 is a 400, not a clamp |
+
+High-cardinality dimensions (`userId`, `sessionId`, `experimentName`) additionally
+need both a `config.row_limit` and a descending `orderBy` on a measure — the
+chargeback widget's `chartConfig` carries exactly that.
+
+These endpoints are **unstable** and may change while the contract is finalised.
+That is an argument *for* keeping the definitions in a script: when the shape
+moves, you edit one file and re-run, rather than re-clicking 26 widgets.
 
 ### Keeping PII out of the platform
 
@@ -381,7 +452,8 @@ scripts/
   prompt_gate.py             CI quality gate: eval a prompt label, exit 1 below the bar
   smoke_test.py              sanity check
   verify_masking.py          PII redaction: policy unit checks + live round trip
-  seed_dashboards.py         3 custom dashboards / 26 widgets, as code
+  dashboard_api_example.py   dashboards-as-code, minimal + narrated (the example to copy)
+  seed_dashboards.py         3 custom dashboards / 26 widgets, as code (the real one)
 cicd/             the CI quality gate: thresholds.json (the bar) + setup guide
 webapp/           server.py (FastAPI) + static/index.html (portal UI)
                   PORTAL_PROMPT_LABEL=<label> serves a non-production prompt
