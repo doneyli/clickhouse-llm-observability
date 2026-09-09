@@ -257,7 +257,7 @@ decides when the conversation ended; the platform never can.
 ## Questions you will get
 
 Full answers with code in [docs/CUSTOMER_QUESTIONS.md](docs/CUSTOMER_QUESTIONS.md).
-The four most common, with the short version:
+The five most common, with the short version:
 
 **"We turned off input/output capture for PII — is that wrong?"** Redact fields
 rather than disabling capture. A redacted value is still evaluable; an absent one
@@ -274,6 +274,39 @@ filters and sampling rate. Don't let anyone sell you the wiring.
 **"How many observations is too many?"** The only rule stated: if an observation has
 neither input nor output, ask whether it should exist. Framework noise (`GET /api/...`,
 `sql`) also counts toward billable units.
+
+**"Your *good* trace has empty spans in it — isn't that your own anti-pattern?"**
+Expect this from whoever is reading the tree most carefully, and do not wave it
+away: they are right about the facts. On the demo's default conversation the good
+run has **17 empty observations out of 67**, and every one of them is a `step N`
+span from the AI SDK.
+
+The answer is that two rules from the same page pull in opposite directions here,
+and the nesting rule wins. Those empty spans are the **structural parents**:
+
+```
+AGENT  invoke_agent
+├── SPAN  step 1          ← empty, and load-bearing
+│   ├── GENERATION  chat        ← the model asking for a tool
+│   └── TOOL        manage_cart ← the tool it asked for, as a SIBLING
+└── SPAN  step 2
+    └── GENERATION  chat        ← what it decided after the result
+```
+
+That is precisely the shape Langfuse asks for — *"a tool call should nest under the
+`agent` or `span` that orchestrates the step, as a sibling of the `generation` that
+requested it"*. `step 1` **is** that orchestrating span. Filter it out and its
+children are orphaned (the OTel integration docs warn about exactly this), and you
+lose the interleaving that Act 1b exists to show.
+
+So read the empty-observation rule as being about observations that carry nothing
+**and organise nothing**. These organise. `LangfuseSpanProcessor` does take a
+`shouldExportSpan` hook if you want to drop spans — use it on genuine noise like
+`GET /api/...`, not on the spans holding your tree together.
+
+Worth conceding the one real cost out loud: those 17 spans are billable units that
+carry no data. If someone pushes on that, the honest answer is that it is the
+framework's choice rather than yours, and the tree is worth more than the ingest.
 
 ---
 
