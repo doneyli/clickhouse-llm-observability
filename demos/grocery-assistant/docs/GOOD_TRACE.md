@@ -145,6 +145,13 @@ scalars. Metadata set directly on an observation has no such cap.)
 **Symptom.** The Sessions view is unreadable: turn 3 shows turns 1 and 2 again,
 turn 4 shows all three, and so on.
 
+**In this demo you read it off the root's Input instead**, because defect 4 and
+defect 5 co-occur in `broken` mode: with no propagated `sessionId` there is no
+session view to be unreadable. Open a late turn's root and `conversationHistory`
+holds the whole conversation — 0, 2, 4, 6, 8, 10, 12 messages across the default
+7-turn conversation. The quadratic growth is the thing to point at; the session
+view is where you would *feel* it in an app that got defect 5 right.
+
 **Be precise about the provenance of this one.** Langfuse does not name history
 duplication as an anti-pattern anywhere. It is a consequence of a rule Langfuse
 *does* state — per-turn traces exist so that "the per-turn model keeps traces

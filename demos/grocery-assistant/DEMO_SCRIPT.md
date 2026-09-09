@@ -44,7 +44,14 @@ UI*.
 
 ### Show
 
-Open the **broken** session first. Do not explain it yet. Let them look.
+Open the **Traces table filtered to tag `compare:broken`** first. Do not explain it
+yet. Let them look.
+
+> **Run Act 1 from the Traces table, not the Sessions view.** The broken run
+> carries no `sessionId` — that is defect 5 — so its session view is genuinely
+> **empty**. "Open the broken session" is not a step you can perform; the tag is
+> the only handle on this run. Defect 5 gets shown deliberately at beat 5 instead,
+> where the emptiness is the point rather than an accident on your opening slide.
 
 Then walk the five things, letting them notice each one:
 
@@ -55,12 +62,21 @@ Then walk the five things, letting them notice each one:
 3. **Open a trace, click a generation.** Empty. Model and tokens are there; input
    and output are null. This is the one to sit on: *"an evaluator reads input and
    output off an observation. There is nothing here for one to read."*
-4. **Back to the session view.** Turn 3 shows turns 1 and 2 again. Turn 4 shows all
-   three. The transcript is restated on every turn.
-5. **Filter observations by session id.** Most of them do not carry it.
+4. **Stay in the trace and open the ROOT's Input.** On the last turn
+   `conversationHistory` holds the entire conversation; on turn 2 it holds one
+   exchange. Click back through a couple of turns and let them watch it grow — on
+   the demo's default 7-turn conversation it goes 0, 2, 4, 6, 8, 10, 12 messages.
+   *"The model needs that history. The trace root does not."*
+   Read it here rather than from the session view, which for this run does not
+   exist — see beat 5.
+5. **The session that isn't there.** Now make the emptiness the point: *"This run
+   doesn't appear in the Sessions view at all. Not one observation in it carries a
+   session id — it was written into metadata instead of propagated. The only way I
+   can find these seven traces is by tag."* The zero is the invariant worth saying
+   out loud; `npm run compare` gives you the denominator on the day.
 
-Now the same conversation, good instrumentation. Same model, same tools, same
-answers.
+Now the same conversation, good instrumentation — and **this one you open as a
+session**, which is itself half the contrast. Same model, same tools, same answers.
 
 Then the receipt — run it live, it takes seconds:
 
@@ -68,7 +84,9 @@ Then the receipt — run it live, it takes seconds:
 npm run compare
 ```
 
-It prints the counts. Numbers land better than a tour.
+It prints the counts. Numbers land better than a tour. Note it starts a **new**
+pair and prints new session ids, so the tab you had open is now the previous run —
+either narrate that, or keep the terminal to the table and leave your tabs alone.
 
 ### Land
 
