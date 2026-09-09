@@ -4,11 +4,12 @@
 is now asking "is this set up right, and what do we measure?" Works for anyone
 building a conversational agent with tools; the cart is incidental.
 
-**Length.** 25 minutes for both acts. Act 1 alone is a strong 12.
+**Length.** 25 minutes for both acts, 30 with Act 1b. Act 1 alone is a strong 12.
 
-**Prep.** `npm run demo` before you present. It takes a few minutes and costs a
-little model spend. Verify the two comparison sessions exist in Langfuse before you
-open your mouth — an empty Sessions view is a bad first slide.
+**Prep.** `npm run demo` before you present, plus `npm run compare:loop` if you
+are running Act 1b. It takes a few minutes and costs a little model spend. Verify
+the comparison sessions exist in Langfuse before you open your mouth — an empty
+Sessions view is a bad first slide.
 
 ---
 
@@ -21,7 +22,14 @@ Have these open in tabs:
 3. A terminal in `demos/grocery-assistant`
 
 Know which two session ids `npm run compare` produced. They are printed at the end
-of its output and named `cmp-broken-*` / `cmp-good-*`.
+of its output and named `cmp-broken-*` / `cmp-good-*`. Act 1b adds a
+`cmp-collapsed-*`.
+
+To select a run in the UI, **filter the Traces table by tag** — `compare:broken`,
+`compare:good`, `compare:collapsed`. Use the tag rather than the session for the
+broken run: those traces carry no `sessionId`, so the Sessions view cannot show
+them. Full breakdown in the README under *Telling the runs apart in the Langfuse
+UI*.
 
 ---
 
@@ -82,6 +90,63 @@ capture off.
 That question does the work. Most teams find two or three, and it moves the
 conversation from theory to their own backlog. If they have a screen to share,
 follow it — the rest of the demo can wait.
+
+---
+
+## Act 1b — the one that looks fine (5 min)
+
+**Run this act when the audience builds tool-calling agents.** Skip it for a
+single-shot RAG or classification pipeline, where there is no loop to collapse.
+
+Prep: `npm run compare:loop` alongside `npm run demo`.
+
+### Frame
+
+> "Those five are the easy ones — once you know to look, you can see all of them
+> from the traces table. I want to show you one you can't, because the trace looks
+> right."
+
+### Show
+
+Open a **collapsed** turn. Say nothing about it being wrong. Ask instead:
+
+> "How many times did this turn call the model?"
+
+They will say one, because there is one generation. Then read them the count off
+the terminal — the app made 17 model calls across 7 turns, and the traces recorded
+7. Then open the same turn from the **good** session: two generations with the
+tool call sitting between them.
+
+The line that lands the point:
+
+> "This is where a tool-calling agent actually goes wrong — not in the final
+> answer, but in what it decided after a tool came back empty. In the collapsed
+> version that decision isn't missing detail. It was never recorded."
+
+Then the second cost, which is the one that gets budget attention:
+
+> "Same for cost. One aggregate token count per turn. When your context window
+> blows up, every step averages out and none of them looks expensive."
+
+`npm run compare:loop` prints the receipt. The row to point at is **generations vs
+actual model calls — 7 of 17 against 17 of 17**. Worth naming out loud: the 17 is
+from the app, not from Langfuse. The application says how many times it called the
+model; the trace says how many it kept.
+
+### Land
+
+> "And notice this mode is instrumented *well* everywhere else — stable name, root
+> input and output, session propagated. Rows one through five come out level with
+> the good run. This is a defect that passes review, which is why I bring it up
+> before anyone starts hand-rolling spans."
+
+### Ask
+
+> "Who owns your tracing wrapper — the framework, or code someone on your team
+> wrote?"
+
+Hand-rolled wrappers are where this comes from, and the answer tells you whether
+they already have it.
 
 ---
 

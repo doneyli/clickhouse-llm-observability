@@ -20,6 +20,17 @@
  *   5. observations per turn        — the noise floor: the empty `postprocess`
  *                                    span is billable ingest that says nothing.
  *
+ * Plus two that measure the loop's SHAPE, which is defect 6:
+ *   6. generations vs model calls   — the AI SDK reports how many times the model
+ *                                    was really invoked. A collapsed loop shows
+ *                                    one generation for all of them.
+ *   7. tool observations            — a flattened loop has none, so the tree
+ *                                    cannot show what the agent did between them.
+ *
+ * `--variant collapsed` swaps the broken run for the collapsed-loop one. That
+ * comparison isolates defect 6: the collapsed mode is instrumented correctly in
+ * every other respect, so rows 1-5 come out level and only the shape rows move.
+ *
  * ---------------------------------------------------------------------------
  * WHICH READ API EXISTS: the v3-vs-v4 gotcha, and why this file branches.
  *
@@ -105,21 +116,21 @@ type ObsRow = {
   hasInput: boolean;
   hasOutput: boolean;
   /**
-   * The PROPAGATED OTel attribute, not a derived column.
+   * The session this OBSERVATION carries, which is the thing defect 5 breaks.
    *
-   * Read the same way on both paths on purpose. v4's observation rows also carry
-   * a first-class `sessionId`, but Langfuse derives that from this attribute,
-   * and the attribute is what an observation-level filter or evaluator actually
-   * matches on — so reading it directly is both portable and closer to the thing
-   * that breaks.
+   * Where that lives is per-server-generation, and getting it wrong is silent:
    *
-   * Expect the good column to read slightly under the total rather than dead
-   * level with it, and do not "fix" that. The spans the Langfuse SDK creates
-   * itself — each turn's `handle-chat-message` root and the final
-   * `conversation-snapshot` — have their session PROMOTED to the trace instead
-   * of kept as a span attribute, so they are counted here as not carrying it
-   * while the trace-level row above shows the grouping working. Trimming the
-   * denominator to make the number look round would be curating the evidence.
+   *   v4 — every observation row has first-class `sessionId` / `userId` columns,
+   *        derived from the propagated attribute. `metadata` is a FLAT map of
+   *        dotted keys (`scope.name`, `resourceAttributes.*`) with no nested
+   *        `attributes` object at all.
+   *   v3 — no such column on an observation, so the propagated OTel attribute is
+   *        read out of `metadata.attributes["session.id"]` where it landed.
+   *
+   * Reading only the v3 shape against v4 returns undefined for every row, which
+   * makes the good column read `0 of 67` — a defect in the reader that looks
+   * exactly like the defect being demonstrated, in the column that is supposed
+   * to be clean. Both shapes are tried, v4's column first.
    */
   sessionAttribute: string | undefined;
 };
@@ -137,6 +148,8 @@ type RawObservation = {
   input?: unknown;
   output?: unknown;
   metadata?: unknown;
+  /** v4 only: the propagated session, promoted to a column on the observation. */
+  sessionId?: string | null;
 };
 
 function sessionAttributeOf(metadata: unknown): string | undefined {
@@ -144,6 +157,12 @@ function sessionAttributeOf(metadata: unknown): string | undefined {
   const attrs = (metadata as { attributes?: Record<string, unknown> }).attributes;
   const value = attrs?.["session.id"];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The observation's session, wherever this server generation keeps it. */
+function sessionOf(o: RawObservation): string | undefined {
+  if (typeof o.sessionId === "string" && o.sessionId.length > 0) return o.sessionId;
+  return sessionAttributeOf(o.metadata);
 }
 
 /** Non-empty, accounting for v4 handing io back as a JSON string. */
@@ -167,7 +186,7 @@ function toRow(traceId: string, o: RawObservation): ObsRow {
     isRoot: o.isRootObservation ?? o.parentObservationId == null,
     hasInput: isPresent(o.input),
     hasOutput: isPresent(o.output),
-    sessionAttribute: sessionAttributeOf(o.metadata),
+    sessionAttribute: sessionOf(o),
   };
 }
 
@@ -299,9 +318,17 @@ type Metrics = {
   rootsWithBothIo: number;
   tracesWithSessionId: number;
   perTurnCounts: number[];
+  /** Ground truth from the AI SDK: how many times the model was really called. */
+  modelInvocations: number;
+  toolObservations: number;
 };
 
-function computeMetrics(sessionId: string, turns: number, facts: TraceFacts[]): Metrics {
+function computeMetrics(
+  sessionId: string,
+  turns: number,
+  facts: TraceFacts[],
+  modelInvocations: number,
+): Metrics {
   const names = facts.map((f) => f.traceName);
   const rows = facts.flatMap((f) => f.rows);
   const generations = rows.filter((r) => r.type === "GENERATION");
@@ -325,6 +352,14 @@ function computeMetrics(sessionId: string, turns: number, facts: TraceFacts[]): 
     rootsWithBothIo,
     tracesWithSessionId: facts.filter((f) => f.sessionId === sessionId).length,
     perTurnCounts: facts.map((f) => f.rows.length).sort((a, b) => a - b),
+    modelInvocations,
+    // `TOOL` is a v4 observation type. A v3 server only knows SPAN/GENERATION/
+    // EVENT, so the AI SDK's tool spans land there as plain spans under their
+    // `ai.toolCall` name — matched too, or this row reads 0 for both columns on
+    // self-hosted and looks like a defect in the good run.
+    toolObservations: rows.filter(
+      (r) => r.type === "TOOL" || /(^|\.)toolCall/i.test(r.name),
+    ).length,
   };
 }
 
@@ -342,7 +377,7 @@ function pad(text: string, width: number): string {
   return text + " ".repeat(Math.max(0, width - visible));
 }
 
-function printComparison(broken: Metrics, good: Metrics): void {
+function printComparison(broken: Metrics, good: Metrics, variantLabel: string): void {
   const rows: Array<[string, string, string, boolean]> = [
     [
       "distinct trace names produced",
@@ -380,25 +415,44 @@ function printComparison(broken: Metrics, good: Metrics): void {
       spread(good.perTurnCounts),
       true,
     ],
+    // ------------------------------------------------ defect 6: loop shape ---
+    // The denominator is ground truth from the AI SDK, not from Langfuse, which
+    // is what makes this a measurement rather than a comparison of two guesses.
+    [
+      "generations vs actual model calls",
+      `${broken.generations} of ${broken.modelInvocations}`,
+      `${good.generations} of ${good.modelInvocations}`,
+      good.generations >= good.modelInvocations && broken.generations < broken.modelInvocations,
+    ],
+    [
+      "tool observations in the tree",
+      String(broken.toolObservations),
+      String(good.toolObservations),
+      good.toolObservations > broken.toolObservations,
+    ],
   ];
 
   const W = 42;
   console.log("");
-  console.log(`${BOLD}${pad("metric", W)} ${pad("broken", 18)} ${pad("good", 18)}${OFF}`);
+  console.log(`${BOLD}${pad("metric", W)} ${pad(variantLabel, 18)} ${pad("good", 18)}${OFF}`);
   console.log("─".repeat(W + 40));
   for (const [label, b, g, better] of rows) {
-    const mark = better ? `${GREEN}✓${OFF}` : `${RED}✗${OFF}`;
+    const mark = better ? `${GREEN}✓${OFF}` : `${DIM}·${OFF}`;
     console.log(`${pad(label, W)} ${pad(`${RED}${b}${OFF}`, 18)} ${pad(`${GREEN}${g}${OFF}`, 18)} ${mark}`);
   }
+  console.log(
+    `${DIM}  ✓ = this run demonstrates the defect. · = the two runs are level on ` +
+      `that row, which is expected for every row the variant does not target.${OFF}`,
+  );
 
   console.log("");
   console.log(`${BOLD}per-turn observation counts${OFF}`);
-  console.log(`  broken  ${broken.perTurnCounts.join(", ") || "—"}`);
-  console.log(`  good    ${good.perTurnCounts.join(", ") || "—"}`);
+  console.log(`  ${pad(variantLabel, 8)}${broken.perTurnCounts.join(", ") || "—"}`);
+  console.log(`  ${pad("good", 8)}${good.perTurnCounts.join(", ") || "—"}`);
 
   console.log("");
   console.log(`${BOLD}the trace names each run produced${OFF}`);
-  console.log(`  ${DIM}broken — ${broken.distinctTraceNames} distinct name(s) for ${broken.traceCount} turn(s):${OFF}`);
+  console.log(`  ${DIM}${variantLabel} — ${broken.distinctTraceNames} distinct name(s) for ${broken.traceCount} turn(s):${OFF}`);
   for (const n of new Set(broken.traceNames)) {
     console.log(`    ${n.length > 76 ? `${n.slice(0, 75)}…` : n}`);
   }
@@ -421,7 +475,18 @@ function traceIdsOf(records: TurnRecord[]): string[] {
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
-export async function compareTraces(conversationId?: string): Promise<CompareResult> {
+/** Model calls the app really made, summed over the conversation. */
+function modelInvocationsOf(records: TurnRecord[]): number {
+  return records.reduce((sum, r) => sum + r.result.modelInvocations, 0);
+}
+
+/** Which defective instrumentation to hold up against `good`. */
+export type CompareVariant = "broken" | "collapsed";
+
+export async function compareTraces(
+  conversationId?: string,
+  variant: CompareVariant = "broken",
+): Promise<CompareResult> {
   const first = CONVERSATIONS[0];
   if (!first) throw new Error("No conversations defined in src/conversations.ts");
   const conversation = conversationId ? getConversation(conversationId) : first;
@@ -429,22 +494,28 @@ export async function compareTraces(conversationId?: string): Promise<CompareRes
 
   // One timestamp for both sessions so they sort next to each other in the UI.
   const stamp = Date.now();
-  const brokenSessionId = `cmp-broken-${stamp}`;
+  const brokenSessionId = `cmp-${variant}-${stamp}`;
   const goodSessionId = `cmp-good-${stamp}`;
 
   console.log("");
   console.log(`${BOLD}Same conversation, twice, instrumented two ways${OFF}`);
   console.log(`  conversation ${conversation.id} ${DIM}(${conversation.turns.length} turns each)${OFF}`);
-  console.log(`  broken session  ${brokenSessionId}`);
+  if (variant === "collapsed") {
+    console.log(
+      `  ${DIM}variant 'collapsed' — defect 6 only. Rows 1-5 are expected to come out ` +
+        `LEVEL: this mode is instrumented correctly apart from the loop's shape.${OFF}`,
+    );
+  }
+  console.log(`  ${variant} session  ${brokenSessionId}`);
   console.log(`  good session    ${goodSessionId}`);
 
   console.log("");
-  console.log(`${DIM}running broken…${OFF}`);
+  console.log(`${DIM}running ${variant}…${OFF}`);
   const brokenRecords = await driveConversation({
     conversation,
     sessionId: brokenSessionId,
-    mode: "broken",
-    extraTags: ["compare:broken"],
+    mode: variant,
+    extraTags: [`compare:${variant}`],
   });
 
   console.log(`${DIM}running good…${OFF}`);
@@ -465,21 +536,39 @@ export async function compareTraces(conversationId?: string): Promise<CompareRes
       `${version === "v1" ? "v1 trace API (v2 observations is v4-only)" : "v2 observations API"}${OFF}`,
   );
 
-  const brokenFacts = await readAllTraces("broken", traceIdsOf(brokenRecords));
+  const brokenFacts = await readAllTraces(variant, traceIdsOf(brokenRecords));
   const goodFacts = await readAllTraces("good", traceIdsOf(goodRecords));
 
-  const broken = computeMetrics(brokenSessionId, brokenRecords.length, brokenFacts);
-  const good = computeMetrics(goodSessionId, goodRecords.length, goodFacts);
+  const broken = computeMetrics(
+    brokenSessionId,
+    brokenRecords.length,
+    brokenFacts,
+    modelInvocationsOf(brokenRecords),
+  );
+  const good = computeMetrics(
+    goodSessionId,
+    goodRecords.length,
+    goodFacts,
+    modelInvocationsOf(goodRecords),
+  );
 
-  printComparison(broken, good);
+  printComparison(broken, good, variant);
 
   console.log("");
   console.log(`${BOLD}Open both and scroll the session view${OFF}`);
-  console.log(`  broken  ${await sessionUrl(brokenSessionId)}`);
-  console.log(
-    `${DIM}          (the broken run's traces carry no sessionId at all, so this session ` +
-      `is empty — which is the defect, not a bug in the link)${OFF}`,
-  );
+  console.log(`  ${variant}  ${await sessionUrl(brokenSessionId)}`);
+  if (variant === "broken") {
+    console.log(
+      `${DIM}          (the broken run's traces carry no sessionId at all, so this session ` +
+        `is empty — which is the defect, not a bug in the link)${OFF}`,
+    );
+  } else {
+    console.log(
+      `${DIM}          (this session groups fine. Open one turn that called tools: one ` +
+        `generation, no tool observations, ${broken.modelInvocations} model calls hidden ` +
+        `inside ${broken.generations} box(es))${OFF}`,
+    );
+  }
   console.log(`  good    ${await sessionUrl(goodSessionId)}`);
 
   return { brokenSessionId, goodSessionId, broken, good };
@@ -489,7 +578,16 @@ async function main(): Promise<void> {
   await verifyProject();
   const argv = process.argv.slice(2);
   const idx = argv.indexOf("--conversation");
-  await compareTraces(idx >= 0 ? argv[idx + 1] : undefined);
+  const vIdx = argv.indexOf("--variant");
+  const variant = argv.includes("--collapsed")
+    ? "collapsed"
+    : vIdx >= 0
+      ? argv[vIdx + 1]
+      : "broken";
+  if (variant !== "broken" && variant !== "collapsed") {
+    throw new Error(`--variant must be 'broken' or 'collapsed', got '${variant}'`);
+  }
+  await compareTraces(idx >= 0 ? argv[idx + 1] : undefined, variant);
 }
 
 const isEntrypoint =
