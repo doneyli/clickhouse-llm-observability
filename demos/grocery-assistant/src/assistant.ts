@@ -1,11 +1,20 @@
 /**
- * The Northwind Grocers shopping assistant, instrumented TWO ways on purpose.
+ * The Northwind Grocers shopping assistant, instrumented THREE ways on purpose.
  *
  * `mode: "good"` is how you want it. `mode: "broken"` reproduces, faithfully, the
  * five defects a real grocery-retail harness shipped to its first internal pilot.
- * Both modes call the same model with the same tools — the ONLY difference is
+ * Every mode calls the same model with the same tools — the ONLY difference is
  * instrumentation, which is the point: the app worked fine in both cases, and
  * only one of them was measurable.
+ *
+ * `mode: "collapsed"` is a THIRD mode carrying exactly one defect (#6, the agent
+ * loop flattened into a single generation). It is deliberately not folded into
+ * `broken`, because defect 6 and defect 1 cannot coexist in one trace: defect 1's
+ * lesson is a generation per model call with every one of them empty, and defect 6
+ * is the absence of per-call generations altogether. Putting them together would
+ * destroy both. So `collapsed` is instrumented CORRECTLY in every other respect —
+ * stable name, root io, propagated session — which makes the loop shape the only
+ * variable when you diff it against `good`.
  *
  * The five defects, and why each one hurts:
  *
@@ -32,6 +41,25 @@
  *      evaluators and filters read attributes off the OBSERVATION. An
  *      un-propagated sessionId matches nothing, and per-generation cost never
  *      rolls up to the session.
+ *
+ * And the sixth, which lives in `mode: "collapsed"`:
+ *
+ *   6. THE AGENT LOOP FLATTENED INTO ONE GENERATION. A turn that calls tools is
+ *      several model invocations — the model asks for a tool, reads the result,
+ *      decides again. Wrapping that whole loop in a single hand-rolled generation
+ *      that records only the FINAL answer is the shape Langfuse warns about:
+ *
+ *        "You should see a `generation` for each model invocation in an agent
+ *         loop, interleaved with the `tool` calls it requested. Avoid wrapping
+ *         the whole loop in one parent generation that only records the final
+ *         output."
+ *        — https://langfuse.com/docs/observability/best-practices
+ *
+ *      What it costs, per the same page: you cannot see what the agent decided
+ *      after each tool result, and you cannot see which tool call blew up the
+ *      context window — the token count is one aggregate, so the expensive step
+ *      is indistinguishable from the cheap ones. Cost still totals correctly,
+ *      which is why this survives review: the dashboards look fine.
  */
 import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, stepCountIs } from "ai";
@@ -45,7 +73,13 @@ import {
 import { AGENT_MODEL, BASE_TAGS } from "./env.js";
 import { buildTools, cartSubtotalCents, getSessionState } from "./tools.js";
 
-export type InstrumentationMode = "good" | "broken";
+export type InstrumentationMode = "good" | "broken" | "collapsed";
+
+export const INSTRUMENTATION_MODES: InstrumentationMode[] = ["good", "broken", "collapsed"];
+
+export function isInstrumentationMode(value: string): value is InstrumentationMode {
+  return (INSTRUMENTATION_MODES as string[]).includes(value);
+}
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -53,6 +87,14 @@ export type TurnResult = {
   traceId: string | undefined;
   answer: string;
   toolsCalled: string[];
+  /**
+   * How many times the model was actually invoked for this turn.
+   *
+   * Ground truth from the AI SDK, independent of anything Langfuse received —
+   * which is what makes defect 6 measurable: compare this against the number of
+   * `generation` observations the trace ended up with.
+   */
+  modelInvocations: number;
   skusMentioned: string[];
   cartSkus: string[];
   cartSubtotalCents: number;
@@ -66,6 +108,15 @@ export type TurnResult = {
 export const TRACE_NAME = "handle-chat-message";
 export const SNAPSHOT_NAME = "conversation-snapshot";
 export const CONVERSATION_END_TAG = "conversation_end";
+
+/**
+ * The name of the one hand-rolled generation in `collapsed` mode.
+ *
+ * Verb-first and low-cardinality on purpose: the defect being demonstrated is the
+ * loop's SHAPE, not its naming, so nothing else about this observation should give
+ * a presenter something to point at.
+ */
+export const COLLAPSED_GENERATION_NAME = "generate-response";
 
 const SYSTEM_PROMPT = [
   "You are the shopping assistant for Northwind Grocers, a regional grocery chain.",
@@ -119,9 +170,10 @@ export async function runTurn(args: RunTurnArgs): Promise<TurnResult> {
     extraTags = [],
   } = args;
 
-  return mode === "good"
-    ? runTurnInstrumentedWell({ ...args, history, turnIndex, isFinalTurn, extraTags })
-    : runTurnInstrumentedBadly({ ...args, history, turnIndex, extraTags });
+  const common = { ...args, history, turnIndex, isFinalTurn, extraTags };
+  if (mode === "broken") return runTurnInstrumentedBadly(common);
+  if (mode === "collapsed") return runTurnWithCollapsedLoop(common);
+  return runTurnInstrumentedWell(common);
 }
 
 // ============================================================ GOOD ==========
@@ -178,6 +230,7 @@ async function runTurnInstrumentedWell(
           traceId: getActiveTraceId(),
           answer,
           toolsCalled,
+          modelInvocations: result.steps.length,
           skusMentioned: extractSkus(answer),
           cartSkus: state.cart.map((l) => l.sku),
           cartSubtotalCents: cartSubtotalCents(state),
@@ -218,46 +271,168 @@ async function runTurnInstrumentedBadly(
   const highCardinalityName = `chat: ${message.slice(0, 60)}`;
 
   return await startActiveObservation(highCardinalityName, async (root) => {
-    // DEFECT 5: sessionId/userId are stamped on the ROOT only. Children carry
-    // neither, so observation-level filters and evaluators never match them.
-    root.update({
-      // DEFECT 4: the whole conversation restated on every turn's root, which is
-      // what makes the Sessions view unreadable.
-      input: { message, conversationHistory: history },
-      metadata: { sessionId, userId, turn: turnIndex + 1 },
+    // TAGS, AND ONLY TAGS — demo bookkeeping, not part of the reproduction.
+    //
+    // Without this the broken run carries no session, no user and no tag, so
+    // NOTHING in the UI selects it: the presenter is told to open "Traces
+    // filtered to compare:broken" and gets an empty screen mid-demo. The tag is
+    // the handle. Note what is deliberately still missing from this call —
+    // sessionId and userId — which is defect 5, intact.
+    return await propagateAttributes({ tags: [...BASE_TAGS, ...extraTags] }, async () => {
+      // DEFECT 5: sessionId/userId are stamped on the ROOT only, as free-form
+      // metadata. Children carry neither, so observation-level filters and
+      // evaluators never match them, and the Sessions view cannot group a thing.
+      root.update({
+        // DEFECT 4: the whole conversation restated on every turn's root, which is
+        // what makes the Sessions view unreadable.
+        input: { message, conversationHistory: history },
+        metadata: { sessionId, userId, turn: turnIndex + 1 },
+      });
+
+      const tools = buildTools(sessionId);
+      const result = await generateText({
+        model: anthropic(AGENT_MODEL),
+        system: SYSTEM_PROMPT,
+        messages: [...history, { role: "user" as const, content: message }],
+        tools,
+        stopWhen: stepCountIs(6),
+        // DEFECT 1: the generation is traced, but with no input and no output.
+        // Turned off "for PII" on day one and never revisited. Every LLM call shows
+        // up in the trace tree as an empty box, and no evaluator can read it.
+        telemetry: { functionId: "chat-turn", recordInputs: false, recordOutputs: false },
+      });
+
+      const answer = result.text?.trim() || "(no answer)";
+      const toolsCalled = result.steps.flatMap((s) => s.toolCalls ?? []).map((c) => c.toolName);
+
+      // A span carrying nothing, of the kind that accumulates when instrumentation
+      // is added defensively — pure noise in the tree and billable ingest.
+      const emptySpan = startObservation("postprocess");
+      emptySpan.end();
+
+      // DEFECT 3: the root's output is never set, so the trace's output column is
+      // blank and a root-targeted evaluator has nothing to score.
+      const state = getSessionState(sessionId);
+      return {
+        traceId: getActiveTraceId(),
+        answer,
+        toolsCalled,
+        modelInvocations: result.steps.length,
+        skusMentioned: extractSkus(answer),
+        cartSkus: state.cart.map((l) => l.sku),
+        cartSubtotalCents: cartSubtotalCents(state),
+      };
     });
+  });
+}
 
-    const tools = buildTools(sessionId);
-    const result = await generateText({
-      model: anthropic(AGENT_MODEL),
-      system: SYSTEM_PROMPT,
-      messages: [...history, { role: "user" as const, content: message }],
-      tools,
-      stopWhen: stepCountIs(6),
-      // DEFECT 1: the generation is traced, but with no input and no output.
-      // Turned off "for PII" on day one and never revisited. Every LLM call shows
-      // up in the trace tree as an empty box, and no evaluator can read it.
-      telemetry: { functionId: "chat-turn", recordInputs: false, recordOutputs: false },
-    });
+// ======================================================= COLLAPSED LOOP =====
+/**
+ * DEFECT 6, on its own: the agent loop flattened into a single generation.
+ *
+ * Everything else here is the GOOD implementation, line for line — stable trace
+ * name, root input/output, propagated session and user, snapshot on the last
+ * turn. That is deliberate. A trace with six defects proves nothing about any one
+ * of them; this one changes exactly one variable, so when you put it beside
+ * `good` the only thing that differs is the shape of the loop.
+ */
+async function runTurnWithCollapsedLoop(
+  args: Required<Pick<RunTurnArgs, "message" | "sessionId" | "userId" | "history" | "turnIndex" | "isFinalTurn" | "extraTags">>,
+): Promise<TurnResult> {
+  const { message, sessionId, userId, history, turnIndex, isFinalTurn, extraTags } = args;
 
-    const answer = result.text?.trim() || "(no answer)";
-    const toolsCalled = result.steps.flatMap((s) => s.toolCalls ?? []).map((c) => c.toolName);
+  return await startActiveObservation(TRACE_NAME, async (root) => {
+    return await propagateAttributes(
+      {
+        traceName: TRACE_NAME,
+        sessionId,
+        userId,
+        tags: [...BASE_TAGS, ...extraTags, ...(isFinalTurn ? [CONVERSATION_END_TAG] : [])],
+        metadata: { agentModel: AGENT_MODEL, turn: String(turnIndex + 1) },
+      },
+      async () => {
+        root.update({
+          input: { message },
+          metadata: { turn: turnIndex + 1, priorTurns: history.length / 2 },
+        });
 
-    // A span carrying nothing, of the kind that accumulates when instrumentation
-    // is added defensively — pure noise in the tree and billable ingest.
-    const emptySpan = startObservation("postprocess");
-    emptySpan.end();
+        // The hand-rolled wrapper. Opened before the loop, closed after it, and
+        // given the final answer as its output — which is the whole defect. It
+        // looks responsible: named well, typed as a generation, carrying the model
+        // and the real token totals. Everything about it is right except its
+        // GRANULARITY.
+        const collapsed = startObservation(
+          COLLAPSED_GENERATION_NAME,
+          { model: AGENT_MODEL, input: { message } },
+          { asType: "generation" },
+        );
 
-    // DEFECT 3: the root's output is never set, so the trace's output column is
-    // blank and a root-targeted evaluator has nothing to score.
-    const state = getSessionState(sessionId);
-    return {
-      traceId: getActiveTraceId(),
-      answer,
-      toolsCalled,
-      skusMentioned: extractSkus(answer),
-      cartSkus: state.cart.map((l) => l.sku),
-      cartSubtotalCents: cartSubtotalCents(state),
-    };
+        const tools = buildTools(sessionId);
+        const result = await generateText({
+          model: anthropic(AGENT_MODEL),
+          system: SYSTEM_PROMPT,
+          messages: [...history, { role: "user" as const, content: message }],
+          tools,
+          stopWhen: stepCountIs(6),
+          // This is how the defect actually happens: the framework's own
+          // per-invocation telemetry is switched off — usually because the team
+          // decided to "instrument it ourselves" — and the hand-rolled span above
+          // replaces N generations and their interleaved tool calls with one box.
+          // Note it takes the `tool` observations with it, so the tree cannot show
+          // what the model did between them either.
+          telemetry: { isEnabled: false },
+        });
+
+        const answer = result.text?.trim() || "(no answer)";
+        const toolsCalled = result.steps
+          .flatMap((s) => s.toolCalls ?? [])
+          .map((c) => c.toolName);
+
+        // Aggregated usage across every step. Correct, and useless for finding
+        // which step is expensive — that is the second cost Langfuse names.
+        const usageDetails: Record<string, number> = {};
+        if (result.usage.inputTokens !== undefined) usageDetails["input"] = result.usage.inputTokens;
+        if (result.usage.outputTokens !== undefined) usageDetails["output"] = result.usage.outputTokens;
+
+        collapsed.update({
+          output: answer,
+          ...(Object.keys(usageDetails).length > 0 ? { usageDetails } : {}),
+          // The step count is recorded so the trace itself admits what it hid.
+          // In the wild nobody writes this down, which is exactly why the shape
+          // survives: there is nothing in the trace that looks wrong.
+          metadata: { modelInvocations: result.steps.length, toolCalls: toolsCalled.length },
+        });
+        collapsed.end();
+
+        root.update({ output: answer });
+
+        const state = getSessionState(sessionId);
+        const out: TurnResult = {
+          traceId: getActiveTraceId(),
+          answer,
+          toolsCalled,
+          modelInvocations: result.steps.length,
+          skusMentioned: extractSkus(answer),
+          cartSkus: state.cart.map((l) => l.sku),
+          cartSubtotalCents: cartSubtotalCents(state),
+        };
+
+        if (isFinalTurn) {
+          const transcript: ChatMessage[] = [
+            ...history,
+            { role: "user", content: message },
+            { role: "assistant", content: answer },
+          ];
+          const snapshot = startObservation(SNAPSHOT_NAME, {
+            input: { transcript, turns: transcript.length / 2 },
+            output: answer,
+          });
+          snapshot.end();
+          out.transcript = transcript;
+        }
+
+        return out;
+      },
+    );
   });
 }

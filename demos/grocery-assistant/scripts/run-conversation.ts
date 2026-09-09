@@ -23,7 +23,14 @@ import {
   LANGFUSE_SECRET_KEY,
   verifyProject,
 } from "../src/env.js";
-import { runTurn, type ChatMessage, type InstrumentationMode, type TurnResult } from "../src/assistant.js";
+import {
+  INSTRUMENTATION_MODES,
+  isInstrumentationMode,
+  runTurn,
+  type ChatMessage,
+  type InstrumentationMode,
+  type TurnResult,
+} from "../src/assistant.js";
 import { getSessionState, resetSessionState } from "../src/tools.js";
 import { OFFERS, formatMoney, getProduct } from "../src/catalog.js";
 import { CONVERSATIONS, getConversation, type Conversation } from "../src/conversations.js";
@@ -193,7 +200,8 @@ export function printTurn(record: TurnRecord): void {
   console.log(`  ${BOLD}shopper${OFF}  ${oneLine(message)}`);
   console.log(`  assistant  ${oneLine(result.answer)}`);
   console.log(
-    `  ${DIM}tools${OFF}      ${result.toolsCalled.join(", ") || "(none)"}`,
+    `  ${DIM}tools${OFF}      ${result.toolsCalled.join(", ") || "(none)"}` +
+      `  ${DIM}(${result.modelInvocations} model call(s))${OFF}`,
   );
   console.log(
     `  ${DIM}cart${OFF}       ${result.cartSkus.join(", ") || "(empty)"}  ` +
@@ -274,8 +282,10 @@ export function parseArgs(argv: string[]): Args {
     const value = argv[i + 1];
     if (flag === "--list") args.list = true;
     else if (flag === "--instrumentation" && value) {
-      if (value !== "good" && value !== "broken") {
-        throw new Error(`--instrumentation must be 'good' or 'broken', got '${value}'`);
+      if (!isInstrumentationMode(value)) {
+        throw new Error(
+          `--instrumentation must be one of ${INSTRUMENTATION_MODES.join(", ")}, got '${value}'`,
+        );
       }
       args.mode = value;
       i += 1;
@@ -337,6 +347,15 @@ async function main(): Promise<void> {
     console.log(
       `${DIM}  Broken mode: expect one trace name per turn, empty generations, and a ` +
         `session view that repeats the whole conversation on every turn.${OFF}`,
+    );
+  }
+  if (args.mode === "collapsed") {
+    const invocations = records.reduce((sum, r) => sum + r.result.modelInvocations, 0);
+    console.log(
+      `${DIM}  Collapsed mode: the app made ${invocations} model call(s) across ` +
+        `${records.length} turn(s). Every trace shows exactly ONE generation and no ` +
+        `tool observations — open a turn that used tools and note there is nothing ` +
+        `between the request and the final answer.${OFF}`,
     );
   }
 }

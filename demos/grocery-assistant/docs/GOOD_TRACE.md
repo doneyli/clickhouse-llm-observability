@@ -31,21 +31,32 @@ LLM-as-a-judge rule, and it comes back in
 [FIRST_EVALUATOR.md](./FIRST_EVALUATOR.md).
 
 ```
-session: shopper-4471                     ← the conversation
-├── trace: handle-chat-message  (turn 1)  ← one invocation of your system
-│   ├── generation: ai.generateText       ← carries model, tokens, cost
-│   ├── tool: search_products
-│   └── tool: manage_cart
+session: shopper-4471                        ← the conversation
+├── trace: handle-chat-message  (turn 1)     ← one invocation of your system
+│   ├── agent: invoke_agent <model>
+│   │   ├── span: step 1
+│   │   │   ├── generation: chat <model>     ← carries model, tokens, cost
+│   │   │   └── tool: manage_cart            ← the call that generation asked for
+│   │   └── span: step 2
+│   │       └── generation: chat <model>     ← what the agent decided NEXT
+│   └── span: conversation-snapshot          ← emitted once, on the last turn
 ├── trace: handle-chat-message  (turn 2)
 └── trace: handle-chat-message  (turn 3)
-    └── span: conversation-snapshot       ← emitted once, on the last turn
 ```
+
+Note the **two** generations in one turn, interleaved with the tool call between
+them. That is not incidental — one model invocation per generation is the shape
+Langfuse asks for, and collapsing it is
+[defect 6](#6-the-agent-loop-flattened-into-one-generation). The tree above is
+copied from a real trace this demo produced, names and nesting included.
 
 ---
 
-## The five defects, and what fixes each
+## The six defects, and what fixes each
 
-Run `npm run chat:broken` and `npm run chat` to produce one of each.
+Run `npm run chat:broken` and `npm run chat` to produce one of each of the first
+five. The sixth lives in its own mode — `npm run chat:collapsed` — for a reason
+given in [its section](#6-the-agent-loop-flattened-into-one-generation).
 
 ### 1. Generations with null input and output
 
@@ -134,6 +145,13 @@ scalars. Metadata set directly on an observation has no such cap.)
 **Symptom.** The Sessions view is unreadable: turn 3 shows turns 1 and 2 again,
 turn 4 shows all three, and so on.
 
+**In this demo you read it off the root's Input instead**, because defect 4 and
+defect 5 co-occur in `broken` mode: with no propagated `sessionId` there is no
+session view to be unreadable. Open a late turn's root and `conversationHistory`
+holds the whole conversation — 0, 2, 4, 6, 8, 10, 12 messages across the default
+7-turn conversation. The quadratic growth is the thing to point at; the session
+view is where you would *feel* it in an app that got defect 5 right.
+
 **Be precise about the provenance of this one.** Langfuse does not name history
 duplication as an anti-pattern anywhere. It is a consequence of a rule Langfuse
 *does* state — per-turn traces exist so that "the per-turn model keeps traces
@@ -179,6 +197,74 @@ Using the Langfuse SDK, `propagateAttributes` handles this. Sending OTel spans
 directly, you set the attributes yourself on every span — and note that plain OTel
 attributes land in an unqueryable `metadata.attributes` catch-all unless you use
 the `langfuse.trace.metadata.*` / `langfuse.observation.metadata.*` prefix.
+
+### 6. The agent loop flattened into one generation
+
+**Symptom.** The trace looks tidy. One generation per turn, correct model,
+correct token total, cost adding up. Nothing looks wrong — and that is the
+problem, because the turn you are looking at called five tools and invoked the
+model six times.
+
+Langfuse states this one directly:
+
+> "**Beware of aggregating LLM calls.** You should see a `generation` for each
+> model invocation in an agent loop, interleaved with the `tool` calls it
+> requested. Avoid wrapping the whole loop in one parent generation that only
+> records the final output."
+
+**What it costs**, per the same page — two things, and the second is the one
+people feel first:
+
+- you cannot **see what the agent decided after each tool result**, which is
+  exactly where a tool-calling agent goes wrong
+- you cannot **see which tool call blew up the context window**, because the
+  token count is one aggregate — the step that cost you is averaged in with the
+  cheap ones
+
+**Cause.** Usually a decision to "instrument it ourselves": the framework's
+per-invocation telemetry gets switched off and one hand-rolled span takes its
+place.
+
+```ts
+// broken — one box for the whole loop, holding only the final answer
+const collapsed = startObservation("generate-response",
+  { model: AGENT_MODEL, input: { message } }, { asType: "generation" });
+const result = await generateText({ …, telemetry: { isEnabled: false } });
+collapsed.update({ output: result.text, usageDetails });   // aggregate usage
+collapsed.end();
+
+// good — let the integration emit one generation per invocation
+const result = await generateText({ …, telemetry: { functionId: "chat-turn" } });
+```
+
+Note what else goes when you do this: the `tool` observations are the framework's
+too, so the tree loses those as well. There is then nothing at all between the
+question and the answer.
+
+**Why this one is its own mode.** Defect 6 and defect 1 cannot share a trace.
+Defect 1's lesson is *a generation per model call, every one of them empty*;
+defect 6 is *no per-call generations at all*. So `collapsed` is instrumented
+**correctly in every other respect** — stable name, root input/output, propagated
+session — which makes the loop shape the only variable when you diff it against
+`good`:
+
+```bash
+npm run compare:loop
+```
+
+Measured on this demo's default 7-turn conversation, on Langfuse Cloud:
+
+| | collapsed | good |
+|---|---|---|
+| generations vs actual model calls | 7 of 17 | 17 of 17 |
+| tool observations in the tree | 0 | 18 |
+| observations per turn (min / mean / max) | 2 / 2.1 / 3 | 7 / 9.6 / 14 |
+| *rows 1–5* | *level with good* | *level with collapsed* |
+
+The denominator — 17 model calls — is ground truth from the AI SDK
+(`result.steps.length`), not from Langfuse. That is what makes it a measurement:
+the app tells you how many times it called the model, and the trace tells you how
+many it recorded.
 
 ---
 
@@ -232,6 +318,22 @@ Two traps in that one call, both of which look exactly like empty data:
   undefined even when they are populated.
 - **`input` and `output` arrive as serialized JSON strings**, not objects.
   `JSON.parse` them.
+
+And a third, which cost a wrong table in this very demo before it was caught —
+**where an observation's session lives moved between generations:**
+
+- **v4** promotes it to first-class `sessionId` / `userId` **columns on every
+  observation row**. `metadata` there is a *flat* map of dotted keys
+  (`scope.name`, `resourceAttributes.*`) — there is no nested `attributes` object.
+- **v3** has no such column, so the propagated OTel attribute is read out of
+  `metadata.attributes["session.id"]`.
+
+Read only the v3 shape against a v4 server and every row returns undefined, so a
+correctly-instrumented run reports `0 of 67` observations carrying the session.
+That is worth dwelling on: the reader's bug is indistinguishable from the defect
+it was written to detect, and it shows up in the column that is supposed to be
+clean. `sessionOf()` in `compare-traces.ts` tries the v4 column first and falls
+back to the v3 attribute.
 
 **On v3, that endpoint does not exist at all:**
 
