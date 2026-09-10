@@ -1,11 +1,19 @@
 # Real Estate Property Concierge demo
-# Floor is >=4.10, which is the STRICTER of two independent requirements:
-#   >=4.7  — Langfuse Cloud grants real-time ingestion off `x-langfuse-sdk-version`,
-#            and only Python >= 4.7.0 qualifies.
-#   >=4.10 — multi-modal dataset items / experiments (LangfuseMediaReference
-#            hydration), which this demo's eval path uses.
+# Floor is >=4.13.1, the STRICTEST of three independent requirements:
+#   >=4.7    — Langfuse Cloud grants real-time ingestion off `x-langfuse-sdk-version`,
+#              and only Python >= 4.7.0 qualifies.
+#   >=4.10   — multi-modal dataset items / experiments (LangfuseMediaReference
+#              hydration), which this demo's eval path uses.
+#   >=4.9.0  — `mask_otel_spans`, the export-stage masking hook agent/masking.py
+#              uses for PII redaction. Not load-bearing at this floor (4.13.1 is
+#              higher) but it is why masking cannot be back-ported below 4.9.
+#   >=4.13.1 — the version that adds `client.api.experiments.*`. This demo reads
+#              experiments over REST rather than through those wrappers, so the
+#              floor is not load-bearing for the code — it keeps the installed
+#              SDK in step with the v4 experiment API the demo now depends on,
+#              and with the experiment runner that writes it.
 # Needs Python >=3.10 — the SDK will not install on 3.9, still the macOS system python.
-langfuse>=4.10,<5.0
+langfuse>=4.13.1,<5.0
 anthropic>=0.40
 python-dotenv>=1.0
 # OpenAI — agent runs on GPT for the Claude-vs-GPT comparison

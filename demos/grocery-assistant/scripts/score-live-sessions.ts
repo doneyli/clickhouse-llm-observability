@@ -73,43 +73,125 @@ type ObsRow = {
   metadata?: unknown;
 };
 
+// -------------------------------------------------------------- API version ---
 /**
- * The most recent sessions, newest first, grouped from the traces list.
+ * Which read API this server speaks, decided the same way `compare-traces.ts`
+ * decides it — from `GET /api/public/health`.
  *
- * Grouping traces rather than calling /api/public/sessions keeps one shape to
- * parse and gives an ordering for free. This project holds only this demo's
- * traffic, so every session here is a demo session.
+ * `GET /api/public/traces` and `GET /api/public/traces/{id}` are deprecated and
+ * are removed from Langfuse Cloud on 2026-11-16, so the v2 observations API is
+ * the path that has a future. It is also *unavailable* on a Langfuse v3 server,
+ * which answers HTTP 404 with `LangfuseNotFoundError` — and this demo's default
+ * self-hosted stack is 3.221.1 while its `.env` points at Cloud. Neither path
+ * alone covers both, so both are implemented and the server chooses.
+ */
+type ApiFlavour = "v1" | "v2";
+let flavour: ApiFlavour | undefined;
+
+async function detectApiFlavour(): Promise<ApiFlavour> {
+  if (flavour) return flavour;
+  const health = await api<{ version?: string }>("/api/public/health");
+  const version = health?.version ?? "unknown";
+  // Major 3 has no v2 observations API. Anything else is treated as v4-or-later.
+  flavour = version.startsWith("3.") ? "v1" : "v2";
+  return flavour;
+}
+
+/**
+ * v2 hands input/output back as SERIALIZED JSON STRINGS where v1 returns parsed
+ * objects. Every consumer below reads them as objects (`output.cart`,
+ * `input.action`), so normalise at the boundary rather than teaching each
+ * reader both shapes — that is the difference between one change here and a
+ * dozen `typeof` checks scattered through the reconstruction.
+ */
+function parseIo(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  // Only object/array payloads are serialized JSON here. Attempting a parse on
+  // anything else would silently transform the assistant's prose answer: an
+  // answer of "42" is a string the evaluators read, not the number 42.
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function normalise(o: ObsRow): ObsRow {
+  return { ...o, input: parseIo(o.input), output: parseIo(o.output) };
+}
+
+/**
+ * The most recent sessions, newest first.
+ *
+ * On v2 the session is a first-class column on every observation, so the roots
+ * alone identify both the session and its turns — no trace list needed. On v3
+ * it comes from the traces list, which is where `sessionId` lives there.
+ *
+ * This project holds only this demo's traffic, so every session here is a demo
+ * session.
  */
 async function readRecentSessions(maxSessions: number): Promise<Array<{ sessionId: string; traces: TraceRow[] }>> {
-  const traces: TraceRow[] = [];
-  for (let page = 1; page <= 10; page += 1) {
-    const body = await api<{ data: TraceRow[] }>(`/api/public/traces?page=${page}&limit=100`);
-    traces.push(...body.data);
-    if (body.data.length < 100) break;
+  const rows: TraceRow[] = [];
+
+  if ((await detectApiFlavour()) === "v2") {
+    type V2Root = { traceId: string; sessionId?: string | null; startTime: string; name?: string | null };
+    let cursor: string | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const qs = new URLSearchParams({ fields: "core,basic", limit: "100", isRootObservation: "true" });
+      if (cursor) qs.set("cursor", cursor);
+      const body = await api<{ data: V2Root[]; meta?: { cursor?: string; nextCursor?: string } }>(
+        `/api/public/v2/observations?${qs.toString()}`,
+      );
+      for (const o of body.data) {
+        rows.push({ id: o.traceId, sessionId: o.sessionId ?? null, timestamp: o.startTime, name: o.name ?? null });
+      }
+      cursor = body.meta?.nextCursor ?? body.meta?.cursor ?? undefined;
+      if (!cursor || body.data.length === 0) break;
+    }
+    // Cursor order is not guaranteed to be newest-first; make it so explicitly.
+    rows.sort((a, b) => String(b.timestamp ?? "").localeCompare(String(a.timestamp ?? "")));
+  } else {
+    for (let page = 1; page <= 10; page += 1) {
+      const body = await api<{ data: TraceRow[] }>(`/api/public/traces?page=${page}&limit=100`);
+      rows.push(...body.data);
+      if (body.data.length < 100) break;
+    }
   }
 
   const grouped = new Map<string, TraceRow[]>();
-  for (const t of traces) {
+  for (const t of rows) {
     if (!t.sessionId) continue;
     grouped.set(t.sessionId, [...(grouped.get(t.sessionId) ?? []), t]);
   }
 
-  // The traces list already comes back newest first, so first-seen is newest.
-  return [...grouped.entries()].slice(0, maxSessions).map(([sessionId, rows]) => ({ sessionId, traces: rows }));
+  // Newest first, so first-seen is newest.
+  return [...grouped.entries()].slice(0, maxSessions).map(([sessionId, traces]) => ({ sessionId, traces }));
 }
 
 /**
  * One turn's observations.
  *
- * `GET /api/public/traces/{id}` returns the trace WITH its full `observations`
- * array, so a turn costs one request instead of a paged list — and on this v3
- * server input/output arrive already parsed as objects.
+ * `fields` MUST include `io` on v2 or input and output come back undefined —
+ * which reconstructs every turn with an empty answer and reads exactly like the
+ * broken-instrumentation session this script exists to distinguish.
  */
 async function readObservations(traceId: string): Promise<ObsRow[]> {
+  if ((await detectApiFlavour()) === "v2") {
+    const qs = new URLSearchParams({
+      traceId,
+      fields: "core,basic,io,metadata",
+      limit: "1000",
+    });
+    const body = await api<{ data: ObsRow[] }>(`/api/public/v2/observations?${qs.toString()}`);
+    return (body.data ?? []).map(normalise);
+  }
   const trace = await api<{ observations?: ObsRow[] }>(
     `/api/public/traces/${encodeURIComponent(traceId)}`,
   );
-  return trace.observations ?? [];
+  return (trace.observations ?? []).map(normalise);
 }
 
 // ----------------------------------------------------------- reconstruction ---

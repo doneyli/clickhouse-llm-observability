@@ -1149,3 +1149,76 @@ server version rather than failing cryptically, since `LANGFUSE_HOST` defaults t
 **Exports remain `blocked`, now with a reason:** `GET /api/public/integrations/blob-storage`
 → **403 "Organization-scoped API key required"**, and Mixpanel/PostHog have no public API at
 all. No repo code configures any export. Confirming this needs the UI or an org-scoped key.
+
+## 15. Deprecated-API sweep — the last four Cloud call sites (2026-09-02)
+
+Langfuse Cloud's own action-item panel flagged three deprecated endpoints still being
+called against the `real-estate` project in the prior 3 days, all from `Python-urllib/3.11`
+(so raw REST, not the SDK): `GET /traces/{id}` (7 calls), `GET /observations/{id}` (2), and
+`GET /datasets/{datasetName}/runs/{runName}` (2). §14 had already migrated the trace and
+observation reads, which is why only the dataset-run call still had a matching call site in
+`demos/real-estate`; the trace/observation counts have **no call site left in this repo** and
+are attributable to the main-stack scripts below being run with Cloud keys in the shell — the
+key-shadowing landmine this repo documents everywhere. There is no `GET /observations/{id}`
+call site anywhere in the tree.
+
+**Migrated (Cloud, live-verified).** All four in `demos/real-estate`:
+
+| Was | Now | Site |
+|---|---|---|
+| `GET /datasets/{name}/runs/{run}` | `GET /v2/datasets/{name}` → `GET /experiments` → `GET /experiment-items` | `find_experiment()`, `list_experiment_items()` in `agent/config.py`; used by `scripts/verify_multimodal.py` |
+| `DELETE /datasets/{name}/runs/{run}` | `GET /experiment-items` → `DELETE /traces` | `delete_experiment_traces()`; used by the 3 experiment runners |
+| `GET /sessions` + a second per-session lookup | one `GET /v2/observations` grouped by `sessionId` | `sessions_with_turns()`; used by `scripts/seed_annotation_queue.py` |
+| per-run-item trace fetch, just to collect scores | `fields=scores` on `GET /experiment-items` | `scripts/verify_multimodal.py` |
+
+Four things only live testing settled:
+
+| Finding | Consequence |
+|---|---|
+| Deleting an experiment's traces makes the experiment vanish from `GET /experiments` entirely — it is derived from them | the **re-run guarantee survives** the migration: a re-run under a pinned `run_name` is still a clean snapshot, not an append. Verified end to end (2 items → delete → 0 → re-run → 2) |
+| …but the deletion is **wider** than the endpoint it replaces: observations and scores go too | fine for a re-run; state it before anyone points this at data they want to keep |
+| `experiments` / `experiment-items` **require** `fromStartTime` | there is no unbounded "find my run by name"; a too-narrow window reads as "no such run" |
+| Grouping observations into sessions makes the candidate pool a budget in **turns**, not sessions, and the window is a silent cutoff | the annotation queue's 30-day default dropped a seeded 3-turn conversation; it passes `lookback_days=365` because it wants the *longest* conversation, not the most recent |
+
+`langfuse` floor for `demos/real-estate` moved `>=4.10` → `>=4.13.1` (the release that adds
+`client.api.experiments.*`). Not load-bearing — these reads go over REST — but it keeps the
+installed SDK in step with the API the demo now depends on.
+
+**`setup.sh` trace count now prefers v4.** No single endpoint counts traces on both majors,
+so it tries Metrics v2 (`count` of `isRootObservation=true`) and falls back to the deprecated
+`GET /traces` `totalItems`. Both branches verified: 669 via v2 on Cloud, 4679 via the
+fallback on self-hosted 3.221.1. Drop the fallback when the stack reaches v4.
+
+**Blocked on the self-hosted v3 → v4 server upgrade.** Measured against 3.221.1, not read off
+a matrix — `v2/observations`, `v2/metrics`, `experiments`, `experiment-items` all **404**,
+while `v3/scores`, `v2/datasets` and `otel/v1/traces` all **200**. So every remaining
+deprecated *read* in the main stack has no working replacement on this server, and migrating
+it now would just move the 404 around:
+
+| Deprecated call | Sites |
+|---|---|
+| `GET /traces`, `GET /traces/{id}` | `demos/text-to-sql/scripts/seed_step_dataset.py`, `demos/cluster-health-investigator/scripts/{score_delegations,seed_datasets}.py`, `demos/brand-promo-multi-agent/scripts/seed_annotation_queue.py`, `demos/grocery-assistant/scripts/{score-live-sessions,compare-traces}.ts`, `demos/langfuse-rls/lib/langfuse-client.ts`, `demos/litellm-gateway/client.py` |
+| `GET /metrics` (v1) | `demos/cluster-health-investigator/scripts/check_fanout.py` |
+
+Ingestion is the exception: `POST /otel/v1/traces` **works on 3.221.1**, so the four
+generators still posting deprecated trace/observation events to `POST /ingestion`
+(`scripts/seed-router-history.py`, `scripts/import-external-traces.py`,
+`demos/brand-promo-multi-agent/src/synthetic/trace_generator.py`,
+`demos/langfuse-rls/scripts/seed-traces.ts`) are *not* blocked — they are unconverted. Each
+backdates synthetic spans, so each needs an OTLP rewrite that sets span start/end explicitly.
+`demos/langfuse-rls` additionally pins the legacy JS SDK (`langfuse@^3.36.0`, deprecated on
+Cloud v4) and should move to `@langfuse/*` v5 as part of that.
+
+`scripts/import-external-traces.py` is the one non-real-estate file with real deadline
+exposure, because its SOURCE is typically a Cloud project: its v1 reads die on 2026-11-16
+regardless of what the local server runs. Its `fetch_observations()` docstring now records
+the deadline and the three-part change (v2 reads + root-observation input/output +
+OTLP writes) rather than only the case for the legacy client.
+
+**Evaluators: nothing to migrate.** `GET /api/public/unstable/evaluation-rules` on the Cloud
+project returns 4 active rules — 3 `target=observation`, 1 `target=experiment` (the latter,
+"Experiment evaluators for Adobetest", belongs to someone else's dataset and was left alone).
+Zero legacy `target=trace` rows, so the §13 conclusion holds: no `set_current_trace_io()`
+escape hatch is needed anywhere. **Exports: unchanged from §14** — still no repo code
+configuring one, and no public API to read them (`integrations`/`blob-storage-integrations`
+both 404 on a project key).

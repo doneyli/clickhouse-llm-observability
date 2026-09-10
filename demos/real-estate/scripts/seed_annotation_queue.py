@@ -45,7 +45,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agent.config import (  # noqa: E402
     verify_project, LANGFUSE_HOST, root_observations_by_tag,
-    list_sessions, root_observations_by_sessions, observation_io,
+    sessions_with_turns, observation_io,
     langfuse_api as api,
 )
 from agent.concierge import TRACE_NAME  # noqa: E402  (the concierge turn's root span)
@@ -154,7 +154,7 @@ def seed_trace_queue(args):
 
 
 # ---------------------------------------------------------- queue B: sessions ---
-def multi_turn_sessions(min_turns, want, candidate_pool=40):
+def multi_turn_sessions(min_turns, want, candidate_turns=500):
     """Sessions with at least `min_turns` turns, longest conversation first.
 
     Turn count is the number of ROOT observations sharing a session_id (one per
@@ -163,31 +163,26 @@ def multi_turn_sessions(min_turns, want, candidate_pool=40):
     worthless in this queue, and the smoke-test/verification sessions that
     accumulate in a demo project are all short.
 
-    Only counts turns named TRACE_NAME. A demo project also collects sessions
-    from verification scripts (`verify-multimodal` and friends) whose spans are
-    not concierge turns at all — long enough to qualify, useless to a reviewer.
+    `candidate_turns` bounds the pool in TURNS, not sessions: v4 discovers
+    sessions by grouping observation rows, so the budget has to cover every turn
+    of every candidate conversation. Only turns named TRACE_NAME are fetched — a
+    demo project also collects sessions from verification scripts
+    (`verify-multimodal` and friends) whose spans are not concierge turns at
+    all: long enough to qualify, useless to a reviewer.
     """
-    # Returns None (not []) if a lookup FAILED, so the caller doesn't tell the user
-    # to go generate conversations when the real problem is the read API — this
-    # discovery path needs Cloud/v4 (`v2/observations` 404s on a v3 server, and the
-    # RuntimeError carries the version hint that says so).
+    # Returns None (not []) if the lookup FAILED, so the caller doesn't tell the
+    # user to go generate conversations when the real problem is the read API —
+    # this discovery path needs Cloud/v4 (`v2/observations` 404s on a v3 server,
+    # and the RuntimeError carries the version hint that says so).
     try:
-        sessions = list_sessions(limit=candidate_pool)
+        # A wide window on purpose: this queue wants the LONGEST conversation,
+        # which in a demo project is often a seeded one from months back.
+        by_session = sessions_with_turns(trace_name=TRACE_NAME,
+                                         limit=candidate_turns,
+                                         lookback_days=365)
     except RuntimeError as e:
         print(f"  ! session lookup failed: {e}")
         return None
-    try:
-        rows = root_observations_by_sessions([s["id"] for s in sessions],
-                                            fields="core,basic,io")
-    except RuntimeError as e:
-        print(f"  ! turn lookup failed: {e}")
-        return None
-
-    by_session = {}
-    for o in rows:
-        if o.get("name") != TRACE_NAME:
-            continue
-        by_session.setdefault(o.get("sessionId"), []).append(o)
 
     convos = []
     for sid, turns in by_session.items():
