@@ -256,6 +256,18 @@ services:
       - |
         export LANGFUSE_PUBLIC_KEY="$${LITELLM_LANGFUSE_PUBLIC_KEY:-$${LANGFUSE_PUBLIC_KEY:-}}"
         export LANGFUSE_SECRET_KEY="$${LITELLM_LANGFUSE_SECRET_KEY:-$${LANGFUSE_SECRET_KEY:-}}"
+        # Same override pattern as the keys, for the export destination. Lets THIS
+        # service alone target a different Langfuse (e.g. Langfuse Cloud) while
+        # text-to-sql / vector-rag / LibreChat keep using LANGFUSE_INTERNAL_URL.
+        # This is the container-side URL, so it must be reachable from inside the
+        # container — not the host-side LITELLM_LANGFUSE_BASE_URL that client.py
+        # verifies against (identical for cloud, different for self-hosted).
+        # litellm's langfuse_otel reads LANGFUSE_OTEL_HOST first, then
+        # LANGFUSE_HOST, and appends /api/public/otel.
+        if [ -n "$${LITELLM_LANGFUSE_INTERNAL_URL:-}" ]; then
+          export LANGFUSE_HOST="$${LITELLM_LANGFUSE_INTERNAL_URL}"
+          export LANGFUSE_OTEL_HOST="$${LITELLM_LANGFUSE_INTERNAL_URL}"
+        fi
         exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4000
     ports:
       - "${LITELLM_PORT:-4000}:4000"
@@ -271,6 +283,19 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_OTEL_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - OTEL_SERVICE_NAME=litellm-gateway-demo
+      # The LiteLLM admin UI (/ui) authenticates against its own Postgres — without
+      # DATABASE_URL every login fails with "Authentication Error, Not connected to
+      # DB!". Reuses the Langfuse stack's Postgres via a separate `litellm` database
+      # so no Langfuse table is touched. Startup runs prisma migrations (~30-60s on
+      # first boot), which is why the healthcheck start_period is generous.
+      - DATABASE_URL=${LITELLM_DATABASE_URL:-postgresql://langfuse:langfuse@langfuse-postgres:5432/litellm}
+      # Lets the UI persist model config instead of being read-only against config.yaml.
+      - STORE_MODEL_IN_DB=${LITELLM_STORE_MODEL_IN_DB:-True}
+    # No depends_on for langfuse-postgres on purpose: it lives in the `langfuse`
+    # profile, and run_demo.sh starts this service with `--profile demo` alone —
+    # a cross-profile depends_on makes Compose reject the project outright
+    # ("depends on undefined service"). setup.sh brings the Langfuse stack up
+    # first, so Postgres is already running by the time this starts.
     profiles:
       - demo
     volumes:
@@ -280,7 +305,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      # Generous: the first boot with DATABASE_URL set runs prisma migrations before
+      # the server binds :4000.
+      start_period: 120s
 
   # =============================================================================
   # ClickHouse (dedicated) — native vector store for the Agentic RAG demo
