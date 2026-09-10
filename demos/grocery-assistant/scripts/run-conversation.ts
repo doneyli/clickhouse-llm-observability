@@ -11,6 +11,14 @@
  *   tsx scripts/run-conversation.ts --list
  *   tsx scripts/run-conversation.ts --conversation dropped-dietary-constraint
  *   tsx scripts/run-conversation.ts --instrumentation broken
+ *   tsx scripts/run-conversation.ts --tag error-analysis --tag ea:pass-1
+ *
+ * `--tag` is repeatable and lands on every trace of the run, on top of the base
+ * tags and the `conversation:<id>` tag. Use it to make one batch of runs
+ * separable afterwards — an error-analysis cohort, a before/after prompt change
+ * — since tags are filterable in the UI and in the API. For a harder split, set
+ * LANGFUSE_TRACING_ENVIRONMENT, which the Langfuse span processor reads and
+ * which Langfuse filters on as a first-class dimension rather than a label.
  */
 import "../src/instrumentation.js";
 
@@ -149,6 +157,10 @@ export async function driveConversation(opts: DriveOptions): Promise<TurnRecord[
       cartSkus: result.cartSkus,
       toolsCalled: result.toolsCalled,
       history: [...history],
+      // `runTurn` already reports the basket it ended the turn with, so take it
+      // from there rather than re-reading session state — one source, and no
+      // chance of the evaluator disagreeing with what the run printed.
+      cartSubtotalCents: result.cartSubtotalCents,
       ...(quoted !== undefined
         ? { quotedDiscountCents: quoted, actualDiscountCents: currentDiscountCents(sessionId) }
         : {}),
@@ -272,16 +284,26 @@ type Args = {
   mode: InstrumentationMode;
   conversationId: string | undefined;
   sessionId: string | undefined;
+  tags: string[];
   list: boolean;
 };
 
 export function parseArgs(argv: string[]): Args {
-  const args: Args = { mode: "good", conversationId: undefined, sessionId: undefined, list: false };
+  const args: Args = {
+    mode: "good",
+    conversationId: undefined,
+    sessionId: undefined,
+    tags: [],
+    list: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === "--list") args.list = true;
-    else if (flag === "--instrumentation" && value) {
+    else if (flag === "--tag" && value) {
+      args.tags.push(value);
+      i += 1;
+    } else if (flag === "--instrumentation" && value) {
       if (!isInstrumentationMode(value)) {
         throw new Error(
           `--instrumentation must be one of ${INSTRUMENTATION_MODES.join(", ")}, got '${value}'`,
@@ -331,11 +353,13 @@ async function main(): Promise<void> {
       `failure mode ${conversation.failureMode}`,
   );
   console.log(`  session ${sessionId}   user ${conversation.userId}`);
+  if (args.tags.length > 0) console.log(`  tags ${args.tags.join(" ")}`);
 
   const records = await driveConversation({
     conversation,
     sessionId,
     mode: args.mode,
+    extraTags: args.tags,
     onTurn: printTurn,
   });
 

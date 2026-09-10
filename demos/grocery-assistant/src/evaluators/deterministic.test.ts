@@ -16,6 +16,8 @@ import { test } from "node:test";
 import {
   droppedDietaryConstraint,
   fabricatedPurchaseHistory,
+  quotedTotalForEmptyCart,
+  readbackRequestUnanswered,
   staleDiscountQuoted,
   statedDietaryTags,
   unverifiedCartClaim,
@@ -253,4 +255,198 @@ test("discount: a quoted total that no longer matches fails", () => {
 
 test("discount: not applicable when no total was quoted", () => {
   assert.equal(staleDiscountQuoted(ctx({})).applicable, false);
+});
+
+// ------------------------------------------- cart total vs the real cart -----
+// Every answer below is verbatim from the error-analysis cohort (pass 1,
+// environment=error-analysis). See docs/ERROR_ANALYSIS.md.
+
+test("cart total: a subtotal quoted against an empty cart fails", () => {
+  const v = quotedTotalForEmptyCart(
+    ctx({
+      message: "I'm trying to keep this trip under $35. How am I doing?",
+      answer:
+        "Good news — all the details check out! Here's where you stand:\n\n" +
+        "| Item | Price |\n|------|-------|\n| Baby Spinach (PRD-1002) | $3.49 |\n" +
+        "| **Subtotal so far** | **$14.97 + tomatoes** |\n\n" +
+        "You've got plenty of room left under your $35 budget.",
+      cartSkus: [],
+      cartSubtotalCents: 0,
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, false);
+  assert.match(v.comment, /\$14\.97/);
+  assert.match(v.comment, /empty/);
+});
+
+test("cart total: a running total quoted against an empty cart fails", () => {
+  const v = quotedTotalForEmptyCart(
+    ctx({
+      answer: "That would bring your running total to around **$20.56** (before tomatoes).",
+      cartSkus: [],
+      cartSubtotalCents: 0,
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, false);
+});
+
+test("cart total: a subtotal that matches the cart passes", () => {
+  const v = quotedTotalForEmptyCart(
+    ctx({
+      answer:
+        "Both added! Here's your updated cart:\n\n- Bananas (PRD-1001) — $1.79\n" +
+        "- Whole Milk (DRY-2001) — $4.29\n\n**Cart subtotal: $13.46**",
+      cartSkus: ["PRD-1001", "PRD-1002", "DRY-2003", "DRY-2001"],
+      cartSubtotalCents: 1346,
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true);
+});
+
+test("cart total: defers to stale-discount-quoted on a discounted total", () => {
+  const v = quotedTotalForEmptyCart(
+    ctx({
+      answer:
+        "- **Subtotal:** $30.34\n- **Total discounts: -$2.50**\n- **Your total: $27.84**",
+      cartSkus: ["DRY-2001", "DRY-2005"],
+      cartSubtotalCents: 3034,
+      quotedDiscountCents: 250,
+      actualDiscountCents: 250,
+    }),
+  );
+  assert.equal(v.applicable, false, "one arithmetic mistake should not fail two evaluators");
+});
+
+test("cart total: not applicable when no subtotal is quoted", () => {
+  const v = quotedTotalForEmptyCart(
+    ctx({ answer: "The olive oil is in Aisle 6.", cartSkus: [], cartSubtotalCents: 0 }),
+  );
+  assert.equal(v.applicable, false);
+});
+
+// ------------------------------------------------ read-back was answered -----
+
+test("read-back: a request answered with a question fails", () => {
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Okay, add it and read the cart back to me.",
+      answer:
+        "It seems we got a bit off track — I haven't actually searched for or confirmed a " +
+        "substitute item yet, so there's nothing specific to add! Could you let me know what " +
+        "you'd like me to look for?",
+      cartSkus: [],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, false);
+});
+
+test("read-back: an empty cart reported as empty is a valid read-back", () => {
+  // This case corrected a hand label: "I haven't added anything" does answer
+  // "read back the final cart", even though the turn is poor for other reasons.
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "That's me done. Read back the final cart and the total.",
+      answer:
+        "Let me check — I notice I haven't actually added anything to the cart yet! " +
+        "Let me do that now, but I still need one thing from you: how many pounds of tomatoes?",
+      cartSkus: [],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true);
+});
+
+test("read-back: listing the cart passes", () => {
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Can you read me back everything that's actually in the cart?",
+      answer:
+        "Here's exactly what's in your cart:\n\n1. **Bananas** (PRD-1001) — $1.79\n" +
+        "2. **Whole Milk** (DRY-2001) — $4.29\n\n**Subtotal: $13.46**",
+      cartSkus: ["PRD-1001", "DRY-2001"],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true);
+});
+
+test("read-back: an item count with a subtotal passes", () => {
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Last check: how many items and what's the subtotal?",
+      answer: "You have **5 items** and your subtotal is **$18.95**. Good luck with dinner!",
+      cartSkus: ["PRD-1001", "PRD-1002", "DRY-2003", "DRY-2001", "DRY-2004"],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true);
+});
+
+test("read-back: not applicable when the shopper asked for something else", () => {
+  const v = readbackRequestUnanswered(
+    ctx({ message: "Which aisle is the olive oil in?", answer: "Aisle 6.", cartSkus: [] }),
+  );
+  assert.equal(v.applicable, false);
+});
+
+// Regression cases for the false pass found by running the demo after the
+// evaluator shipped: bare SKU presence was accepted as a read-back.
+
+test("read-back: products OFFERED are not products held (regression)", () => {
+  // Verbatim from a live run. Two SKUs, neither in the (empty) cart, and the
+  // reply is a question rather than an answer. The first version passed this.
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Okay, add it and read the cart back to me.",
+      answer:
+        "Which one would you like me to add — the **Boneless Chicken Breast (MET-4001)** " +
+        "or the **Ground Beef 85/15 (MET-4002)**? And how many pounds (i.e., quantity)?",
+      cartSkus: [],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, false, "offering two out-of-cart SKUs is not a read-back");
+  assert.match(v.comment, /empty/);
+});
+
+test("read-back: naming a SKU that is not in a non-empty cart does not count", () => {
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Can you read me back what's in my cart?",
+      answer: "I could also add Gluten-Free Penne (PAN-3002) if you like — shall I?",
+      cartSkus: ["PRD-1001", "DRY-2001"],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, false, "PAN-3002 is not in the cart, so nothing was read back");
+  assert.match(v.comment, /none of the 2 item\(s\)/);
+});
+
+test("read-back: naming an item genuinely in the cart counts", () => {
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Can you read me back what's in my cart?",
+      answer: "You have Bananas (PRD-1001) and Whole Milk (DRY-2001) in there.",
+      cartSkus: ["PRD-1001", "DRY-2001"],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true);
+  assert.match(v.comment, /PRD-1001/);
+});
+
+test("read-back: a count plus a subtotal counts even with no SKU named", () => {
+  const v = readbackRequestUnanswered(
+    ctx({
+      message: "Last check: how many items and what's the subtotal?",
+      answer: "You have **5 items** and your subtotal is **$18.95**.",
+      cartSkus: ["PRD-1001", "PRD-1002", "DRY-2003", "DRY-2001", "DRY-2004"],
+    }),
+  );
+  assert.equal(v.applicable, true);
+  assert.equal(v.passed, true);
 });

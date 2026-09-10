@@ -161,6 +161,18 @@ def fetch_observations(client, trace_id):
     self-hosted v3 (`TARGET_LANGFUSE_HOST` defaults to localhost:3001) and can
     straddle two different instances at once. The legacy v1 client is available on
     both, keeps `page=` pagination, and returns the full payload.
+
+    ON BORROWED TIME, though: v1 observation reads are removed from Langfuse
+    Cloud on 2026-11-16, and a Cloud project is the most likely SOURCE here. This
+    script cannot be fixed by swapping the read client alone — going v4-native
+    means all three of:
+      - reads via `api.observations.get_many(...)`, parsing `input`/`output` from
+        raw JSON strings and asking for the field groups explicitly;
+      - reconstructing each trace's input/output from its ROOT observation, since
+        v4 has no trace-level input/output for `transform_trace()` to copy; and
+      - writes via `POST /api/public/otel/v1/traces` instead of the deprecated
+        trace/observation events this sends to `POST /api/public/ingestion`.
+    Until then, keep the SOURCE on a v3-era instance or accept the deadline.
     """
     observations = []
     page = 1

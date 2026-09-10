@@ -60,6 +60,8 @@ export type EvalContext = {
   quotedDiscountCents?: number;
   /** The true current discount total in cents. */
   actualDiscountCents?: number;
+  /** The cart's true subtotal AFTER the turn, in cents. */
+  cartSubtotalCents?: number;
 };
 
 const notApplicable = (name: string, why: string): Verdict => ({
@@ -363,10 +365,172 @@ export function staleDiscountQuoted(ctx: EvalContext): Verdict {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 5. A cart total for a cart that does not hold it.
+// ---------------------------------------------------------------------------
+/**
+ * Discovered by error analysis, not designed in. See docs/ERROR_ANALYSIS.md.
+ *
+ * Three turns of one conversation answered a budget question with a tidy
+ * itemised table and "Subtotal so far $14.97" — having called the cart tool in
+ * the same turn and received `{"cart":[],"subtotal":"$0.00"}`. The shopper was
+ * told they had room under a $35 budget against a cart holding nothing.
+ *
+ * This is the same shape as evaluator 1: the claim is in the transcript, the
+ * outcome is in the environment, and the environment is free to ask. It is
+ * *not* the same check — evaluator 1 polices which SKUs were added, this one
+ * polices the money figure.
+ *
+ * NOTE the score name is snake_case where the four above are kebab-case. The
+ * name has to match the Langfuse score config exactly or the value lands outside
+ * the vocabulary the dashboard aggregates, and the configs were created from the
+ * error-analysis taxonomy, which the guide writes in snake_case. One vocabulary
+ * beats one naming style.
+ */
+const QUOTED_SUBTOTAL_RE =
+  /(?:sub-?total|running total|total so far|cart total)\b[^$\n]{0,40}\$\s?([\d,]+\.\d{2})/gi;
+
+/** A discounted total is a different claim, and evaluator 4 already owns it. */
+const DISCOUNTED_TOTAL_RE = /\b(?:after (?:the )?discounts?|with (?:the )?discounts?|your total)\b/i;
+
+export function quotedCartSubtotalCents(answer: string): number | undefined {
+  const hits = [...answer.matchAll(QUOTED_SUBTOTAL_RE)];
+  if (hits.length === 0) return undefined;
+  // The last figure is the one the shopper acts on when several are quoted.
+  const raw = hits[hits.length - 1]?.[1];
+  if (raw === undefined) return undefined;
+  return Math.round(Number(raw.replace(/,/g, "")) * 100);
+}
+
+export function quotedTotalForEmptyCart(ctx: EvalContext): Verdict {
+  const name = "quoted_total_for_empty_cart";
+  if (ctx.cartSubtotalCents === undefined) {
+    return notApplicable(name, "The cart subtotal for this turn was not supplied.");
+  }
+  const quoted = quotedCartSubtotalCents(ctx.answer);
+  if (quoted === undefined) {
+    return notApplicable(name, "The assistant quoted no cart subtotal this turn.");
+  }
+  // Defer to `stale-discount-quoted` rather than fail the same turn twice for
+  // what is really one arithmetic mistake about discounts.
+  if (ctx.quotedDiscountCents !== undefined || DISCOUNTED_TOTAL_RE.test(ctx.answer)) {
+    return notApplicable(name, "The figure quoted is a discounted total; stale-discount-quoted owns that.");
+  }
+  const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+  if (quoted !== ctx.cartSubtotalCents) {
+    return {
+      name,
+      passed: false,
+      applicable: true,
+      comment:
+        `Quoted a cart subtotal of ${money(quoted)} while the cart actually holds ` +
+        `${money(ctx.cartSubtotalCents)}` +
+        (ctx.cartSkus.length === 0 ? " and is empty." : ` across ${ctx.cartSkus.length} item(s).`),
+    };
+  }
+  return {
+    name,
+    passed: true,
+    applicable: true,
+    comment: `Quoted subtotal ${money(quoted)} matches the cart.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 6. A read-back that was asked for and never given.
+// ---------------------------------------------------------------------------
+/**
+ * Also discovered by error analysis. The shopper says "read the cart back" and
+ * gets a question instead — twice across pass 1, both on the final turn of a
+ * conversation, which is the worst place to lose the thread.
+ *
+ * The subtlety that writing this check forced into the open: an empty cart
+ * reported *as* empty is a correct read-back. "I haven't actually added anything
+ * to the cart yet" answers the question. So the check only fires when the reply
+ * neither lists cart contents nor says the cart is empty — and applying it
+ * corrected one of the two hand labels that produced it. See
+ * docs/ERROR_ANALYSIS.md.
+ */
+// `read\b…\bback` rather than a fixed list of infixes: shoppers say "read it
+// back", "read me back everything", "read back the final cart" and "read the
+// cart back to me", and an enumeration of those missed the last one.
+const READBACK_REQUEST_RE =
+  /\b(?:read\b[^.?!\n]{0,20}\bback\b|what(?:'s| is) (?:actually )?in (?:my|the) cart|how many items|final cart|what am i (?:at|paying))\b/i;
+
+/** Language that reports an empty cart, which is a valid read-back of one. */
+const EMPTY_CART_RE =
+  /\b(?:cart is (?:currently )?empty|nothing in (?:your|the) cart|haven'?t (?:actually )?added anything|no items in (?:your|the) cart|added nothing)\b/i;
+
+export function readbackRequestUnanswered(ctx: EvalContext): Verdict {
+  const name = "readback_request_unanswered";
+  if (!READBACK_REQUEST_RE.test(ctx.message)) {
+    return notApplicable(name, "The shopper did not ask for the cart to be read back.");
+  }
+
+  // An empty cart has exactly one correct read-back: saying it is empty. Nothing
+  // else can stand in, because there are no contents to report.
+  if (ctx.cartSkus.length === 0) {
+    if (EMPTY_CART_RE.test(ctx.answer)) {
+      return {
+        name,
+        passed: true,
+        applicable: true,
+        comment: "Cart is empty and the reply says so, which answers the question.",
+      };
+    }
+    return {
+      name,
+      passed: false,
+      applicable: true,
+      comment:
+        "Asked for the cart to be read back while the cart was empty, and the reply " +
+        "never says so.",
+    };
+  }
+
+  // A non-empty cart is read back either by naming something that is genuinely
+  // in it, or by reporting a figure for it (a count plus a subtotal is a valid
+  // read-back even with no SKU named).
+  //
+  // Bare SKU presence is deliberately NOT accepted. An earlier version passed on
+  // any SKU in the reply, which let "Which one would you like me to add — the
+  // Boneless Chicken Breast (MET-4001) or the Ground Beef 85/15 (MET-4002)?"
+  // count as a read-back: two SKUs, neither in the cart, and the reply is a
+  // question rather than an answer. Products offered are not products held.
+  const inCart = new Set(ctx.cartSkus.map((s) => s.trim().toUpperCase()));
+  const namedFromCart = extractSkus(ctx.answer).filter((s) => inCart.has(s.trim().toUpperCase()));
+  const listsMoney = /\$\s?[\d,]+\.\d{2}/.test(ctx.answer);
+
+  if (namedFromCart.length === 0 && !listsMoney) {
+    return {
+      name,
+      passed: false,
+      applicable: true,
+      comment:
+        `Asked for the cart to be read back and the reply reports none of it — no price, ` +
+        `and none of the ${ctx.cartSkus.length} item(s) actually in the cart are named.`,
+    };
+  }
+  return {
+    name,
+    passed: true,
+    applicable: true,
+    comment:
+      namedFromCart.length > 0
+        ? `Read-back given (names ${namedFromCart.join(", ")} from the cart).`
+        : "Read-back given (reports a figure for the cart).",
+  };
+}
+
 /**
  * The full deterministic board, in the order worth building them.
  *
- * All four are reference-free: they compare the answer against system state, not
+ * The first four were designed with the demo. The last two came out of error
+ * analysis on real traffic (docs/ERROR_ANALYSIS.md) — which is the point: the
+ * designed four caught nothing in two of the five conversations, while these two
+ * cover 5 of the 10 failing turns found by reading traces.
+ *
+ * All six are reference-free: they compare the answer against system state, not
  * against a saved expected output. That is what makes them safe to run on live
  * production traffic, where there is no ground truth — reference-based evaluators
  * structurally cannot.
@@ -376,6 +540,8 @@ export const DETERMINISTIC_EVALUATORS = [
   fabricatedPurchaseHistory,
   droppedDietaryConstraint,
   staleDiscountQuoted,
+  quotedTotalForEmptyCart,
+  readbackRequestUnanswered,
 ] as const;
 
 export function runDeterministicEvaluators(ctx: EvalContext): Verdict[] {

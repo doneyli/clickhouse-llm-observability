@@ -41,10 +41,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent.config import (  # noqa: E402
+    find_experiment,
     get_langfuse,
     langfuse_api,
+    list_experiment_items,
     list_observations,
-    list_scores,
     observation_io,
     verify_project,
     LANGFUSE_HOST,
@@ -324,20 +325,15 @@ def check_vision_judge(lf) -> None:
 
     # and confirm the score is queryable server-side, not just in-process
     time.sleep(10)
-    status, body = langfuse_api(
-        "GET",
-        f"/api/public/datasets/{urllib.parse.quote(DATASET, safe='')}"
-        f"/runs/{urllib.parse.quote(run_name, safe='')}")
-    if status != 200:
-        check(False, "dataset run readable by pinned run_name", f"HTTP {status}")
+    experiment = find_experiment(DATASET, run_name)
+    if experiment is None:
+        check(False, "experiment readable by pinned run_name",
+              "GET /api/public/experiments returned no run of that name")
         return
-    names = set()
-    for ri in body.get("datasetRunItems", []):
-        if ri.get("traceId"):
-            try:
-                names |= {s["name"] for s in list_scores(ri["traceId"])}
-            except RuntimeError:
-                pass  # keep polling the remaining run items
+    # `fields=scores` (the default here) returns each item's scores inline, so
+    # this no longer fetches every run item's trace just to collect them.
+    names = {s["name"] for item in list_experiment_items(experiment["id"])
+             for s in (item.get("scores") or [])}
     check("probe-vision-judge" in names, "vision score landed server-side",
           str(sorted(names)))
 

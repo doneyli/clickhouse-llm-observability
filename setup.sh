@@ -758,10 +758,22 @@ show_status() {
             warn "No Langfuse LLM connection — Playground/evaluators won't work (re-run ./setup.sh)"
         fi
 
-        local total_traces
+        # Trace count. There is no one endpoint that answers this on both server
+        # majors, so try v4 first and fall back: Metrics v2 (a count of root
+        # observations — v4's trace count) 404s on the self-hosted v3 server,
+        # while the deprecated `GET /traces` totalItems is removed from Langfuse
+        # Cloud on 2026-11-16. Drop the fallback once the stack is on v4.
+        local total_traces trace_count_query
+        trace_count_query='{"view":"observations","metrics":[{"measure":"count","aggregation":"count"}],"filters":[{"column":"isRootObservation","operator":"=","value":true,"type":"boolean"}],"fromTimestamp":"2020-01-01T00:00:00Z","toTimestamp":"2100-01-01T00:00:00Z"}'
         total_traces=$(curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-            "${base}/api/public/traces?limit=1" 2>/dev/null \
-            | grep -o '"totalItems":[0-9]*' | cut -d: -f2 || true)
+            -G --data-urlencode "query=${trace_count_query}" \
+            "${base}/api/public/v2/metrics" 2>/dev/null \
+            | grep -o '"count_count":"\?[0-9]*' | grep -o '[0-9]*$' || true)
+        if [ -z "$total_traces" ]; then
+            total_traces=$(curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+                "${base}/api/public/traces?limit=1" 2>/dev/null \
+                | grep -o '"totalItems":[0-9]*' | cut -d: -f2 || true)
+        fi
         if [ -n "$total_traces" ] && [ "$total_traces" -gt 0 ] 2>/dev/null; then
             success "Langfuse has ${total_traces} traces"
         else

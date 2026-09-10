@@ -16,7 +16,14 @@ conversation with a team putting an AI assistant into production:
    generalises well beyond groceries.
 
 There is also **[CUSTOMER_QUESTIONS.md](docs/CUSTOMER_QUESTIONS.md)** — the
-questions engineering teams actually ask, with worked answers and the code.
+questions engineering teams actually ask, with worked answers and the code — and
+**[ERROR_ANALYSIS.md](docs/ERROR_ANALYSIS.md)**, which covers the step that comes
+*before* picking an evaluator: reading traces, clustering what you find into named
+failure categories, and counting them. It also documents how error-analysis
+traffic is labelled here so a cohort can be filtered back out. To present that
+finding rather than rebuild it, use
+**[ERROR_ANALYSIS_RUNBOOK.md](ERROR_ANALYSIS_RUNBOOK.md)** — 20 minutes, five
+stops, live Langfuse links.
 
 > **Not grocery-specific.** The domain is a shopping cart, but every lesson here is
 > about conversational agents with tools and multi-turn state. A support assistant,

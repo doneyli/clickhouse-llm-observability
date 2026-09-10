@@ -38,7 +38,16 @@ const RED = "[31m";
 const OFF = "[0m";
 
 /** The evaluator names, taken from the evaluator functions rather than retyped. */
-const EVALUATOR_NAMES = ["unverified-cart-claim", "fabricated-purchase-history", "dropped-dietary-constraint", "stale-discount-quoted"] as const;
+const EVALUATOR_NAMES = [
+  "unverified-cart-claim",
+  "fabricated-purchase-history",
+  "dropped-dietary-constraint",
+  "stale-discount-quoted",
+  // Added by error analysis; snake_case to match the Langfuse score configs
+  // created from the failure taxonomy. See docs/ERROR_ANALYSIS.md.
+  "quoted_total_for_empty_cart",
+  "readback_request_unanswered",
+] as const;
 
 // ------------------------------------------------------------- task shapes ---
 type TurnSummary = {
