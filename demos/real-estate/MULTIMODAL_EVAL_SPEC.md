@@ -237,6 +237,111 @@ item and the LangGraph traces are worth looking at before building.
 
 ---
 
+## 1b. Phases 1-3 BUILT and verified — 2026-08-27
+
+`scripts/verify_photo_audit.py` **21/21 PASS** against the live `real-estate`
+Cloud project (langfuse 4.15.1, claude-sonnet-4-6). Four gates: fixtures,
+dataset, trajectory, evaluation.
+
+| Layer | Delivered | Status |
+|---|---|---|
+| Contract | `agent/photo_contract.py` | single source of truth for vocabulary, schema, 10 score names |
+| Fixtures | `data/photo_scenes.py` | 21 scenes, stdlib-only PNG renderer, self-checking |
+| Seeder | `scripts/seed_photo_dataset.py` | idempotent, `--dry-run`, `--limit` |
+| Trajectory | `agent/photo_audit_graph.py` | 5-node LangGraph + conditional self-correct branch |
+| Layer C (code) | `agent/photo_scoring.py` | 7 deterministic evaluators |
+| Layer A (vision) | `evaluators/vision_judges.py` | 2 SDK judges that fetch pixels |
+| Tests | `scripts/test_photo_scoring.py`, `scripts/verify_photo_audit.py` | 22 offline + 21 live |
+
+Measured trace shape on a full audit — **10 observations, exactly one logical
+root, propagated attributes on all 10**:
+
+```
+audit-listing-photo          SPAN        isRootObservation=True   <- judges target this
+  photo-audit-graph          CHAIN
+    vision_extract           CHAIN
+      vision:extract-attributes  GENERATION   <- carries the PHOTO
+    route_after_extract      CHAIN
+    retrieve_listing         CHAIN
+      tool:get_listing       TOOL
+    audit_claims             CHAIN
+      llm:adjudicate-claims  GENERATION       <- carries the attribute TEXT
+    compose_answer           CHAIN
+```
+
+All 9 item-level scores and all 9 `avg-*` run-level means land and are queryable
+server-side.
+
+### The calibration bug the first run found
+
+The first live run **declined a perfectly readable scene** — `extraction_confidence`
+0.45 against a 0.55 floor — so the audit never ran. Cause: the extractor prompt
+said "property **photograph**" and tied confidence to photographic quality
+(dark / blurred / *low-resolution*). Our fixtures are schematic renders, so the
+model correctly observed "this is not a photograph" and marked itself unsure even
+though every attribute was plainly legible.
+
+**This is a direct cost of the rendered-fixture decision**, and worth stating
+plainly: a licensing-safe choice moved a failure into the prompt. Fixed by
+redefining confidence as *legibility of the listed attributes*, explicitly not
+realism, and telling the extractor a clean diagram is high-confidence evidence.
+Re-measured across scene classes:
+
+| scene class | confidence | branch |
+|---|---|---|
+| supported | 0.92 | audited |
+| contradicted_visible | 0.85 | audited |
+| contradicted_subtle | 0.90 | audited |
+| unverifiable | 0.92 | audited |
+| low_quality (dark+blurred) | 0.20 | **declined** |
+| low_quality (underexposed) | 0.10 | **declined** |
+
+Floor 0.55, so the separation is wide rather than knife-edge. **Re-run this probe
+after any fixture or prompt change** — the self-correct branch depends on a
+self-reported number, which is the softest link in the chain.
+
+### Two bugs fixed in pre-existing code
+
+- **`_mean_evaluator` returned `Evaluation(value=None)`** when a score had no
+  values — the shape the Langfuse docs example uses. SDK v4 rejects it
+  (`ScoreBody.value` is `Union[float, str]`), so `create_score` raised, caught and
+  logged a ValidationError traceback, and emitted no score. Now returns `None`,
+  which the SDK filters out cleanly, so the mean is honestly ABSENT. Do not
+  "fix" it to 0.0: a mean over zero values is not zero, and `thresholds.json`
+  gates on these numbers.
+- **`NotApplicable.score_name` vs `Score.name`** — the asymmetry broke
+  `{r.name: r for r in results}` the first time the module was used from outside.
+  Added a `name` property so callers can treat either uniformly.
+
+### Design decisions worth knowing
+
+- **The photo is deliberately NOT in the LangGraph state.** The callback handler
+  logs each node's state as its observation input, so a base64 URI in state would
+  be copied onto every node observation — poisoning the very text the layer-B
+  text-only judge reads. It is bound into node closures instead, which also
+  forces a media re-fetch per run (signed URLs expire).
+- **`compose_answer` makes no LLM call.** The verdict is `overall_verdict()` and
+  `corrected_copy` is assembled deterministically, so a rewrite cannot re-assert
+  a claim the audit just contradicted.
+- **`AUDIT_CLAIMS_SEES_PIXELS = True`** is a real fork left as one documented
+  constant. True = strongest agent, so any judge delta is a judge property.
+  False = the agent is blind downstream of extraction and the proxy judge
+  rubber-stamps. Flipping it changes which story a run tells — measure before
+  quoting numbers.
+- **`listing-cited` is traceability, not grounding.** `cited_listing_id` can only
+  echo the audited id. The honest grounding signal is `listing_found`, on the tool
+  observation but not in the §4 schema.
+- **`closed-vocabulary` has no unique catch** — `validate_attributes()` already
+  covers unknown keys, bad enums and unknown appliances, so it and
+  `attributes-schema-valid` will move together in the Runs tab. Don't present
+  them as independent evidence.
+- **No `avg-proxy-photo-consistency` will ever appear in the Runs tab.** Layers B
+  and D score server-side after ingestion, so `_mean_evaluator` structurally
+  cannot see them. Compare in the UI or via the scores API, and never read the
+  absence as zero.
+
+---
+
 ## 2. The task: Listing Photo Audit
 
 > Given a property photo and the listing's marketing copy, decide whether each claim
@@ -262,13 +367,14 @@ New graph, `agent/photo_audit_graph.py`. We **do not** rewrite `run_turn()` — 
 existing concierge loop stays exactly as it is. This keeps a working demo working
 and gives us a clean trajectory to trace.
 
+**IMPLEMENTED** — `agent/photo_audit_graph.py`, entry point `run_photo_audit()`.
+Five nodes, as below. (An earlier draft of this diagram also showed an
+`ingest_photo` node while the prose said five; the photo is attached by the
+wrapper span instead, so there is no such node.)
+
 ```
                     ┌─────────────────┐
-      START ───────▶│  ingest_photo   │  media → LangfuseMedia, attach to span
-                    └────────┬────────┘
-                             ▼
-                    ┌─────────────────┐
-                    │ vision_extract  │  photo → closed-vocabulary attributes
+      START ───────▶│ vision_extract  │  photo → closed-vocabulary attributes
                     └────────┬────────┘  (writes structured TEXT to observation)
                              │
                   confidence │ low
@@ -310,21 +416,64 @@ not just for humans reading the trace.
 `multimodal/property-photo-audit` — the `/` puts it in a Langfuse dataset folder,
 which also demos folders for free.
 
+**IMPLEMENTED** — `data/photo_scenes.py` (scenes + renderer) and
+`scripts/seed_photo_dataset.py` (seeder). `agent/photo_contract.py` §7 is the
+authoritative item shape; the example below is kept in sync with it.
+
+Nothing is hand-labelled. `expected_output` is **computed** by
+`photo_contract.build_expected_output()` from the same attributes the renderer
+drew, so ground truth cannot drift from the fixture. If you ever want to correct
+an expected verdict, the scene is wrong, not the label.
+
 ```python
+scene = {                                    # verbatim from data/photo_scenes.py
+    "scene_id": "con-vis-kitchen-dated-dark",
+    "listing_id": "BCN-202",                 # a REAL id from agent/catalog.py
+    "scene_class": "contradicted_visible",
+    "attributes": {                          # COUNTABLE keys only — the render
+        "room_type": "kitchen",              # draws exactly these
+        "cabinetry": "dark_dated",
+        "countertop": "laminate",
+        "flooring": "tile",
+        "clutter": "moderate",
+        "window_count": 1,
+        "appliances": ["oven", "fridge"],
+    },
+    "claims": ["recently renovated", "floods with natural light",
+               "stone countertops"],
+}
+
 langfuse.create_dataset_item(
     dataset_name="multimodal/property-photo-audit",
+    id=scene["scene_id"],                    # stable id -> re-runs UPSERT
     input={
-        "listing_id": "BCN-014",
-        "marketing_copy": "Recently renovated kitchen, floods with natural light.",
-        "photo": LangfuseMedia(file_path="data/photos/bcn-014-kitchen.jpg",
-                              content_type="image/jpeg"),
+        "listing_id": scene["listing_id"],
+        "marketing_copy": marketing_copy(scene["claims"]),
+        "claims": scene["claims"],           # the LIST too: the graph adjudicates
+                                             # claim-by-claim, and re-parsing them
+                                             # out of the prose would make
+                                             # claim-coverage a test of the parser
+        "photo": LangfuseMedia(content_bytes=render(scene),
+                               content_type="image/png"),
     },
-    expected_output={
-        "verdict": "contradicted",
-        "unsupported_claims": ["recently renovated", "floods with natural light"],
-        "corrected_copy": "Galley kitchen with original cabinetry and one window.",
-    },
-    metadata={"fault": "overstated_renovation", "photo_provenance": "CC0"},
+    # -> {"verdict": "contradicted",
+    #     "claim_verdicts": {"recently renovated": "contradicted",
+    #                        "floods with natural light": "contradicted",
+    #                        "stone countertops": "contradicted"},
+    #     "claim_verdicts_apply": True,
+    #     "true_attributes": {...attributes, plus DERIVED
+    #                         "condition": "dated",          # not light_modern+stone
+    #                         "natural_light": "moderate"}}   # 1 window, not >=2
+    expected_output=build_expected_output(
+        scene["claims"], scene["attributes"],
+        # low_quality scenes only: expected verdict becomes needs_better_photo
+        # and claim_verdicts_apply goes False. Without this, an agent that
+        # CORRECTLY abstains on an unreadable photo is graded against claim
+        # verdicts it had no fair way to see, and marked wrong.
+        unreadable=scene["scene_class"] == "low_quality"),
+    metadata={"scene_class": scene["scene_class"],
+              "scene_id": scene["scene_id"],
+              "photo_provenance": PROVENANCE_RENDERED},
 )
 ```
 
@@ -477,9 +626,9 @@ no fallback to metadata-proxy-only. Remaining risk is execution, not feasibility
 | Phase | Deliverable |
 |---|---|
 | 0 | ✅ **Complete** — spike passed (§1a), SDK bumped to v4 and demo verified green, `scripts/verify_multimodal.py` committed |
-| 1 | Photo fixtures + provenance; `scripts/seed_photo_dataset.py` |
-| 2 | `agent/photo_audit_graph.py` + live traffic script → traces with rendered images |
-| 3 | Code evaluators (layer C) + vision judges (layer A); first experiment run |
+| 1 | ✅ **Done** — `data/photo_scenes.py` (21 self-checking scenes, stdlib renderer) + `scripts/seed_photo_dataset.py` |
+| 2 | ✅ **Done** — `agent/photo_audit_graph.py`; verified trace shape (§1b) |
+| 3 | ✅ **Done** — layer C (7 code evaluators) + layer A (2 vision judges); experiment run lands all 9 scores + 9 means |
 | 4 | Managed proxy judge + anti-pattern exhibit (layers B, D) |
 | 5 | Measurement pass — both arms **twice**; write real numbers into `thresholds.json` |
 | 6 | Annotation queue + `promote_corrections.py` |

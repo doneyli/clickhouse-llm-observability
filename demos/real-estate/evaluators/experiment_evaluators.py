@@ -84,7 +84,21 @@ def _mean_evaluator(score_name: str, comment_fmt=_percent_comment):
                     elif isinstance(v, (int, float)):
                         vals.append(float(v))
         if not vals:
-            return Evaluation(name=f"avg-{score_name}", value=None, comment="no values")
+            # Emit NOTHING rather than a None-valued Evaluation.
+            #
+            # `Evaluation(value=None)` — the shape the Langfuse docs example uses —
+            # is rejected by SDK v4: `ScoreBody.value` is `Union[float, str]`, so
+            # pydantic raises, `create_score` catches and logs it, and you get an
+            # alarming ValidationError traceback in stdout AND no score. Returning
+            # None instead is filtered out during evaluator normalisation
+            # (langfuse/experiment.py keeps only dict/Evaluation candidates), so
+            # the mean is cleanly ABSENT.
+            #
+            # Absent is also the honest reading: a mean over zero values is not
+            # 0.0. Do not "fix" this by defaulting to 0.0 — a score nobody
+            # measured would then be indistinguishable from a total failure, and
+            # cicd/thresholds.json gates on these numbers.
+            return None
         avg = sum(vals) / len(vals)
         return Evaluation(name=f"avg-{score_name}", value=round(avg, 3),
                           comment=comment_fmt(score_name, avg, len(vals)))
