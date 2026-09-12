@@ -49,6 +49,8 @@ Everything targets a dedicated Langfuse project named **`real-estate`** on
 | **Session-level score** | `create_score(session_id=…)` — the one score type no managed evaluator can produce |
 | **Deploy** (close the loop) | promote a prompt label to ship it — **gated by CI**: a prompt change runs the eval suite and blocks the deploy on a regression ([`cicd/`](cicd/README.md)) |
 | Evals that catch problems | fault-injected traffic scores low on the right metric |
+| **PII redaction** | emails, phones, IBANs, national ids and card numbers are scrubbed **client-side** before export — the agent sees the real text, Langfuse never does |
+| **Dashboards as code** | 3 dashboards / 26 widgets created over the dashboards API, in version control — plus a minimal narrated example to copy |
 
 ---
 
@@ -160,6 +162,9 @@ Or run each piece individually:
 ./.venv/bin/python scripts/run_experiment.py --prompt-label candidate    # candidate prompt (compare prompts)
 ./.venv/bin/python scripts/run_experiment.py --prompt-label first-draft  # naive prompt (a VISIBLE win vs production)
 ./.venv/bin/python scripts/smoke_test.py              # sanity: keys + obs-level scores
+./.venv/bin/python scripts/verify_masking.py          # prove PII never reaches Langfuse
+./.venv/bin/python scripts/dashboard_api_example.py   # dashboards-as-code, narrated (--delete to clean up)
+./.venv/bin/python scripts/seed_dashboards.py         # the 3 real dashboards / 26 widgets
 ```
 
 Judge means carry ±0.03–0.04 run-to-run noise, so before citing any prompt
@@ -259,6 +264,122 @@ up to 6 agent turns + a simulated-user call per turn + 3 trajectory judges, roug
 an order of magnitude more than a single-turn item. The runner prints an upper bound
 and refuses to start without `--yes`.
 
+### Dashboards as code
+
+Langfuse dashboards and widgets are fully manageable over the API, so a
+monitoring setup can live in version control, be reviewed in a pull request, and
+be applied identically across projects and environments. Two scripts, on purpose:
+
+| Script | What it is |
+|---|---|
+| [`scripts/dashboard_api_example.py`](scripts/dashboard_api_example.py) | **The teaching example.** One dashboard, two widgets, stdlib only, no imports from this demo — it lifts straight into another repo. Prints every request and response as it goes, so the contract is visible rather than described. `--delete` cleans up. |
+| [`scripts/seed_dashboards.py`](scripts/seed_dashboards.py) | **The real thing.** The 3 dashboards / 26 widgets this demo ships, idempotent (upserts by name, so URLs stay stable), with every widget query validated against the Metrics API before the widget is created. |
+
+```bash
+./.venv/bin/python scripts/dashboard_api_example.py           # build + narrate
+./.venv/bin/python scripts/dashboard_api_example.py --delete  # clean up
+
+./.venv/bin/python scripts/seed_dashboards.py --dry-run       # validate 26 queries, write nothing
+./.venv/bin/python scripts/seed_dashboards.py                 # create/update all three
+```
+
+Three endpoints under `/api/public/unstable`, and the order matters:
+
+```
+1. POST /dashboard-widgets           -> a chart definition (standalone, reusable)
+2. POST /dashboards                  -> an empty container
+3. POST /dashboards/{id}/placements   -> put widget #1 on dashboard #2
+```
+
+Widgets being standalone is the point: one person defines "p95 latency, filtered
+to production" and every dashboard references that definition, instead of six
+teams each re-deriving it slightly differently. The same endpoints back the
+[Langfuse CLI](https://langfuse.com/docs/api-and-data-platform/features/cli) and
+[MCP server](https://langfuse.com/docs/api-and-data-platform/features/mcp-server),
+so "dashboards as code" and "ask the assistant to build me a dashboard" are the
+same API underneath.
+
+**Discover the schema rather than guessing it.** Send a field name that cannot
+exist and the 400 comes back carrying every valid one for that view — faster than
+the reference docs, and true for the version you are actually talking to. This is
+step 0 of the example script:
+
+```bash
+curl -sG -u "$PK:$SK" --data-urlencode 'query={"view":"observations",
+  "metrics":[{"measure":"count","aggregation":"count"}],
+  "dimensions":[{"field":"__does_not_exist__"}],"filters":[],
+  "fromTimestamp":"2026-08-01T00:00:00Z","toTimestamp":"2026-09-01T00:00:00Z"}' \
+  "$LANGFUSE_HOST/api/public/v2/metrics"
+# -> Invalid dimension __does_not_exist__. Must be one of id,evaluatorId,…
+```
+
+Five things that cost real debugging time and are worth knowing before you write
+a seeder — all verified against Cloud, September 2026:
+
+| Gotcha | What happens |
+|---|---|
+| Updates are **PATCH**, not PUT | PUT returns `405 Method not allowed` |
+| Placement sizes are **`width`/`height`** | `x_size`/`y_size` — the names in the *stored* dashboard definition — are rejected as unrecognized keys. The body also needs `"type": "widget"`, or you get a bare `No matching discriminator` |
+| **A widget sees fewer dimensions than the Metrics API does** | `experimentName` and `datasetRunId` are queryable but not chartable, so experiment comparison stays in the Experiments UI. `promptName` works as a *dimension* but not as a *filter column*. Validate against the Metrics API first — then be ready for the widget endpoint to refuse anyway, which is why `seed_dashboards.py` skips a rejected widget instead of abandoning the dashboard |
+| The Metrics API says `aggregation`, the widget says **`agg`** | Same concept, two spellings, one silent 400 |
+| `limit` on the list endpoints **caps at 100** | Asking for 200 is a 400, not a clamp |
+
+High-cardinality dimensions (`userId`, `sessionId`, `experimentName`) additionally
+need both a `config.row_limit` and a descending `orderBy` on a measure — the
+chargeback widget's `chartConfig` carries exactly that.
+
+These endpoints are **unstable** and may change while the contract is finalised.
+That is an argument *for* keeping the definitions in a script: when the shape
+moves, you edit one file and re-run, rather than re-clicking 26 widgets.
+
+### Keeping PII out of the platform
+
+A concierge collects contact details as a matter of course — "email me the
+brochure", "my mobile is…", "the deposit comes from this account" — and every one
+of those lands in an LLM payload. [`agent/masking.py`](agent/masking.py) redacts
+them **inside this process**, via the SDK's export-stage `mask_otel_spans` hook,
+so the sensitive text never reaches Langfuse at all. The agent still sees the
+real query; only the exported span changes.
+
+| Redacted | Left alone |
+|---|---|
+| emails, phone numbers (intl + ES mobile + 3-3-4), IBANs, Spanish NIE/DNI, card numbers | `user_id` — a pseudonymous handle, and the dimension the Users view, sessions and cost chargeback all build on |
+
+On by default. The comparison is the demo:
+
+```bash
+./.venv/bin/python scripts/run_live_traffic.py                       # redacted
+LANGFUSE_MASK_PII=false ./.venv/bin/python scripts/run_live_traffic.py   # raw, for contrast
+./.venv/bin/python scripts/verify_masking.py                         # prove it
+```
+
+Four of the live-traffic queries carry PII and are tagged `pii-demo`, so you can
+filter straight to them. `verify_masking.py` checks both halves — that the
+patterns fire, that prices and listing ids are **not** mangled, and that a real
+round trip comes back redacted *with the rest of the payload intact*. That last
+assertion is the one that counts: "no PII in the trace" also passes when the
+payload was never exported.
+
+Two limits worth stating to a customer rather than letting them assume:
+
+- **Names and street addresses are not caught.** They have no reliable surface
+  form; a regex cannot find them. That needs a NER model or an LLM classifier in
+  the mask function. A redactor that quietly misses names is worse than none,
+  because it buys confidence it hasn't earned.
+- **A second exporter gets its own unmasked copy.** The hook only patches spans
+  the Langfuse client exports, so masking and trace mirroring are mutually
+  exclusive here — `agent/config.py` refuses to start with both on. The
+  server-side complement is ingestion masking (self-hosted Enterprise), which
+  enforces one policy across every client instead of per application.
+- **Server-side judges see the redacted payload.** That is the point, and it is
+  also a real trade-off: the managed Helpfulness/Relevance evaluators grade
+  `[REDACTED_EMAIL]`, not the address. It is why the tokens are descriptive
+  placeholders rather than deletions — a judge reads "an email was here" and
+  scores the answer sensibly, where a missing attribute would just look like a
+  broken trace. The code evaluators and SDK judges in
+  [`agent/scoring.py`](agent/scoring.py) run in-process on the real text, so if
+  an eval genuinely needs the sensitive value, that is the layer it belongs in.
+
 Key design choices:
 
 - **One provider-agnostic agent, many surfaces.** The portal, the live-traffic
@@ -315,6 +436,7 @@ agent/
   llm.py          provider-agnostic LLM layer (Anthropic + OpenAI)
   prompts.py      Langfuse prompt fetch by label + hard fallback (Deploy node)
   concierge.py    the instrumented tool-use agent (run_turn, any model/prompt)
+  masking.py      PII redaction — scrubs span payloads before export
   scoring.py      code evaluators + LLM-as-a-Judge (pure functions -> Score)
 evaluators/
   experiment_evaluators.py   Score -> Langfuse Evaluation adapters + run aggregates
@@ -329,6 +451,9 @@ scripts/
   run_experiment.py          dataset run for a chosen --model / --prompt-label
   prompt_gate.py             CI quality gate: eval a prompt label, exit 1 below the bar
   smoke_test.py              sanity check
+  verify_masking.py          PII redaction: policy unit checks + live round trip
+  dashboard_api_example.py   dashboards-as-code, minimal + narrated (the example to copy)
+  seed_dashboards.py         3 custom dashboards / 26 widgets, as code (the real one)
 cicd/             the CI quality gate: thresholds.json (the bar) + setup guide
 webapp/           server.py (FastAPI) + static/index.html (portal UI)
                   PORTAL_PROMPT_LABEL=<label> serves a non-production prompt
