@@ -839,8 +839,8 @@ show_status() {
     echo "  # Full reset (destroys all data)"
     echo "  ./scripts/reset.sh"
     echo ""
-    echo "  # Langfuse CLI (requires Node.js 18+)"
-    echo "  ./scripts/langfuse-cli.sh traces list --limit 5"
+    echo "  # Langfuse CLI (npm i -g @langfuse/cli)"
+    echo "  ./scripts/langfuse-cli.sh api observations list --limit 5"
     echo ""
 }
 

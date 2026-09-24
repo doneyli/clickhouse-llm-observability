@@ -261,17 +261,17 @@ The explanation flows logically from introduction to data to conclusion."
 
 **What you'll do:** Use the Langfuse CLI to browse traces from your terminal.
 
-**Prerequisites:** Node.js 18+ (for `npx`)
+**Prerequisites:** the Langfuse CLI — `npm i -g @langfuse/cli`
 
 ```bash
-# List recent traces
-./scripts/langfuse-cli.sh traces list --limit 5
+# List recent spans
+./scripts/langfuse-cli.sh api observations list --limit 5
 
-# Get details for a specific trace (use an ID from the list above)
-./scripts/langfuse-cli.sh traces get <trace-id>
+# Everything in one trace (use a traceId from the list above)
+./scripts/langfuse-cli.sh api observations list --trace-id <trace-id>
 
 # Check evaluation scores
-./scripts/langfuse-cli.sh scores list
+./scripts/langfuse-cli.sh api scores list
 ```
 
 See [Langfuse CLI docs](./LANGFUSE_CLI.md) for more commands.
@@ -339,7 +339,7 @@ docker compose exec clickhouse clickhouse-client \
 | **Text-to-SQL API** | http://localhost:8002/query |
 | **Vector RAG API** | http://localhost:8003/query |
 | **View logs** | `docker compose logs -f [service]` |
-| **Langfuse CLI** | `./scripts/langfuse-cli.sh traces list --limit 5` |
+| **Langfuse CLI** | `./scripts/langfuse-cli.sh api observations list --limit 5` |
 | **Seed demo data** | `./scripts/seed-demo-data.sh` |
 
 ---

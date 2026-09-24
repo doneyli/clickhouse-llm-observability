@@ -339,19 +339,22 @@ docker compose logs -f [service-name]
 ### Langfuse CLI
 
 ```bash
-# List recent traces (requires Node.js 18+)
-./scripts/langfuse-cli.sh traces list --limit 5
+# List recent spans (requires the CLI: npm i -g @langfuse/cli)
+./scripts/langfuse-cli.sh api observations list --limit 5
 
-# Get a specific trace
-./scripts/langfuse-cli.sh traces get <trace-id>
+# Everything in one trace
+./scripts/langfuse-cli.sh api observations list --trace-id <trace-id>
 
 # List prompts, datasets, scores
-./scripts/langfuse-cli.sh prompts list
-./scripts/langfuse-cli.sh datasets list
-./scripts/langfuse-cli.sh scores list
+./scripts/langfuse-cli.sh api prompts list
+./scripts/langfuse-cli.sh api datasets list
+./scripts/langfuse-cli.sh api scores list
 ```
 
-See [Langfuse CLI docs](docs/LANGFUSE_CLI.md) for more.
+Two things changed with Langfuse CLI 1.0: REST calls live under an `api`
+sub-command, and span data is read through `observations` rather than `traces`
+(`GET /api/public/traces` is removed in v4). See
+[Langfuse CLI docs](docs/LANGFUSE_CLI.md) for more.
 
 ### Running Demos
 

@@ -45,7 +45,7 @@ python scripts/seed-app-prompts.py      # Prompt management (Deploy node): seed 
 # Prompt CI quality gate (Deploy node, real-estate demo) — .github/workflows/langfuse-prompt-ci.yml
 cd demos/real-estate && ./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft   # exits 1: gate blocks a bad prompt
 ./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
-./scripts/langfuse-cli.sh traces list   # Langfuse CLI (requires Node.js 18+)
+./scripts/langfuse-cli.sh api observations list  # Langfuse CLI (npm i -g @langfuse/cli); `api` is required, and span data is read via `observations` — `traces list` is removed in v4
 ```
 
 ## Dataset & Import Scripts
