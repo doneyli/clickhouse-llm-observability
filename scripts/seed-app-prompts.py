@@ -100,14 +100,19 @@ VECTOR_RAG_GENERATION = (
 # The literal JSON braces below are NOT variables; get_langchain_prompt() escapes
 # them for LangChain, and {{question}}/etc. convert to {question}/etc.
 TEXT_TO_SQL_GATE_GROUNDING = (
-    "You are a strict verifier for a data-assistant pipeline. The assistant does NOT\n"
-    "execute SQL — it drafts analysis and example queries only.\n\n"
+    "You are a strict verifier for a data-assistant pipeline. Every figure in the\n"
+    "response must be present in the CONTEXT below. The context is either catalog\n"
+    "metadata only (no result rows exist, so the response must not report any) or\n"
+    "the real rows a bounded read-only query returned (which the response MAY\n"
+    "report). Judge against the context you are given, not an assumption about\n"
+    "whether SQL was executed.\n\n"
     "Question: {{question}}\n"
     "Analysis: {{analysis}}\n"
     "Context: {{context}}\n"
     "Response: {{response}}\n\n"
     "FAIL the response if ANY of these hold:\n"
-    "- It presents specific numbers or rankings as if they were executed query results.\n"
+    "- It states specific numbers or rankings that do NOT appear in the context\n"
+    "  (i.e. it presents guesses as if they were query results).\n"
     "- It references databases or tables not present in the analysis or context.\n"
     "- It does not address the question.\n"
     "Otherwise PASS.\n\n"

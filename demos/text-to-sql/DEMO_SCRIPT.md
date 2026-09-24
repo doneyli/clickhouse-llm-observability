@@ -37,13 +37,19 @@ bounded execution — so the gates grade against *executed rows*, not table name
 > `scripts/seed-code-evaluators.sh`. For the loop framing shared by all the
 > demos, see [`../../AI_ENGINEERING_LOOP.md`](../../AI_ENGINEERING_LOOP.md).
 
-> **Honesty note (know this before you present):** the pipeline *reasons over*
-> the dataset catalog and often drafts SQL in its answers, but it does **not
-> execute** queries against ClickHouse — the MCP step retrieves the database
-> catalog as context. Port 8002 now serves `/query` (a thin `server.py` FastAPI
+> **Honesty note (know this before you present):** in the **default** path the
+> pipeline *reasons over* the dataset catalog and often drafts SQL in its
+> answers, but it does **not execute** queries against ClickHouse — the MCP step
+> retrieves the database catalog as context. **Act 3 (`--refine`) is the
+> exception:** there the critic really does run `EXPLAIN` and a bounded,
+> read-only, `LIMIT`-ed query against the public playground, so the figures in
+> that answer *are* executed results. Know which mode you are in before you
+> answer the "does it run the SQL?" question.
+> Port 8002 now serves `/query` (a thin `server.py` FastAPI
 > wrapper), so the query-router front-door demo can dispatch to it; the CLI
-> (`python main.py`) is unchanged. Demo it as what it is: a traced NL-analysis
-> assistant with a SQL-policy guardrail. If asked "does it run the SQL?" — "not
+> (`python main.py`) is unchanged. Demo the default path as what it is: a traced
+> NL-analysis assistant with a SQL-policy guardrail. If asked "does it run the
+> SQL?" in the default path — "not
 > in this demo; the guardrail is exactly the layer you'd want *before* you let it."
 > catalog as context. There is also **no HTTP endpoint**; port 8002 is mapped but
 > nothing listens. Demo it as what it is: a traced NL-analysis assistant with a
@@ -625,10 +631,15 @@ The same policy also runs in-pipeline as Gate 2's fail-closed branch (point 7).
 
 ## Talking points & objections
 
-- **"Does it actually execute the SQL?"** Not in this demo — it reasons over the
-  live catalog (via MCP) and drafts SQL in its answers. That's deliberate for a
-  public-playground demo; the guardrail is the layer you'd require *before*
-  execution, and it's already scoring every response.
+- **"Does it actually execute the SQL?"** In the default path, no — it reasons
+  over the live catalog (via MCP) and drafts SQL in its answers. That's
+  deliberate for a public-playground demo; the guardrail is the layer you'd
+  require *before* execution, and it's already scoring every response. In **Act 3
+  (`--refine`)**, yes: the critic runs `EXPLAIN` plus one bounded, read-only,
+  `LIMIT`-ed query, because a critic that cannot execute can be argued out of a
+  broken query. That is the honest version of "grounded" — and it is also why
+  Gate 2's rubric checks figures against the *context it was given* rather than
+  assuming nothing was ever executed.
 - **"Regex for SQL safety — really?"** For the mechanical policy, yes — it's
   deterministic, auditable, free, and runs on everything. It's a *layer*, not
   the whole answer: semantic quality is the judges' job (Act 6), and real
