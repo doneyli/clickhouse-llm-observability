@@ -104,14 +104,24 @@ just as well — no local Langfuse stack needed:
 Everything seeds through the public API — prompts, dataset, live traffic,
 experiments, annotation queue, and all code/SDK-judge scores — identically to
 self-hosted. **Managed LLM-as-a-Judge evaluators** are provisioned too:
-`seed_managed_evaluators.sh` detects the remote host, upserts the Anthropic
-LLM connection, and creates the two judges (Helpfulness/Relevance) as
-observation-level evaluation rules via the
-[unstable evaluators API](https://langfuse.com/docs/evaluation/evaluation-methods/llm-as-a-judge#api),
-referencing the Langfuse-managed evaluator families. They score **new**
-traffic automatically (allow a few minutes); to score traces ingested before
-the rules existed, use the UI backfill: Traces table → select → Actions →
-Evaluate. If the API is unavailable, the script prints the manual UI recipe.
+`seed_managed_evaluators.sh` detects the remote host and hands off to
+`seed_managed_evaluators_cloud.py`, which upserts the Anthropic LLM connection
+and creates three observation-level judges — Helpfulness, Relevance, and the
+conversation-level `stated-constraint-respected` — over the
+[stable evaluators API](https://langfuse.com/docs/evaluation/evaluation-methods/llm-as-a-judge#api)
+(`/api/public/v2/evaluators` + `/api/public/v2/evaluation-rules`).
+
+Because v2 has no endpoint for Langfuse's own evaluator templates, the
+Helpfulness and Relevance prompts are carried in that module verbatim — they
+are what the UI's template gallery produces, so the judges behave the same as
+picking those templates by hand.
+
+Judges score **new** traffic automatically (allow a few minutes); to score
+traces ingested before the rules existed, use the UI backfill: Traces table →
+select → Actions → Evaluate. If the API is unavailable the script prints a
+manual UI recipe and still exits 0. Re-running is safe, and it **repairs** a
+rule whose filter has drifted rather than skipping it (`--no-reconcile` opts
+out, `--dry-run` shows what would change).
 
 **Switching targets:** keep one env file per backend (e.g. `.env.cloud`
 alongside your self-hosted `.env`, both gitignored) and copy the one you want

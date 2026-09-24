@@ -10,25 +10,34 @@
 # BOTH modes provision the judges automatically — there is no manual UI step in
 # either. They differ in mechanism, and in two consequences worth knowing:
 #
-#   self-hosted (localhost)
+#   self-hosted (localhost)          [implemented below]
 #     The stable REST API does not expose `job_configurations`, so — like this
 #     repo's other evaluator seeders — we INSERT into the Langfuse Postgres
 #     directly (also needs a `default_llm_models` row). Trace-level, filtered by
 #     tag `real-estate`. Scores NEW *and* EXISTING matching traces.
 #
-#   remote / Langfuse Cloud
-#     No DB access, so we upsert the Anthropic LLM connection and then create the
-#     two judges via the UNSTABLE evaluation-rules API
-#     (POST /api/public/unstable/evaluation-rules), referencing the
-#     Langfuse-managed evaluator families. Observation-level, filtered to the root
-#     span `handle-concierge-chat-message`. Scores NEW traffic only — a trace
-#     ingested before the rules existed gets nothing, so backfill it from the UI:
+#   remote / Langfuse Cloud          [delegated to seed_managed_evaluators_cloud.py]
+#     No DB access, so it all happens over HTTP against the STABLE evaluator API
+#     (`/api/public/v2/evaluators` + `/api/public/v2/evaluation-rules`).
+#     Observation-level. Scores NEW traffic only — a trace ingested before the
+#     rules existed gets nothing, so backfill it from the UI:
 #     Traces -> select -> Actions -> Evaluate.
-#     The printed UI recipe is a FALLBACK, shown only if that API call fails.
 #
-# Both are idempotent: existing rules/configs are detected and left alone.
+#     This used to POST to `/api/public/unstable/evaluation-rules`. Those
+#     endpoints were REMOVED from Langfuse Cloud on 2026-09-04 and now 404, and
+#     because this script degrades to "warn + print a UI recipe + exit 0", a
+#     fresh project came out of run_demo.sh with NO judges while the run still
+#     looked green. The port to v2 is not a rename — the request bodies,
+#     idempotency model and rule->evaluator linkage all changed. The Python
+#     module's docstring is the record of what changed and why.
+#
+# Self-hosted is idempotent by `ON CONFLICT (id) DO UPDATE`. The Cloud path goes
+# further and RECONCILES: a rule whose filter has drifted is PATCHed back rather
+# than skipped, because a silently-unmatched rule is exactly how the
+# conversation-level judge stopped scoring for 20 days unnoticed.
 #
 # Usage:  ./scripts/seed_managed_evaluators.sh
+#         (Cloud flags pass straight through, e.g. --dry-run, --no-reconcile)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && source .env && set +a
@@ -43,241 +52,24 @@ warn(){  printf '  \033[1;33m⚠\033[0m %s\n' "$1"; }
 EXPECTED_PROJECT="${LANGFUSE_PROJECT_NAME:-real-estate}"
 
 # ---- Langfuse Cloud / remote host: no direct DB access ----------------------
-# There is no DB to write, so we do it all over HTTP: upsert the Anthropic LLM
-# connection, then create both judges via the UNSTABLE evaluation-rules API. The
-# UI recipe printed at the end is a FALLBACK for when that API is unavailable —
-# not the normal path. Exit 0 either way so run_demo.sh keeps flowing.
+# There is no DB to write, so the whole remote path lives in Python, where the
+# three judge definitions and their JSON request bodies are readable and the
+# prompt text does not need three levels of shell escaping. Exit code is passed
+# through: non-zero only for the project guard (refusing to write to the wrong
+# project); an API failure still exits 0 after printing a UI fallback, so
+# run_demo.sh keeps flowing.
 case "${LANGFUSE_HOST:-http://localhost:3001}" in
   http://localhost*|https://localhost*|http://127.0.0.1*|https://127.0.0.1*)
     ;;  # self-hosted: fall through to DB seeding
   *)
-    echo "Remote Langfuse host detected (${LANGFUSE_HOST}) — managed evaluators can't be DB-seeded."
-    # Key-isolation guard (mirrors config.verify_project): resolve the keys'
-    # project via the public API and refuse to write anywhere unexpected —
-    # the PUT below uploads a real Anthropic secret. `|| true` guards keep
-    # set -e from killing the script before the fallback guidance prints.
-    projects=$(curl -s -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-      "${LANGFUSE_HOST}/api/public/projects" || true)
-    if ! printf '%s' "$projects" | grep -Eq "\"name\":[[:space:]]*\"${EXPECTED_PROJECT}\""; then
-      echo "Refusing: keys do not resolve to project '${EXPECTED_PROJECT}' on ${LANGFUSE_HOST}."
-      echo "  API response: ${projects:-<no response — host unreachable?>}"
+    echo "Remote Langfuse host detected (${LANGFUSE_HOST}) — seeding over the v2 evaluator API."
+    PY_BIN="./.venv/bin/python"
+    [ -x "$PY_BIN" ] || PY_BIN="$(command -v python3 || true)"
+    if [ -z "$PY_BIN" ]; then
+      echo "No Python found (tried ./.venv/bin/python and python3)." >&2
       exit 1
     fi
-    green "Project verified: ${EXPECTED_PROJECT} @ ${LANGFUSE_HOST}"
-    if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-      json_esc(){ printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
-      code=$(curl -s -o /tmp/lf-llmconn.json -w '%{http_code}' -X PUT \
-        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-        -H 'Content-Type: application/json' \
-        "${LANGFUSE_HOST}/api/public/llm-connections" \
-        -d "{\"provider\":\"anthropic\",\"adapter\":\"anthropic\",\"secretKey\":\"$(json_esc "${ANTHROPIC_API_KEY}")\"}") \
-        || code="000"
-      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-        green "Anthropic LLM connection upserted via API"
-      else
-        warn "Could not upsert LLM connection (HTTP ${code}) — add it in Settings > LLM Connections"
-      fi
-    else
-      warn "ANTHROPIC_API_KEY not set — add the connection in Settings > LLM Connections"
-    fi
-    # Create the two judges as observation-level evaluation rules via the
-    # (unstable) evaluators API, referencing the Langfuse-MANAGED evaluator
-    # families. Each turn is its own trace rooted at `handle-concierge-chat-message`, so the
-    # rules run on that root span (input={"query"} / output=final answer) — the
-    # scores read like the self-hosted trace-level ones. Idempotent: existing
-    # rule names are skipped. Falls back to a UI recipe if the API is unavailable.
-    #
-    # The second filter is `isRootObservation`, NOT `name`: matching the root by
-    # name means a rename of TRACE_NAME silently stops the judges firing without
-    # any error anywhere. That exact drift had already happened once — the live
-    # Cloud rules were still filtering on the long-gone `property-concierge` /
-    # `turn-N` names and had scored nothing for weeks. `traceName` stays as the
-    # scope guard so the rules ignore experiment and probe traffic.
-    #
-    # NOTE: this "already present" check skips a rule whose FILTER has drifted.
-    # It will not repair one — check the rule in the UI if judges go quiet.
-    rules=$(curl -s -m 20 -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-      "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" || true)
-    api_failed=0
-    for judge in Helpfulness Relevance; do
-      if printf '%s' "$rules" | grep -q "\"name\":\"${judge}\""; then
-        green "${judge} rule already present"
-        continue
-      fi
-      body=$(cat <<RULE
-{
-  "name": "${judge}",
-  "evaluator": {"name": "${judge}", "scope": "managed"},
-  "target": "observation",
-  "enabled": true,
-  "sampling": 1,
-  "filter": [
-    {"type": "stringOptions", "column": "traceName", "operator": "any of",
-     "value": ["handle-concierge-chat-message"]},
-    {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": true}
-  ],
-  "mapping": [
-    {"variable": "query", "source": "input", "jsonPath": "\$.query"},
-    {"variable": "generation", "source": "output"}
-  ]
-}
-RULE
-)
-      code=$(curl -s -m 20 -o /tmp/lf-rule.json -w '%{http_code}' -X POST \
-        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-        -H 'Content-Type: application/json' \
-        "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" -d "$body") || code="000"
-      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-        green "${judge} (managed judge, observation-level) created via API"
-      else
-        warn "${judge} rule failed (HTTP ${code}) — set it up in the UI (see below)"
-        api_failed=1
-      fi
-    done
-
-    # ---- conversation-level judge: the one managed templates cannot express ---
-    # Helpfulness and Relevance above each score ONE reply. Neither can answer
-    # "did this CONVERSATION hold together", because an observation-level
-    # evaluator sees ONLY the observation it matched — not siblings, not children.
-    # So this is a CUSTOM evaluator whose single variable is the whole transcript,
-    # wired to the `conversation-snapshot` observation the agent emits on the
-    # final turn (see SNAPSHOT_NAME / CONVERSATION_END_TAG in agent/concierge.py).
-    #
-    # Two deliberate differences from the rules above:
-    #   * Filtered by observation `name`, NOT `isRootObservation` — the snapshot is
-    #     a CHILD of the root span, so the root filter would never match it. That
-    #     makes this rule name-coupled: rename SNAPSHOT_NAME without updating it
-    #     here and the judge goes quiet with no error anywhere. Keep them in sync.
-    #   * The metric is named after the failure it detects, not a generic quality
-    #     word. Langfuse's own eval guidance is explicit that `helpfulness` /
-    #     `relevance` / `task completion` style names are hard to act on.
-    #
-    # No tag filter is added: the snapshot only ever exists on the final turn, so
-    # `name` already scopes this to once per conversation. `conversation_end` is
-    # propagated anyway, for filtering the Traces table by hand during a demo.
-    # A rule references its evaluator by {name, scope} — NOT by id. `scope` is the
-    # discriminator: "managed" for a Langfuse-provided template (as the two rules
-    # above use), "custom" for one created in this project. Passing {"id": ...}
-    # returns HTTP 400 "evaluator.name: expected string, received undefined",
-    # which is easy to misread as a problem with the id.
-    CONV_EVALUATOR="stated-constraint-respected"
-    CONV_PROMPT="You are scoring an ENTIRE multi-turn conversation between a user and a real-estate assistant, not a single reply.\n\nA constraint is anything the user stated about what they want: a budget, a city or neighbourhood, a number of bedrooms, a required feature, buy vs rent, or the language they are writing in.\n\nScore 1.0 only if EVERY constraint the user stated at ANY point still held for the rest of the conversation. Penalise heavily, toward 0.0:\n- a constraint stated once early and then ignored in a later turn (e.g. the user lowered their budget and a later turn recommended something above it)\n- a reference to an earlier property (\\\"that one\\\", \\\"the second option\\\", a neighbourhood name) resolved to the wrong property or to nothing\n- the assistant re-asking something the user had already answered\n- the assistant switching language away from the user's most recent turn\n\nIn your reasoning, name the specific constraint and the turn number where it was dropped. If nothing was dropped, say so in one sentence.\n\n=== CONVERSATION ===\n{{transcript}}"
-
-    conv_id=$(printf '%s' "$rules" | python3 -c "
-import json,sys
-try: data = json.load(sys.stdin).get('data') or []
-except Exception: sys.exit(0)
-print(next((r['id'] for r in data if r.get('name') == '${CONV_EVALUATOR}'), ''))
-" 2>/dev/null || true)
-
-    if [ -n "$conv_id" ]; then
-      green "${CONV_EVALUATOR} rule already present"
-    else
-      # Two INDEPENDENT resources: the evaluator (prompt + variables + score
-      # shape) and the rule (which observations it runs on). They are created
-      # separately, so a half-created state is reachable — evaluator present, rule
-      # absent — and a re-run must not try to create the evaluator twice. Look it
-      # up by name first and only create it if genuinely missing.
-      ev_exists=$(curl -s -m 25 \
-        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-        "${LANGFUSE_HOST}/api/public/unstable/evaluators?limit=100" \
-        | python3 -c "
-import json,sys
-try: data = json.load(sys.stdin).get('data') or []
-except Exception: sys.exit(0)
-print(next((e['id'] for e in data if e.get('name') == '${CONV_EVALUATOR}'), ''))
-" 2>/dev/null || true)
-
-      ev_body=$(cat <<EVALUATOR
-{
-  "name": "${CONV_EVALUATOR}",
-  "type": "llm_as_judge",
-  "prompt": "${CONV_PROMPT}",
-  "variables": ["transcript"],
-  "mapping": [
-    {"variable": "transcript", "source": "input", "jsonPath": "\$.transcript"}
-  ],
-  "outputDefinition": {
-    "dataType": "NUMERIC",
-    "score": {"description": "1.0 if every constraint the user stated held for the whole conversation; 0.0 if one was dropped, mis-resolved, or re-asked"},
-    "reasoning": {"description": "Name the specific constraint and the turn it was dropped at, or state that none were"}
-  }
-}
-EVALUATOR
-)
-      if [ -n "$ev_exists" ]; then
-        ev_id="$ev_exists"
-        green "${CONV_EVALUATOR} evaluator already present (${ev_id})"
-      else
-        code=$(curl -s -m 25 -o /tmp/lf-conv-eval.json -w '%{http_code}' -X POST \
-          -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-          -H 'Content-Type: application/json' \
-          "${LANGFUSE_HOST}/api/public/unstable/evaluators" -d "$ev_body") || code="000"
-        ev_id=""
-        if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-          ev_id=$(python3 -c "import json;print(json.load(open('/tmp/lf-conv-eval.json')).get('id',''))" 2>/dev/null || true)
-        fi
-      fi
-      if [ -z "$ev_id" ]; then
-        warn "${CONV_EVALUATOR} evaluator failed (HTTP ${code:-?}) — create it in the UI (see below)"
-        api_failed=1
-      else
-        [ -n "$ev_exists" ] || green "${CONV_EVALUATOR} evaluator created (${ev_id})"
-        rule_body=$(cat <<CONVRULE
-{
-  "name": "${CONV_EVALUATOR}",
-  "evaluator": {"name": "${CONV_EVALUATOR}", "scope": "custom"},
-  "target": "observation",
-  "enabled": true,
-  "sampling": 1,
-  "filter": [
-    {"type": "stringOptions", "column": "traceName", "operator": "any of",
-     "value": ["handle-concierge-chat-message"]},
-    {"type": "stringOptions", "column": "name", "operator": "any of",
-     "value": ["conversation-snapshot"]}
-  ],
-  "mapping": [
-    {"variable": "transcript", "source": "input", "jsonPath": "\$.transcript"}
-  ]
-}
-CONVRULE
-)
-        code=$(curl -s -m 25 -o /tmp/lf-conv-rule.json -w '%{http_code}' -X POST \
-          -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-          -H 'Content-Type: application/json' \
-          "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules" -d "$rule_body") || code="000"
-        if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-          green "${CONV_EVALUATOR} rule created (conversation-level, fires once per conversation)"
-        else
-          warn "${CONV_EVALUATOR} rule failed (HTTP ${code}) — attach it in the UI (see below)"
-          api_failed=1
-        fi
-      fi
-    fi
-
-    if [ "$api_failed" = "1" ]; then
-      cat <<STEPS
-
-  Finish in the Langfuse UI (~2 min), project '${EXPECTED_PROJECT}':
-    1. Settings > LLM Connections — confirm the 'anthropic' connection exists.
-    2. Evaluators > + New evaluator, twice — managed templates 'Helpfulness'
-       and 'Relevance', target = live observations, filter traceName any of
-       [handle-concierge-chat-message] + name any of [handle-concierge-chat-message],
-       mapping query -> input (\$.query), generation -> output.
-    3. Evaluators > + New evaluator > LLM-as-a-Judge (blank, NOT a template) —
-       name 'stated-constraint-respected', one variable {{transcript}}, numeric
-       score. Target = live observations, filter traceName any of
-       [handle-concierge-chat-message] + name any of [conversation-snapshot],
-       mapping transcript -> input (\$.transcript). This is the conversation-level
-       judge: it runs once per conversation, on the snapshot observation the agent
-       emits on the final turn.
-STEPS
-    else
-      echo ""
-      echo "  Judges score NEW traffic automatically (allow a few minutes)."
-      echo "  To score EXISTING traces: Traces table > select > Actions > Evaluate."
-    fi
-    exit 0
+    exec "$PY_BIN" scripts/seed_managed_evaluators_cloud.py "$@"
     ;;
 esac
 
@@ -330,9 +122,16 @@ green "Default evaluation model set (${EVAL_MODEL})"
 #
 # Do NOT "fix" a quiet judge by re-adding `set_current_trace_io()`. The supported
 # successor is an observation-level rule, and this server (3.221.1) already accepts
-# them — the remote branch above builds exactly that payload via
-# /api/public/unstable/evaluation-rules with "target": "observation". Porting these two
-# to that shape is the real fix; until then they stay on the deprecated target.
+# them in the DB — `job_configurations.target_object='observation'`, which
+# scripts/../../scripts/seed-llm-judge-evaluators.sh already writes for the main
+# stack. Porting these two to that shape is the real fix; until then they stay on
+# the deprecated target.
+#
+# There is a hard date on this: trace-level evaluators stop producing results on
+# Langfuse Cloud after 2026-11-16. This path is self-hosted-only so the date does
+# not apply to it directly, but it does apply the moment the stack moves to v4 —
+# and it is the reason the Cloud path in seed_managed_evaluators_cloud.py is
+# observation-level throughout.
 MAP='[{"templateVariable":"query","langfuseObject":"trace","selectedColumnId":"input"},{"templateVariable":"generation","langfuseObject":"trace","selectedColumnId":"output"}]'
 FILTER='[{"type":"arrayOptions","value":["real-estate"],"column":"tags","operator":"any of"}]'
 
