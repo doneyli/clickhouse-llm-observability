@@ -7,7 +7,8 @@ Three dashboards, each mapping to a capability a customer asks about:
                                   score drift over time, failure modes.
   2. Evaluation Coverage        — who scored what: code vs judge vs human,
      & Judge Calibration          and the machine-vs-human agreement table.
-  3. Cost & Chargeback          — spend by model, user, prompt version, tag.
+  3. Cost & Chargeback          — spend by model, user and prompt version,
+                                  and production vs evaluation.
 
 Uses the unstable dashboards API (`/api/public/unstable/{dashboards,
 dashboard-widgets}`), which is what the Langfuse CLI and MCP server drive too.
@@ -441,16 +442,32 @@ DASHBOARDS: list[dict] = [
                 "w": 4, "h": 6,
             },
             {
-                "name": "Spend by tag (business line)",
+                # Replaces "Spend by tag", which was wrong: `tags` as a
+                # DIMENSION groups by the whole tag array, and order-sensitively
+                # — ['real-estate','property-concierge','portal'] and
+                # ['portal','property-concierge','real-estate'] rendered as two
+                # separate bars for one surface. Tags are right as a FILTER and
+                # wrong as a breakdown. `environment` is single-valued, and it
+                # answers a better chargeback question anyway.
+                "name": "Spend by environment — production vs evaluation",
                 "description": (
-                    "Tags carry the app's own taxonomy — surface, campaign, "
-                    "experiment. Attribution without a separate cost system."
+                    "What evaluation costs next to what production costs. "
+                    "`sdk-experiment` is offline experiment runs, "
+                    "`langfuse-llm-as-a-judge` is the managed judges' own LLM "
+                    "calls, `default` is live traffic. Usually a surprise."
                 ),
-                "view": "observations", "chartType": "HORIZONTAL_BAR",
+                "view": "observations", "chartType": "PIE",
                 "metrics": [{"measure": "totalCost", "agg": "sum"}],
-                "dimensions": [{"field": "tags"}],
-                "filters": [REAL_ESTATE_TAG],
-                "chartConfig": {"type": "HORIZONTAL_BAR", "row_limit": 15},
+                "dimensions": [{"field": "environment"}],
+                # Pinned, because the dashboard's own Env selector defaults to
+                # `default` + `sdk-experiment` and would silently drop the judge
+                # slice this widget exists to show. A widget-level environment
+                # filter overrides the dashboard selector for this widget only.
+                # Add new environments here as the app grows them.
+                "filters": [{"column": "environment", "operator": "any of",
+                             "value": ["default", "sdk-experiment",
+                                       "langfuse-llm-as-a-judge"],
+                             "type": "stringOptions"}],
                 "w": 4, "h": 6,
             },
             {
@@ -484,6 +501,14 @@ DASHBOARDS: list[dict] = [
 ]
 
 
+# Widgets this script used to create and no longer does. Upsert-by-name never
+# deletes, so a renamed or removed widget would otherwise linger unplaced in the
+# project's widget library, where anyone browsing it would find the wrong chart.
+RETIRED_WIDGETS = [
+    "Spend by tag (business line)",   # tags-as-dimension groups whole arrays
+]
+
+
 # --------------------------------------------------------------------- runner
 
 
@@ -496,6 +521,7 @@ def upsert(client: Client, dry_run: bool = False) -> list[tuple[str, str]]:
                                    query={"limit": 100}).get("data", [])}
     results = []
     failures = 0
+
 
     for spec in DASHBOARDS:
         print(f"\n\033[1m{spec['name']}\033[0m")
@@ -574,6 +600,15 @@ def upsert(client: Client, dry_run: bool = False) -> list[tuple[str, str]]:
         url = f"{client.host}/project/{PROJECT_ID}/dashboards/{dash_id}"
         print(f"  → {url}")
         results.append((spec["name"], url))
+
+    # Retire last: a widget cannot be deleted while a dashboard still places it,
+    # and the layout rebuild above is what drops the old placement.
+    if not dry_run:
+        for name in RETIRED_WIDGETS:
+            retired = existing_widgets.get(name)
+            if retired:
+                client.delete(f"/api/public/unstable/dashboard-widgets/{retired['id']}")
+                print(f"\n  retired widget: {name}")
 
     if failures:
         print(f"\n\033[31m{failures} widget query/queries failed validation "
