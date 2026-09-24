@@ -285,12 +285,26 @@ def langfuse_observe(name: str, as_type: str = "span", input=None):
     if client is None:
         yield None
         return
+
+    # Guard the observation SETUP only — never the caller's block. Yielding from
+    # inside a try/except Exception would catch whatever the application raises
+    # in the `with langfuse_observe(...)` body, print it as an instrumentation
+    # failure and then yield a second time, so the caller's real exception is
+    # replaced by "generator didn't stop after throw()". Same ExitStack shape as
+    # langfuse_trace()/langfuse_session() above; enforced by the
+    # instrumentation-safety CI gate.
+    stack = ExitStack()
     try:
-        with client.start_as_current_observation(as_type=as_type, name=name, input=input) as obs:
-            yield obs
-    except Exception as e:  # pragma: no cover - defensive
-        print(f"Langfuse observation '{name}' failed: {e}")
+        obs = stack.enter_context(
+            client.start_as_current_observation(as_type=as_type, name=name, input=input)
+        )
+    except Exception as e:
+        print(f"Langfuse observation '{name}' unavailable: {e}")
+        stack.close()
         yield None
+        return
+    with stack:
+        yield obs
 
 
 def score_current_span(name: str, value, comment: Optional[str] = None, data_type: str = "NUMERIC"):
