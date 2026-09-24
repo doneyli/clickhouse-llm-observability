@@ -140,27 +140,44 @@ RULE
     # "did this CONVERSATION hold together", because an observation-level
     # evaluator sees ONLY the observation it matched — not siblings, not children.
     # So this is a CUSTOM evaluator whose single variable is the whole transcript,
-    # wired to the `conversation-snapshot` observation the agent emits on the
-    # final turn (see SNAPSHOT_NAME / CONVERSATION_END_TAG in agent/concierge.py).
+    # wired to the snapshot observation the agent emits on the final turn (see
+    # SNAPSHOT_NAME / EVAL_TARGET_* / CONVERSATION_END_TAG in agent/concierge.py).
     #
     # Two deliberate differences from the rules above:
-    #   * Filtered by observation `name`, NOT `isRootObservation` — the snapshot is
-    #     a CHILD of the root span, so the root filter would never match it. That
-    #     makes this rule name-coupled: rename SNAPSHOT_NAME without updating it
-    #     here and the judge goes quiet with no error anywhere. Keep them in sync.
+    #   * Selected by observation METADATA, not `isRootObservation` — the snapshot
+    #     is a CHILD of the root span, so the root filter would never match it.
+    #     It is not selected by `name` either: that coupled a display name to a
+    #     live rule, so a rename silenced the judge and a rule edit stopped
+    #     matching the code, with no error on either side. The agent stamps
+    #     `metadata={"langfuse_eval_target": "conversation-transcript"}` on the
+    #     snapshot purely as this rule's selector (EVAL_TARGET_KEY /
+    #     EVAL_TARGET_CONVERSATION), and the rule matches that.
+    #     `metadata` is a first-class observation filter column of type
+    #     `stringObject` — {type, column, key, operator, value}, string operators
+    #     only. Verified against self-hosted 3.221.1's filter schema as well as
+    #     Cloud, so the same payload works in both.
     #   * The metric is named after the failure it detects, not a generic quality
     #     word. Langfuse's own eval guidance is explicit that `helpfulness` /
     #     `relevance` / `task completion` style names are hard to act on.
     #
     # No tag filter is added: the snapshot only ever exists on the final turn, so
-    # `name` already scopes this to once per conversation. `conversation_end` is
-    # propagated anyway, for filtering the Traces table by hand during a demo.
+    # the selector already scopes this to once per conversation. `conversation_end`
+    # is propagated anyway, for filtering the Traces table by hand during a demo.
     # A rule references its evaluator by {name, scope} — NOT by id. `scope` is the
     # discriminator: "managed" for a Langfuse-provided template (as the two rules
     # above use), "custom" for one created in this project. Passing {"id": ...}
     # returns HTTP 400 "evaluator.name: expected string, received undefined",
     # which is easy to misread as a problem with the id.
     CONV_EVALUATOR="stated-constraint-respected"
+    # Defined once and reused by BOTH the create and the repair path below, so the
+    # two payloads cannot drift apart. Must stay in step with EVAL_TARGET_KEY /
+    # EVAL_TARGET_CONVERSATION in agent/concierge.py.
+    CONV_FILTER='[
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": ["handle-concierge-chat-message"]},
+    {"type": "stringObject", "column": "metadata", "key": "langfuse_eval_target",
+     "operator": "=", "value": "conversation-transcript"}
+  ]'
     CONV_PROMPT="You are scoring an ENTIRE multi-turn conversation between a user and a real-estate assistant, not a single reply.\n\nA constraint is anything the user stated about what they want: a budget, a city or neighbourhood, a number of bedrooms, a required feature, buy vs rent, or the language they are writing in.\n\nScore 1.0 only if EVERY constraint the user stated at ANY point still held for the rest of the conversation. Penalise heavily, toward 0.0:\n- a constraint stated once early and then ignored in a later turn (e.g. the user lowered their budget and a later turn recommended something above it)\n- a reference to an earlier property (\\\"that one\\\", \\\"the second option\\\", a neighbourhood name) resolved to the wrong property or to nothing\n- the assistant re-asking something the user had already answered\n- the assistant switching language away from the user's most recent turn\n\nIn your reasoning, name the specific constraint and the turn number where it was dropped. If nothing was dropped, say so in one sentence.\n\n=== CONVERSATION ===\n{{transcript}}"
 
     conv_id=$(printf '%s' "$rules" | python3 -c "
@@ -171,7 +188,27 @@ print(next((r['id'] for r in data if r.get('name') == '${CONV_EVALUATOR}'), ''))
 " 2>/dev/null || true)
 
     if [ -n "$conv_id" ]; then
-      green "${CONV_EVALUATOR} rule already present"
+      # Unlike the two rules above, this one is REPAIRED rather than skipped. A
+      # plain "already present" check leaves a rule whose filter has drifted
+      # quietly broken — and this rule's filter is exactly what just changed
+      # (observation `name` -> `metadata.langfuse_eval_target`), so every
+      # already-seeded project needs the new filter pushed to it. PATCH is
+      # idempotent, so a re-run on an up-to-date rule is a no-op.
+      #
+      # PATCH requires `target` alongside `filter` — omit it and the request is
+      # rejected, because the filter columns are validated against the target.
+      code=$(curl -s -m 25 -o /tmp/lf-conv-rule-patch.json -w '%{http_code}' -X PATCH \
+        -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+        -H 'Content-Type: application/json' \
+        "${LANGFUSE_HOST}/api/public/unstable/evaluation-rules/${conv_id}" \
+        -d "{\"target\": \"observation\", \"filter\": ${CONV_FILTER}}") || code="000"
+      if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+        green "${CONV_EVALUATOR} rule present — filter reconciled (metadata selector)"
+      else
+        warn "${CONV_EVALUATOR} rule present but filter update failed (HTTP ${code})"
+        warn "  Fix in the UI: filter metadata 'langfuse_eval_target' = 'conversation-transcript'"
+        api_failed=1
+      fi
     else
       # Two INDEPENDENT resources: the evaluator (prompt + variables + score
       # shape) and the rule (which observations it runs on). They are created
@@ -230,12 +267,7 @@ EVALUATOR
   "target": "observation",
   "enabled": true,
   "sampling": 1,
-  "filter": [
-    {"type": "stringOptions", "column": "traceName", "operator": "any of",
-     "value": ["handle-concierge-chat-message"]},
-    {"type": "stringOptions", "column": "name", "operator": "any of",
-     "value": ["conversation-snapshot"]}
-  ],
+  "filter": ${CONV_FILTER},
   "mapping": [
     {"variable": "transcript", "source": "input", "jsonPath": "\$.transcript"}
   ]
@@ -267,10 +299,12 @@ CONVRULE
     3. Evaluators > + New evaluator > LLM-as-a-Judge (blank, NOT a template) —
        name 'stated-constraint-respected', one variable {{transcript}}, numeric
        score. Target = live observations, filter traceName any of
-       [handle-concierge-chat-message] + name any of [conversation-snapshot],
-       mapping transcript -> input (\$.transcript). This is the conversation-level
-       judge: it runs once per conversation, on the snapshot observation the agent
-       emits on the final turn.
+       [handle-concierge-chat-message] + Metadata key 'langfuse_eval_target'
+       = 'conversation-transcript', mapping transcript -> input
+       (\$.transcript). This is the conversation-level judge: it runs once per
+       conversation, on the snapshot observation the agent emits on the final
+       turn. Select it by that metadata, NOT by observation name — the name is
+       cosmetic and a rename would silently stop the judge.
 STEPS
     else
       echo ""
