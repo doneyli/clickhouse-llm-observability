@@ -9,8 +9,9 @@ import socket
 import sys
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -100,31 +101,103 @@ def call_gateway(
     )
 
 
+def basic_auth(public_key: str, secret_key: str) -> str:
+    return base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode("ascii")
+
+
+def detect_api_major(langfuse_url: str, auth: str, timeout: float = 5) -> int:
+    """Major version of the target Langfuse server, from `GET /api/public/health`.
+
+    The verification read below has no endpoint that works on both majors: a v3
+    server has no Observations v2 API, and Langfuse Cloud removes the v1 trace
+    endpoints on 2026-11-16. This demo is documented against Cloud but defaults
+    to the repo's self-hosted stack, so it has to serve both and pick per server
+    — the same gate `demos/grocery-assistant` uses.
+
+    An unreadable or unparseable version is treated as v4: the endpoint with a
+    future is the better guess, and the v4 read fails loudly rather than
+    silently returning nothing.
+    """
+    try:
+        health = request_json(
+            f"{langfuse_url.rstrip('/')}/api/public/health",
+            headers={"Authorization": f"Basic {auth}"},
+            timeout=timeout,
+        )
+        return int(str(health.get("version", "")).split(".")[0])
+    except (DemoError, ValueError, TypeError):
+        return 4
+
+
+def session_read_url(langfuse_url: str, session_id: str, api_major: int) -> str:
+    """Where to look for the session's trace, for this server major.
+
+    v4 answers "what happened in this session" with observation ROWS rather than
+    a trace object — v4 has no trace entity — so this asks for `trace_context`
+    to get `traceId`/`traceName` on each row and normalises them in
+    `wait_for_trace`.
+
+    The `sessionId` filter uses **stringOptions / "any of"** (value = a list).
+    The docs show `{"type": "string", "operator": "="}`, and as of Cloud 4.43
+    that works too — but it returned a 200 with ZERO rows on 4.27, which reads
+    exactly like "the trace never arrived". "any of" is verified on both, and a
+    silent empty result is the one failure this demo must not have.
+    """
+    base = langfuse_url.rstrip("/")
+    if api_major <= 3:
+        return f"{base}/api/public/traces?sessionId={quote(session_id, safe='')}&limit=10"
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    query = urlencode({
+        "filter": json.dumps([{"type": "stringOptions", "column": "sessionId",
+                               "operator": "any of", "value": [session_id]}]),
+        "fields": "core,basic,trace_context",
+        "fromStartTime": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "limit": 100,
+    })
+    return f"{base}/api/public/v2/observations?{query}"
+
+
+def pick_trace(rows: list, session_id: str, api_major: int) -> Optional[Dict[str, Any]]:
+    """The session's trace as `{"id", "name"}`, or None if it has not landed.
+
+    v3 rows are already traces. v4 rows are observations, several per trace, so
+    this collapses them: prefer the row flagged `isRootObservation` (whose name
+    is the trace name), but fall back to any row rather than requiring the flag
+    — the gateway's OTLP export owns this trace's shape, and demanding a flag it
+    may not set would turn a delivered trace into a verification failure.
+    """
+    if api_major <= 3:
+        return next((r for r in rows if r.get("sessionId") == session_id), None)
+    matching = [r for r in rows if r.get("sessionId") == session_id]
+    if not matching:
+        return None
+    row = next((r for r in matching if r.get("isRootObservation")), matching[-1])
+    return {"id": row.get("traceId"), "name": row.get("traceName") or row.get("name")}
+
+
 def wait_for_trace(
     langfuse_url: str,
     public_key: str,
     secret_key: str,
     session_id: str,
     timeout: float,
+    api_major: int = 4,
 ) -> Dict[str, Any]:
-    auth = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode("ascii")
-    trace_url = (
-        f"{langfuse_url.rstrip('/')}/api/public/traces?"
-        f"sessionId={quote(session_id, safe='')}&limit=10"
-    )
+    auth = basic_auth(public_key, secret_key)
+    read_url = session_read_url(langfuse_url, session_id, api_major)
     deadline = time.monotonic() + timeout
     last_error = "trace has not arrived yet"
 
     while time.monotonic() < deadline:
         try:
             result = request_json(
-                trace_url,
+                read_url,
                 headers={"Authorization": f"Basic {auth}"},
                 timeout=min(5, max(1, timeout)),
             )
-            for trace in result.get("data", []):
-                if trace.get("sessionId") == session_id:
-                    return trace
+            trace = pick_trace(result.get("data", []), session_id, api_major)
+            if trace:
+                return trace
             last_error = "session is not indexed yet"
         except DemoError as exc:
             last_error = str(exc)
@@ -199,12 +272,14 @@ def main() -> int:
             "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required for trace verification"
         )
 
+    api_major = detect_api_major(langfuse_url, basic_auth(public_key, secret_key))
     trace = wait_for_trace(
         langfuse_url,
         public_key,
         secret_key,
         args.session_id,
         args.trace_timeout,
+        api_major,
     )
     trace_name = trace.get("name") or "unnamed trace"
     print(f"Trace check:   captured by Langfuse ({trace_name})")
