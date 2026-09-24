@@ -1,0 +1,91 @@
+"""
+Query Router Demo — FastAPI front door.
+
+Endpoints:
+    GET  /health   -> router liveness + reachability of the 3 handler services + Langfuse status
+    POST /query     -> {question, session_id?} -> {route, confidence, rationale, answer, handled_by, ...}
+
+The router classifies the question (its own `route-query` generation), gates on
+confidence, and dispatches over HTTP to exactly one specialist handler
+(text-to-sql :8002 / vector-rag :8003 / agentic-rag :8006) or an in-process
+fallback. One Langfuse trace `route-and-dispatch` shows the router decision AND
+the chosen handler's full nested subtree. Runs on :8000 (mapped to host :8008).
+"""
+
+import httpx
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Optional
+
+from handlers import HANDLERS, dispatch
+import langfuse_config as lf
+from router import classify
+
+app = FastAPI(title="Query Router Demo", version="1.0.0")
+
+
+class QueryRequest(BaseModel):
+    question: str
+    session_id: Optional[str] = None
+
+
+def run(question: str, session_id: Optional[str] = None) -> dict:
+    """Classify -> gate -> dispatch, all under ONE trace named route-and-dispatch.
+
+    BUG FIX (live-testing finding): `lf.trace_context(...)` (= SDK v3
+    `propagate_attributes`) only sets trace-level attributes on the *currently
+    active span* and cascades them to its children — per the SDK's own
+    docstring, it does not, by itself, make independent top-level
+    `start_as_current_observation()` calls share a trace_id. `classify()` and
+    `dispatch()` each open their OWN top-level observation (`route-query`,
+    `dispatch-{route}`); with no active parent span at the time
+    `propagate_attributes` was entered, each one minted its OWN random
+    trace_id, so the router's decision and the dispatched specialist's subtree
+    landed in TWO DISCONNECTED traces — even before the HTTP call to the
+    handler. The handler-side `trace_context` join then correctly attached the
+    specialist's subtree to `dispatch()`'s (wrong, second) trace, not to
+    `route-query`'s trace — confirmed in ClickHouse: two distinct trace ids for
+    the same request, e.g. `route-query` alone in one trace and
+    `dispatch-analytics_sql` + the full text-to-sql subtree in another.
+
+    Fix: open one real root observation FIRST (`route-and-dispatch`), so
+    `classify()`'s and `dispatch()`'s observations become actual OTEL children
+    of it and inherit its trace_id, instead of independent roots. This matches
+    the SDK's own documented pattern (`start_as_current_span` BEFORE
+    `propagate_attributes`).
+    """
+    session_id = session_id or lf.new_session_id()
+    with lf.observe("route-and-dispatch", as_type="span", input={"question": question}) as root:
+        with lf.trace_context("route-and-dispatch", session_id=session_id):  # verb-first, stable name
+            decision = classify(question)
+            result = dispatch(decision, question, session_id)
+        if root:
+            root.update(output={"route": decision.get("route"), "handled_by": result.get("handled_by")})
+    lf.flush()
+    return {"question": question, **decision, **result, "session_id": session_id}
+
+
+@app.get("/health")
+def health():
+    """Report our own liveness, whether Langfuse tracing is on, and whether each
+    downstream handler answers /health (the router still runs — and degrades to
+    fallback — if a handler is down, so this is informational, not fatal)."""
+    handlers = {}
+    for route, base_url in HANDLERS.items():
+        try:
+            r = httpx.get(f"{base_url}/health", timeout=3.0)
+            handlers[route] = "ok" if r.status_code == 200 else f"http {r.status_code}"
+        except Exception as e:
+            handlers[route] = f"unreachable: {e.__class__.__name__}"
+    return {"status": "ok", "langfuse": lf.is_langfuse_enabled(), "handlers": handlers}
+
+
+@app.post("/query")
+def query(req: QueryRequest):
+    return run(req.question, session_id=req.session_id)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

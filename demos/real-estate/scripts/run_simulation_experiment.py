@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent.config import (  # noqa: E402
     get_langfuse, verify_project, record_score, flush_langfuse,
-    AGENT_MODEL, langfuse_api,
+    AGENT_MODEL, delete_experiment_traces,
 )
 from agent.concierge import run_turn  # noqa: E402
 from agent.scoring import run_code_evaluators  # noqa: E402
@@ -240,9 +240,11 @@ def main():
     # run_name APPENDS to that run, silently mixing old and new conversations and
     # skewing the aggregates. Drop the prior run so each invocation is a clean
     # snapshot; pass a distinct --run-name to keep several.
-    st, _ = langfuse_api("DELETE", f"/api/public/datasets/{args.dataset}/runs/{run_name}")
-    if st == 200:
-        print(f"  (replaced existing run '{run_name}')\n")
+    # v4 has no experiment-delete API — delete_experiment_traces() removes the
+    # prior run's traces instead; see its docstring for the difference.
+    n = delete_experiment_traces(args.dataset, run_name)
+    if n:
+        print(f"  (cleared {n} trace(s) from the existing run '{run_name}')\n")
 
     result = dataset.run_experiment(
         name=args.dataset,

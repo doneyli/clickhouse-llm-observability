@@ -283,12 +283,36 @@ class AgenticRAG:
         return g.compile()
 
     # ----------------------------------------------------------------- run
-    def run(self, question: str, session_id: Optional[str] = None) -> dict:
+    def run(self, question: str, session_id: Optional[str] = None,
+            trace_context: Optional[dict] = None) -> dict:
         session_id = session_id or lf.new_session_id()
         handler = lf.get_handler()
         config = {"callbacks": [handler]} if handler else {}
-        with lf.trace_context("agentic-rag", session_id=session_id):
-            final = self.graph.invoke({"question": question}, config=config)
+        if trace_context:
+            # Nested under the query-router front door (:8008): join the router's
+            # trace as an `agentic-rag-handler` agent observation instead of
+            # opening a new `agentic-rag` trace. The router OWNS the trace
+            # name/session, so we must NOT call lf.trace_context() here — that
+            # would overwrite trace-level attributes. Standalone callers (no
+            # trace_context) keep today's behavior exactly, so existing
+            # agentic-rag scripts/judges are unaffected. Note: reflect_node's
+            # lf.score_current_trace("groundedness", ...) then lands on the
+            # router's trace — the E2E groundedness of the routed answer.
+            client = lf.get_client()
+            if client is not None:
+                with client.start_as_current_observation(
+                    as_type="agent", name="agentic-rag-handler",
+                    trace_context=trace_context, input={"question": question},
+                ) as obs:
+                    final = self.graph.invoke({"question": question}, config=config)
+                    if obs:
+                        obs.update(output={"answer": final.get("answer", ""),
+                                           "route": final.get("route")})
+            else:
+                final = self.graph.invoke({"question": question}, config=config)
+        else:
+            with lf.trace_context("agentic-rag", session_id=session_id):
+                final = self.graph.invoke({"question": question}, config=config)
         lf.flush()
         return {
             "question": question,

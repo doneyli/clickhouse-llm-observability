@@ -27,6 +27,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -37,6 +38,11 @@ from dotenv import load_dotenv, dotenv_values
 # --- Load this folder's .env (overriding any inherited shell values) ---
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_ENV_PATH, override=True)
+
+# PII redaction policy. Imported after load_dotenv so LANGFUSE_MASK_PII can be
+# set in .env; deliberately NOT listed in .env, so `LANGFUSE_MASK_PII=false
+# <cmd>` works from the shell for the masked/unmasked comparison.
+from agent import masking  # noqa: E402  (must follow load_dotenv)
 
 LANGFUSE_PUBLIC_KEY = os.environ["LANGFUSE_PUBLIC_KEY"]
 LANGFUSE_SECRET_KEY = os.environ["LANGFUSE_SECRET_KEY"]
@@ -107,6 +113,19 @@ def _attach_mirror() -> None:
     global _mirror_attached
     if _mirror_attached or not MIRROR_ENABLED:
         return
+
+    # PII redaction runs in the Langfuse client's own export path, so it does
+    # NOT apply here: this is a plain BatchSpanProcessor and receives its own
+    # unmasked copy of every span. Refuse the combination rather than silently
+    # ship unredacted payloads to the mirror.
+    if masking.enabled():
+        print("ERROR: LANGFUSE_MASK_PII is on and trace mirroring is configured. "
+              "The mirror uses a separate OTLP exporter, which the Langfuse "
+              "masking hook cannot reach — it would receive UNREDACTED spans.\n"
+              "  Set LANGFUSE_MASK_PII=false, or unset the LANGFUSE_MIRROR_* "
+              "keys in demos/real-estate/.env.", file=sys.stderr)
+        sys.exit(1)
+
     import base64 as _b64
 
     from opentelemetry import trace as _otel_trace
@@ -166,6 +185,14 @@ def get_langfuse():
         if _langfuse is None:
             from langfuse import Langfuse
 
+            # Redact PII in span attributes at EXPORT stage, inside this
+            # process. `mask_otel_spans` (SDK >= 4.9.0) sees the final raw OTel
+            # attributes of every span this client exports — including spans
+            # from third-party instrumentation, which the legacy `mask=` hook
+            # never sees. See agent/masking.py for the policy and its limits.
+            mask_kwargs = ({"mask_otel_spans": masking.mask_otel_spans}
+                           if masking.enabled() else {})
+
             # `base_url=` (not `host=`): in SDK v4 it has the highest precedence of
             # all and cannot be overridden by a LANGFUSE_BASE_URL env var, so the
             # explicit per-project value always wins.
@@ -173,6 +200,7 @@ def get_langfuse():
                 public_key=LANGFUSE_PUBLIC_KEY,
                 secret_key=LANGFUSE_SECRET_KEY,
                 base_url=LANGFUSE_HOST,
+                **mask_kwargs,
             )
             _attach_mirror()
     return _langfuse
@@ -382,22 +410,43 @@ def root_observations_by_tag(tag: str, *, limit: int = 50,
     return data.get("data") or []
 
 
-def list_sessions(limit: int = 50) -> list:
-    """The project's sessions, newest first, via `GET /api/public/sessions`.
+def sessions_with_turns(*, trace_name: Optional[str] = None,
+                        lookback_days: int = 90, limit: int = 1000,
+                        fields: str = "core,basic,io") -> "dict[str, list]":
+    """Sessions and their turns in one call, newest session first.
 
-    Page-based (not cursor-based) and **deprecated on Langfuse Cloud** — it is
-    removed on 2026-11-16, after which "which sessions exist?" is answered by
-    grouping `GET /api/public/v2/observations` rows on their `sessionId`. Until
-    then this is the only single-call answer, so it stays the discovery route
-    and `root_observations_by_sessions()` below does the per-session work.
-    Rows carry only id/createdAt/projectId/environment — no turn count.
+    Replaces the deprecated `GET /api/public/sessions` (removed from Langfuse
+    Cloud on 2026-11-16). v4 has no session entity: a session is just the rows
+    sharing a `sessionId`, so one `v2/observations` read answers both "which
+    sessions exist" and "what turns are in them" — where the old pair of calls
+    needed a session list *then* a lookup of each one's turns.
+
+    Pass `trace_name` to keep the pool to real turns: a demo project also
+    collects sessions from the verification scripts, and filtering server-side
+    beats fetching them and discarding them. Results are sorted by `startTime`
+    descending, so the returned mapping is in newest-session-first order.
+
+    `lookback_days` bounds the query as the Observations v2 docs advise — but it
+    is also a silent cutoff: a caller that wants the longest conversation rather
+    than the most recent one should widen it past the age of the project's
+    seeded data, not accept the default.
     """
-    path = "/api/public/sessions"
-    status, data = langfuse_api(
-        "GET", f"{path}?{urllib.parse.urlencode({'limit': limit, 'page': 1})}")
-    if status != 200:
-        raise RuntimeError(f"GET {path} -> {status}: {data.get('error')}")
-    return data.get("data") or []
+    conditions = [{"type": "boolean", "column": "isRootObservation",
+                   "operator": "=", "value": True}]
+    if trace_name:
+        conditions.append({"type": "string", "column": "traceName",
+                           "operator": "=", "value": trace_name})
+    since = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    rows = _paginate("/api/public/v2/observations",
+                     {"filter": json.dumps(conditions), "limit": limit,
+                      "fields": fields,
+                      "fromStartTime": since.strftime("%Y-%m-%dT%H:%M:%SZ")})
+    by_session: "dict[str, list]" = {}
+    for observation in rows:
+        session_id = observation.get("sessionId")
+        if session_id:
+            by_session.setdefault(session_id, []).append(observation)
+    return by_session
 
 
 def root_observations_by_sessions(session_ids: Sequence[str], *,
@@ -448,6 +497,109 @@ def score_observation_id(score: dict) -> Optional[str]:
     return subject.get("id") if subject.get("kind") == "observation" else None
 
 
+# --- Experiments (formerly "dataset runs") ------------------------------------
+#
+# `GET /datasets/{name}/runs/{runName}` and its siblings are deprecated and are
+# removed from Langfuse Cloud on 2026-11-16. The replacement is a two-step read:
+# resolve the dataset ID, find the experiment by name, then list its items.
+# Unlike the old run response, items carry their scores inline (`fields=scores`),
+# so the per-item "fetch the trace to collect its scores" round trip is gone.
+
+# Both experiment endpoints REQUIRE `fromStartTime`. This demo's experiments are
+# all recent, but a generous window costs nothing and keeps a long-lived project
+# readable; override for a project with a longer history.
+EXPERIMENT_LOOKBACK_DAYS = int(os.environ.get("LANGFUSE_EXPERIMENT_LOOKBACK_DAYS", "400"))
+
+
+def _experiment_window() -> str:
+    """`fromStartTime` far enough back to include every experiment we may look up."""
+    since = datetime.now(timezone.utc) - timedelta(days=EXPERIMENT_LOOKBACK_DAYS)
+    return since.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def resolve_dataset_id(dataset_name: str) -> Optional[str]:
+    """A dataset's ID, via `GET /api/public/v2/datasets/{name}`.
+
+    Experiments are queried by dataset **ID**, never by name, so every
+    experiment read starts here. Returns None if the dataset does not exist.
+    """
+    path = f"/api/public/v2/datasets/{urllib.parse.quote(dataset_name, safe='')}"
+    status, data = langfuse_api("GET", path)
+    if status == 404:
+        return None
+    if status != 200:
+        raise RuntimeError(f"GET {path} -> {status}: {data.get('error')}")
+    return data.get("id")
+
+
+def find_experiment(dataset_name: str, run_name: str, *,
+                    fields: str = "core") -> Optional[dict]:
+    """One experiment by dataset name + run name, via `GET /api/public/experiments`.
+
+    Replaces `GET /api/public/datasets/{name}/runs/{runName}`. Ask for the
+    `scores` field group to get the run-level aggregate scores
+    (`subject.kind == "experiment"`). Returns None when either the dataset or
+    the named experiment is absent — the deprecated endpoint 404'd in both cases.
+    """
+    dataset_id = resolve_dataset_id(dataset_name)
+    if dataset_id is None:
+        return None
+    rows = _paginate("/api/public/experiments",
+                     {"datasetId": dataset_id, "name": run_name,
+                      "fromStartTime": _experiment_window(),
+                      "limit": 100, "fields": fields})
+    # `name` is a filter, not an exact-match lookup, so confirm the match.
+    return next((r for r in rows if r.get("name") == run_name), None)
+
+
+def list_experiment_items(experiment_id: str, *,
+                          fields: str = "scores") -> list:
+    """An experiment's items, via `GET /api/public/experiment-items`.
+
+    Replaces the `datasetRunItems` array that the deprecated run endpoint
+    embedded. Each row carries `traceId` plus — with `fields=scores` — every
+    score on that item, so scores no longer need a per-item trace fetch. Add
+    `io` to `fields` for the item input/output/expected output.
+    """
+    return _paginate("/api/public/experiment-items",
+                     {"experimentId": experiment_id,
+                      "fromStartTime": _experiment_window(),
+                      "limit": 100, "fields": fields})
+
+
+def delete_experiment_traces(dataset_name: str, run_name: str) -> int:
+    """Delete the traces behind one experiment. Returns the number deleted.
+
+    Stand-in for the deprecated `DELETE /api/public/datasets/{name}/runs/{run}`,
+    which re-runs called so that a pinned `run_name` produced a clean snapshot
+    instead of appending to the previous run. v4 has no experiment-delete API,
+    so this deletes the underlying traces via `DELETE /api/public/traces` —
+    **and with them their observations and scores**, which the deprecated
+    endpoint left alone. Confirm that wider deletion is what you want.
+
+    The re-run guarantee does survive, verified against Cloud: because an
+    experiment is derived from its traces, deleting them drops the experiment
+    from `GET /api/public/experiments` altogether, and a re-run under the same
+    name comes back with only its own items.
+    """
+    experiment = find_experiment(dataset_name, run_name)
+    if experiment is None:
+        return 0
+    trace_ids = sorted({item["traceId"] for item in
+                        list_experiment_items(experiment["id"], fields="core")
+                        if item.get("traceId")})
+    deleted = 0
+    for start in range(0, len(trace_ids), 1000):  # API caps a batch at 1,000
+        chunk = trace_ids[start:start + 1000]
+        status, data = langfuse_api("DELETE", "/api/public/traces",
+                                    body={"traceIds": chunk})
+        if status not in (200, 202, 204):
+            raise RuntimeError(f"DELETE /api/public/traces -> {status}: "
+                               f"{data.get('error')}")
+        deleted += len(chunk)
+    return deleted
+
+
 def verify_project(quiet: bool = False) -> str:
     """
     Confirm the configured keys resolve to EXPECTED_PROJECT.
@@ -474,4 +626,14 @@ def verify_project(quiet: bool = False) -> str:
 
     if not quiet:
         print(f"✓ Langfuse project verified: {EXPECTED_PROJECT} @ {LANGFUSE_HOST}")
+        # State the redaction posture out loud. Silent masking is how a demo
+        # ends up claiming a guarantee nobody watched it switch on — and silent
+        # *un*masking is worse.
+        if masking.enabled():
+            print("✓ PII redaction ON — emails, phones, IBANs, national ids and "
+                  "card numbers are scrubbed before export (LANGFUSE_MASK_PII=false "
+                  "to disable)")
+        else:
+            print("! PII redaction OFF — raw payloads will be exported "
+                  "(LANGFUSE_MASK_PII)")
     return EXPECTED_PROJECT

@@ -32,6 +32,11 @@ gate's own rubric) lives in Langfuse and ships by label, no redeploy.
 > **Honesty note (know this before you present):** the pipeline *reasons over*
 > the dataset catalog and often drafts SQL in its answers, but it does **not
 > execute** queries against ClickHouse — the MCP step retrieves the database
+> catalog as context. Port 8002 now serves `/query` (a thin `server.py` FastAPI
+> wrapper), so the query-router front-door demo can dispatch to it; the CLI
+> (`python main.py`) is unchanged. Demo it as what it is: a traced NL-analysis
+> assistant with a SQL-policy guardrail. If asked "does it run the SQL?" — "not
+> in this demo; the guardrail is exactly the layer you'd want *before* you let it."
 > catalog as context. There is also **no HTTP endpoint**; port 8002 is mapped but
 > nothing listens. Demo it as what it is: a traced NL-analysis assistant with a
 > SQL-policy guardrail. If asked "does it run the SQL?" — "not in this demo; the

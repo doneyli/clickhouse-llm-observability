@@ -580,6 +580,22 @@ ensure_librechat_agents() {
 }
 
 #######################################
+# Seed the slow-query-tuner demo (Pattern #7): managed prompts, root-level
+# dataset, cost/turn Monitors, and the independent goal-drift judge. Guarded,
+# idempotent, non-fatal (the loop runs with local fallbacks if this is skipped).
+#######################################
+ensure_slow_query_tuner() {
+    if [ ! -d "$SCRIPT_DIR/demos/slow-query-tuner" ]; then
+        return 0
+    fi
+    header "Seeding Slow Query Tuner (prompts, dataset, monitors)"
+
+    docker compose --profile demo run --rm slow-query-tuner \
+        python scripts/seed_all.py || warn "slow-query-tuner seeding skipped"
+    "$SCRIPT_DIR/scripts/seed-query-tuner-evaluators.sh" || true
+}
+
+#######################################
 # Seed the Cluster Health Investigator demo (idempotent, non-fatal): 3 managed
 # prompts, plan-quality + worker-quality datasets, and 2 managed judges. Runs
 # via the demo container's scripts/seed_all.py entry point.
@@ -597,6 +613,58 @@ ensure_cluster_health_seed() {
     else
         warn "Cluster-health seeding skipped — run: docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_all.py"
     fi
+}
+
+#######################################
+# Seed the Query Router demo (idempotent, non-fatal): the classifier prompt, the
+# routing dataset, seeded misroute history, and the independent misroute judge.
+#
+# The prompt seeder matters more than it looks: without it the router's
+# get_prompt('query-router-classifier') 404s and it silently falls back to the
+# local template baked into router.py. Observed effect — every question
+# classified out_of_scope, so the demo escalated everything to a human and never
+# dispatched to a specialist handler at all, which is the entire point of the
+# pattern. It exited 0 while doing it.
+#######################################
+ensure_query_router_seed() {
+    if [ ! -d "$SCRIPT_DIR/demos/query-router" ]; then
+        return 0
+    fi
+
+    header "Seeding Query Router (prompt, dataset, history, judge)"
+
+    local ok=1
+    python3 "$SCRIPT_DIR/scripts/seed-router-prompt.py"  || ok=0
+    python3 "$SCRIPT_DIR/scripts/seed-router-dataset.py" || ok=0
+    python3 "$SCRIPT_DIR/scripts/seed-router-history.py" || ok=0
+    "$SCRIPT_DIR/scripts/seed-router-judge.sh"           || ok=0
+
+    if [ "$ok" -eq 1 ]; then
+        success "Query-router prompt, dataset, history, and judge seeded"
+    else
+        warn "Query-router seeding incomplete — without the classifier prompt the router falls back to its local template and routes everything to out_of_scope"
+    fi
+}
+
+#######################################
+# Seed the Support Triage (parallelisation) demo (idempotent, non-fatal):
+# managed prompts + the vote/tie-break datasets, via its own seed_all.py.
+#######################################
+ensure_support_triage_seed() {
+    if [ ! -d "$SCRIPT_DIR/demos/support-triage-parallel" ]; then
+        return 0
+    fi
+
+    header "Seeding Support Triage (prompts, datasets)"
+
+    if docker compose --profile langfuse --profile demo run --rm support-triage-parallel \
+        python scripts/seed_all.py; then
+        success "Support-triage prompts and datasets seeded"
+    else
+        warn "Support-triage seeding skipped — run: docker compose --profile langfuse --profile demo run --rm support-triage-parallel python scripts/seed_all.py"
+    fi
+    "$SCRIPT_DIR/scripts/seed-support-triage-evaluators.sh" || \
+        warn "Support-triage evaluators skipped — run ./scripts/seed-support-triage-evaluators.sh"
 }
 
 #######################################
@@ -690,10 +758,22 @@ show_status() {
             warn "No Langfuse LLM connection — Playground/evaluators won't work (re-run ./setup.sh)"
         fi
 
-        local total_traces
+        # Trace count. There is no one endpoint that answers this on both server
+        # majors, so try v4 first and fall back: Metrics v2 (a count of root
+        # observations — v4's trace count) 404s on the self-hosted v3 server,
+        # while the deprecated `GET /traces` totalItems is removed from Langfuse
+        # Cloud on 2026-11-16. Drop the fallback once the stack is on v4.
+        local total_traces trace_count_query
+        trace_count_query='{"view":"observations","metrics":[{"measure":"count","aggregation":"count"}],"filters":[{"column":"isRootObservation","operator":"=","value":true,"type":"boolean"}],"fromTimestamp":"2020-01-01T00:00:00Z","toTimestamp":"2100-01-01T00:00:00Z"}'
         total_traces=$(curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
-            "${base}/api/public/traces?limit=1" 2>/dev/null \
-            | grep -o '"totalItems":[0-9]*' | cut -d: -f2 || true)
+            -G --data-urlencode "query=${trace_count_query}" \
+            "${base}/api/public/v2/metrics" 2>/dev/null \
+            | grep -o '"count_count":"\?[0-9]*' | grep -o '[0-9]*$' || true)
+        if [ -z "$total_traces" ]; then
+            total_traces=$(curl -sf -u "${LANGFUSE_PUBLIC_KEY}:${LANGFUSE_SECRET_KEY}" \
+                "${base}/api/public/traces?limit=1" 2>/dev/null \
+                | grep -o '"totalItems":[0-9]*' | cut -d: -f2 || true)
+        fi
         if [ -n "$total_traces" ] && [ "$total_traces" -gt 0 ] 2>/dev/null; then
             success "Langfuse has ${total_traces} traces"
         else
@@ -872,7 +952,10 @@ main() {
     ensure_llm_judge_evaluators
     ensure_project_name_dict
     ensure_librechat_agents
+    ensure_slow_query_tuner
     ensure_cluster_health_seed
+    ensure_query_router_seed
+    ensure_support_triage_seed
 
     if [ "$run_seed" = true ]; then
         header "Seeding Demo Data"

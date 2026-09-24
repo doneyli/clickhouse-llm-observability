@@ -18,7 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agent.config import get_langfuse, verify_project, AGENT_MODEL, langfuse_api
+from agent.config import (get_langfuse, verify_project, AGENT_MODEL,
+                          delete_experiment_traces)
 from agent.concierge import run_turn
 from data.dataset import DATASET_NAME
 from evaluators.experiment_evaluators import ALL_EVALUATORS, RUN_EVALUATORS
@@ -67,9 +68,12 @@ def main():
     # dataset composition changes. Make re-runs idempotent: drop a prior run of the
     # same name so each invocation is a clean snapshot. (To keep multiple runs of
     # one config, pass a distinct --run-name.)
-    st, _ = langfuse_api("DELETE", f"/api/public/datasets/{DATASET_NAME}/runs/{run_name}")
-    if st == 200:
-        print(f"  (replaced existing run '{run_name}')\n")
+    # v4 has no experiment-delete API, so this deletes the prior run's traces —
+    # see delete_experiment_traces() for how that differs from the deprecated
+    # DELETE /datasets/{name}/runs/{run} it replaces.
+    n = delete_experiment_traces(DATASET_NAME, run_name)
+    if n:
+        print(f"  (cleared {n} trace(s) from the existing run '{run_name}')\n")
 
     result = dataset.run_experiment(
         name=DATASET_NAME,

@@ -9,3 +9,7 @@ langfuse>=4.7,<5.0
 # MCP client & utilities
 httpx>=0.27.0,<1.0.0
 python-dotenv>=1.0.0,<2.0.0
+
+# API server (server.py — makes port 8002 serve /query; CLI mode unchanged)
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0

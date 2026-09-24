@@ -49,6 +49,53 @@ versions there is no automatic filtering.
 One caution: filtering out a *parent* span orphans its children into disconnected
 top-level traces, and Langfuse needs a root span to assemble a trace properly.
 
+### "Some of our empty spans are the ones holding the tree together. Now what?"
+
+Apply the rule above literally to a tool-calling agent and you will delete
+something you need. This demo's own **well**-instrumented run is the example: 17 of
+its 67 observations carry neither input nor output, and every one is a `step N`
+span the AI SDK emits per loop iteration.
+
+They are empty and **load-bearing**:
+
+```
+AGENT  invoke_agent
+├── SPAN  step 1
+│   ├── GENERATION  chat         ← the model asking for a tool
+│   └── TOOL        manage_cart  ← the tool it asked for, as a SIBLING
+└── SPAN  step 2
+    └── GENERATION  chat         ← what it decided after the result
+```
+
+Which is exactly the nesting the best-practices page asks for:
+
+> "A tool call should nest under the `agent` or `span` that orchestrates the step,
+> as a sibling of the `generation` that requested it, so the tree shows which step
+> each action belongs to instead of leaving tool calls dangling at the trace root."
+
+`step 1` *is* the orchestrating span. Drop it and you hit the caution above — its
+generation and tool are orphaned — and you lose the per-invocation interleaving
+that makes an agent loop debuggable at all (see
+[GOOD_TRACE.md defect 6](./GOOD_TRACE.md#6-the-agent-loop-flattened-into-one-generation)).
+
+**So read the rule as: carries nothing *and* organises nothing.** Structure counts
+as usefulness. Two tests that keep you honest:
+
+- does anything nest under it? then it earns its place, empty or not
+- would a reviewer lose the ability to tell which step an action belonged to?
+
+For real noise, `LangfuseSpanProcessor` takes a `shouldExportSpan` hook:
+
+```ts
+new LangfuseSpanProcessor({
+  shouldExportSpan: ({ otelSpan }) => otelSpan.name !== "GET /api/health",
+});
+```
+
+The honest cost, worth stating rather than hiding: those 17 spans are billable
+units carrying no data. That is the framework's choice rather than yours, and the
+tree is worth more than the ingest — but if you are counting units, count them.
+
 ### "We're carrying the whole conversation history into every turn's trace. Bad?"
 
 Yes, and the fix has a subtlety worth getting right, because "stop carrying history

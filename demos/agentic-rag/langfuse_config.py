@@ -16,7 +16,7 @@ Everything is a no-op when Langfuse keys are absent, so the agent still runs.
 
 import os
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Optional
 
 LANGFUSE_ENABLED = bool(
@@ -61,17 +61,27 @@ def trace_context(name: str, session_id: Optional[str] = None, tags=None, user_i
     if not LANGFUSE_ENABLED:
         yield
         return
+    # Guard only the SETUP of instrumentation — never the caller's block. Holding
+    # the `yield` inside `try: ... except Exception` routes any exception raised by
+    # the CALLER into this generator, where it is swallowed, printed as if Langfuse
+    # had failed, and followed by a second `yield` — which Python converts into
+    # "RuntimeError: generator didn't stop after throw()", destroying the real
+    # traceback. Enter the context eagerly and let the body's exceptions through.
+    stack = ExitStack()
     try:
         from langfuse import propagate_attributes
-        with propagate_attributes(
+        stack.enter_context(propagate_attributes(
             trace_name=name,
             session_id=session_id,
             user_id=user_id,
             tags=tags or ["agentic-rag", "demo"],
-        ):
-            yield
+        ))
     except Exception as e:  # pragma: no cover - defensive
-        print(f"Langfuse trace context failed: {e}")
+        print(f"Langfuse trace context unavailable: {e}")
+        stack.close()
+        yield
+        return
+    with stack:
         yield
 
 
@@ -87,12 +97,19 @@ def observe(name: str, as_type: str = "span", input=None):
     if client is None:
         yield None
         return
+    # Setup guarded, body not — see the note in trace_context().
+    stack = ExitStack()
     try:
-        with client.start_as_current_observation(as_type=as_type, name=name, input=input) as obs:
-            yield obs
+        obs = stack.enter_context(
+            client.start_as_current_observation(as_type=as_type, name=name, input=input)
+        )
     except Exception as e:  # pragma: no cover - defensive
-        print(f"Langfuse observation '{name}' failed: {e}")
+        print(f"Langfuse observation '{name}' unavailable: {e}")
+        stack.close()
         yield None
+        return
+    with stack:
+        yield obs
 
 
 def score_current_trace(name: str, value, comment: Optional[str] = None, data_type="NUMERIC"):

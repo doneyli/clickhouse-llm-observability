@@ -11,6 +11,14 @@
  *   tsx scripts/run-conversation.ts --list
  *   tsx scripts/run-conversation.ts --conversation dropped-dietary-constraint
  *   tsx scripts/run-conversation.ts --instrumentation broken
+ *   tsx scripts/run-conversation.ts --tag error-analysis --tag ea:pass-1
+ *
+ * `--tag` is repeatable and lands on every trace of the run, on top of the base
+ * tags and the `conversation:<id>` tag. Use it to make one batch of runs
+ * separable afterwards — an error-analysis cohort, a before/after prompt change
+ * — since tags are filterable in the UI and in the API. For a harder split, set
+ * LANGFUSE_TRACING_ENVIRONMENT, which the Langfuse span processor reads and
+ * which Langfuse filters on as a first-class dimension rather than a label.
  */
 import "../src/instrumentation.js";
 
@@ -23,7 +31,14 @@ import {
   LANGFUSE_SECRET_KEY,
   verifyProject,
 } from "../src/env.js";
-import { runTurn, type ChatMessage, type InstrumentationMode, type TurnResult } from "../src/assistant.js";
+import {
+  INSTRUMENTATION_MODES,
+  isInstrumentationMode,
+  runTurn,
+  type ChatMessage,
+  type InstrumentationMode,
+  type TurnResult,
+} from "../src/assistant.js";
 import { getSessionState, resetSessionState } from "../src/tools.js";
 import { OFFERS, formatMoney, getProduct } from "../src/catalog.js";
 import { CONVERSATIONS, getConversation, type Conversation } from "../src/conversations.js";
@@ -142,6 +157,10 @@ export async function driveConversation(opts: DriveOptions): Promise<TurnRecord[
       cartSkus: result.cartSkus,
       toolsCalled: result.toolsCalled,
       history: [...history],
+      // `runTurn` already reports the basket it ended the turn with, so take it
+      // from there rather than re-reading session state — one source, and no
+      // chance of the evaluator disagreeing with what the run printed.
+      cartSubtotalCents: result.cartSubtotalCents,
       ...(quoted !== undefined
         ? { quotedDiscountCents: quoted, actualDiscountCents: currentDiscountCents(sessionId) }
         : {}),
@@ -193,7 +212,8 @@ export function printTurn(record: TurnRecord): void {
   console.log(`  ${BOLD}shopper${OFF}  ${oneLine(message)}`);
   console.log(`  assistant  ${oneLine(result.answer)}`);
   console.log(
-    `  ${DIM}tools${OFF}      ${result.toolsCalled.join(", ") || "(none)"}`,
+    `  ${DIM}tools${OFF}      ${result.toolsCalled.join(", ") || "(none)"}` +
+      `  ${DIM}(${result.modelInvocations} model call(s))${OFF}`,
   );
   console.log(
     `  ${DIM}cart${OFF}       ${result.cartSkus.join(", ") || "(empty)"}  ` +
@@ -264,18 +284,30 @@ type Args = {
   mode: InstrumentationMode;
   conversationId: string | undefined;
   sessionId: string | undefined;
+  tags: string[];
   list: boolean;
 };
 
 export function parseArgs(argv: string[]): Args {
-  const args: Args = { mode: "good", conversationId: undefined, sessionId: undefined, list: false };
+  const args: Args = {
+    mode: "good",
+    conversationId: undefined,
+    sessionId: undefined,
+    tags: [],
+    list: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === "--list") args.list = true;
-    else if (flag === "--instrumentation" && value) {
-      if (value !== "good" && value !== "broken") {
-        throw new Error(`--instrumentation must be 'good' or 'broken', got '${value}'`);
+    else if (flag === "--tag" && value) {
+      args.tags.push(value);
+      i += 1;
+    } else if (flag === "--instrumentation" && value) {
+      if (!isInstrumentationMode(value)) {
+        throw new Error(
+          `--instrumentation must be one of ${INSTRUMENTATION_MODES.join(", ")}, got '${value}'`,
+        );
       }
       args.mode = value;
       i += 1;
@@ -321,11 +353,13 @@ async function main(): Promise<void> {
       `failure mode ${conversation.failureMode}`,
   );
   console.log(`  session ${sessionId}   user ${conversation.userId}`);
+  if (args.tags.length > 0) console.log(`  tags ${args.tags.join(" ")}`);
 
   const records = await driveConversation({
     conversation,
     sessionId,
     mode: args.mode,
+    extraTags: args.tags,
     onTurn: printTurn,
   });
 
@@ -337,6 +371,15 @@ async function main(): Promise<void> {
     console.log(
       `${DIM}  Broken mode: expect one trace name per turn, empty generations, and a ` +
         `session view that repeats the whole conversation on every turn.${OFF}`,
+    );
+  }
+  if (args.mode === "collapsed") {
+    const invocations = records.reduce((sum, r) => sum + r.result.modelInvocations, 0);
+    console.log(
+      `${DIM}  Collapsed mode: the app made ${invocations} model call(s) across ` +
+        `${records.length} turn(s). Every trace shows exactly ONE generation and no ` +
+        `tool observations — open a turn that used tools and note there is nothing ` +
+        `between the request and the final answer.${OFF}`,
     );
   }
 }

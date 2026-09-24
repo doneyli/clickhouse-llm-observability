@@ -8,19 +8,26 @@ This demo exists to answer two questions that come up in almost every first
 conversation with a team putting an AI assistant into production:
 
 1. **[What does a good trace look like?](docs/GOOD_TRACE.md)** — and what do you do
-   when yours does not. The demo ships the *same assistant* instrumented two ways:
-   one with five real defects, one correct. Same model, same tools, same answers —
-   only one of them is measurable.
+   when yours does not. The demo ships the *same assistant* instrumented three
+   ways: one with five real defects, one with a sixth that looks fine, one correct.
+   Same model, same tools, same answers — only one of them is measurable.
 2. **[Which evaluator should I build first?](docs/FIRST_EVALUATOR.md)** — the answer
    here is four deterministic checks before the first model call, and the reasoning
    generalises well beyond groceries.
 
 There is also **[CUSTOMER_QUESTIONS.md](docs/CUSTOMER_QUESTIONS.md)** — the
-questions engineering teams actually ask, with worked answers and the code.
+questions engineering teams actually ask, with worked answers and the code — and
+**[ERROR_ANALYSIS.md](docs/ERROR_ANALYSIS.md)**, which covers the step that comes
+*before* picking an evaluator: reading traces, clustering what you find into named
+failure categories, and counting them. It also documents how error-analysis
+traffic is labelled here so a cohort can be filtered back out. To present that
+finding rather than rebuild it, use
+**[ERROR_ANALYSIS_RUNBOOK.md](ERROR_ANALYSIS_RUNBOOK.md)** — 20 minutes, five
+stops, live Langfuse links.
 
 > **Not grocery-specific.** The domain is a shopping cart, but every lesson here is
 > about conversational agents with tools and multi-turn state. A support assistant,
-> a booking agent, or a banking assistant hits the same five defects and benefits
+> a booking agent, or a banking assistant hits the same six defects and benefits
 > from the same evaluator order.
 
 ---
@@ -38,6 +45,9 @@ So the demo makes that concrete rather than describing it:
 npm run chat:broken     # the same conversation, badly instrumented
 npm run chat            # the same conversation, correctly instrumented
 npm run compare         # both, side by side, with the numbers
+
+npm run chat:collapsed  # defect 6 on its own: the agent loop as one generation
+npm run compare:loop    # that against the good run — only the shape rows move
 ```
 
 `npm run compare` queries the Langfuse API and prints a table proving the
@@ -45,7 +55,40 @@ difference — distinct trace names, generations with null I/O, observations mis
 `sessionId`, whether the root carries input and output. It counts rather than
 asserts, because that is the habit worth building.
 
-The five defects, all reproduced faithfully (details and fixes in
+### Telling the runs apart in the Langfuse UI
+
+Every run is tagged, and **the tag is the reliable handle** — start there:
+
+| Filter | Shows |
+|---|---|
+| tag `compare:good` | the correctly-instrumented comparison run |
+| tag `compare:broken` | the five-defect run |
+| tag `compare:collapsed` | the flattened-loop run |
+| tag `grocery-assistant` | everything this demo has ever emitted |
+| tag `conversation:<id>` | one scenario, e.g. `conversation:unverified-cart-claim` |
+
+Each run also gets its own session id, printed at the end of the run and shown in
+the Sessions view: `cmp-good-<stamp>` / `cmp-broken-<stamp>` / `cmp-collapsed-<stamp>`
+for comparisons (one stamp per pair, so they sort together), and
+`<mode>-<conversation>-<stamp>` for a standalone `npm run chat`.
+
+**Do not try to find the broken run by session.** It carries no `sessionId` at
+all — that is defect 5 — so the Sessions view cannot see it and its session link
+opens empty. That is the defect, not a broken link. Two more ways to spot broken
+traces once you are in the Traces table:
+
+- **the names give it away** — every broken trace is called `chat: <the shopper's
+  first 60 characters>`, so the Name column is a list of unique strings, while
+  good and collapsed traces are all called `handle-chat-message`
+- **the Input and Output columns are blank** for broken traces, and populated for
+  the other two
+
+Good and collapsed traces are *deliberately* hard to tell apart from the table —
+same name, same populated columns, session grouping working. You have to open a
+turn that called tools and count the generations. That is the whole point of
+defect 6, and why it needs its own comparison rather than a glance.
+
+The six defects, all reproduced faithfully (details and fixes in
 [docs/GOOD_TRACE.md](docs/GOOD_TRACE.md)):
 
 | # | Defect | What it costs you |
@@ -55,10 +98,18 @@ The five defects, all reproduced faithfully (details and fixes in
 | 3 | No input/output on the root observation | Blank Traces table; root-targeted judges see nothing |
 | 4 | Conversation history restated on every root | The Sessions view becomes unreadable |
 | 5 | `sessionId` on the root only, not propagated | Observation filters miss; cost never rolls up to the session |
+| 6 | The agent loop collapsed into one generation | No per-step reasoning, no per-step cost — and the trace looks fine |
 
 Defect 1 is reproduced with the AI SDK's real `recordInputs`/`recordOutputs: false`
 switches — the way it usually happens: turned off early for PII, never turned back
 on.
+
+Defect 6 lives in its own mode (`collapsed`) rather than in `broken`, because it
+and defect 1 cannot coexist in one trace: defect 1's lesson is a generation per
+model call with every one of them empty, and defect 6 is the absence of per-call
+generations altogether. `collapsed` is therefore instrumented **correctly in every
+other respect**, which makes the loop shape the only variable — the defect that
+passes code review.
 
 ---
 
@@ -128,7 +179,7 @@ src/
   instrumentation.ts         NodeSDK + LangfuseSpanProcessor + registerTelemetry
   catalog.ts                 the fictional catalog, order history, and offers
   tools.ts                   6 tools; enum'd vocabularies, unsupported filters reported
-  assistant.ts               runTurn(), instrumented two ways on purpose
+  assistant.ts               runTurn(), instrumented three ways on purpose
   conversations.ts           5 multi-turn shopper fixtures, one per failure mode
   scoring.ts                 verdicts -> Langfuse scores (observation / trace / session)
   evaluators/
