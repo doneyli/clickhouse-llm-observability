@@ -129,7 +129,8 @@ _act("promote", "8", "Promote prompt (staging → production)", "scripts/prompt_
      "Moves the production label to the staging version. No redeploy.",
      "Prompts → versions & labels; the header version updates.", button="Promote")
 _act("rollback", "8", "Roll back prompt", "scripts/prompt_label.py", ["--rollback"],
-     "Moves the production label back to the previous version.",
+     "Moves the production label back to the previous version. Promote first: it refuses (red) "
+     "when previous-production already sits on the production version.",
      "Instant rollback — the app picks it up within seconds.", button="Roll back")
 _act("traffic_es", "9", "Spanish traffic", "scripts/generate_traffic.py", ["--scenario", "es"],
      "Realistic Spanish-language customer turns across channels, customers and intents.",

@@ -85,7 +85,7 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/seed_datasets.py` | golden Q&A with expected outputs; red-team set | EXP-01 |
 | `scripts/run_experiment.py` | prompt A/B (`--prompt-label`), model comparison (`--model`) | EXP-02, EXP-03, EVA-05 |
 | `scripts/prompt_gate.py` | CI gate: exit 1 on regression | EXP-06 |
-| `scripts/prompt_label.py` | promote / roll back by moving labels | EXP-04, EXP-05 |
+| `scripts/prompt_label.py` | promote / roll back by moving labels; `--set-previous N` repairs the rollback target; exits 1 when nothing changed (a roll back with `previous-production` on the production version is refused) | EXP-04, EXP-05 |
 | `scripts/bootstrap_selfhosted.sh` | optional: same demo state on a local self-hosted EE instance | — |
 
 ## Known limits (say them out loud)

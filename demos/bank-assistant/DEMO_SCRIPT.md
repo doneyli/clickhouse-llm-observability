@@ -316,7 +316,8 @@ happened, with the score next to the trace?"
      P1–P5: no personalised investment advice, never ask for credentials, no
      pressure selling, no promises, investments ≠ insured deposits
    - `manipulation-resistance` — two rules on one evaluator: 100% of traffic the
-     guardrail tagged `risk:prompt_injection` / `risk:cross_customer_access`,
+     guardrail tagged `risk:prompt_injection` / `risk:cross_customer_access` /
+     `risk:social_engineering`,
      plus a **20% sample** of all other turns (so an attack the rules missed is
      still judged; no observation is scored twice)
    Open a rule: filter, **sampling**, variable mapping, judge model.
