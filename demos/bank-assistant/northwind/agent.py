@@ -25,6 +25,7 @@ What lands in Langfuse for ONE customer turn (one trace):
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -45,7 +46,20 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 
 from northwind import business, config, knowledge, lang, masking, prompts
 
-TRACE_NAME = "northwind-assistant"  # stable, low-cardinality — the question goes in input
+TRACE_NAME = "northwind-assistant"
+
+# Release knobs. The defaults are the CURRENT release (1.6.1); earlier releases are
+# reproduced for the story arcs with env overrides (see DEMO_SCRIPT "Story arc"):
+#   1.5.0  NORTHWIND_TX_DEFAULT_DAYS=30   (transaction lookback shorter than the 60-day dispute window)
+#   1.6.0  NORTHWIND_RETRIEVAL_K=8 NORTHWIND_RETRIEVAL_MIN_SCORE=0   ("more context" — a cost regression)
+TX_DEFAULT_DAYS = int(os.environ.get("NORTHWIND_TX_DEFAULT_DAYS", "60"))
+RETRIEVAL_K = int(os.environ.get("NORTHWIND_RETRIEVAL_K", "3"))
+RETRIEVAL_MIN_SCORE = float(os.environ.get("NORTHWIND_RETRIEVAL_MIN_SCORE", "0.08"))
+
+# List prices (USD per 1M tokens) for the per-turn cost score — an estimate for
+# charting; the trace's own cost (computed by Langfuse) is authoritative.
+_PRICE = {"claude-sonnet-4-6": (3.0, 15.0), "claude-haiku-4-5": (1.0, 5.0), "gpt-4.1": (2.0, 8.0),
+          "gpt-4.1-mini": (0.4, 1.6)}  # stable, low-cardinality — the question goes in input
 
 REFUSAL = {
     "en": ("I can't help with that request. I can only help with your own Northwind Bank accounts "
@@ -167,8 +181,9 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
         Returns articles with ids like KB-102 that you must cite."""
         used.append("search_knowledge_base")
         with _nest(callbacks), langfuse.start_as_current_observation(as_type="retriever", name="kb-retrieval",
-                                                   input={"query": query, "k": 3}) as r:
-            docs = knowledge.search(query, k=3)
+                                                   input={"query": query, "k": RETRIEVAL_K,
+                                                          "min_score": RETRIEVAL_MIN_SCORE}) as r:
+            docs = knowledge.search(query, k=RETRIEVAL_K, min_score=RETRIEVAL_MIN_SCORE)
             r.update(output={"documents": [{k: d[k] for k in ("id", "title", "source", "score", "effective_date")}
                                            for d in docs]},
                      metadata={"index": "help-center-tfidf", "documents_returned": len(docs)})
@@ -209,7 +224,8 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
         return await _mcp("list_accounts", {}, callbacks)
 
     @tool
-    async def get_recent_transactions(account_id: str, days: int = 30, callbacks: Callbacks = None) -> dict:
+    async def get_recent_transactions(account_id: str, days: int = TX_DEFAULT_DAYS,
+                                      callbacks: Callbacks = None) -> dict:
         """Recent transactions of one of the customer's accounts. Use list_accounts first to get ids."""
         return await _mcp("get_recent_transactions", {"account_id": account_id, "days": days}, callbacks)
 
@@ -394,8 +410,13 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
             output_leak=bool(outcome.get("leaked")), advice_language=bool(outcome.get("advice_language")),
             tool_errors=sum(1 for rs in tool_results.values() for r in rs if not business.tool_succeeded(r)),
             callback_topics=[r.get("topic", "") for r in tool_results.get("schedule_callback", []) if isinstance(r, dict)],
-            upsell=_unsolicited_upsell(message, answer), pii_shared=check["pii_shared"], answer=answer)
+            upsell=_unsolicited_upsell(message, answer), pii_shared=check["pii_shared"], answer=answer,
+            dispute_requested=bool(business.DISPUTE_REQUEST.search(message)) and not check["blocked"])
         _score_business(langfuse, trace_id, obs_id, biz)
+        _score_efficiency(langfuse, trace_id, obs_id, state["messages"], len(history or []) + 1, model,
+                          (_now_ms() - t0) / 1000.0)
+        _score_dispute(langfuse, trace_id, obs_id, message, used,
+                       business.evidence_tool_results(evidence), check["blocked"], answer)
     if error is not None:
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
@@ -462,3 +483,29 @@ def _score_business(langfuse, trace_id, obs_id, biz: dict):
                if biz["task-outcome"] == "advisor-lead" else
                f"avoided contact cost (demo assumption: USD {business.COST_PER_CONTACT} per contact × "
                f"deflection credit for '{biz['task-outcome']}')"))
+
+
+def _score_dispute(langfuse, trace_id, obs_id, message, used, tool_results, blocked, answer=""):
+    """Dispute requests: 1 = a dispute was actually opened in this turn (self-service)."""
+    if blocked or not (business.DISPUTE_REQUEST.search(message) or "open_dispute" in used):
+        return
+    opened = any(business.tool_succeeded(r) for r in tool_results.get("open_dispute", []))
+    if not opened and business.dispute_awaiting_confirmation(answer):
+        return  # found the charge and asked to confirm — judged on the turn that opens it
+    windows = [r.get("window_days") for r in tool_results.get("get_recent_transactions", []) if isinstance(r, dict)]
+    langfuse.create_score(trace_id=trace_id, observation_id=obs_id, name="dispute-resolved",
+                          value=1.0 if opened else 0.0, data_type="NUMERIC",
+                          comment=f"open_dispute succeeded={opened}; transaction lookback windows={windows}")
+
+
+def _score_efficiency(langfuse, trace_id, obs_id, messages, first_new: int, model: str, seconds: float):
+    """Per-turn cost / LLM calls / latency — chartable by trace version (cost regressions)."""
+    new = [m for m in messages[first_new:] if isinstance(m, AIMessage) and getattr(m, "usage_metadata", None)]
+    tin = sum(m.usage_metadata.get("input_tokens", 0) for m in new)
+    tout = sum(m.usage_metadata.get("output_tokens", 0) for m in new)
+    pin, pout = _PRICE.get(model, (3.0, 15.0))
+    s = lambda **kw: langfuse.create_score(trace_id=trace_id, observation_id=obs_id, data_type="NUMERIC", **kw)  # noqa: E731
+    s(name="turn-cost-usd", value=round((tin * pin + tout * pout) / 1e6, 6),
+      comment=f"{tin} input + {tout} output tokens at list price ({model}); trace cost is authoritative")
+    s(name="llm-calls", value=float(len(new)))
+    s(name="turn-latency-s", value=round(seconds, 2))

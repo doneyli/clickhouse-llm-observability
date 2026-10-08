@@ -89,7 +89,7 @@ PROJECT_ID = env("LANGFUSE_PROJECT_ID", "retail-assistant")
 # NORTHWIND_ENVIRONMENT / NORTHWIND_SAMPLE_RATE (process env) override the .env
 # defaults for one run — e.g. a staging batch, or a 25%-sampled batch.
 ENVIRONMENT = os.environ.get("NORTHWIND_ENVIRONMENT") or env("LANGFUSE_TRACING_ENVIRONMENT", "production")
-RELEASE = env("NORTHWIND_RELEASE", "assistant-1.5.0")  # 1.5.0: guardrail enforces the card-data warning
+RELEASE = env("NORTHWIND_RELEASE", "assistant-1.6.1")  # see agent.py release knobs; 1.5.0 card-data warning guardrail
 SAMPLE_RATE = float(os.environ.get("NORTHWIND_SAMPLE_RATE") or env("LANGFUSE_SAMPLE_RATE", "1.0"))
 os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = ENVIRONMENT
 os.environ["LANGFUSE_SAMPLE_RATE"] = str(SAMPLE_RATE)
@@ -177,7 +177,7 @@ def tracer_provider(service_name: str = "northwind-assistant"):
         "service.version": RELEASE,
         "deployment.environment": ENVIRONMENT,
     }))
-    if APM_OTLP_ENDPOINT:
+    if APM_OTLP_ENDPOINT and APM_OTLP_ENDPOINT.lower() not in ("none", "off", "disabled"):  # CI: no APM
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         headers = dict(h.split("=", 1) for h in APM_OTLP_HEADERS.split(",") if "=" in h)
         _provider.add_span_processor(BatchSpanProcessor(

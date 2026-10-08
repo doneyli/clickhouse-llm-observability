@@ -56,7 +56,9 @@ def main():
     for v in (meta[0]["versions"] if meta else []):
         for l in get(f"/api/public/v2/prompts/northwind-assistant-system", version=v).get("labels", []):
             labels[l] = v
-    check(labels.get("production") == 1, "prompt production → v1", f"labels={labels}")
+    check("production" in labels, f"prompt production → v{labels.get('production')}", f"labels={labels}")
+    check(labels.get("baseline") == 1, "prompt baseline → v1 (the version with the four business issues)",
+          required=False)
     check(labels.get("staging") == 5, "prompt staging → v5 (release candidate)", required=False)
     check("staging" in labels and "development" in labels, "prompt staging + development labels exist")
 

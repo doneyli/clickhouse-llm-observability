@@ -1,2 +1,4 @@
 # Keep customer-specific notes out of the public repo
 customer/
+# Local training media (shows the presenter's own Langfuse UI)
+media/

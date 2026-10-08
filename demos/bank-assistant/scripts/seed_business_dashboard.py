@@ -5,7 +5,11 @@ containment, outcomes, failure modes — and the same metrics split by TRACE
 VERSION (release + prompt version), which is how a canary of a new prompt is
 compared with production on live traffic. Every number drills down to traces.
 
-Idempotent by dashboard name (re-creates it). Unstable dashboards API.
+Idempotent by dashboard name: a new dashboard gets every widget; an EXISTING one
+keeps its widgets and layout and only gets the widgets it is missing (matched by
+widget name), placed in free rows below — so a story arc's widgets can be added
+without re-creating a dashboard a presenter has already arranged. Nothing is
+deleted. Unstable dashboards API.
 """
 import sys
 from pathlib import Path
@@ -60,34 +64,119 @@ WIDGETS = [
      [], [{"measure": "value", "agg": "sum"}], f("value-usd"), 6, 13, 6, 5),
 ]
 
+# Story arcs 5 (disputes leak to humans) and 6 (cost regression after a "recall"
+# release) — rows below the original layout (which ends at y=18).
+TV = [{"field": "traceVersion"}]
+AVG = [{"measure": "value", "agg": "avg"}]
+# Each arc compares releases on the SAME replayed customer journeys: arc 5 replays the
+# dispute conversations (tag scenario:disputes), arc 6 the core + Spanish ones
+# (scripts/run_cost_arc.sh). Without the tag filter the bars mix in the other arc's
+# traffic — dispute turns make more LLM calls per turn; core turns that stop to
+# confirm a dispute lower the per-turn dispute rate — and the traffic mix, not the
+# release, sets the bar height.
+SAME_MIX = [{"column": "tags", "operator": "any of", "value": ["scenario:core", "scenario:es"], "type": "arrayOptions"}]
+DISPUTE_MIX = [{"column": "tags", "operator": "any of", "value": ["scenario:disputes"], "type": "arrayOptions"}]
+MIX_NOTE = " Same replayed journeys per release (tags scenario:core/es), so traffic mix does not confound it — arc 6"
+WIDGETS += [
+    ("Dispute self-service rate by trace version",
+     "Dispute requests where the assistant actually opened the dispute in the turn (avg of `dispute-resolved`). "
+     "Arc 5's replayed dispute journeys (tag scenario:disputes), the same in every release — arc 5",
+     "scores-numeric", "VERTICAL_BAR", TV, AVG, f("dispute-resolved") + DISPUTE_MIX, 0, 18, 3, 5),
+    ("Cost per turn (USD) by trace version",
+     "List-price estimate from each turn's token usage (avg of `turn-cost-usd`); Langfuse-computed model cost "
+     "is in LLM spend." + MIX_NOTE,
+     "scores-numeric", "VERTICAL_BAR", TV, AVG, f("turn-cost-usd") + SAME_MIX, 3, 18, 3, 5),
+    ("LLM calls per turn by trace version", "Model calls per turn (avg of `llm-calls`)." + MIX_NOTE,
+     "scores-numeric", "VERTICAL_BAR", TV, AVG, f("llm-calls") + SAME_MIX, 6, 18, 3, 5),
+    ("Turn latency (s) by trace version", "End-to-end seconds per turn (avg of `turn-latency-s`)." + MIX_NOTE,
+     "scores-numeric", "VERTICAL_BAR", TV, AVG, f("turn-latency-s") + SAME_MIX, 9, 18, 3, 5),
+    ("Cost per turn over time", "Avg `turn-cost-usd`, one line per trace version (release + prompt)." + MIX_NOTE,
+     "scores-numeric", "LINE_TIME_SERIES", TV, AVG, f("turn-cost-usd") + SAME_MIX, 0, 23, 12, 5),
+]
+
+
+def _overlaps(a, b):
+    return a["x"] < b["x"] + b["width"] and b["x"] < a["x"] + a["width"] and \
+        a["y"] < b["y"] + b["height"] and b["y"] < a["y"] + a["height"]
+
+
+def _free_slot(x, y, w, h, taken):
+    """The declared slot, pushed down below anything it would overlap."""
+    rect = {"x": x, "y": y, "width": w, "height": h}
+    while True:
+        hit = [t for t in taken if _overlaps(rect, t)]
+        if not hit:
+            return rect
+        rect["y"] = max(t["y"] + t["height"] for t in hit)
+
+
+def _body(title, desc, view, chart, dims, metrics, filters):
+    return {"name": f"NW-BIZ · {title}", "description": desc, "view": view, "chartType": chart,
+            "dimensions": dims, "metrics": metrics, "filters": filters, "chartConfig": {"type": chart}}
+
+
+def _create_widget(title, desc, view, chart, dims, metrics, filters, reuse):
+    """Create the widget (or reuse an unplaced one with the same name); falls back to one dimension."""
+    name = f"NW-BIZ · {title}"
+    if name in reuse:
+        return reuse[name]
+    body = _body(title, desc, view, chart, dims, metrics, filters)
+    try:
+        return config.api("POST", f"{U}/dashboard-widgets", body)["id"]
+    except RuntimeError as e:
+        if not dims:
+            print(f"  ! {title}: {str(e)[:200]}"); return None
+        body["dimensions"] = dims[:-1]  # a view may reject the (last) dimension — keep the chart
+        try:
+            wid = config.api("POST", f"{U}/dashboard-widgets", body)["id"]
+            print(f"  ~ {title}: created without dimension {dims[-1]['field']} ({str(e)[:120]})")
+            return wid
+        except RuntimeError as e2:
+            print(f"  ! {title}: {str(e2)[:200]}"); return None
+
 
 def main():
     dashes = config.api("GET", f"{U}/dashboards", params={"limit": 100}).get("data", [])
-    old = next((d for d in dashes if d.get("name") == NAME), None)
-    if old:
-        print(f"= dashboard exists ({old['id']}) — adding a fresh copy is not needed; delete it in the UI to re-seed")
-        print(f"Dashboard: {config.LANGFUSE_BASE_URL}/project/{config.project_id()}/dashboards/{old['id']}")
-        return
-    dash = config.api("POST", f"{U}/dashboards", {"name": NAME, "description":
-                      "Value vs spend, containment, outcomes, failure modes — and each split by prompt version"})
-    print(f"+ dashboard {dash['id']}")
+    dash = next((d for d in dashes if d.get("name") == NAME), None)
+    taken, have = [], set()
+    if dash:
+        placements = (config.api("GET", f"{U}/dashboards/{dash['id']}").get("definition") or {}).get("widgets", [])
+        spec = {f"NW-BIZ · {w[0]}": w for w in WIDGETS}
+        for p in placements:
+            taken.append({k: p[k] for k in ("x", "y", "width", "height")})
+            if not p.get("widgetId"):
+                continue
+            cur = config.api("GET", f"{U}/dashboard-widgets/{p['widgetId']}")
+            have.add(cur.get("name"))
+            want = spec.get(cur.get("name"))
+            if want:  # keep a placed widget's definition in sync with this file — in place, never deleted
+                body = _body(*want[:7])
+                drift = [k for k in ("description", "view", "chartType", "dimensions", "metrics", "filters")
+                         if cur.get(k) != body[k]]
+                if drift:
+                    config.api("PATCH", f"{U}/dashboard-widgets/{p['widgetId']}", body)
+                    print(f"  ~ {want[0]}: updated {', '.join(drift)}")
+        print(f"= dashboard exists ({dash['id']}) with {len(placements)} widgets — adding the missing ones")
+    else:
+        dash = config.api("POST", f"{U}/dashboards", {"name": NAME, "description":
+                          "Value vs spend, containment, outcomes, failure modes — and each split by trace version"})
+        print(f"+ dashboard {dash['id']}")
+    # Widgets created by an earlier, interrupted run (exist, but not on this dashboard).
+    listed = config.api("GET", f"{U}/dashboard-widgets", params={"limit": 100}).get("data", [])
+    reuse = {w["name"]: w["id"] for w in listed if w.get("name", "").startswith("NW-BIZ · ") and w["name"] not in have}
+    added = 0
     for title, desc, view, chart, dims, metrics, filters, x, y, w, h in WIDGETS:
-        body = {"name": f"NW-BIZ · {title}", "description": desc, "view": view, "chartType": chart,
-                "dimensions": dims, "metrics": metrics, "filters": filters, "chartConfig": {"type": chart}}
-        try:
-            wid = config.api("POST", f"{U}/dashboard-widgets", body)["id"]
-        except RuntimeError as e:
-            if len(dims) > 1:  # fall back to one dimension if the view rejects two
-                body["dimensions"] = dims[:1]
-                try:
-                    wid = config.api("POST", f"{U}/dashboard-widgets", body)["id"]
-                except RuntimeError as e2:
-                    print(f"  ! {title}: {str(e2)[:200]}"); continue
-            else:
-                print(f"  ! {title}: {str(e)[:200]}"); continue
-        config.api("POST", f"{U}/dashboards/{dash['id']}/placements",
-                   {"type": "widget", "widgetId": wid, "x": x, "y": y, "width": w, "height": h})
-        print(f"  + {title}")
+        if f"NW-BIZ · {title}" in have:
+            continue
+        wid = _create_widget(title, desc, view, chart, dims, metrics, filters, reuse)
+        if not wid:
+            continue
+        slot = _free_slot(x, y, w, h, taken)
+        config.api("POST", f"{U}/dashboards/{dash['id']}/placements", {"type": "widget", "widgetId": wid, **slot})
+        taken.append(slot)
+        added += 1
+        print(f"  + {title}  (x={slot['x']} y={slot['y']} {slot['width']}x{slot['height']})")
+    print(f"{added} widget(s) added; {len(have)} already present")
     print(f"Dashboard: {config.LANGFUSE_BASE_URL}/project/{config.project_id()}/dashboards/{dash['id']}")
 
 

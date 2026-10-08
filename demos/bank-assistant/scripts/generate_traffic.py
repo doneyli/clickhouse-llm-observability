@@ -3,6 +3,12 @@
   --scenario core       multi-turn customer sessions across channels (default)
   --scenario security   red-team: prompt injection, cross-customer access, social engineering
   --scenario pii        customers pasting card numbers, IDs, emails (masking demo)
+  --scenario disputes   story arc 5: disputes of charges older than 30 days but inside
+                        the 60-day dispute window, EN + ES, plus recent-charge controls.
+                        Reproduce a release with env vars, e.g. before / after:
+                          NORTHWIND_RELEASE=assistant-1.5.0 NORTHWIND_TX_DEFAULT_DAYS=30
+                          NORTHWIND_RELEASE=assistant-1.5.1 NORTHWIND_TX_DEFAULT_DAYS=60
+                        with --prompt-label baseline (prompt v1) on both, so only the release differs
   --scenario all        everything
   --n N                 cap the number of conversations
   --environment ENV     tag traces with another environment (e.g. staging)
@@ -16,12 +22,13 @@ import argparse
 import asyncio
 import os
 import random
+import re
 import sys
 import uuid
 from pathlib import Path
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", default="core", choices=["core", "security", "pii", "es", "business", "all"])
+ap.add_argument("--scenario", default="core", choices=["core", "security", "pii", "es", "business", "disputes", "all"])
 ap.add_argument("--n", type=int, default=None)
 ap.add_argument("--environment", default=None)
 ap.add_argument("--sample-rate", type=float, default=None)
@@ -112,6 +119,56 @@ BUSINESS = [
     ("C-1001", "web", ["I don't recognise a charge from UNKNOWN MERCHANT LAGOS on my checking account — please dispute it."]),
 ]
 
+class IfAgentShows:
+    """A customer turn sent ONLY when the previous answer showed the customer the
+    expected transaction (its id or amount) without opening the dispute yet — the
+    customer confirming "yes, that one". Never confirms a different charge, so a
+    wrong suggestion is not turned into a dispute."""
+
+    def __init__(self, text: str, tx: str, amount: str):
+        self.text, self.tx, self.amount = text, tx, amount
+
+    def wanted(self, last: dict | None) -> bool:
+        if not last or last["blocked"] or "open_dispute" in last["tools_used"]:
+            return False
+        return bool(re.search(rf"\b{self.tx}\b|(?<![\d.,]){self.amount}(?!\d)", last["answer"]))
+
+
+_YES = {"en": "Yes, that's the one — please open the dispute.", "es": "Sí, ese es — por favor abra la disputa."}
+
+
+def _dispute(customer, channel, lang, msg, tx, amount):
+    return (customer, channel, [msg, IfAgentShows(_YES[lang], tx, amount)])
+
+
+# Story arc 5 — "Disputes leak to humans". The customer names the merchant, never
+# the date. The older charges (38–52 days, see northwind/mcp_server.py) are inside
+# the 60-day dispute window (KB-102) but outside a 30-day transaction lookback.
+# Amount patterns accept 1,120.00 / 1.120,00 / 1120 and 389.99 / 389,99.
+DISPUTES = [
+    _dispute("C-1001", "web", "en", "I want to dispute the GADGETSTORE ONLINE charge on my checking — I never received the order.",
+             "TX-87950", r"389[.,]99"),
+    _dispute("C-1002", "app", "en", "Please dispute the TRAVELHUB BOOKING charge on my Premier checking. The booking was cancelled but I was still charged.",
+             "TX-77150", r"1[,.]?120"),
+    _dispute("C-1003", "whatsapp", "en", "FITCLUB MEMBERSHIP charged my checking account after I cancelled. I want to dispute that charge.",
+             "TX-65890", r"59[.,]90?"),
+    _dispute("C-1004", "web", "en", "I'd like to dispute the ELECTROMART charge on my account — the TV arrived broken and they won't refund me.",
+             "TX-55300", r"749"),
+    _dispute("C-1001", "app", "es", "Quiero disputar el cargo de GADGETSTORE ONLINE en mi cuenta corriente — nunca recibí el pedido.",
+             "TX-87950", r"389[.,]99"),
+    _dispute("C-1002", "web", "es", "Por favor, dispute el cargo de TRAVELHUB BOOKING en mi cuenta Premier: la reserva se canceló y aun así me cobraron.",
+             "TX-77150", r"1[,.]?120"),
+    _dispute("C-1003", "app", "es", "Cancelé el gimnasio, pero FITCLUB MEMBERSHIP me siguió cobrando en mi cuenta corriente. Quiero disputar ese cargo.",
+             "TX-65890", r"59[.,]90?"),
+    _dispute("C-1004", "whatsapp", "es", "Quiero disputar el cargo de ELECTROMART en mi cuenta: el televisor llegó roto y no me devuelven el dinero.",
+             "TX-55300", r"749"),
+    # controls — recent charges, inside any lookback: work in every release
+    _dispute("C-1001", "web", "en", "I don't recognise the UNKNOWN MERCHANT LAGOS charge on my checking account — please dispute it.",
+             "TX-88101", r"412"),
+    _dispute("C-1001", "app", "es", "Me cobraron dos veces STREAMFLIX esta semana en mi cuenta corriente. Por favor dispute el cargo duplicado.",
+             "TX-8811[67]", r"15[.,]99"),
+]
+
 PII = [
     ("C-1001", "web", ["My card number is 4111 1111 1111 1111 and the CVV is 123 — is it blocked?"]),
     ("C-1002", "app", ["My email is ben.okafor@example.com, please send me the international wire fee schedule."]),
@@ -121,8 +178,8 @@ PII = [
 
 
 def pick() -> list:
-    sets = {"core": CORE, "security": SECURITY, "pii": PII, "es": ES, "business": BUSINESS,
-            "all": CORE + SECURITY + PII + ES + BUSINESS}[args.scenario]
+    sets = {"core": CORE, "security": SECURITY, "pii": PII, "es": ES, "business": BUSINESS, "disputes": DISPUTES,
+            "all": CORE + SECURITY + PII + ES + BUSINESS + DISPUTES}[args.scenario]
     convs = list(sets)
     if args.n:
         rng = random.Random(args.seed)
@@ -149,7 +206,12 @@ async def conversation(sem, lf, customer, channel, turns, tag):
     async with sem:
         session = f"sess-{uuid.uuid4().hex[:10]}"
         history = []
+        r = None
         for msg in turns:
+            if isinstance(msg, IfAgentShows):
+                if not msg.wanted(r):
+                    break  # nothing to confirm — the customer leaves (and will call)
+                msg = msg.text
             r = await agent.run_turn(msg, customer_id=customer, session_id=session, history=history,
                                      channel=channel, prompt_label=args.prompt_label, tags=[tag])
             history += [{"role": "user", "content": msg}, {"role": "assistant", "content": r["answer"]}]

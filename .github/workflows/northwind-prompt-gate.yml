@@ -1,18 +1,21 @@
 # Northwind Bank demo — prompt quality gate in CI (EXP-06).
 #
-# Langfuse fires a GitHub `repository_dispatch` when a prompt version or label
-# changes (Prompts → Automations → GitHub Repository Dispatch, event type
-# `northwind-prompt-update`). This workflow runs the golden dataset(s) against the
-# labelled prompt and FAILS on a regression, which blocks the promotion job.
+# WHAT IT DOES
+#   A Langfuse automation (Prompts → Automations → GitHub Repository Dispatch,
+#   event type `northwind-prompt-update`) fires on every prompt version change.
+#   This workflow reads the prompt + labels from the event payload, runs the
+#   English AND Spanish golden datasets against that labelled version, compares
+#   the run-level averages with demos/bank-assistant/cicd/thresholds.json, and
+#   FAILS on a regression — which blocks the "Ship it" job.
 #
-# Setup (once):
-#   1. Repo secrets: NORTHWIND_LANGFUSE_BASE_URL, NORTHWIND_LANGFUSE_PUBLIC_KEY,
-#      NORTHWIND_LANGFUSE_SECRET_KEY, ANTHROPIC_API_KEY (and OPENAI_API_KEY for
-#      model comparisons).
-#   2. Langfuse automation → GitHub Repository Dispatch with a PAT that can
-#      trigger workflows on this repo.
-# Demo without touching prompts: Actions → this workflow → Run workflow →
-# prompt label `development` → watch the gate fail.
+# SETUP (once)
+#   Repo secrets: NORTHWIND_LANGFUSE_BASE_URL, NORTHWIND_LANGFUSE_PUBLIC_KEY,
+#   NORTHWIND_LANGFUSE_SECRET_KEY, ANTHROPIC_API_KEY (+ OPENAI_API_KEY optional).
+#   Langfuse automation as above, with a GitHub token for this repo.
+#
+# DEMO TIP
+#   Actions → Northwind prompt gate → Run workflow → pick `development` to show
+#   the gate BLOCKING the regression prompt, `staging` to show it passing.
 name: Northwind prompt gate
 
 on:
@@ -25,29 +28,101 @@ on:
         required: true
         default: staging
         type: choice
-        options: [staging, development, production]
+        options: [staging, development, production, baseline]
 
+# A burst of label moves (one UI action fires two events) would queue several
+# full eval runs — each costs real LLM tokens. Keep only the newest per prompt.
 concurrency:
-  group: northwind-gate-${{ github.event.inputs.prompt_label || 'dispatch' }}
+  group: northwind-gate-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_label }}
   cancel-in-progress: true
 
 jobs:
   gate:
+    name: Evaluate prompt against the quality bar (EN + ES)
     runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.which.outputs.label }}
+      is_production: ${{ steps.which.outputs.is_production }}
+      skip: ${{ steps.which.outputs.skip }}
     defaults:
       run:
         working-directory: demos/bank-assistant
     env:
       NORTHWIND_PROFILE: cloud
-      LABEL: ${{ github.event.inputs.prompt_label || 'staging' }}
+      APM_OTLP_ENDPOINT: none   # no APM collector on the runner
     steps:
       - uses: actions/checkout@v4
+
+      # Decide what to gate. The automation fires for EVERY prompt change in the
+      # project, so guard: wrong prompt → skip; no label we can resolve → skip.
+      # Gating an unresolvable label would silently grade the app's hard-coded
+      # FALLBACK prompt and report green for a version it never ran.
+      - name: Decide which prompt version to gate
+        id: which
+        working-directory: .
+        env:
+          MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
+        run: |
+          set -euo pipefail
+          GATED_PROMPT="northwind-assistant-system"
+          DEPLOYABLE="production staging development baseline"
+          SKIP=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NAME="$GATED_PROMPT"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
+          else
+            NAME=$(jq -r '.client_payload.prompt.name // ""' "$GITHUB_EVENT_PATH")
+            VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
+            LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
+            # `latest` is auto-maintained and never a deploy target; prefer production.
+            LABEL=$(jq -r '(.client_payload.prompt.labels // []) | map(select(. != "latest"))
+                           | (map(select(. == "production")) + .) | first // ""' "$GITHUB_EVENT_PATH")
+            if [ "$NAME" != "$GATED_PROMPT" ]; then
+              SKIP="\`$NAME\` is not \`$GATED_PROMPT\`, the only prompt these datasets exercise."
+            elif [ -z "$LABEL" ]; then
+              SKIP="version $VERSION carries no deployable label (has: \`${LABELS:-none}\`). Add \`staging\` or \`production\` to evaluate it."
+            elif ! printf '%s' " $DEPLOYABLE " | grep -q " $LABEL "; then
+              SKIP="label \`$LABEL\` is not one of: $DEPLOYABLE — the gate resolves prompts by label."
+            fi
+          fi
+          IS_PROD=false
+          case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Prompt change"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| prompt | \`$NAME\` |"
+            echo "| version | \`$VERSION\` |"
+            echo "| labels | \`${LABELS:-none}\` |"
+            if [ -n "$SKIP" ]; then
+              echo ""
+              echo "### ⏭️ Skipped — nothing to evaluate"
+              echo ""
+              echo "$SKIP"
+              echo ""
+              echo "> A deliberate decision, not a passing gate: no prompt version was evaluated, so this run makes **no claim** about quality."
+            else
+              echo "| gating label | \`$LABEL\` |"
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/setup-python@v5
+        if: steps.which.outputs.skip == ''
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: demos/bank-assistant/requirements.txt
+
       - name: Install
+        if: steps.which.outputs.skip == ''
         run: pip install -r requirements.txt
+
       - name: Write Langfuse target (from secrets)
+        if: steps.which.outputs.skip == ''
         run: |
           {
             echo "LANGFUSE_BASE_URL=${{ secrets.NORTHWIND_LANGFUSE_BASE_URL }}"
@@ -55,19 +130,49 @@ jobs:
             echo "LANGFUSE_SECRET_KEY=${{ secrets.NORTHWIND_LANGFUSE_SECRET_KEY }}"
           } > .env.cloud
           touch .env
+
       - name: Start the core-banking MCP server
+        if: steps.which.outputs.skip == ''
         run: |
           python -m northwind.mcp_server > mcp.log 2>&1 &
           sleep 3
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # Non-zero exit on any hard-threshold miss = the gate. Unique run names per
+      # CI run, so re-runs never append to an earlier Langfuse dataset run.
       - name: Gate — English golden set
-        run: python scripts/prompt_gate.py --prompt-label "$LABEL"
+        if: steps.which.outputs.skip == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python scripts/prompt_gate.py --prompt-label "${{ steps.which.outputs.label }}" \
+            --run-name "ci · ${{ steps.which.outputs.label }} {version} · EN · #${{ github.run_number }}"
+
       - name: Gate — Spanish golden set
-        run: python scripts/prompt_gate.py --prompt-label "$LABEL" --dataset northwind-golden-qa-es-v1
+        if: steps.which.outputs.skip == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python scripts/prompt_gate.py --prompt-label "${{ steps.which.outputs.label }}" \
+            --dataset northwind-golden-qa-es-v1 \
+            --run-name "ci · ${{ steps.which.outputs.label }} {version} · ES · #${{ github.run_number }}"
+
+  deploy:
+    name: Ship it
+    needs: gate
+    runs-on: ubuntu-latest
+    # Passed (implicit in `needs`), labelled production, and NOT skipped — a
+    # skipped gate "succeeds", so without the last check an unevaluated change
+    # could reach this job.
+    if: needs.gate.outputs.is_production == 'true' && needs.gate.outputs.skip == ''
+    steps:
+      - name: Announce the deploy
+        run: |
+          {
+            echo "### 🚀 Deployed"
+            echo ""
+            echo "Prompt label \`${{ needs.gate.outputs.label }}\` passed the English and Spanish quality bars and carries \`production\`."
+            echo ""
+            echo "The assistant fetches the \`production\`-labelled prompt at runtime (10 s cache), so there is nothing to redeploy — the next request serves it. Roll back = move the label back."
+          } >> "$GITHUB_STEP_SUMMARY"
