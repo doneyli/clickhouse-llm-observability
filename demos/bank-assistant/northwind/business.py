@@ -38,6 +38,7 @@ DEFLECTION = {
     "escalated-to-human": 0.00,      # call-back booked — a human still works it
     "advisor-lead": 0.00,            # valued separately as ADVISOR_LEAD_VALUE (revenue, not cost)
     "dispute-unresolved": 0.00,      # customer asked to dispute, no dispute opened → they will call
+    "dispute-awaiting-confirmation": 0.00,  # valued on the turn that opens it
     "declined-advice": 0.00,         # referred to a licensed advisor
     "refused": 0.00,                 # guardrail refusal (risk avoided, not cost)
     "out-of-scope": 0.00,
@@ -54,8 +55,19 @@ _PII_WARNING = re.compile(r"(?i)(never|don't|do not|please don't|avoid) shar|(wi
                           r"|nunca (comparta|compart|le pediremos|pedimos|solicitamos)|no (comparta|debe compartir|compartir)"
                           r"|evite compartir|utilice solo los [uú]ltimos (4|cuatro) d[ií]gitos")
 _SENSITIVE = {"card", "otp", "national_id", "iban", "account"}
-DISPUTE_REQUEST = re.compile(r"(?i)disput|chargeback|don'?t recogni[sz]e|didn'?t make|unauthori[sz]ed charge|"
-                             r"no reconozco|disputar|desconozco|reclam(ar|o) (un|el) cargo|cargo (que )?no (hice|reconozco)")
+# A REQUEST to dispute a charge — not a question that merely mentions a past dispute
+# ("how long did my last dispute take?" is a complaint, not a dispute request).
+DISPUTE_REQUEST = re.compile(
+    r"(?i)(\b(please |want to |like to |need to |can you |could you )?dispute (the|this|that|a|an|my) "
+    r"(\w+ ){0,4}(charge|transaction|payment|debit)|\bdispute it\b|open (a |the )?dispute|chargeback"
+    r"|don'?t recogni[sz]e|didn'?t (make|authori[sz]e)|unauthori[sz]ed (charge|transaction)"
+    r"|disput(ar|e|a) (el|este|ese|un|una|la) (\w+ ){0,3}(cargo|transacci[oó]n|cobro|pago)"
+    r"|abr(a|ir) (una |la )?disputa|no reconozco|desconozco (el|un|este) cargo|cargo que no (hice|reconozco)"
+    r"|reclam(ar|o) (un|el) cargo)")
+# The agent found the charge and asks the customer to confirm before opening it.
+_AWAITING_CONFIRMATION = re.compile(
+    r"(?i)(shall i|should i|would you like me to|do you want me to|can you confirm|please confirm|is this the"
+    r"|¿desea que|¿quiere que|¿confirma|¿es (este|ese|esta)|por favor confirme|¿le abro|¿procedo)")
 
 
 def advisor_offered(answer: str) -> bool:
@@ -83,6 +95,8 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
         outcome = "refused"
     elif any(a in ACTIONS for a in actions_ok):
         outcome = "resolved-self-service"
+    elif dispute_requested and _AWAITING_CONFIRMATION.search(answer or "") and re.search(r"\bTX-\d{5}\b|\$\s?\d|USD\s?\d", answer or ""):
+        outcome = "dispute-awaiting-confirmation"   # found the charge, asks before acting — not a failure
     elif dispute_requested:
         outcome = "dispute-unresolved"   # asked to dispute, nothing opened → will become a contact
     elif any(_ADVISOR_TOPIC.search(t or "") for t in callback_topics):
@@ -151,7 +165,8 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
     else:
         failure = "none"
 
-    contained = outcome in ("resolved-self-service", "answered-account-info", "answered-policy")
+    contained = outcome in ("resolved-self-service", "answered-account-info", "answered-policy",
+                            "dispute-awaiting-confirmation")
     value = round(ADVISOR_LEAD_VALUE if outcome == "advisor-lead"
                   else COST_PER_CONTACT * DEFLECTION.get(outcome, 0.0), 2)
     out = {"task-outcome": outcome, "contained": 1 if contained else 0, "value-usd": value,
@@ -182,3 +197,8 @@ WARNING = {
     "es": ("Por su seguridad, nunca comparta el número completo de su tarjeta, el CVV, el PIN ni códigos por chat — "
            "Northwind nunca se los pedirá."),
 }
+
+
+def dispute_awaiting_confirmation(answer: str) -> bool:
+    return bool(_AWAITING_CONFIRMATION.search(answer or "")
+                and re.search(r"\bTX-\d{5}\b|\$\s?\d|USD\s?\d", answer or ""))

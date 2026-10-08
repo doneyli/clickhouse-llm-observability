@@ -177,7 +177,7 @@ def tracer_provider(service_name: str = "northwind-assistant"):
         "service.version": RELEASE,
         "deployment.environment": ENVIRONMENT,
     }))
-    if APM_OTLP_ENDPOINT:
+    if APM_OTLP_ENDPOINT and APM_OTLP_ENDPOINT.lower() not in ("none", "off", "disabled"):  # CI: no APM
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         headers = dict(h.split("=", 1) for h in APM_OTLP_HEADERS.split(",") if "=" in h)
         _provider.add_span_processor(BatchSpanProcessor(

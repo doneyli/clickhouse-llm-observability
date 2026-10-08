@@ -79,6 +79,8 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/seed_dashboard.py` | quality, risk and cost dashboard as code | EVA-07, OBS-05 |
 | `scripts/seed_business_dashboard.py` | business value & failure-mode dashboard (value vs spend, containment, outcomes, each issue by prompt version) | GATE-05, EVA-07 |
 | `scripts/generate_traffic.py --scenario business [--prompt-label staging]` | the four business issues, on production or as a canary | story arc |
+| `scripts/generate_traffic.py --scenario disputes` + env `NORTHWIND_RELEASE`/`NORTHWIND_TX_DEFAULT_DAYS` | Issue 5, disputes leak (see `docs/arcs/disputes.md`) | story arc |
+| `scripts/run_cost_arc.sh [traffic\|experiments\|verify]` | Issue 6, cost regression by release (see `docs/arcs/cost-regression.md`) | story arc |
 | `scripts/seed_datasets.py` | golden Q&A with expected outputs; red-team set | EXP-01 |
 | `scripts/run_experiment.py` | prompt A/B (`--prompt-label`), model comparison (`--model`) | EXP-02, EXP-03, EVA-05 |
 | `scripts/prompt_gate.py` | CI gate: exit 1 on regression | EXP-06 |

@@ -603,12 +603,18 @@ Prompts → v4 → **Experiments** → run against `northwind-golden-qa-v1` with
 
 ---
 
-## Story arc · four business issues, found in production and fixed (15 min) · GATE-05, EVA-07, EXP-02, EXP-06
+## Story arc · six business issues, found in production and fixed (15–20 min) · GATE-05, EVA-07, EXP-02, EXP-06
+
+Pick 3–4 for the room (suggested: Issue 1 mis-selling, Issue 2 Spanish, Issue 5
+disputes, Issue 6 cost); the rest are backup if questions go there.
 
 Open **Dashboards → *Northwind — Business value & failure modes***. Every
 widget is a score on the assistant's turns; the bottom row splits each one by
-**trace version** = release + prompt version (e.g. `assistant-1.4.0 · prompt v1`
-is production; `· prompt v5` is a **canary** of the candidate on live traffic).
+**trace version** = release + prompt version. `· prompt v1` is the **baseline**
+prompt that was serving production when these issues were found (label
+`baseline`); `· prompt v5` is a **canary** of the candidate on live traffic.
+(Production has since moved to v4 — check the portal header; the issues are
+shown on the v1 traffic, which is still in the data.)
 
 **Frame.** "Engineering metrics say the assistant is fine — faithfulness is
 ~0.96. What does the *business* see? Value delivered, containment, conduct risk,
@@ -679,6 +685,65 @@ For each issue: **Symptom → Pinpoint → Root cause → Fix → Verify → Res
   v5` 0.33 → `assistant-1.5.0 · prompt v5` 1.00. **Land:** the canary caught an
   incomplete fix before it reached every customer.
 
+### Issue 5 — Disputes leak to humans (containment, cost per contact)
+- **Symptom.** *Dispute self-service rate by trace version*: `assistant-1.5.0 ·
+  prompt v1` is the low bar (0.20); *Outcome mix* `dispute-unresolved`, *Failure
+  modes* `dispute-not-resolved`, USD 0 value — 8 of 10 customers who asked for a
+  dispute left without one and will call. The judges gave the hero answer
+  faithfulness 1.0 and compliance 1.0: engineering metrics didn't see it.
+- **Pinpoint.** Traces → filter score `failure-mode` = `dispute-not-resolved`,
+  version `assistant-1.5.0 · prompt v1`, tag `scenario:disputes` →
+  [hero trace](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a4e261601983c78e3fd00fcebacec479?observation=a60d0396885d223a):
+  the answer says *"not in your last 30 days"* and cites KB-102 (**60** days).
+  Walk the tree: tool `get_recent_transactions` input has no window → the
+  `mcp-client` span sends `days: 30` (the code default) → the **MCP server span,
+  another service in the same trace**, returns `window_days: 30` — the 41-day-old
+  charge was never returned.
+- **Root cause.** Transaction lookback (30 days) shorter than the dispute window
+  (60). Most disputes are recent, so nobody noticed.
+- **Fix — in code.** Release **1.5.1**: lookback default = dispute window (60).
+  Verified across the MCP boundary (`window_days: 60`).
+- **Verify.** Dataset `northwind-disputes-v1` (10 items, EN + ES): `dispute-opened`
+  **0.20 → 1.00**. Live traffic: conversations ending with a dispute opened
+  **2/10 → 10/10**, value on dispute turns USD 13 → USD 65.
+  [After trace](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/1be9e4f473f5f7a0e939f77f47e5341a).
+  Full write-up, runs and reproduce commands: `docs/arcs/disputes.md`.
+- **Land.** A business leak in the contact centre, traced to a code default two
+  services away from the chat window — fixed and measured in one release.
+- **Candour.** Small n. The 1.5.1 agent often shows the charge and asks *"shall I
+  open it?"* first — judge it per conversation (10/10). Scoring now classifies
+  that turn as `dispute-awaiting-confirmation` (not a failure) for new traffic.
+
+### Issue 6 — Cost regression after a "recall" release (TCO, GATE-05)
+- **Symptom.** *Cost per turn (USD) by trace version* and *Cost per turn over
+  time*: `assistant-1.6.0` is the tall bar — **+13% per turn** vs the fixed
+  release; nothing else moved (faithfulness, compliance, LLM calls per turn flat).
+- **Pinpoint.** Click the 1.6.0 bar → Traces (version `assistant-1.6.0 · prompt
+  v1`) → [hero trace](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/4a34ae082d97d3b3e3d20621ae37671e?observation=af56d633d80f83d7):
+  the `kb-retrieval` observation's input is `k: 8, min_score: 0.0`, and its
+  output lists **8 documents — KB-202 (0.29) and KB-301 (0.12), then six
+  irrelevant ones scoring 0.06 → 0.00**. The generation after it carries +53%
+  input tokens. Compare with the [fixed release](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/56635bee11886506736f5f63b43eed18?observation=6252a29a61fccb58),
+  same question: two documents.
+- **Root cause.** Release 1.6.0 "improved recall" by retrieving 8 articles with
+  no relevance threshold; the extra context is paid for on every LLM call after
+  retrieval and adds nothing to the answer.
+- **Fix.** Release **1.6.1**: k = 3 plus a relevance threshold (0.08) — a code
+  change, verified by the same metrics.
+- **Verify.** Golden-set experiments, same prompt: quality identical (correctness
+  0.94 vs 0.94, must-include 1.00, source-recall 0.88), **cost per item +24%,
+  input tokens +33%** for 1.6.0 ([1.6.0 run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/b3087bd9-6972-4075-9030-05dbd984c557) ·
+  [1.6.1 run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/8a1b5392-8e00-4d74-acf7-fe094a81a5ee)
+  — the dataset compare view shows cost and latency next to quality). Live: USD
+  0.0151 → 0.0134 per turn. Arithmetic, not a forecast: **USD 1,756 per million
+  turns** (USD 3,413 per million retrieval turns). Langfuse's computed cost matches
+  the per-turn score to six decimals. Full write-up: `docs/arcs/cost-regression.md`.
+- **Land.** A change that looked like an improvement was a pure cost increase —
+  visible in one dashboard bar, explained in one retriever observation, and
+  caught before it scaled.
+- **Candour.** Small n (27 turns per release); latency differences are noise —
+  don't claim a latency regression.
+
 ### Ship it
 CI gate on v5: English and Spanish golden sets both **pass** (exit 0). Second
 candour moment: the *first* Spanish run failed `must-include` (0.85). Triage
@@ -725,7 +790,8 @@ of the POC — containment, cost per contact, complaints, or conduct risk?"
    protected prompt labels) and open Settings → Audit logs to confirm it shows
    the prompt label moves (a promote + rollback ran overnight). If Audit logs are
    not visible on this org, present ENT-02 from `docs/ENTERPRISE_SECURITY.md`.
-5. Portal header must say **production v1** (`scripts/prompt_label.py --show`).
+5. `scripts/prompt_label.py --show`: production = the version you will present
+   (currently **v4**), staging = **v5**, development = **v3**, baseline = **v1**.
    Click **New conversation**; pick EN or ES for the room.
 6. **Required (10 min):** label 8–10 items in the SME queue (`sme-faithfulness`,
    `sme-compliance`). Without human labels, Scores → Analytics (judge vs human)

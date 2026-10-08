@@ -5,7 +5,8 @@ aggregate a whole run — the numbers the CI gate reads.
 
 Two families, on purpose:
   * deterministic (exact functions of the output — cheap, stable, inspectable):
-      must-include, source-recall, language-match, no-unsolicited-upsell, refused
+      must-include, source-recall, language-match, no-unsolicited-upsell, refused,
+      dispute-opened
   * LLM-as-a-judge against the EXPECTED OUTPUT: correctness
 Gate hard on the deterministic ones; treat judge averages as a smoke alarm —
 re-running an unchanged prompt moves a judge average by a few points.
@@ -109,6 +110,55 @@ def refused(*, input, output, **_):
                       comment=f"refusal={bool(refusal)} leaked={leaked}")
 
 
+_CASE_ID = re.compile(r"\bDSP-\d{6}\b")
+_TX_ID = re.compile(r"\bTX-\d{5}\b")
+_WINDOW = re.compile(r"(?i)\b(last|past|previous|[uú]ltimos)\s+\**(\d+)\**\s+(days|d[ií]as)")
+
+
+def shows_transaction(answer: str, tx_ids, amount: str | None = None) -> bool:
+    """Does the answer show the customer this charge — by id, or by amount (389.99 / 389,99 /
+    1,120.00 / 1.120,00)? Used by the simulated customer that confirms only the RIGHT charge."""
+    ans = answer or ""
+    if any(t and re.search(rf"\b{re.escape(t)}\b", ans) for t in tx_ids or []):
+        return True
+    if not amount:
+        return False
+    whole, _, cents = amount.replace(",", "").partition(".")
+    sep_whole = re.sub(r"(\d)(?=(\d{3})+$)", r"\1[,.]?", whole)  # 1120 → 1[,.]?120
+    tail = "" if cents.strip("0") == "" else rf"[.,]{cents.rstrip('0')}0*"
+    return bool(re.search(rf"(?<![\d.,]){sep_whole}{tail}(?!\d)", ans))
+
+
+def dispute_opened(*, input, output, metadata, **_):
+    """Disputes: 1 = the run actually opened a dispute — it called open_dispute AND
+    gave the customer the case id (DSP-######). Saying "I'll open it" is not opening it.
+
+    The comment names the transaction the run found (ids in the answer) next to the
+    one the item expects, so a dispute on the WRONG charge is visible at a glance."""
+    if not isinstance(output, dict):
+        return []
+    md = metadata or {}
+    expected = md.get("expected_transaction")
+    ans = _answer(output)
+    called = "open_dispute" in (output.get("tools_used") or [])
+    cases = sorted(set(_CASE_ID.findall(ans)))
+    found = sorted(set(_TX_ID.findall(ans)))
+    merchant = md.get("expected_merchant")
+    named = bool(merchant and merchant.lower() in ans.lower())
+    accepted = set(md.get("accepted_transactions") or [expected])
+    if found:
+        txt = f"found {', '.join(found)}" + (" (= expected)" if accepted & set(found) else f" (expected {expected})")
+    elif called and cases and named:
+        txt = f"dispute names the {merchant} charge (expected {expected}; no transaction id in the answer)"
+    else:
+        txt = f"no transaction found in the answer (expected {expected})"
+    window = _WINDOW.search(ans)  # e.g. "in the last 30 days" — the lookback the customer was told
+    turns = "after the customer confirmed (2 turns)" if output.get("turns") == 2 else "first answer"
+    return Evaluation(name="dispute-opened", value=1.0 if called and cases else 0.0,
+                      comment=f"{txt}; open_dispute called={called}; case id={cases[0] if cases else 'none'}; {turns}"
+                              + (f"; answer says '{' '.join(window.groups())}'" if window else ""))
+
+
 _CORRECTNESS_PROMPT = """You grade a bank assistant's answer against the reference answer written by the product owner.
 
 Score 1.0 if the answer conveys the same facts as the reference (numbers, conditions, what the customer must do) with nothing that contradicts it; 0.5 if a secondary fact is missing or imprecise; 0.0 if a key fact is wrong or missing. Extra correct detail is fine. Language may differ from the reference.
@@ -141,6 +191,7 @@ def correctness(*, input, output, expected_output, **_):
 GOLDEN_EVALUATORS = [correctness, must_include, source_recall, cites_expected_source, language_match,
                      formal_register, no_unsolicited_upsell]
 REDTEAM_EVALUATORS = [refused]
+DISPUTE_EVALUATORS = [dispute_opened, language_match]
 
 
 def averages(*, item_results, **_):

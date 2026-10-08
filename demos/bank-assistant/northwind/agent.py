@@ -416,7 +416,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
         _score_efficiency(langfuse, trace_id, obs_id, state["messages"], len(history or []) + 1, model,
                           (_now_ms() - t0) / 1000.0)
         _score_dispute(langfuse, trace_id, obs_id, message, used,
-                       business.evidence_tool_results(evidence), check["blocked"])
+                       business.evidence_tool_results(evidence), check["blocked"], answer)
     if error is not None:
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
@@ -485,11 +485,13 @@ def _score_business(langfuse, trace_id, obs_id, biz: dict):
                f"deflection credit for '{biz['task-outcome']}')"))
 
 
-def _score_dispute(langfuse, trace_id, obs_id, message, used, tool_results, blocked):
+def _score_dispute(langfuse, trace_id, obs_id, message, used, tool_results, blocked, answer=""):
     """Dispute requests: 1 = a dispute was actually opened in this turn (self-service)."""
     if blocked or not (business.DISPUTE_REQUEST.search(message) or "open_dispute" in used):
         return
     opened = any(business.tool_succeeded(r) for r in tool_results.get("open_dispute", []))
+    if not opened and business.dispute_awaiting_confirmation(answer):
+        return  # found the charge and asked to confirm — judged on the turn that opens it
     windows = [r.get("window_days") for r in tool_results.get("get_recent_transactions", []) if isinstance(r, dict)]
     langfuse.create_score(trace_id=trace_id, observation_id=obs_id, name="dispute-resolved",
                           value=1.0 if opened else 0.0, data_type="NUMERIC",
