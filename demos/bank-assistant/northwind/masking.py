@@ -61,13 +61,16 @@ def _keep_label(replacement: str):
     return lambda m: f"{m.group(1)}{replacement}"
 
 
+# Accented Spanish keywords also match their JSON-escaped form (c\u00e9dula): LangChain
+# serialises message lists with escaped Unicode, so the exported attribute never
+# contains the literal "é".
 # ORDER MATTERS — most specific first. The card pattern is a long digit run and
 # would otherwise eat account numbers and phone numbers.
 _PATTERNS: "list[tuple[str, re.Pattern[str], object]]" = [
     ("email", re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]{2,}\b"), "[REDACTED_EMAIL]"),
     # One-time passcodes and PINs: always anchored on the keyword, never bare digits.
     ("otp", re.compile(r"(?i)(\b(?:otp|one[- ]time (?:code|password|passcode)|verification code|security code|"
-                       r"pin|cvv|cvc|c[oó]digo(?: de (?:verificaci[oó]n|seguridad|un solo uso))?|clave(?: din[aá]mica)?)"
+                       r"pin|cvv|cvc|c(?:[oó]|\\u00f3)digo(?: de (?:verificaci(?:[oó]|\\u00f3)n|seguridad|un solo uso))?|clave(?: din(?:[aá]|\\u00e1)mica)?)"
                        r"\b[^0-9]{0,20}?)\d{3,8}\b"),
      _keep_label("[REDACTED_SECRET]")),
     ("iban", re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,3})?\b"),
@@ -77,14 +80,14 @@ _PATTERNS: "list[tuple[str, re.Pattern[str], object]]" = [
     # Any national id that follows its keyword (cédula, DNI, CPF, passport …). The
     # value must CONTAIN DIGITS — "national ID number is 1020304050" must redact the
     # number, not the word "number" (a case-insensitive letters-only match did that).
-    ("national_id", re.compile(r"(?i)(\b(?:national id|id number|id no\.?|ssn|passport|c[ée]dula(?: de ciudadan[ií]a)?|"
+    ("national_id", re.compile(r"(?i)(\b(?:national id|id number|id no\.?|ssn|passport|c(?:[ée]|\\u00e9)dula(?: de ciudadan(?:[ií]|\\u00ed)a)?|"
                                r"documento(?: de identidad)?|dni|cpf|curp|rut|nit|tax id)\b[^0-9]{0,20}?)"
                                r"([A-Z]{0,3}\d[\d.\-]{4,17}[A-Z]?)\b"),
      _keep_label("[REDACTED_NATIONAL_ID]")),
     ("card", re.compile(r"\b(?:\d[ -]?){12,18}\d\b"), _redact_card),
     # Account numbers: anchored on the keyword so balances, amounts and internal
     # ids (ACC-1001-01, TX-88101) survive. English and Spanish.
-    ("account", re.compile(r"(?i)(\b(?:account|acct|a/c|n[uú]mero de cuenta|cuenta)\b[^0-9]{0,20}?)"
+    ("account", re.compile(r"(?i)(\b(?:account|acct|a/c|n(?:[uú]|\\u00fa)mero de cuenta|cuenta)\b[^0-9]{0,20}?)"
                            r"\d[\d -]{6,18}\d\b"),
      _keep_label("[REDACTED_ACCOUNT]")),
     ("phone", re.compile(r"\+\d{1,3}[\s.\-()]*(?:\d[\s.\-()]*){6,14}\d"), "[REDACTED_PHONE]"),
