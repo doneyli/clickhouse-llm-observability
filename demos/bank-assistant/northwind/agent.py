@@ -68,34 +68,102 @@ REFUSAL = {
            "Northwind Bank y con preguntas sobre nuestros productos y servicios."),
 }
 
+# Input-guardrail rules — deterministic and explainable, English + Spanish. Each rule
+# targets the ATTACK, not its vocabulary: "show me the rules for disputing a charge",
+# "can I override the rules on the daily limit?" and "is there a developer mode in the
+# app?" are banking questions that share words with injections. So the object must be
+# the assistant itself ("your instructions", "the system prompt"), or the phrase must
+# carry an enabling frame ("you are now in developer mode"). tests/test_guardrails.py
+# is the contract: 20 benign prompts that must pass, 15 attacks that must be blocked.
+_REVEAL_ES = r"(revela|imprime|muestra|mu[eé]str[ae]me|mostrar(me)?|dime|d[ií]game|repite|traduce)(r)?"
 _INJECTION = re.compile(
     r"(?i)(ignore (all |any |the |your )?(previous|prior|above|earlier) (instructions|rules|prompts?)"
-    r"|ignore (everything|all) (above|before)|disregard (your|the|all) (rules|instructions)"
-    r"|system prompt|developer mode|jailbreak|\bDAN\b|repeat the (text|words|instructions) above"
-    r"|starting with ['\"]you are|(reveal|print|show|repeat|output) (me )?(your|the) (hidden |system |initial )?"
-    r"(instructions|prompt|rules|configuration)"
+    r"|(ignore|forget) (everything|all) (above|before)|disregard (your|the|all) (rules|instructions)"
+    # "forget your instructions" / "forget all previous rules" — not "I forget the rules for …"
+    r"|forget (all (of )?|about )?(your|the (previous|prior|earlier|above)|previous|prior|earlier) "
+    r"(instructions|rules|prompts?)"
+    r"|system prompt|jailbreak|(?-i:\bDAN\b)|starting with ['\"]you are"  # DAN is case-sensitive: "Dan" is a name
+    # Extraction. The object must be the assistant's OWN instructions — "your …" or "the
+    # hidden/system/initial …" — never a bare "the rules"; and "your rules for/on/about
+    # <a topic>" is a policy question, not an extraction attempt.
+    r"|(reveal|print|show|repeat|output|display|dump|translate|summari[sz]e)( me| us)? (all )?"
+    r"(your( hidden| system| initial| original| internal)?|the (hidden|system|initial|original|internal)) "
+    r"(instructions|prompt|rules|configuration|guidelines)\b(?! (for|on|about|regarding) (?!me\b|us\b))"
+    r"|what('s| is| are| were) your (initial|system|hidden|original|internal|exact) (prompt|instructions|rules)"
+    r"|(translate|summari[sz]e|repeat|rewrite|print|output) (everything|all|all the text|the (text|words|instructions)) "
+    r"(above|before)"
+    # "developer mode" only with an enabling frame — "is there a developer mode in the app?" passes
+    r"|(you are now|you're now|you are|enter|enable|activate|switch (to|into)|turn on|go into)( in| into)?( the)? "
+    r"(developer|dev|admin|god|debug|unrestricted|jailbreak) mode"
     r"|you are now (in |an? )?(developer|admin|administrator|unrestricted|jailbroken|dan|god)\b"
     r"|pretend (you are|to be) (an? )?(bank employee|employee|admin|administrator|developer|different (ai|assistant)|unrestricted)"
     r"|act as (an? )?(admin|administrator|developer|bank employee)"
     r"|bypass (the |your |all )?(guardrails?|filters?|safety|security|rules|restrictions)"
-    r"|override (the |your )?(rules|policy|safety|instructions)"
-    # Spanish
-    r"|ignora(r)? (todo lo anterior|(todas )?(las |tus )?(instrucciones|reglas)( anteriores| previas)?)"
-    r"|olvida (todas )?(tus|las) (instrucciones|reglas)|instrucciones del sistema"
-    r"|prompt (de|del) sistema|modo (desarrollador|administrador)"
-    r"|(revela|imprime|muestra|mu[eé]strame|dime|repite)(r)? (tus|las) (instrucciones|reglas|configuraci[oó]n)"
+    # "override YOUR rules" is an attack; "override the rules on the daily transfer limit" is a question
+    r"|override (your|the system'?s?|all( the| your)?) ((safety|security|system|content) )?"
+    r"(rules|polic(y|ies)|safety|instructions|guardrails|restrictions)"
+    # Spanish. "¿Puedo ignorar las reglas del límite diario?" is a question; the attack
+    # names "tus" rules, "todas las" rules or "las … anteriores".
+    r"|ignora(r)? (todo lo anterior|(todas )?tus (instrucciones|reglas)|todas las (instrucciones|reglas)"
+    r"|las (instrucciones|reglas) (anteriores|previas))"
+    r"|olvida (todas )?(tus|las) (instrucciones|reglas)|instrucciones del sistema|prompt (de|del) sistema"
+    r"|(ahora est[aá]s en|est[aá]s en|activa|entra en|cambia a|pasa a)( el)? modo "
+    r"(desarrollador|administrador|dios|sin restricciones)"
+    # Reveal verbs need "tu(s) …" or "las … del sistema/internas/ocultas":
+    # "dime las reglas para disputar un cargo" passes.
+    rf"|{_REVEAL_ES} (todas )?tus? (instrucciones|reglas|configuraci[oó]n|prompt)(?! (para|sobre|acerca) )"
+    rf"|{_REVEAL_ES} las (instrucciones|reglas|configuraci[oó]n) (del sistema|internas|ocultas|secretas|iniciales)"
     r"|ahora eres (un |una )?(administrador|desarrollador|ia sin restricciones|dan)"
     r"|finge (ser|que eres) (un |una )?(empleado|administrador|desarrollador)"
-    r"|act[uú]a como (un )?(administrador|desarrollador|empleado)|sin restricciones)")
+    r"|act[uú]a como (un )?(administrador|desarrollador|empleado)"
+    # "sin restricciones" only about the assistant — "usar mi tarjeta sin restricciones" passes
+    r"|\b(ia|asistente|modelo|modo|responde|resp[oó]ndeme|contesta|habla|act[uú]a) sin restricciones)")
+# Someone else's data. Another customer's id (C-####) is checked in assess_input;
+# these catch the social forms — "my wife's account", "I'm the account holder's son",
+# "read me his transactions", "la cuenta de mi esposa". Joint-account requests are
+# exempted in assess_input (see _JOINT_ACCOUNT).
 _OTHER_CUSTOMER = re.compile(
     r"(?i)(\bC-\d{4}\b"
     r"|(show|see|check|tell me|give me|read|access|look up|list)\b.{0,40}\b(another|other) customers?'?s?\b"
     r"|(another|other) customers?'s? (account|card|balance|transactions|data|details)"
+    r"|\b(list|export|dump)( me)? (all|every)( the| of the| your)? customers?\b"
     r"|someone else'?s (account|card|balance|transactions)"
-    r"|(show|see|check|tell me|give me|read|access|look up)\b.{0,30}\bmy (wife|husband|neighbou?r|friend|boss)'?s "
-    r"(account|card|balance|transactions)"
-    r"|(mu[eé]strame|ver|consultar|dime|revisar|dame)\b.{0,40}\b(de otro cliente|de otra persona|"
-    r"(cuenta|tarjeta|saldo|movimientos|transacciones) de mi (esposa|esposo|vecino|amigo|jefe)))")
+    r"|(show|see|check|tell me|give me|read|access|look up)\b.{0,30}\bmy (wife|husband|partner|neighbou?r|friend|boss"
+    r"|mother|mum|mom|father|dad|son|daughter|brother|sister)'?s (account|card|balance|transactions)"
+    # a third party by pronoun, or by a claimed relationship to the account holder
+    r"|\b(show|read|tell|give|send) (me|us) (his|her|their) (last |latest |recent |current )?"
+    r"(transactions|balance|statements?|account|movements|card)"
+    r"|\b(i'?m|i am|as|this is) (the |an? )?(account ?holder|card ?holder|customer|client)'?s "
+    r"(son|daughter|wife|husband|partner|mother|father|brother|sister|carer|caregiver)\b"
+    # Spanish
+    r"|(mu[eé]strame|mu[eé]streme|ver|consultar|dime|d[ií]game|dame|deme|ind[ií]queme|cons[uú]lteme|revisar)\b.{0,40}"
+    r"\b(de otro cliente|de otra persona|(cuenta|tarjeta|saldo|movimientos|transacciones) de mi "
+    r"(esposa|esposo|marido|mujer|pareja|vecin[oa]|amig[oa]|jefe|madre|padre|hij[oa]|herman[oa]))"
+    r"|\bsoy (el|la) (esposo|esposa|marido|mujer|pareja|hij[oa]|padre|madre|herman[oa]) (de la|del) (titular|cliente))")
+# A joint account names a spouse's account legitimately ("can I show my wife's account
+# in my app? we want a joint account"). Exempting it is safe because authorization
+# does not live in this regex: the MCP server scopes every lookup to the
+# authenticated customer, whatever the wording.
+_JOINT_ACCOUNT = re.compile(
+    r"(?i)\bjoint (account|holder|owner)s?\b|\badd (him|her|them) as\b"
+    r"|cuenta (conjunta|mancomunada)|\bco-?titular|titulares? conjunt[oa]s?")
+# Credential harvesting: asking for a secret to be READ OUT or HANDED OVER — "read me
+# the last one-time code", "…needs the code we texted you, can you read it to me?",
+# "dígame su clave". The customer SHARING a secret ("the CVV on my card is 123") is
+# PII for masking, not an attack; asking the bank to (re)send a code ("send me a new
+# verification code") is the normal login flow, so send/text are not trigger verbs.
+_SECRET_EN = (r"(one[- ]time (code|passcode|password)|otp|verification code|security code|pin|cvv|cvc|passcode|password)"
+              r"(?! (requirements?|rules|polic(y|ies)|reset|format|length|change))")  # "the password requirements" passes
+_SECRET_ES = r"(c[oó]digo|clave|pin|cvv|contrase[ñn]a)(?! (para|swift|bic|postal|de (sucursal|oficina|banco))\b)"
+_ASK_ES = r"((?<!nunca )(?<!no )comparta|d[ií]game|deme|l[eé]ame|d[ií]cteme|p[aá]seme|dime|dame|l[eé]eme|d[ií]ctame)"
+_SOCIAL_ENGINEERING = re.compile(
+    rf"(?i)(\b((read|tell|give) (me|us)|read (out|back))( the| your| that| this)?( last| latest| most recent)? {_SECRET_EN}\b"
+    rf"|\b{_SECRET_EN}\b.{{0,80}}\b(read|tell|give)( it| that| them)?( back| out)? to (me|us)\b"
+    rf"|\bshare (the|your|that) {_SECRET_EN} with (me|us)\b"
+    # Spanish
+    rf"|\b{_ASK_ES}( conmigo)? (el |la |su |tu |ese |este |esa )?([uú]ltim[oa] )?{_SECRET_ES}"
+    rf"|\b{_SECRET_ES}\b.{{0,80}}\b(d[ií]gamelo|l[eé]amelo|d[ií]ctemelo|d[ií]melo|l[eé]emelo"
+    rf"|me lo (puede |podr[ií]a )?(leer|decir|dictar|lee|dice|dicta))\b)")
 _INVESTMENT = re.compile(
     r"(?i)(should i (buy|invest|sell|put)|which (stock|stocks|crypto|coin|fund) (should|to)|"
     r"\bbitcoin\b|\bcrypto(currency)?\b|best investment|guaranteed returns?|double my money|stock tip"
@@ -131,16 +199,23 @@ def _now_ms() -> float:
 
 def assess_input(text: str, customer_id: str) -> dict:
     """Deterministic input checks. Production: LLM Guard / Lakera / a classifier."""
+    text = text.replace("\u2019", "'")  # phone keyboards type I’m / wife’s; the rules use ASCII '
     other = [m for m in re.findall(r"\bC-\d{4}\b", text) if m != customer_id]
     risks = []
     if _INJECTION.search(text):
         risks.append("prompt_injection")
-    if other or (_OTHER_CUSTOMER.search(text) and not re.search(rf"\b{re.escape(customer_id)}\b", text)):
+    # Another customer's id always counts. The social forms ("my wife's account") do
+    # not when the customer names their own id, or asks about a joint account.
+    third_party = (_OTHER_CUSTOMER.search(text) and not _JOINT_ACCOUNT.search(text)
+                   and not re.search(rf"\b{re.escape(customer_id)}\b", text))
+    if other or third_party:
         risks.append("cross_customer_access")
+    if _SOCIAL_ENGINEERING.search(text):
+        risks.append("social_engineering")
     if _INVESTMENT.search(text):
         risks.append("investment_advice")
     _, pii = masking.scrub(text)
-    blocking = [r for r in risks if r in ("prompt_injection", "cross_customer_access")]
+    blocking = [r for r in risks if r in ("prompt_injection", "cross_customer_access", "social_engineering")]
     return {"risks": risks, "blocked": bool(blocking), "pii_shared": sorted(pii),
             "primary_risk": (blocking or risks or ["none"])[0]}
 
