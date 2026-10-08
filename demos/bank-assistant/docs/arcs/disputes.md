@@ -26,7 +26,7 @@ only in the release and its transaction lookback.
   2. `mcp-client: get_recent_transactions`, **input** `"days": 30`. The 30 came
      from the code (the tool's default), not from the model.
   3. `mcp-server: get_recent_transactions`, in the core-banking service and the
-     same trace (linked by `traceparent` in MCP `_meta`). **Output**
+     same trace (linked by W3C trace context in MCP `_meta`). **Output**
      `"window_days": 30, "from_date": "2026-09-08"` and 6 transactions. The
      GADGETSTORE charge is dated 2026-08-28, 41 days old, so the server never
      returned it.

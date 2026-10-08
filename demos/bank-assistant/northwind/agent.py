@@ -35,14 +35,14 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.runnables import RunnableConfig
 from langchain_core.callbacks import Callbacks
 from langchain_core.tools import tool
-from langfuse import propagate_attributes
+from langfuse import LangfuseOtelSpanAttributes, propagate_attributes
 from langfuse.langchain import CallbackHandler
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from opentelemetry import trace as otel_trace
 
 from northwind import business, config, knowledge, lang, masking, prompts
 
@@ -182,7 +182,6 @@ def _nest(config_: Optional[RunnableConfig]):
     """
     from contextlib import nullcontext
 
-    from opentelemetry import trace as otel_trace
     try:
         cb = config_.get("callbacks") if isinstance(config_, dict) else config_  # config or a run manager
         run_id = getattr(cb, "parent_run_id", None)
@@ -247,8 +246,15 @@ class State(TypedDict):
     blocked: bool
 
 
-def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, evidence: list, used: list):
-    """Tools bound to the AUTHENTICATED customer. The model never sees or chooses the id."""
+def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, evidence: list, used: list,
+                 trace_attrs: dict):
+    """Tools bound to the AUTHENTICATED customer. The model never sees or chooses the id.
+
+    `trace_attrs` go to the MCP server as W3C baggage, so its spans carry this
+    turn's session, user, trace name, version and environment (Langfuse v4
+    filters and aggregates per observation). Baggage is scoped to the MCP call
+    and only injected into that request — never into model-provider calls.
+    """
 
     @tool
     async def search_knowledge_base(query: str, callbacks: Callbacks = None) -> str:
@@ -271,14 +277,14 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
     async def _mcp(name: str, args: dict, config_: Optional[RunnableConfig] = None) -> dict:
         used.append(name)
         args = {"customer_id": customer_id, **args}
-        with _nest(config_), langfuse.start_as_current_observation(as_type="span", name=f"mcp-client: {name}",
-                                                   input=args, metadata={"mcp.server": config.MCP_URL}) as s:
+        with _nest(config_), propagate_attributes(**trace_attrs, as_baggage=True), \
+                langfuse.start_as_current_observation(as_type="span", name=f"mcp-client: {name}",
+                                                      input=args, metadata={"mcp.server": config.MCP_URL}) as s:
             if session is None:
                 data = {"error": "BANKING_SYSTEM_UNAVAILABLE"}
             else:
-                carrier: dict = {}
-                TraceContextTextMapPropagator().inject(carrier)  # W3C context → MCP _meta
-                res = await session.call_tool(name, args, meta=carrier)
+                # W3C traceparent + baggage → MCP _meta (see config.inject_trace_context)
+                res = await session.call_tool(name, args, meta=config.inject_trace_context())
                 data = res.structuredContent or {}
                 if "result" in data and len(data) == 1:
                     data = data["result"]
@@ -414,18 +420,28 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
     # Trace version = release + prompt version: the key that lets every quality
     # AND business metric be split by what was actually served (canary vs prod).
     served = f"prompt v{lf_prompt.version}" if lf_prompt is not None else "prompt fallback"
+    version = f"{config.RELEASE} · {served}"
     with propagate_attributes(session_id=session_id, user_id=customer_id, tags=trace_tags,
-                              metadata=meta, version=f"{config.RELEASE} · {served}", trace_name=trace_name,
+                              metadata=meta, version=version, trace_name=trace_name,
                               prompt=lf_prompt):
         with langfuse.start_as_current_observation(as_type="agent", name=TRACE_NAME, input=message) as root:
             trace_id = root.trace_id
+            # The environment this turn is recorded under — `sdk-experiment` inside an
+            # experiment — so the MCP server's spans land in the same one.
+            # A sampled-out turn's span is non-recording and has no attributes.
+            environment = (getattr(otel_trace.get_current_span(), "attributes", None) or {}).get(
+                LangfuseOtelSpanAttributes.ENVIRONMENT)
+            # No tags: a list does not survive W3C baggage (it arrives as one
+            # "['a', 'b']" string, i.e. a single garbage tag on the server's spans).
+            trace_attrs = {"session_id": session_id, "user_id": customer_id, "trace_name": trace_name,
+                           "version": version, "environment": environment}
             handler = CallbackHandler()
             run_cfg = {"callbacks": [handler], "recursion_limit": 14,
                        "run_name": "northwind-langgraph", "metadata": {"langfuse_session_id": session_id}}
             llm = make_llm(model)
 
             async def _invoke(session):
-                tools = _build_tools(langfuse, session, customer_id, evidence, used)
+                tools = _build_tools(langfuse, session, customer_id, evidence, used, trace_attrs)
                 graph = _graph(langfuse, llm, tools, system_text, customer_id, check, outcome, language)
                 return await graph.ainvoke({"messages": _history(history) + [HumanMessage(content=message)],
                                             "blocked": False}, run_cfg)

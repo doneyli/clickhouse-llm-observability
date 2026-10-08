@@ -218,6 +218,34 @@ def flush() -> None:
         _provider.force_flush()
 
 
+# Cross-process context = W3C `traceparent` AND W3C `baggage`. In Langfuse v4 every
+# observation carries its own trace attributes, so the ones a downstream service
+# needs (session, user, trace name, version, environment — see agent.run_turn) must
+# cross the process boundary with the span context. Baggage also carries the SDK's
+# "this trace already has a root" claim; without it the receiving process marks its
+# first span as a second root of the trace.
+_CARRIER_KEYS = ("traceparent", "tracestate", "baggage")
+
+
+def _propagator():
+    from opentelemetry.baggage.propagation import W3CBaggagePropagator
+    from opentelemetry.propagators.composite import CompositePropagator
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    return CompositePropagator([TraceContextTextMapPropagator(), W3CBaggagePropagator()])
+
+
+def inject_trace_context() -> dict:
+    """Carrier for a call into one of OUR services (the MCP server's `_meta`)."""
+    carrier: dict = {}
+    _propagator().inject(carrier)
+    return carrier
+
+
+def extract_trace_context(carrier: dict):
+    """OTel context from a carrier written by inject_trace_context()."""
+    return _propagator().extract({k: v for k, v in carrier.items() if k in _CARRIER_KEYS})
+
+
 _project_id: Optional[str] = None
 
 

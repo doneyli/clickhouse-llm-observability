@@ -11,6 +11,8 @@ Facts were checked against the Langfuse docs on 2026-10-07. The demo pins self-h
 
 Langfuse v4 is **observations-first**. All data lives in one wide observations table, and each row carries the trace-level attributes (user, session, tags, release, environment). A trace is the set of observations that share a `trace_id`, and the **root observation** stands for the trace. Put a turn's overall input/output on that root observation ([data model](https://langfuse.com/docs/observability/data-model)).
 
+Because the attributes live on every row, they must cross process boundaries along with the span context. The agent sends the MCP server W3C `traceparent` **and** `baggage` (`../northwind/config.py`, `inject_trace_context`). The baggage carries the session, user, trace name, version and environment, plus the SDK's claim that the trace already has a root. With `traceparent` alone, the server's first span became a second root of the trace, with its own trace name, no session and `environment=production` even inside experiments. Tags stay out of the baggage: a list does not survive it.
+
 | Entity | What it is | Stored in | In the Northwind demo |
 |---|---|---|---|
 | **Trace** | One request or operation, e.g. one assistant turn. All observations with the same `trace_id` | ClickHouse | One customer turn, chat or voice |
