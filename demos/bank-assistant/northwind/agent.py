@@ -56,21 +56,36 @@ REFUSAL = {
 
 _INJECTION = re.compile(
     r"(?i)(ignore (all |any |the |your )?(previous|prior|above|earlier) (instructions|rules|prompts?)"
-    r"|disregard (your|the) (rules|instructions)|system prompt|developer mode|jailbreak|\bDAN\b"
-    r"|reveal (your|the) (instructions|prompt|rules|configuration)|you are now|pretend (you are|to be)"
-    r"|act as (an? )?(admin|developer|bank employee)|bypass|override (the )?(rules|policy|safety)"
+    r"|ignore (everything|all) (above|before)|disregard (your|the|all) (rules|instructions)"
+    r"|system prompt|developer mode|jailbreak|\bDAN\b|repeat the (text|words|instructions) above"
+    r"|starting with ['\"]you are|(reveal|print|show|repeat|output) (me )?(your|the) (hidden |system |initial )?"
+    r"(instructions|prompt|rules|configuration)"
+    r"|you are now (in |an? )?(developer|admin|administrator|unrestricted|jailbroken|dan|god)\b"
+    r"|pretend (you are|to be) (an? )?(bank employee|employee|admin|administrator|developer|different (ai|assistant)|unrestricted)"
+    r"|act as (an? )?(admin|administrator|developer|bank employee)"
+    r"|bypass (the |your |all )?(guardrails?|filters?|safety|security|rules|restrictions)"
+    r"|override (the |your )?(rules|policy|safety|instructions)"
     # Spanish
-    r"|ignora(r)? (todas )?(las |tus )?(instrucciones|reglas)( anteriores| previas)?|olvida (tus|las) (instrucciones|reglas)"
-    r"|prompt (de|del) sistema|modo (desarrollador|administrador)|revela(r)? (tus|las) (instrucciones|reglas|configuraci[oó]n)"
-    r"|ahora eres|finge (ser|que eres)|act[uú]a como (un )?(administrador|desarrollador|empleado)|sin restricciones)")
+    r"|ignora(r)? (todo lo anterior|(todas )?(las |tus )?(instrucciones|reglas)( anteriores| previas)?)"
+    r"|olvida (todas )?(tus|las) (instrucciones|reglas)|instrucciones del sistema"
+    r"|prompt (de|del) sistema|modo (desarrollador|administrador)"
+    r"|(revela|imprime|muestra|mu[eé]strame|dime|repite)(r)? (tus|las) (instrucciones|reglas|configuraci[oó]n)"
+    r"|ahora eres (un |una )?(administrador|desarrollador|ia sin restricciones|dan)"
+    r"|finge (ser|que eres) (un |una )?(empleado|administrador|desarrollador)"
+    r"|act[uú]a como (un )?(administrador|desarrollador|empleado)|sin restricciones)")
 _OTHER_CUSTOMER = re.compile(
-    r"(?i)(\bC-\d{4}\b|another customer|other customer'?s?|someone else'?s|"
-    r"my (wife|husband|neighbou?r|friend|boss)'?s (account|card|balance|transactions)"
-    r"|otro cliente|de otra persona|(cuenta|tarjeta|saldo|movimientos|transacciones) de mi (esposa|esposo|vecino|amigo|jefe))")
+    r"(?i)(\bC-\d{4}\b"
+    r"|(show|see|check|tell me|give me|read|access|look up|list)\b.{0,40}\b(another|other) customers?'?s?\b"
+    r"|(another|other) customers?'s? (account|card|balance|transactions|data|details)"
+    r"|someone else'?s (account|card|balance|transactions)"
+    r"|(show|see|check|tell me|give me|read|access|look up)\b.{0,30}\bmy (wife|husband|neighbou?r|friend|boss)'?s "
+    r"(account|card|balance|transactions)"
+    r"|(mu[eé]strame|ver|consultar|dime|revisar|dame)\b.{0,40}\b(de otro cliente|de otra persona|"
+    r"(cuenta|tarjeta|saldo|movimientos|transacciones) de mi (esposa|esposo|vecino|amigo|jefe)))")
 _INVESTMENT = re.compile(
     r"(?i)(should i (buy|invest|sell|put)|which (stock|stocks|crypto|coin|fund) (should|to)|"
     r"\bbitcoin\b|\bcrypto(currency)?\b|best investment|guaranteed returns?|double my money|stock tip"
-    r"|deber[ií]a (invertir|comprar|vender)|criptomoneda|qu[eé] acci[oó]n (comprar|deber[ií]a)|duplicar mi dinero|mejor inversi[oó]n)")
+    r"|deber[ií]a (invertir|comprar|vender|poner)|criptomoneda|qu[eé] acci[oó]n (comprar|deber[ií]a)|duplicar mi dinero|mejor inversi[oó]n)")
 _ADVICE_IN_ANSWER = re.compile(
     r"(?i)(you should (buy|invest|sell)|i (recommend|suggest) (buying|investing|selling)|guaranteed (return|profit))")
 
@@ -254,7 +269,10 @@ def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict
     g.add_node("tools", ToolNode(tools))
     g.add_node("output-guardrail", output_guardrail)
     g.add_edge(START, "input-guardrail")
-    g.add_conditional_edges("input-guardrail", lambda s: END if s.get("blocked") else "assistant")
+    def route_after_guardrail(state: State):
+        return END if state.get("blocked") else "assistant"
+
+    g.add_conditional_edges("input-guardrail", route_after_guardrail)
     g.add_conditional_edges("assistant", tools_condition, {"tools": "tools", END: "output-guardrail"})
     g.add_edge("tools", "assistant")
     g.add_edge("output-guardrail", END)
@@ -332,8 +350,15 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
             answer = _text(state["messages"][-1].content)
             cited = sorted(set(re.findall(r"\bKB-\d{3}\b", answer)))
             retrieved = sorted(set(re.findall(r"\[(KB-\d{3})\]", "\n".join(evidence))))
+            # Follow-up turns often answer from facts retrieved in an EARLIER turn.
+            # Give the judge that conversation context too, or it scores a correct
+            # follow-up as unsupported.
+            prior = "\n".join(f"{h['role']}: {h['content']}" for h in (history or [])[-4:])
+            context = "\n\n".join(evidence) or "(no new retrieval or tool calls in this turn)"
+            if prior:
+                context += "\n\n[earlier in this conversation]\n" + prior
             root.update(output=answer, metadata={
-                "context": "\n\n".join(evidence) or "(no retrieval or tool evidence)",
+                "context": context,
                 "tools_used": ",".join(used) or "none", "cited_sources": ",".join(cited) or "none",
                 "retrieved_sources": ",".join(retrieved) or "none",
                 "prompt_version": str(getattr(lf_prompt, "version", "fallback")),
@@ -341,7 +366,8 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
                 "latency_ms": str(round(_now_ms() - t0))})
             obs_id = root.id
 
-    _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language, answer)
+    _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language, answer,
+                offline=(channel == "experiment"))
     if error is not None:
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
@@ -355,7 +381,8 @@ def _segment(customer_id: str) -> str:
     return {"C-1002": "premier", "C-1004": "premier"}.get(customer_id, "everyday")
 
 
-def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language="en", answer=""):
+def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language="en", answer="",
+                offline=False):
     """Deterministic, zero-cost scores on every turn — the first line of evals."""
     s = lambda **kw: langfuse.create_score(trace_id=trace_id, observation_id=obs_id, **kw)  # noqa: E731
     s(name="security-risk", value=check["primary_risk"], data_type="CATEGORICAL",
@@ -366,6 +393,8 @@ def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retriev
     if outcome:
         s(name="output-pii-leak", value=1 if outcome.get("leaked") else 0, data_type="BOOLEAN")
         s(name="advice-language", value=1 if outcome.get("advice_language") else 0, data_type="BOOLEAN")
+    if offline:  # experiments score language/register with their own evaluators — avoid duplicate names
+        return
     answered_in = lang.detect(answer)
     s(name="language-match", value=1 if answered_in == language else 0, data_type="BOOLEAN",
       comment=f"asked in {language}, answered in {answered_in}")

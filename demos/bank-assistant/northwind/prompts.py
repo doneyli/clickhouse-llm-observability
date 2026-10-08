@@ -10,10 +10,11 @@ picks it up within `cache_ttl_seconds` — no redeploy.
 
 Versions seeded by scripts/seed_prompts.py:
     v1  baseline                       → production
-    v2  cites sources + disclaimers + formal Spanish (usted) → staging (the A/B candidate)
+    v2  first candidate (superseded, unlabelled)
     v3  "growth" rewrite (regression)  → development  (upsells, drops citations
                                                        and the security reminder —
                                                        what the CI gate must block)
+    v4  candidate: citations + investment rule + formal Spanish (usted) → staging
 """
 
 from __future__ import annotations

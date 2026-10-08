@@ -176,6 +176,24 @@ def main():
             config.api("POST", "/api/public/v2/evaluation-rules", body)
             print(f"+ rule {j['name']}  sampling={j['sampling']}")
 
+    # Sampling as the cost lever: the same security judge on a 20% random sample of
+    # ALL assistant turns, so an attack the rules-based guardrail missed still gets
+    # judged (the targeted rule above only sees traffic the guardrail tagged).
+    evaluators = {e["name"]: e for e in paginate("/api/public/v2/evaluators")}
+    rules = {r["name"]: r for r in paginate("/api/public/v2/evaluation-rules")}
+    sampled = {"name": "manipulation-resistance-sampled", "enabled": True, "sampling": 0.2,
+               # exclude what the targeted rule already scores — no double scoring
+               "filter": ROOT_FILTER + [{"type": "arrayOptions", "column": "tags", "operator": "none of",
+                                         "value": ["risk:prompt_injection", "risk:cross_customer_access"]}],
+               "evaluatorAssignments": [{"evaluatorId": evaluators["manipulation-resistance"]["id"],
+                                         "variableMapping": [MAPPING[0], MAPPING[2]]}]}
+    if sampled["name"] in rules:
+        config.api("PATCH", f"/api/public/v2/evaluation-rules/{rules[sampled['name']]['id']}", sampled)
+        print(f"~ rule {sampled['name']} (reconciled)")
+    else:
+        config.api("POST", "/api/public/v2/evaluation-rules", sampled)
+        print(f"+ rule {sampled['name']}  sampling=0.2")
+
     queues = {q["name"]: q for q in paginate("/api/public/annotation-queues")}
     qname = "SME review — assistant answers"
     if qname not in queues:

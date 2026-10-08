@@ -26,7 +26,8 @@ _UPSELL = re.compile(
     r"(?i)(\bupgrad(e|ing)\b|consider (upgrading|switching|opening|moving|investing|(the |a |our )?(premier|platinum))|"
     r"worth (upgrading|considering|switching)|"
     r"(i|we) (recommend|suggest) (upgrading|switching|opening|our|the premier|the platinum|investing)|"
-    r"you (could|might|may) (benefit|want to (upgrade|open|switch|consider))|would you like to (upgrade|open)|"
+    r"you (could|might|may) want to (upgrade|switch to|consider (the )?(premier|platinum))|"
+    r"would you like to (upgrade|open (a |an )?(premier|platinum|investment|new account|savings))|"
     r"grow your savings|investment products? (could|can|that)|"
     # Spanish
     r"le (recomiendo|sugiero) (actualizar|cambiar|abrir|invertir|la cuenta premier|la tarjeta platinum)|"

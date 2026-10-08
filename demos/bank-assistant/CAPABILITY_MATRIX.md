@@ -27,9 +27,9 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | EXP-05 | Prompt rollback | move the `production` label back; live within ~10 s; no redeploy | Live | Act 5.4 · `scripts/prompt_label.py` |
 | EXP-06 | Quality gate / regression | `prompt_gate.py` exits 1 on the regression prompt (English and Spanish golden sets); GitHub Actions workflow triggered by a Langfuse prompt webhook | Live (local) · Config (CI) | Act 5.3 · `cicd/` |
 | ENT-01 | SSO with Entra ID and RBAC | org roles + project-level role live; SCIM endpoint; Entra ID OIDC configuration for self-hosted | Live (RBAC, SCIM) · Config (Entra ID) | M4 · `docs/ENTERPRISE_SECURITY.md` |
-| ENT-02 | Audit logs | prompt promotions/rollbacks, membership and key changes in the org audit log (Enterprise) | Live (Cloud org) | M4 |
+| ENT-02 | Audit logs | prompt promotions/rollbacks (done on the project), membership and key changes in Settings → Audit logs (Enterprise) | Live if enabled on the org — verify in prep; else Config | M4 |
 | ENT-03 | Data protection and retention | client-side PII masking; per-project retention (90 days on the demo project); server-side ingestion masking (self-hosted EE) | Live (masking, retention) · Config (server-side masking) | Act 1.3, M4 |
-| ENT-04 | Export and portability | REST API, UI export, scheduled export to S3 (Parquet/CSV/JSONL) | Live | M4 |
+| ENT-04 | Export and portability | REST API (used by every script), UI export (CSV/JSON); scheduled export to S3/Blob (Parquet/CSV/JSONL) | Live (API, UI export) · Config (scheduled export) | M4 |
 | GATE-01 | Governance, identity and access | ENT-01, ENT-02, protected prompt label | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |
 | GATE-02 | Security and data protection | masking, guardrails, red-team suite, retention | Evidence | M3 |
 | GATE-03 | Architectural integration | LangGraph, MCP, n8n, voice, APM; AWS reference architecture | Evidence | M3 · `docs/ARCHITECTURE.md` |

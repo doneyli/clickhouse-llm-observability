@@ -1,4 +1,4 @@
-"""Seed the system prompt lifecycle (EXP-04): v1 production, v2 staging, v3 development.
+"""Seed the system prompt lifecycle (EXP-04): baseline → production, candidate → staging, regression → development.
 
 Idempotent: a version is only created when the latest stored text differs.
 Run: .venv/bin/python scripts/seed_prompts.py

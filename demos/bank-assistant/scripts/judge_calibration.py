@@ -51,7 +51,9 @@ def all_scores() -> list:
 def by_obs(scores, name) -> dict:
     res = {}
     for s in scores:
-        oid = (s.get("subject") or {}).get("observationId") or s.get("observationId")
+        subj = s.get("subject") or {}
+        oid = (subj.get("id") if subj.get("kind") in ("observation", "OBSERVATION") else None) \
+            or subj.get("observationId") or s.get("observationId")
         if s["name"] == name and oid and isinstance(s.get("value"), (int, float)):
             res[oid] = (float(s["value"]), s.get("traceId") or (s.get("subject") or {}).get("traceId"))
     return res

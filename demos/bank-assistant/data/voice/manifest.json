@@ -61,7 +61,7 @@
     "voice": "nova",
     "scenario": "Lost card — wants it blocked",
     "scenario_es": "Tarjeta perdida: quiere bloquearla",
-    "instructions": "Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), like a native speaker on a phone call. A worried customer, speaking a little fast, slightly out of breath.",
+    "instructions": "Speak natural Latin-American Spanish (neutral Latin-American accent), like a native speaker on a phone call. A worried customer, speaking a little fast, slightly out of breath.",
     "script": "Hola, buenas tardes. Mire, creo que perdí mi tarjeta de crédito. La usé ayer en el supermercado y ahora no la encuentro por ningún lado. Es la tarjeta que termina en cuatro, cuatro, uno, siete. ¿Me la puede bloquear ahora mismo, por favor, antes de que alguien la use?",
     "tts_model": "gpt-4o-mini-tts"
   },
@@ -72,7 +72,7 @@
     "voice": "echo",
     "scenario": "Angry caller — double STREAMFLIX charge, wants it disputed",
     "scenario_es": "Cliente molesto: cobro doble de STREAMFLIX, quiere disputarlo",
-    "instructions": "Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), like a native speaker on a phone call. An angry, frustrated customer. Clipped sentences, audibly irritated and impatient, but not shouting.",
+    "instructions": "Speak natural Latin-American Spanish (neutral Latin-American accent), like a native speaker on a phone call. An angry, frustrated customer. Clipped sentences, audibly irritated and impatient, but not shouting.",
     "script": "Sí, buenas. Estoy revisando mi cuenta corriente y STREAMFLIX me cobró dos veces. Dos cargos de quince con noventa y nueve, el mismo día. ¡Y yo tengo una sola suscripción! Esto es el colmo. Quiero que me devuelvan ese dinero, así que abra una disputa por el cargo duplicado. Hoy mismo, por favor.",
     "tts_model": "gpt-4o-mini-tts"
   },
@@ -83,7 +83,7 @@
     "voice": "shimmer",
     "scenario": "International wire fee and cut-off time",
     "scenario_es": "Comisión de transferencia internacional y hora de corte",
-    "instructions": "Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), like a native speaker on a phone call. A friendly, relaxed customer asking a quick practical question.",
+    "instructions": "Speak natural Latin-American Spanish (neutral Latin-American accent), like a native speaker on a phone call. A friendly, relaxed customer asking a quick practical question.",
     "script": "¡Hola! Una consulta rápida. Necesito enviarle dinero a mi hermana que vive en España. ¿Cuánto cuesta una transferencia internacional, y cuál es la hora de corte si quiero que salga hoy mismo?",
     "tts_model": "gpt-4o-mini-tts"
   }

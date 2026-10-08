@@ -24,7 +24,9 @@ def main():
     scores = config.api("GET", "/api/public/v3/scores", params={"limit": 100, "fields": "core,subject"})["data"]
     worst: dict = {}
     for s in scores:
-        oid = (s.get("subject") or {}).get("observationId") or s.get("observationId")
+        subj = s.get("subject") or {}
+        oid = (subj.get("id") if subj.get("kind") in ("observation", "OBSERVATION") else None) \
+            or subj.get("observationId") or s.get("observationId")
         if oid and s["name"] in ("faithfulness", "banking-compliance") and isinstance(s.get("value"), (int, float)):
             worst[oid] = min(worst.get(oid, 1.0), s["value"])
     obs = config.api("GET", "/api/public/v2/observations",

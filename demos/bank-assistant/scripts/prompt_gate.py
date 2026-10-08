@@ -29,8 +29,10 @@ def main():
     ap.add_argument("--dataset", default=None, help="default: thresholds.json 'dataset' (English golden set)")
     a = ap.parse_args()
     t = json.loads(Path(a.thresholds).read_text())
-    if a.dataset:
-        t = {**t, "dataset": a.dataset, **t.get("per_dataset", {}).get(a.dataset, {})}
+    if a.dataset:  # per-dataset thresholds EXTEND the defaults (stricter wins)
+        over = t.get("per_dataset", {}).get(a.dataset, {})
+        t = {**t, "dataset": a.dataset,
+             "hard": {**t["hard"], **over.get("hard", {})}, "soft": {**t["soft"], **over.get("soft", {})}}
     print(f"Quality gate · prompt label '{a.prompt_label}' · {a.model} · dataset {t['dataset']}\n", flush=True)
     result = run_experiment.run(t["dataset"], a.prompt_label, a.model, run_name=f"gate · {a.prompt_label} · {a.model}")
     got = {e.name: e.value for e in result.run_evaluations}

@@ -26,7 +26,7 @@ from northwind import config  # noqa: E402
 OUT = DEMO_DIR / "data" / "voice"
 MODEL = "gpt-4o-mini-tts"  # supports `instructions` (tone, pace, emotion, accent)
 FALLBACK_MODEL = "tts-1"   # no `instructions`; used only if the account cannot call MODEL
-SPANISH = ("Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), "
+SPANISH = ("Speak natural Latin-American Spanish (neutral Latin-American accent), "
            "like a native speaker on a phone call. ")
 
 CALLS = [

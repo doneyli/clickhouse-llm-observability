@@ -81,8 +81,9 @@ see them on real traffic."
    financial-services users with published stories (e.g. Trade Republic runs it
    self-hosted). Keep it to public sources.
 
-**Land.** The software is identical in Cloud and self-hosted. The Enterprise
-license switches on governance features; it doesn't change the product.
+**Land.** Cloud and self-hosted run the same codebase. The Enterprise license
+switches on governance features (RBAC per project, audit logs, retention,
+protected labels, server-side masking); it doesn't change the product.
 
 **Ask.** "Which of these components already exists as an approved service in
 your AWS landing zone, and which one needs an architecture review?"
@@ -119,7 +120,10 @@ what the assistant actually did?"
    click the `kb-retrieval` **retriever** observation: document ids, source
    URLs, effective dates, similarity scores. Then the root's metadata →
    `context`: the exact text the model saw. (OBS-03)
-5. Top of the trace: total tokens, cost and latency; then **Dashboards** →
+5. Errors are traced too: Traces → filter **level = ERROR** → a turn that failed
+   during a bad deploy, with the exception on the root observation and the
+   apology the customer saw. (OBS-01)
+6. Top of the trace: total tokens, cost and latency; then **Dashboards** →
    *Northwind — AI quality, risk and cost* (seeded as code by
    `scripts/seed_dashboard.py`): cost by model, p95 turn latency, turns by
    environment. (OBS-05)
@@ -152,10 +156,16 @@ the most production traffic today, and which is hardest to debug?"
    Tag taxonomy: `channel:*`, `team:*`, `risk:*`, `scenario:*`.
 4. **Environment** selector: `production` vs `staging` (presenter console →
    *Generate production traffic* can also be run with `--environment staging`).
-5. Sampling: explain `LANGFUSE_SAMPLE_RATE` (client-side, whole traces) and
-   per-rule sampling on judges (cost lever, shown in M2). The pattern for a
-   bank: 100% tracing of the AI payload where volume allows, judge sampling
-   5–20%, 100% on flagged traffic.
+5. Sampling — two levers. (a) **Trace sampling** in the app
+   (`NORTHWIND_SAMPLE_RATE` / `LANGFUSE_SAMPLE_RATE`): whole traces, decided once
+   per trace and followed downstream (the MCP server honours the caller's
+   decision); when the app brings its own OpenTelemetry provider — as here, for
+   the Dynatrace export — the sampler is set on that provider, so the APM copy is
+   sampled too (sample in a Collector if Dynatrace must keep 100%). (b) **Judge
+   sampling** per evaluation rule (M2): `manipulation-resistance` runs on 100%
+   of guardrail-flagged traffic and on a 20% sample of everything else. The
+   pattern for a bank: trace 100% where volume allows, judge 5–20%, judge 100%
+   of flagged traffic.
 
 **Land.** Conversations, customers, channels and environments are filters,
 not separate tools. Sampling is a cost decision you can make per evaluator.
@@ -169,8 +179,11 @@ privacy audits."
 **Show.**
 1. Portal chip *"My card number is 4111 1111 1111 1111, is it blocked?"*.
    The assistant warns the customer never to share it.
-2. Open the trace: input shows `[REDACTED_CARD]`, `CVV [REDACTED_SECRET]`;
-   metadata `pii_redacted: card,otp`. Score `pii-in-input = true`.
+2. Open the trace: input shows `[REDACTED_CARD]`; metadata `pii_redacted: card`;
+   score `pii-in-input = true`. Search the whole trace — the raw number appears
+   nowhere (not in the generations, not in the tool calls). 🇪🇸 Same in Spanish:
+   *"mi cédula es …"* → `[REDACTED_NATIONAL_ID]`, *"número de cuenta …"* →
+   `[REDACTED_ACCOUNT]`, *"código de verificación …"* → `[REDACTED_SECRET]`.
 3. Explain the layers: client-side `mask_otel_spans` hook (this demo:
    `northwind/masking.py` — Luhn-checked cards, keyword-anchored account and
    national-ID numbers, OTPs, emails, phones) → server-side ingestion masking
@@ -256,8 +269,8 @@ Show a speech-to-text slip against the reference script in
 
 Attendees with Viewer access to the project (or the presenter, driven by the
 room) answer three questions:
-1. Find Carla Mendes' (`C-1003`) WhatsApp session about the overdraft fee.
-   Which help-center article did the assistant use?
+1. Find a WhatsApp session from the last hour about an overdraft fee
+   (tag `channel:whatsapp`). Which help-center article did the assistant use?
 2. Which trace in the last hour had the highest cost? What drove it — the
    number of tool iterations or the context size?
 3. Find a trace the input guardrail blocked. What was the attack type?
@@ -280,8 +293,10 @@ happened, with the score next to the trace?"
    - `banking-compliance` (EVA-03, the bank's own evaluator) — conduct policy
      P1–P5: no personalised investment advice, never ask for credentials, no
      pressure selling, no promises, investments ≠ insured deposits
-   - `manipulation-resistance` — runs **only** on traffic the guardrail tagged
-     `risk:prompt_injection` / `risk:cross_customer_access` (targeted, not sampled)
+   - `manipulation-resistance` — two rules on one evaluator: 100% of traffic the
+     guardrail tagged `risk:prompt_injection` / `risk:cross_customer_access`,
+     plus a **20% sample** of all other turns (so an attack the rules missed is
+     still judged; no observation is scored twice)
    Open a rule: filter, **sampling**, variable mapping, judge model.
 2. Open a trace → Scores tab: judge scores **with reasoning**, next to the
    deterministic scores the app writes on every turn (`security-risk`,
@@ -306,9 +321,11 @@ checks, targeted LLM judges, and human signal.
    the prompt — tools take the authenticated customer id, so "show me C-1002"
    cannot work even if a jailbreak got past the guardrail.
 4. Candour: Langfuse ships no prompt-injection judge template; the pattern is a
-   runtime guardrail (rules here; LLM Guard, Lakera, NeMo or Bedrock Guardrails
-   in production) writing scores, plus an async judge. See
-   https://langfuse.com/docs/security-and-guardrails.
+   runtime guardrail writing scores, plus an async judge. The guardrail here is
+   **rules** (regex, EN + ES) — fast and explainable, but rules have false
+   positives and misses; in production put a classifier there (LLM Guard,
+   Lakera, NeMo or Bedrock Guardrails) and keep the sampled judge as the safety
+   net. See https://langfuse.com/docs/security-and-guardrails.
 
 ### Act 2.2b — 🇪🇸 Spanish: language and register · EVA-03, EVA-04
 
@@ -346,8 +363,8 @@ needs to agree with your experts — and you need a rule for which judge model
 is approved."
 
 **Show.**
-1. **Annotation queues** → *SME review — assistant answers*: 20 production
-   answers, worst-first. Label one live with `sme-faithfulness`,
+1. **Annotation queues** → *SME review — assistant answers*: 30 production
+   answers, including the lowest judge scores. Label one live with `sme-faithfulness`,
    `sme-compliance` and `sme-failure-mode`.
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.
@@ -444,10 +461,13 @@ maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
    (`AUTH_DISABLE_USERNAME_PASSWORD`), default role on first login
    (`LANGFUSE_DEFAULT_ORG_ROLE`), and SCIM for provisioning (the SCIM endpoint
    is live on this org). Entra ID connects over OIDC — SAML is not supported.
-2. **Protected prompt label.** Project settings → Prompts → protected labels:
-   `production` is protected, so only Admin/Owner can move it. This is the
-   approval step in the prompt lifecycle (M5). Try moving it as a Member: denied.
-3. **Audit logs (ENT-02).** Organization settings → Audit logs: the promotion
+2. **Protected prompt label.** Project settings → protected prompt labels:
+   `production` is protected, so in the UI only Admin/Owner can move it — the
+   approval step in the prompt lifecycle (M5). Nuance to state: project **API
+   keys** can still move protected labels by design (that is how CI promotes a
+   version that passed the gate), so treat API keys as privileged and keep them
+   in the CI system.
+3. **Audit logs (ENT-02).** Settings → Audit logs (Enterprise): the promotion
    and rollback of the production prompt (actor: API key), membership and API
    key changes — who, when, before/after. Exportable from the UI.
 4. **Data protection and retention (ENT-03).** Project settings → Data
@@ -502,9 +522,14 @@ English golden set (16 items, 2 of them in Spanish):
 
 | run | correctness (judge) | must-include | source-recall | cites-expected-source | formal-register (ES items) | no-unsolicited-upsell |
 |---|---|---|---|---|---|---|
-| production v1 · Claude Sonnet 4.6 | 0.91 | 1.00 | 0.88 | 0.88 | 0.00 | 0.92 |
+| production v1 · Claude Sonnet 4.6 | 0.91 | 1.00 | 0.88 | 0.88 | 0.00 | 0.92 ¹ |
 | staging v4 · Claude Sonnet 4.6 | 0.94 | 1.00 | 0.88 | 0.88 | **1.00** | **1.00** |
 | production v1 · GPT-4.1 | 0.88 | 0.94 | 0.88 | **0.56** | 0.50 | 1.00 |
+
+¹ The single upsell flag on production is a **false positive** of the evaluator
+("Would you like to open a dispute?" matched the rule). Open it in the run — it
+is a good moment: deterministic evaluators need review too. The rule has since
+been narrowed to recommendation language.
 
 🇪🇸 Spanish golden set (10 items):
 
@@ -515,8 +540,8 @@ English golden set (16 items, 2 of them in Spanish):
 
 Read it:
 - **Prompt A/B:** the candidate wins where it was designed to — **formal
-  Spanish** (0 → 1.00: production addresses every Spanish customer as *tú*) and
-  **no unsolicited upsell** — on deterministic metrics you can open and read.
+  Spanish** (0 → 1.00: production addresses every Spanish customer as *tú*) — on a
+  deterministic metric you can open and read. Everything else is a tie.
   The judge's correctness moves by a few points either way: that is noise at
   16 items, not a result. Decide on the deterministic metrics.
 - **Model comparison:** same prompt, same items — GPT-4.1 cites the policy
@@ -566,8 +591,9 @@ Spanish. How does it reach production — and how fast can you undo it?"
 **Show.** Presenter console → **Promote staging**: production moves to v4; the
 portal header shows the new version; ask a question and the trace links to v4.
 Then **Roll back**: production returns to v1 within ~10 s. No redeploy, no code
-change. Because `production` is a protected label, only an Admin/Owner (or an
-API key they issued) can do this, and both moves appear in the audit log.
+change. Because `production` is a protected label, only an Admin/Owner in the
+UI — or a project API key, as CI uses — can do this, and both moves appear in
+the audit log.
 
 ### 🧪 Lab 3 (optional, 5 min) — prompt experiment in the UI
 
@@ -599,10 +625,13 @@ Prompts → v4 → **Experiments** → run against `northwind-golden-qa-v1` with
    *Generate production traffic*, *Spanish traffic*, *Run voice calls*, *Run n8n
    complaint workflow* (~5 min in total; they can run back to back).
 4. In the Cloud UI: protect the `production` prompt label (Project settings →
-   Prompts → Protected labels) and open Organization settings → Audit logs to
-   confirm it shows the prompt label moves.
+   protected prompt labels) and open Settings → Audit logs to confirm it shows
+   the prompt label moves (a promote + rollback ran overnight). If Audit logs are
+   not visible on this org, present ENT-02 from `docs/ENTERPRISE_SECURITY.md`.
 5. Portal header must say **production v1** (`scripts/prompt_label.py --show`).
    Click **New conversation**; pick EN or ES for the room.
-6. Optional: label 3–5 items in the SME queue so Scores → Analytics has a few
-   human/judge pairs to show live.
+6. **Required (10 min):** label 8–10 items in the SME queue (`sme-faithfulness`,
+   `sme-compliance`). Without human labels, Scores → Analytics (judge vs human)
+   is empty. Then run `.venv/bin/python scripts/judge_calibration.py --bakeoff`
+   once to have the human-label agreement numbers ready.
 7. Open the tabs in the table at the top.
