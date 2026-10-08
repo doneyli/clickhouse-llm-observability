@@ -342,14 +342,36 @@ is approved."
    `sme-compliance` and `sme-failure-mode`.
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.
-3. Presenter console (or terminal):
-   `.venv/bin/python scripts/judge_calibration.py --bakeoff` → the same judge
-   prompt on four candidate judge models against the SME labels: agreement,
-   kappa, latency, tokens per evaluation; cost per candidate in the
-   `judge-bakeoff` traces.
-4. Selection criteria for the bank-approved judge (in order): SME agreement
-   (kappa ≥ 0.6) → approved and reachable inside the VPC (e.g. Bedrock) →
-   cost per 1,000 evaluations at your sampling rate → latency → stability.
+3. **Calibrate the judge and choose the judge model.** Datasets →
+   `judge-calibration/faithfulness`: 15 answers whose correct verdict is
+   **known by construction** — faithful (1.0), a minor imprecision (0.5), or a
+   seeded material error such as a wrong fee or deadline (0.0). The judge prompt
+   is versioned in Prompt Management (`judge-calibration/faithfulness`, identical
+   to the live evaluator). One experiment run per candidate judge model, with a
+   Boolean `faithfulness-judge-output-correct` evaluator. Compare the runs
+   (measured while building this demo):
+
+   | judge model | accuracy | faithful | minor slip | material error |
+   |---|---|---|---|---|
+   | claude-sonnet-4-6 (live judge) | **1.00** | 1.0 | 1.0 | 1.0 |
+   | claude-haiku-4-5 | 0.87 | 1.0 | 0.6 | 1.0 |
+   | gpt-4.1-mini | 0.80 | 1.0 | 0.4 | 1.0 |
+   | claude-sonnet-5-5 | 0.73 | 0.8 | 0.4 | 1.0 |
+
+   Every candidate catches material errors; they differ on nuance. ~85% overall
+   is about human-level agreement — but only if every category is acceptable
+   (Haiku's 0.87 hides 60% on minor slips). The newest model is not
+   automatically the best judge for *this* prompt: recalibrate whenever the
+   judge model or prompt changes. 5 items per category is a demo — a real
+   calibration set needs 50–100 SME-labelled items.
+   Re-run: `.venv/bin/python scripts/judge_calibration_experiment.py`.
+   With SME labels in the queue, `scripts/judge_calibration.py --bakeoff`
+   compares the same candidates against **human** labels.
+4. Selection criteria for the bank-approved judge (in order): agreement with the
+   reference/SME labels in **every** category → approved and reachable inside
+   the VPC (e.g. Bedrock) → cost per 1,000 evaluations at your sampling rate →
+   latency → stability across re-runs. Cost and latency per candidate are on the
+   same experiment runs.
 5. Quality trends (EVA-07): **Dashboards** → *Northwind — AI quality, risk and
    cost*: judge scores over time, customer feedback split, security-risk mix.
    Alerts can fire on the same scores (e.g. faithfulness average below 0.8 →
@@ -403,9 +425,10 @@ self-host, so for each feature say which **environment variable or setting** it
 maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
 
 1. **SSO with Entra ID and RBAC (ENT-01).** Organization settings → Members:
-   roles Owner / Admin / Member / Viewer / None, and a project-level role that
-   overrides the org role for a single project (an auditor who sees only this
-   project, read-only). Then, in `docs/ENTERPRISE_SECURITY.md`, the self-hosted
+   roles Owner / Admin / Member / Viewer / None. Then Project settings →
+   Members: show how a **project-level role** overrides the org role for one
+   project — e.g. an internal auditor with org role *None* and *Viewer* on this
+   project only (open the role dropdown; don't change real members live). Then, in `docs/ENTERPRISE_SECURITY.md`, the self-hosted
    Entra ID configuration: `AUTH_AZURE_AD_CLIENT_ID` / `_CLIENT_SECRET` /
    `_TENANT_ID`, SSO enforcement for the bank's domain
    (`AUTH_DOMAINS_WITH_SSO_ENFORCEMENT`), password login off
@@ -449,7 +472,7 @@ maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
 
 ### Act 5.1 — prompt management with dynamic consumption · EXP-04
 
-**Show.** Prompts → `northwind-assistant-system`: v1 `production`, v2
+**Show.** Prompts → `northwind-assistant-system`: v1 `production`, v4
 `staging`, v3 `development`; each with a commit message and config. The app
 fetches the prompt **by label** at runtime (`northwind/prompts.py`, 10 s cache,
 hard-coded fallback if Langfuse is unreachable) and every generation links to
@@ -457,30 +480,42 @@ the version that produced it (filter traces by prompt version).
 
 ### Act 5.2 — A/B a prompt and compare models · EXP-01, EXP-02, EXP-03
 
-**Frame.** "The product owner rewrote the prompt to be stricter about citations
-and policy. It reads better. Is it better?"
+**Frame.** "The product owner rewrote the prompt: stricter citations, an explicit
+investment rule, and formal Spanish. It reads better. Is it better — and is the
+model we use the right one?"
 
 **Show.** Datasets → `northwind-golden-qa-v1` → select runs
 `production · claude-sonnet-4-6`, `staging · claude-sonnet-4-6`,
-`production · gpt-4.1` → **Compare**. Measured while building this demo:
+`production · gpt-4.1` → **Compare**; then 🇪🇸 `northwind-golden-qa-es-v1`
+(production vs staging). Measured while building this demo:
 
-| run | correctness (judge) | must-include | source-recall | cites-expected-source | no-upsell |
+English golden set (16 items, 2 of them in Spanish):
+
+| run | correctness (judge) | must-include | source-recall | cites-expected-source | formal-register (ES items) | no-unsolicited-upsell |
+|---|---|---|---|---|---|---|
+| production v1 · Claude Sonnet 4.6 | 0.91 | 1.00 | 0.88 | 0.88 | 0.00 | 0.92 |
+| staging v4 · Claude Sonnet 4.6 | 0.94 | 1.00 | 0.88 | 0.88 | **1.00** | **1.00** |
+| production v1 · GPT-4.1 | 0.88 | 0.94 | 0.88 | **0.56** | 0.50 | 1.00 |
+
+🇪🇸 Spanish golden set (10 items):
+
+| run | correctness | must-include | source-recall | formal-register | language-match |
 |---|---|---|---|---|---|
-| production v1 · Claude Sonnet 4.6 | 0.94 | 1.00 | 0.88 | 0.88 | 0.92 |
-| staging v2 · Claude Sonnet 4.6 | 0.88 | 0.94 | 0.81 | 0.81 | 0.92 |
-| production v1 · GPT-4.1 | 0.75 | 0.81 | 0.75 | 0.50 | 1.00 |
+| production v1 | 0.85 | 1.00 | 0.80 | **0.00** | 1.00 |
+| staging v4 | 0.90 | 0.95 | 0.80 | **1.00** | 1.00 |
 
-Read it in two parts:
-- **Prompt A/B:** the "better-reading" v2 is **not** measurably better — every
-  gap is one item out of 16, inside run-to-run noise. Decision rule: don't
-  promote on a within-noise delta; promote when a hard metric moves or a
-  business rule requires it. The experiment just stopped an opinion-driven change.
+Read it:
+- **Prompt A/B:** the candidate wins where it was designed to — **formal
+  Spanish** (0 → 1.00: production addresses every Spanish customer as *tú*) and
+  **no unsolicited upsell** — on deterministic metrics you can open and read.
+  The judge's correctness moves by a few points either way: that is noise at
+  16 items, not a result. Decide on the deterministic metrics.
 - **Model comparison:** same prompt, same items — GPT-4.1 cites the policy
-  article half as often and misses more facts; open two items side by side to
+  article about half as often as Claude Sonnet; open two items side by side to
   see why. Cost and latency per run are on the same page.
 
-Re-running these takes ~3 min each (presenter console cards 5 and 6); the
-numbers will move a little between runs, which is the point about noise.
+Re-running takes ~3 min per run (presenter console); numbers move a little
+between runs — which is the point about noise.
 
 ### Act 5.3 — the CI quality gate blocks a regression · EXP-06
 
@@ -495,15 +530,20 @@ metric                         value  threshold   result
 avg-must-include               1.000       0.90   PASS (hard)
 avg-source-recall              0.875       0.80   PASS (hard)
 avg-language-match             0.938       1.00   FAIL (hard)
-avg-no-unsolicited-upsell      0.308       0.90   FAIL (hard)
-avg-correctness                0.969       0.80   PASS (soft)
+avg-no-unsolicited-upsell      0.385       0.90   FAIL (hard)
+avg-correctness                0.938       0.80   PASS (soft)
 ✗ GATE FAILED — 'development' must not be promoted to production.
 ```
 
-**Land.** The LLM judge rated the regression *higher* than production
-(correctness 0.97). The deterministic checks caught the upsell and the
-"always answer in English" rule. Gate hard on deterministic metrics; use judge
-averages as a smoke alarm.
+🇪🇸 Then the same gate on the Spanish golden set
+(`--dataset northwind-golden-qa-es-v1`): `language-match` 0.40,
+`formal-register` 0.60, `must-include` 0.80 → **FAIL** — the "always answer in
+English" line breaks every Spanish customer.
+
+**Land.** The LLM judge rated the regression *as correct as production*
+(0.94). The deterministic checks caught the upsell and the language rule.
+Gate hard on deterministic metrics; use judge averages as a smoke alarm.
+The candidate v4 passes the same English gate (exit 0).
 
 In CI: a Langfuse prompt webhook (new version / label change) → GitHub
 `repository_dispatch` → `scripts/prompt_gate.py` → exit 1 fails the check
@@ -511,18 +551,18 @@ In CI: a Langfuse prompt webhook (new version / label change) → GitHub
 
 ### Act 5.4 — promote and roll back · EXP-05
 
-**Frame.** "Compliance asks for v2 anyway — it states the investment-advice rule
-explicitly. How does it reach production, and how fast can you undo it?"
+**Frame.** "The candidate (v4) passed the gate in English and fixes formal
+Spanish. How does it reach production — and how fast can you undo it?"
 
-**Show.** Presenter console → **Promote staging**: production moves to v2; the
-portal header shows the new version; ask a question and the trace links to v2.
+**Show.** Presenter console → **Promote staging**: production moves to v4; the
+portal header shows the new version; ask a question and the trace links to v4.
 Then **Roll back**: production returns to v1 within ~10 s. No redeploy, no code
 change. Because `production` is a protected label, only an Admin/Owner (or an
 API key they issued) can do this, and both moves appear in the audit log.
 
 ### 🧪 Lab 3 (optional, 5 min) — prompt experiment in the UI
 
-Prompts → v2 → **Experiments** → run against `northwind-golden-qa-v1` with the
+Prompts → v4 → **Experiments** → run against `northwind-golden-qa-v1` with the
 `faithfulness`-style judge you built in Lab 2. No code.
 
 ---
@@ -538,20 +578,22 @@ Prompts → v2 → **Experiments** → run against `northwind-golden-qa-v1` with
 
 ---
 
-## Presenter prep (morning of)
+## Presenter prep (morning of, ~20 min)
 
 1. `./scripts/up.sh` (n8n + APM stand-in), then restart the MCP server for a
    clean banking state and start the portal:
    `kill $(lsof -tiTCP:8765 -sTCP:LISTEN); ./scripts/run_portal.sh`.
-   In the portal, click **New conversation**. The portal header shows the Langfuse Cloud target and
-   the served production prompt version — it must say **production v1**.
-2. Warm-up traffic: Presenter console → *Generate production traffic* (~3 min)
-   so the last-hour views are populated; also *Run voice calls* and *Run n8n
-   complaint workflow* once.
-3. Label 10–15 items in the SME queue (`sme-faithfulness`, `sme-compliance`),
-   then run `.venv/bin/python scripts/judge_calibration.py --bakeoff` once so the
-   numbers are ready.
+2. `.venv/bin/python scripts/verify_demo.py` → must end with **READY** (prompts,
+   datasets, runs, judge rules + fresh judge scores, queue, dashboard, traces per
+   channel, local services).
+3. Warm-up traffic so the last-hour views are populated: Presenter console →
+   *Generate production traffic*, *Spanish traffic*, *Run voice calls*, *Run n8n
+   complaint workflow* (~5 min in total; they can run back to back).
 4. In the Cloud UI: protect the `production` prompt label (Project settings →
-   Prompts) and check Organization settings → Audit logs shows entries.
-5. `.venv/bin/python scripts/prompt_label.py --show` → production must be v1.
-6. Open the tabs in the table at the top.
+   Prompts → Protected labels) and open Organization settings → Audit logs to
+   confirm it shows the prompt label moves.
+5. Portal header must say **production v1** (`scripts/prompt_label.py --show`).
+   Click **New conversation**; pick EN or ES for the room.
+6. Optional: label 3–5 items in the SME queue so Scores → Analytics has a few
+   human/judge pairs to show live.
+7. Open the tabs in the table at the top.

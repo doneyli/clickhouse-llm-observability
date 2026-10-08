@@ -30,13 +30,13 @@ Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](ht
 The implementation is in `../northwind/config.py`:
 
 - `tracer_provider()` creates the provider and attaches the **APM processor first**, wrapped in a payload-stripping exporter, then registers the provider globally.
-- `get_langfuse()` creates the Langfuse client with `tracer_provider=provider`, `mask_otel_spans=` (see `../northwind/masking.py`), `sample_rate=`, `environment=` and `release=`. Langfuse adds its own span processor to the **same** provider, so both destinations receive identical trace and span ids.
+- `get_langfuse()` creates the Langfuse client with `tracer_provider=provider`, `mask_otel_spans=` (see `../northwind/masking.py`), `environment=` and `release=`. Langfuse adds its own span processor to the **same** provider, so both destinations receive identical trace and span ids.
 - `flush()` flushes **both** exporters. Langfuse's `flush()` alone does not cover the APM processor, so short-lived scripts would lose the APM copy.
 - The MCP server process (`../northwind/mcp_server.py`) uses the same pattern under a different `service.name`. Trace context travels in MCP `_meta`, so the APM service flow also shows agent → MCP server as one trace.
 
 **What the APM copy loses.** These attributes are removed before export: `langfuse.observation.input|output|metadata`, `langfuse.trace.input|output|metadata`, `gen_ai.prompt|completion|input|output*`, `input.value`, `output.value`, `llm.input_messages`, `llm.output_messages`. Dynatrace receives operational telemetry only (names, timings, status, structure, resource attributes), so **no customer text reaches the APM**. This stripping is necessary because `mask_otel_spans` masks only the Langfuse copy, and a plain `BatchSpanProcessor` would otherwise ship raw prompts.
 
-**Sampling caveat (UNVERIFIED):** the intended behaviour is that `LANGFUSE_SAMPLE_RATE` < 1 thins only the Langfuse copy while the APM keeps 100% of traces. Verify this with a provider passed in by the caller, as the demo does. A sampler set on the TracerProvider itself would apply to **both** destinations.
+**Sampling (verified in the Python SDK 4.17 source):** when the app passes its own provider (`Langfuse(tracer_provider=...)`), the SDK does **not** install its `sample_rate` sampler — the sampler belongs to the provider. The demo therefore sets `ParentBased(TraceIdRatioBased(rate))` on its provider (`../northwind/config.py`), which samples **both** destinations consistently (the MCP server follows the caller's decision via `traceparent`; the SDK samples scores with the same sampler, so no orphan scores). To keep 100% in Dynatrace while sampling Langfuse, sample in an OpenTelemetry Collector (tail or probabilistic sampler on the Langfuse pipeline only) instead.
 
 ## 3. Dynatrace configuration
 

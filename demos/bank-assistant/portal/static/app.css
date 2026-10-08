@@ -381,3 +381,40 @@ select.input, input.input {
   .chat { height: 72vh; }
   .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ── Language toggle (EN | ES) + language badges ─────────── */
+.lang-toggle {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px 3px 3px 9px; border-radius: 999px;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); flex-shrink: 0;
+}
+.lang-toggle svg { width: 14px; height: 14px; color: #9fb3cf; margin-right: 4px; }
+.lang-toggle button {
+  border: 0; background: transparent; color: #b9c8dc; cursor: pointer;
+  font-size: 12px; font-weight: 700; letter-spacing: .06em; padding: 4px 10px; border-radius: 999px; line-height: 1.2;
+}
+.lang-toggle button:hover { color: #fff; }
+.lang-toggle button[aria-pressed="true"] { background: #fff; color: var(--navy-900); box-shadow: 0 1px 2px rgba(7,26,51,.3); }
+.lang-toggle button:focus-visible { outline: 2px solid var(--teal-500); outline-offset: 1px; }
+.lang-badge {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  height: 20px; min-width: 26px; padding: 0 6px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .06em; line-height: 1;
+  background: var(--navy-100); color: var(--navy-800); border: 1px solid #cdd9ea; text-transform: uppercase;
+}
+.lang-badge.lang-es { background: var(--gold-50); color: var(--gold-600); border-color: #ecd9ae; }
+.act-head .lang-badge { margin-left: auto; margin-top: 3px; }
+.turn .lbl .lang-badge { height: 17px; min-width: 22px; font-size: 9.5px; margin-left: 6px; vertical-align: 1px; }
+.voice-group-h {
+  display: flex; align-items: center; gap: 8px; margin: 4px 2px -4px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.voice-group-h .n { margin-left: auto; font-weight: 600; letter-spacing: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.file-btn { position: relative; cursor: pointer; flex-shrink: 0; }
+.file-btn:focus-within { box-shadow: 0 0 0 3px rgba(20,167,156,.25); }
+.file-name { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-name.has-file { color: var(--text); font-family: var(--mono); font-size: 11.5px; }
+@media (max-width: 980px) {
+  .lang-toggle svg { display: none; }
+  .lang-toggle { padding-left: 3px; }
+}

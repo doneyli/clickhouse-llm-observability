@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=7">
+  <link rel="stylesheet" href="/static/app.css?v=9">
 </head>
 <body>
   <!-- inline icon sprite -->
@@ -48,16 +48,21 @@
       <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#13315c"/><use href="#i-logo"/></svg>
       <div>
         <div class="brand-name">Northwind Bank</div>
-        <div class="brand-sub">Digital Assistant · AI Observability demo</div>
+        <div class="brand-sub" data-i18n="brand.sub">Digital Assistant · AI Observability demo</div>
       </div>
     </a>
     <nav class="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="assistant" aria-selected="true"><svg><use href="#i-chat"/></svg><span>Customer assistant</span></button>
-      <button class="tab" role="tab" data-tab="voice" aria-selected="false"><svg><use href="#i-phone"/></svg><span>Voice</span></button>
-      <button class="tab" role="tab" data-tab="presenter" aria-selected="false"><svg><use href="#i-console"/></svg><span>Presenter console</span></button>
+      <button class="tab" role="tab" data-tab="assistant" aria-selected="true"><svg><use href="#i-chat"/></svg><span data-i18n="tab.assistant">Customer assistant</span></button>
+      <button class="tab" role="tab" data-tab="voice" aria-selected="false"><svg><use href="#i-phone"/></svg><span data-i18n="tab.voice">Voice</span></button>
+      <button class="tab" role="tab" data-tab="presenter" aria-selected="false"><svg><use href="#i-console"/></svg><span data-i18n="tab.presenter">Presenter console</span></button>
     </nav>
     <div class="topbar-right">
       <span class="env-pill" id="envPill" title=""><span class="dot" id="envDot"></span><span id="envText">connecting…</span></span>
+      <div class="lang-toggle" id="langToggle" role="group" aria-label="Interface language" data-i18n-aria="lang.group" data-i18n-title="lang.group" title="Interface language">
+        <svg aria-hidden="true"><use href="#i-globe"/></svg>
+        <button type="button" data-lang="en" aria-pressed="true" lang="en">EN</button>
+        <button type="button" data-lang="es" aria-pressed="false" lang="es">ES</button>
+      </div>
     </div>
   </header>
 
@@ -67,12 +72,12 @@
       <div class="assistant-layout">
         <aside class="sidebar">
           <div class="card">
-            <p class="section-label">Signed-in customer</p>
-            <div class="customer-list" id="customerList" role="radiogroup" aria-label="Customer"></div>
+            <p class="section-label" data-i18n="side.customer">Signed-in customer</p>
+            <div class="customer-list" id="customerList" role="radiogroup" aria-label="Customer" data-i18n-aria="side.customerGroup"></div>
           </div>
           <div class="card">
             <div class="field">
-              <label>Channel</label>
+              <label data-i18n="side.channel">Channel</label>
               <div class="seg" id="channelSeg">
                 <button data-ch="web" aria-pressed="true"><svg><use href="#i-globe"/></svg>Web</button>
                 <button data-ch="app" aria-pressed="false"><svg><use href="#i-mobile"/></svg>App</button>
@@ -80,15 +85,15 @@
               </div>
             </div>
             <div class="field">
-              <label for="labelSel">Prompt label</label>
+              <label for="labelSel" data-i18n="side.label">Prompt label</label>
               <select class="input" id="labelSel">
-                <option value="">production (default)</option>
+                <option value="" data-i18n="side.labelDefault">production (default)</option>
                 <option value="staging">staging</option>
                 <option value="development">development</option>
               </select>
             </div>
             <div class="field">
-              <label>Conversation</label>
+              <label data-i18n="side.conversation">Conversation</label>
               <div class="session-row">
                 <span class="session-id" id="sessionId" title="Langfuse session id">—</span>
               </div>
@@ -100,18 +105,18 @@
           <div class="chat-head">
             <div class="bot-avatar"><svg viewBox="0 0 32 32"><use href="#i-logo"/></svg></div>
             <div>
-              <div class="chat-title">Northwind Assistant</div>
-              <div class="chat-sub"><span class="online"></span><span id="chatSub">Online</span></div>
+              <div class="chat-title" data-i18n="chat.title">Northwind Assistant</div>
+              <div class="chat-sub"><span class="online"></span><span id="chatSub">&nbsp;</span></div>
             </div>
             <div class="spacer"></div>
-            <span class="badge badge-ok" title="Every turn is traced in Langfuse"><svg><use href="#i-lock"/></svg>Traced · PII-masked</span>
-            <button class="btn btn-sm" id="newConv"><svg><use href="#i-plus"/></svg>New conversation</button>
+            <span class="badge badge-ok" title="Every turn is traced in Langfuse" data-i18n-title="chat.tracedTitle"><svg><use href="#i-lock"/></svg><span data-i18n="chat.traced">Traced · PII-masked</span></span>
+            <button class="btn btn-sm" id="newConv"><svg><use href="#i-plus"/></svg><span data-i18n="chat.new">New conversation</span></button>
           </div>
           <div class="transcript" id="transcript"></div>
           <div class="chips" id="chips"></div>
           <form class="composer" id="composer" autocomplete="off">
-            <textarea id="input" rows="1" placeholder="Message Northwind Assistant…" aria-label="Message"></textarea>
-            <button class="btn btn-primary" id="sendBtn" type="submit"><svg><use href="#i-send"/></svg>Send</button>
+            <textarea id="input" rows="1" placeholder="Message Northwind Assistant…" aria-label="Message" data-i18n-placeholder="chat.placeholder" data-i18n-aria="chat.inputAria"></textarea>
+            <button class="btn btn-primary" id="sendBtn" type="submit"><svg><use href="#i-send"/></svg><span data-i18n="chat.send">Send</span></button>
           </form>
         </div>
       </div>
@@ -122,26 +127,27 @@
       <div class="voice-layout">
         <div class="voice-col">
           <div class="card voice-toolbar">
-            <label for="voiceCustomer">Caller</label>
+            <label for="voiceCustomer" data-i18n="voice.caller">Caller</label>
             <select class="input" id="voiceCustomer"></select>
-            <button class="btn btn-sm btn-ghost" id="voiceRefresh" title="Reload sample calls"><svg><use href="#i-refresh"/></svg></button>
+            <button class="btn btn-sm btn-ghost" id="voiceRefresh" title="Reload sample calls" data-i18n-title="voice.reload" data-i18n-aria="voice.reload"><svg><use href="#i-refresh"/></svg></button>
           </div>
           <div id="voiceList" class="voice-col"></div>
           <div class="card upload" id="uploadCard">
             <div class="call-head">
               <div class="call-icon"><svg><use href="#i-upload"/></svg></div>
-              <div><div class="call-title">Upload a call</div><div class="call-file">.wav or .mp3</div></div>
+              <div><div class="call-title" data-i18n="voice.upload">Upload a call</div><div class="call-file" data-i18n="voice.formats">.wav or .mp3</div></div>
             </div>
             <div class="row">
-              <input type="file" id="voiceFile" accept=".wav,.mp3,audio/wav,audio/mpeg">
-              <button class="btn btn-sm btn-primary" id="voiceUploadBtn" disabled><svg><use href="#i-play"/></svg>Process call</button>
+              <label class="btn btn-sm file-btn"><input type="file" id="voiceFile" class="sr-only" accept=".wav,.mp3,audio/wav,audio/mpeg"><svg><use href="#i-upload"/></svg><span data-i18n="voice.choose">Choose file</span></label>
+              <span class="file-name" id="voiceFileName">No file chosen</span>
+              <button class="btn btn-sm btn-primary" id="voiceUploadBtn" disabled><svg><use href="#i-play"/></svg><span data-i18n="voice.process">Process call</span></button>
             </div>
           </div>
         </div>
         <div class="card result" id="voiceResult">
           <div class="empty-result" id="voiceEmpty">
             <svg><use href="#i-phone"/></svg>
-            <p>Pick a recorded call and press <b>Process call</b>. The caller's audio is transcribed, answered by the same assistant, and spoken back — one trace in Langfuse.</p>
+            <p data-i18n-html="voice.empty">Pick a recorded call and press <b>Process call</b>. The caller's audio is transcribed, answered by the same assistant, and spoken back — one trace in Langfuse.</p>
           </div>
         </div>
       </div>
@@ -150,11 +156,11 @@
     <!-- ── TAB 3: Presenter console ──────────────────────── -->
     <section class="view" id="view-presenter">
       <div class="card status-strip" id="statusStrip">
-        <div class="stat-cell"><div class="k">Environment</div><div class="v" id="stEnv">—</div><div class="s" id="stRelease">&nbsp;</div></div>
-        <div class="stat-cell"><div class="k">Langfuse target</div><div class="v" id="stTarget">—</div><div class="s" id="stBase">&nbsp;</div></div>
-        <div class="stat-cell"><div class="k">Production prompt</div><div class="v" id="stPrompt">—</div><div class="s" id="stPromptName">&nbsp;</div></div>
-        <div class="stat-cell"><div class="k">Served label</div><div class="v" id="stLabel">—</div><div class="s">portal default</div></div>
-        <div class="stat-cell"><div class="k">Agent model</div><div class="v" id="stModel">—</div><div class="s" id="stProfile">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.env">Environment</div><div class="v" id="stEnv">—</div><div class="s" id="stRelease">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.target">Langfuse target</div><div class="v" id="stTarget">—</div><div class="s" id="stBase">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.prompt">Production prompt</div><div class="v" id="stPrompt">—</div><div class="s" id="stPromptName">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.label">Served label</div><div class="v" id="stLabel">—</div><div class="s" data-i18n="pres.labelSub">portal default</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.model">Agent model</div><div class="v" id="stModel">—</div><div class="s" id="stProfile">&nbsp;</div></div>
         <div class="stat-links" id="stLinks"></div>
       </div>
       <div class="presenter-layout">
@@ -165,17 +171,17 @@
             <span class="run-pill" id="conPill">idle</span>
             <span class="grow"></span>
             <span class="elapsed" id="conElapsed"></span>
-            <button class="btn stop hidden" id="conStop"><svg><use href="#i-stop"/></svg>Stop</button>
-            <button class="btn" id="conClear">Clear</button>
+            <button class="btn stop hidden" id="conStop"><svg><use href="#i-stop"/></svg><span data-i18n="con.stop">Stop</span></button>
+            <button class="btn" id="conClear" data-i18n="con.clear">Clear</button>
           </div>
           <pre class="console-body" id="conBody"><div class="console-empty">Run a demo act — its output streams here, and any Langfuse links it prints appear below as buttons.</div></pre>
-          <div class="console-links hidden" id="conLinks"><div class="lbl">Links from output</div><div class="list" id="conLinkList"></div></div>
+          <div class="console-links hidden" id="conLinks"><div class="lbl" data-i18n="con.links">Links from output</div><div class="list" id="conLinkList"></div></div>
         </div>
       </div>
     </section>
   </main>
 
   <div class="toast" id="toast"></div>
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=9"></script>
 </body>
 </html>

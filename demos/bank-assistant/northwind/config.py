@@ -163,7 +163,16 @@ def tracer_provider(service_name: str = "northwind-assistant"):
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    _provider = TracerProvider(resource=Resource.create({
+    # Sampling lives on the PROVIDER. When an app passes its own provider to
+    # Langfuse(tracer_provider=...), the SDK cannot install its sample_rate
+    # sampler, so we do it here. ParentBased: a downstream service (the MCP
+    # server) follows the caller's decision via the traceparent flags, and the
+    # SDK samples scores with this same sampler, so a sampled-out turn leaves no
+    # orphan scores. This samples the APM copy too; to keep 100% in the APM while
+    # sampling Langfuse, sample in an OTel Collector instead.
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+    sampler = ParentBased(TraceIdRatioBased(SAMPLE_RATE)) if SAMPLE_RATE < 1 else None
+    _provider = TracerProvider(sampler=sampler, resource=Resource.create({
         "service.name": service_name,
         "service.version": RELEASE,
         "deployment.environment": ENVIRONMENT,

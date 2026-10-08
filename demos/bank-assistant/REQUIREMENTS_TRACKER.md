@@ -27,24 +27,24 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | OBS-05 | Tokens, latency and costs | ✅ | Per generation, trace, user and session. Example trace above: 7.7k tokens, 9.4 s. GPT-4.1 runs give a model cost comparison. |
 | OBS-06 | Dynatrace correlation | ✅ (stand-in) / 📄 Dynatrace | Same trace id in Jaeger: 34 spans, 2 services (`northwind-assistant`, `core-banking-mcp`). Payloads are stripped from the APM copy. Dynatrace needs only the endpoint and token (`docs/DYNATRACE.md`). |
 | EVA-01 | Faithfulness / Groundedness | ✅ | Managed judge `faithfulness` on production root observations: mean 0.93 on the first 21 turns. |
-| EVA-02 | Correctness / Factuality | ✅ | `correctness` judge vs expected output, plus deterministic `must-include`: production run 0.94 / 1.00. |
+| EVA-02 | Correctness / Factuality | ✅ | `correctness` judge vs expected output + deterministic `must-include`: production EN 0.91 / 1.00, ES 0.85 / 1.00 ([EN run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d0a9afed-6401-4e71-9b76-aaf354962bbe)) |
 | EVA-03 | Custom bank evaluator | ✅ | `banking-compliance` (policy P1–P5): mean 0.98 on 21 turns. `manipulation-resistance` runs only on guardrail-flagged traffic: 1.0 on 6. Guardrail scores are written on every turn. |
 | EVA-04 | Online evaluation | ✅ | 3 managed rules (sampling 100%, one targeted by tag) and 6 deterministic scores per turn. |
-| EVA-05 | Offline evaluation | ✅ | Dataset experiments with item- and run-level evaluators: [production run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/242a1502-d49b-45af-bca8-018e9f86bae6) |
-| EVA-06 | Human feedback and annotation | 🟡 | Customer 👍/👎 (`user-feedback`) from traffic and the portal. SME queue has 20 items, worst first. **Before the session:** label 10–15 items, then run `scripts/judge_calibration.py --bakeoff`. |
+| EVA-05 | Offline evaluation | ✅ | Dataset experiments with item- and run-level evaluators (EN + ES): [EN production run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d0a9afed-6401-4e71-9b76-aaf354962bbe) · [ES production run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/aa375259-5822-4948-837b-fe8100c830f5) |
+| EVA-06 | Human feedback and annotation | ✅ | Customer 👍/👎 (`user-feedback`) on traffic + portal; SME queue (20 items, worst-first, score configs `sme-faithfulness` / `sme-compliance` / `sme-failure-mode`). **Judge calibration** as Langfuse experiments on `judge-calibration/faithfulness` (labels known by construction): Sonnet 4.6 1.00, Haiku 4.5 0.87, GPT-4.1-mini 0.80, Sonnet 5.5 0.73 — per-category breakdown in Act 2.4 ([Sonnet 4.6 run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/aa64b188-9a42-4379-9e9c-7c88cc86c7a2)). Optional: label SME items live → `judge_calibration.py --bakeoff` vs human labels. |
 | EVA-07 | Quality trends | ✅ | Seeded dashboard *Northwind — AI quality, risk and cost*: judge scores over time, feedback, security-risk mix ([dashboard](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuz2p34r05e2ad0ec9otchz3)). |
 | EXP-01 | Golden dataset + expected outputs | ✅ | `northwind-golden-qa-v1`: 16 items in EN and ES, with expected output, sources and facts. `northwind-redteam-v1`: 8 items. |
-| EXP-02 | Prompt A/B experiment | ✅ | production v1 vs staging v2: [v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/242a1502-d49b-45af-bca8-018e9f86bae6) · [v2](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d537e8af-6349-4773-8f98-78c21c6884c8). Honest result: v2 is not measurably better (within noise). |
-| EXP-03 | Model / config comparison | ✅ | Claude Sonnet 4.6 vs GPT-4.1: correctness 0.94 vs 0.75, citations 0.88 vs 0.50. [GPT run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/e1abfdb3-36b6-4ca5-bc63-6d3717c756bb) |
+| EXP-02 | Prompt A/B experiment | ✅ | production v1 vs staging v4 — EN: [v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d0a9afed-6401-4e71-9b76-aaf354962bbe) · [v4](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/17952a0a-cf13-421a-a8ce-ae81ac75fe8a); ES: [v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/aa375259-5822-4948-837b-fe8100c830f5) · [v4](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/0ad3da07-f2fe-483d-97bc-ba26128a1b55). v4 wins on deterministic metrics: formal-register 0→1.00, no-upsell 0.92→1.00; judge correctness within noise. |
+| EXP-03 | Model / config comparison | ✅ | Claude Sonnet 4.6 vs GPT-4.1 on the same prompt + items: cites-expected-source 0.88 vs 0.56, correctness 0.91 vs 0.88 ([GPT run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/b686530c-8a60-496d-9556-2549f25498ee)) |
 | EXP-04 | Prompt management, dynamic consumption | ✅ | `northwind-assistant-system` v1/v2/v3 with production/staging/development labels. Fetched by label at runtime (10 s cache plus fallback); generations are linked to the prompt version. |
 | EXP-05 | Prompt rollback | ✅ | `prompt_label.py --promote staging` / `--rollback` moves labels with no redeploy. Verified (also on self-hosted). |
-| EXP-06 | Quality gate / regression | ✅ (EN + ES) | Gate on v3 "growth" prompt: **exit 1**. upsell 0.31 and language 0.94 fail even though the judge gave correctness 0.97. [gate run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/157bca1c-d282-45a4-86ac-2d5fc1d0b8ab). Spanish gate also exits 1 on v3. GitHub Actions workflow `.github/workflows/northwind-prompt-gate.yml` (needs repo secrets) is 📄. |
+| EXP-06 | Quality gate / regression | ✅ (EN + ES) | Gate on v3 'growth' prompt **exit 1** in both languages — EN: upsell 0.385, language 0.938 while the judge gave correctness 0.94 ([EN gate run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/21644eb8-1363-4b18-ac88-2f1aee10efc7)); ES: language 0.40, formal 0.60. Candidate v4 passes the EN gate (exit 0). GitHub Actions workflow `.github/workflows/northwind-prompt-gate.yml` needs repo secrets (📄). |
 | ENT-01 | SSO Entra ID and RBAC | 🟡 RBAC / 📄 Entra | Cloud org roles live (Settings → Members); project-membership API responds. Entra ID setup is in `docs/ENTERPRISE_SECURITY.md` (OIDC, no SAML). SCIM API responds on Cloud (Enterprise). |
 | ENT-02 | Audit logs | 🟡 | Cloud org has Enterprise features; the label promote and rollback via API should appear. **Check:** Org Settings → Audit logs. |
 | ENT-03 | Data protection and retention | ✅ | Client-side PII masking verified on Cloud: card, CVV and email redacted, raw values absent from the whole trace ([card](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/6b7ae876477eda435a0a8d50afeb6838), [email](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/01b896eb98a811334d57e7279b53ba00)). Retention set to 90 days through the API (200). Server-side masking is self-hosted EE only (📄). |
 | ENT-04 | Export and portability | 🟡 | REST API used throughout (v2 observations, v3 scores). Blob-export integration API responds (no bucket configured). UI CSV/JSON export: show live. |
 | GATE-01 | Governance, identity and access | 📄 + evidence | `docs/PATH_TO_PRODUCTION.md`; uses ENT-01/02 and protected label |
-| GATE-02 | Security and data protection | ✅ evidence | masking, guardrails, red-team 1.0 ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xwvb04yead0eozy5z3q1/runs/f0500f0a-df4e-45e0-9a27-6eb481ddf8fd)), retention |
+| GATE-02 | Security and data protection | ✅ evidence | masking, guardrails, red-team (10 items, EN + ES) refused-safely 1.0 ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xwvb04yead0eozy5z3q1/runs/86456e2a-5078-480e-a96e-588a0237fb19)), retention |
 | GATE-03 | Architectural integration | ✅ evidence | LangGraph + MCP + n8n + APM live; AWS reference architecture in `docs/ARCHITECTURE.md` (ALB, no NLB) |
 | GATE-04 | Operation and resilience | 📄 | `docs/OPERATIONS.md` (HA, scaling, backups, upgrades, monitoring) |
 | GATE-05 | Value, Enterprise support and TCO | 📄 | `docs/PATH_TO_PRODUCTION.md` TCO worksheet + support model (no invented prices) |
@@ -67,10 +67,10 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | M1 | Sampling strategy | 🟡 (client `--sample-rate` and judge-rule sampling built; not demoed live yet) | Act 1.2 |
 | M2 | LLM-as-a-judge (Faithfulness, Correctness) | ✅ | Acts 2.1, 2.3 |
 | M2 | Online and offline evaluation | ✅ | Acts 2.1, 2.3 |
-| M2 | Human feedback, annotation queues, quality trends | 🟡 | Act 2.4 |
+| M2 | Human feedback, annotation queues, quality trends | ✅ | Act 2.4 |
 | M2 | Security-focused evaluators | ✅ | Act 2.2 |
-| M2 | Judge calibration vs human criteria | 🟡 needs SME labels | Act 2.4 |
-| M2 | Criteria to choose the bank-approved judge model | ✅ criteria + bake-off script (needs labels to run) | Act 2.4 |
+| M2 | Judge calibration vs human criteria | ✅ calibration experiments (reference labels) · SME labels optional live | Act 2.4 |
+| M2 | Criteria to choose the bank-approved judge model | ✅ criteria + 4-model bake-off as experiment runs (accuracy per category, cost, latency) | Act 2.4 |
 | M3 | Walk through the 5 gates with the collected evidence | ✅ | M3 |
 | M3 | TCO and Enterprise support model | 📄 | M3 |
 | M3 | Adoption playbook: owners, naming conventions, onboarding | 📄 | M3 |
@@ -104,8 +104,8 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | Assistant answers in the customer's language; bilingual retrieval | ✅ | Spanish keywords indexed per article; Spanish queries retrieve the right policy (KB-202, KB-302, …) |
 | Spanish guardrails | ✅ | Spanish injection / cross-customer / investment patterns; Spanish refusal; red-team incl. 2 Spanish attacks: refused-safely 1.0 |
 | Spanish evals: language match, formal register (usted) | ✅ | `language-match` + `formal-register` scores on every turn (online) and in experiments (offline) |
-| Spanish golden dataset + A/B | ✅ | `northwind-golden-qa-es-v1` (10 items): production v1 formal-register **0.00** (uses "tú") vs staging v4 **1.00** |
-| Spanish CI gate | ✅ | `prompt_gate.py --dataset northwind-golden-qa-es-v1` on development: language-match 0.40, formal-register 0.60 → **exit 1** ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/f07e5df8-5e72-455d-a778-ac3b32732055)) |
+| Spanish golden dataset + A/B | ✅ | `northwind-golden-qa-es-v1` (10 items): production v1 formal-register **0.00** (uses "tú") vs staging v4 **1.00** ([v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/aa375259-5822-4948-837b-fe8100c830f5) · [v4](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/0ad3da07-f2fe-483d-97bc-ba26128a1b55)) |
+| Spanish CI gate | ✅ | `prompt_gate.py --dataset northwind-golden-qa-es-v1` on development: language-match 0.40, formal-register 0.60 → **exit 1** ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/2d079628-1f14-4fdd-ba08-4343ab40bd7d)) |
 | Spanish traffic | ✅ | `generate_traffic.py --scenario es` (8 Spanish conversations incl. attacks and PII) |
 
 ## D. Questions raised during scoping (expect them)
@@ -122,7 +122,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 
 ## Open items before the session
 
-- [ ] Label 10–15 SME queue items, then run `judge_calibration.py --bakeoff`
+- [ ] Optional: label a few SME queue items (live in Act 2.4, or beforehand) — calibration already shown via `judge-calibration/faithfulness`
 - [ ] Protect the `production` prompt label in the Cloud UI
 - [ ] Check that Audit logs are visible in Cloud org settings (ENT-02)
 - [x] n8n wired and verified (OBS-02)
