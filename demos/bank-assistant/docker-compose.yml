@@ -1,5 +1,9 @@
 # Northwind Bank (fictional) — "bank-in-a-box"
 #
+# Default (`docker compose up -d`): n8n + the APM stand-in only; the demo uses a
+# Langfuse CLOUD project. `--profile selfhosted` additionally starts a full
+# self-hosted Langfuse v4 Enterprise stack on :3100 — the POC starting point.
+#
 # Self-hosted Langfuse v4 with the Enterprise license, plus the pieces a bank's
 # AI platform team plugs into it: an n8n instance (low-code), an MCP server
 # fronting core banking, and an OpenTelemetry APM stand-in (Jaeger) playing the
@@ -64,6 +68,7 @@ x-langfuse-env: &langfuse-env
 
 services:
   langfuse-worker:
+    profiles: [selfhosted]
     image: docker.langfuse.com/langfuse/langfuse-worker:${LANGFUSE_VERSION:-4.53.0}
     restart: always
     depends_on: &langfuse-depends-on
@@ -77,6 +82,7 @@ services:
       - 127.0.0.1:13030:3030
 
   langfuse-web:
+    profiles: [selfhosted]
     image: docker.langfuse.com/langfuse/langfuse:${LANGFUSE_VERSION:-4.53.0}
     restart: always
     depends_on: *langfuse-depends-on
@@ -112,6 +118,7 @@ services:
       start_period: 20s
 
   clickhouse:
+    profiles: [selfhosted]
     image: docker.io/clickhouse/clickhouse-server:25.12
     restart: always
     user: "101:101"
@@ -132,6 +139,7 @@ services:
       start_period: 1s
 
   minio:
+    profiles: [selfhosted]
     image: cgr.dev/chainguard/minio
     restart: always
     entrypoint: sh
@@ -152,6 +160,7 @@ services:
       start_period: 1s
 
   redis:
+    profiles: [selfhosted]
     image: docker.io/redis:7
     restart: always
     command: --requirepass ${REDIS_AUTH:-myredissecret} --maxmemory-policy noeviction
@@ -164,6 +173,7 @@ services:
       retries: 10
 
   postgres:
+    profiles: [selfhosted]
     image: docker.io/postgres:17
     restart: always
     environment:

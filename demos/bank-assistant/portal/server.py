@@ -342,9 +342,12 @@ def _voice_samples() -> list[dict]:
 # ── App ───────────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Build the ONE tracer provider + Langfuse client before anything can race
+    # for it from a worker thread (two providers would split the APM correlation).
+    config.get_langfuse()
+
     def _warm():
         try:
-            config.get_langfuse()
             _project_id_sync()
             agent.make_llm(config.AGENT_MODEL)  # imports the provider SDK once
         except Exception:  # noqa: BLE001

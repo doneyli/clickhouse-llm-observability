@@ -22,7 +22,6 @@ Northwind Bank is fictional. All customers, accounts and policies are synthetic.
 | Langfuse Cloud project `northwind-bank-assistant` | portal header → "Langfuse" | every act |
 | APM stand-in for Dynatrace (Jaeger) | http://localhost:16686 | M1 |
 | n8n | http://localhost:5678 | M1 |
-| Self-hosted Langfuse Enterprise (local) | http://localhost:3100 | M0, M4 |
 | Docs | `docs/ARCHITECTURE.md`, `docs/ENTERPRISE_SECURITY.md`, `docs/OPERATIONS.md`, `docs/PATH_TO_PRODUCTION.md`, `docs/DYNATRACE.md` | M0, M3, M4 |
 
 The portal's **Presenter console** tab runs every scripted step with one click
@@ -64,10 +63,11 @@ see them on real traffic."
    Show the AWS reference architecture diagram in `docs/ARCHITECTURE.md`
    (EKS behind an **Application** Load Balancer, RDS Postgres, ElastiCache,
    S3 over a VPC endpoint, ClickHouse, Bedrock over PrivateLink for judges).
-4. Switch to http://localhost:3100 for 30 seconds: "This is the exact
-   `docker compose` you can start on day one of the POC: web, worker, Postgres,
-   ClickHouse, Redis, object storage. Same software as the Cloud project we'll
-   use for the next hour."
+4. "Today we work in a Langfuse Cloud project because it's the fastest way to
+   show everything. It is the same software you'll run in your AWS account: web,
+   worker, Postgres, ClickHouse, Redis, S3. For the POC, day one is the
+   `docker compose` in `docs/ARCHITECTURE.md`; production is the Helm chart or
+   the Terraform module."
 
 **Land.** The software is identical in Cloud and self-hosted. The Enterprise
 license switches on governance features; it doesn't change the product.
@@ -188,14 +188,28 @@ AI payloads go to Langfuse, and customer text never reaches the APM.
 
 ### Act 1.5 — low-code: n8n · OBS-02
 
-**Show.** Presenter console → **Run n8n complaint workflow**, then open n8n
-(http://localhost:5678) → workflow *Complaint triage (Northwind)* → and the
-resulting traces in Langfuse (filter tag `channel:n8n`). Follow
-`n8n/README.md` for exactly what is traced and how.
+**Frame.** "Business teams build AI workflows in n8n. Those calls cost money and
+touch customer complaints too — they can't be a blind spot."
 
-**Land / candour.** Langfuse has no native n8n tracing integration today; this
-demo shows the working pattern (see `n8n/README.md`) and the official Langfuse
-n8n node covers prompt management.
+**Show.**
+1. Presenter console → **Run n8n complaint workflow** (6 complaints posted to
+   the workflow's webhook, the way the channel app would).
+2. n8n (http://localhost:5678) → *Complaint triage (Northwind)*: Webhook →
+   Langfuse prompt node → mask PII → classify (Claude Haiku) → draft reply
+   (Claude Sonnet) → respond.
+3. Langfuse → traces named `n8n-complaint-triage` (tag `channel:n8n`): **one
+   trace** holding n8n's own `workflow.execute` / `node.execute` spans **and**
+   the two LLM generations with model, tokens, cost and the linked prompt
+   version; user id = customer id; regulatory escalations tagged.
+4. The PII sample: card number, IBAN, e-mail and phone masked before export.
+5. Prompt management from n8n: the classifier prompt comes from Langfuse via the
+   official Langfuse n8n node — publish a new version and the workflow changes
+   without touching n8n.
+
+**Land / candour.** Langfuse has no *native* n8n tracing integration. The
+pattern here combines n8n's built-in OpenTelemetry export (preview, n8n ≥ 2.19)
+with the workflow reporting its own LLM steps, joined by the W3C `traceparent`
+the calling app sends. Details and limits: `n8n/README.md`.
 
 **Ask.** "How many n8n workflows call an LLM today, and who maintains them —
 the AI team or business teams?"
@@ -341,37 +355,46 @@ names with a registered score config) and the onboarding checklist for a new tea
 
 ## M4 · Enterprise: security, governance, operations (20 min) · ENT-01..04
 
-Switch to the **self-hosted Enterprise** instance: http://localhost:3100.
+Everything below is live in the Cloud project and organization, except the
+self-hosted operations, which are walked through in the docs. The bank will
+self-host, so for each feature say which **environment variable or setting** it
+maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
 
-1. **SSO with Entra ID and RBAC (ENT-01).** Settings → Members: Owner, Admin
-   (Data Science Lead), Member (ML Engineer), Viewer (Model Risk Analyst), and
-   the Internal Auditor with **no org access but Viewer on this one project**
-   (project-level role, Enterprise). Then the Entra ID configuration in
-   `docs/ENTERPRISE_SECURITY.md` (`AUTH_AZURE_AD_*`, SSO enforcement for the
-   bank's domain, password login disabled, default role on first login).
-   Note: SAML is not supported — Entra ID connects over OIDC.
-2. **Protected prompt label.** Prompts → `northwind-assistant-system`: the
-   `production` label is protected — only Admin/Owner can move it. This is the
-   approval step in the prompt lifecycle (M5).
-3. **Audit logs (ENT-02).** Settings → Audit logs: the promotion and rollback
-   of the production prompt, API key and membership changes — who, when,
-   before/after.
-4. **Data protection and retention (ENT-03).** Settings → Data retention
-   (per project, minimum 3 days; audit logs and datasets are kept). Plus
-   client-side masking (Act 1.3) and server-side ingestion masking (Enterprise).
-5. **Export and portability (ENT-04).** Public REST API (Observations v2,
-   Scores v3, Metrics v2) · UI batch export (CSV/JSON) · scheduled export to
-   S3/Blob as Parquet/CSV/JSONL — the instance writes to its own object storage.
-   Your data stays in your ClickHouse and S3.
-6. **Operating it (GATE-04).** `docs/OPERATIONS.md`: health
+1. **SSO with Entra ID and RBAC (ENT-01).** Organization settings → Members:
+   roles Owner / Admin / Member / Viewer / None, and a project-level role that
+   overrides the org role for a single project (an auditor who sees only this
+   project, read-only). Then, in `docs/ENTERPRISE_SECURITY.md`, the self-hosted
+   Entra ID configuration: `AUTH_AZURE_AD_CLIENT_ID` / `_CLIENT_SECRET` /
+   `_TENANT_ID`, SSO enforcement for the bank's domain
+   (`AUTH_DOMAINS_WITH_SSO_ENFORCEMENT`), password login off
+   (`AUTH_DISABLE_USERNAME_PASSWORD`), default role on first login
+   (`LANGFUSE_DEFAULT_ORG_ROLE`), and SCIM for provisioning (the SCIM endpoint
+   is live on this org). Entra ID connects over OIDC — SAML is not supported.
+2. **Protected prompt label.** Project settings → Prompts → protected labels:
+   `production` is protected, so only Admin/Owner can move it. This is the
+   approval step in the prompt lifecycle (M5). Try moving it as a Member: denied.
+3. **Audit logs (ENT-02).** Organization settings → Audit logs: the promotion
+   and rollback of the production prompt (actor: API key), membership and API
+   key changes — who, when, before/after. Exportable from the UI.
+4. **Data protection and retention (ENT-03).** Project settings → Data
+   retention: this project keeps 90 days (set through the API); a nightly job
+   deletes traces, observations, scores and media older than that — audit logs
+   and datasets are kept. Together with client-side masking (Act 1.3) and, when
+   self-hosted, server-side ingestion masking (Enterprise).
+5. **Export and portability (ENT-04).** Traces table → Export (CSV/JSON with the
+   current filters) · public REST API (Observations v2, Scores v3, Metrics v2 —
+   every script in this demo uses it) · scheduled export to S3/Azure Blob in
+   Parquet/CSV/JSONL (Project settings → Integrations). When self-hosted, the
+   data lives in the bank's own ClickHouse and S3.
+6. **Operating it self-hosted (GATE-04).** `docs/OPERATIONS.md`: health
    (`/api/public/health`, `/api/public/ready`, worker `:3030/api/health`),
    HA (3 ClickHouse replicas + 3 Keeper, managed Postgres/Redis), scaling
-   workers on queue depth, backups, semver upgrades, sending Langfuse's own
+   workers on queue depth, backups, semver upgrades, and sending Langfuse's own
    telemetry to Dynatrace.
 
 **Raise proactively (trust builders):**
-- With an Enterprise license key the instance sends usage telemetry even with
-  `TELEMETRY_ENABLED=false` — clarify the no-egress requirement with
+- With an Enterprise license key a self-hosted instance sends usage telemetry
+  even with `TELEMETRY_ENABLED=false` — clarify the no-egress requirement with
   Langfuse/ClickHouse before the POC.
 - Entra ID login needs an outbound call from `langfuse-web` to
   `login.microsoftonline.com` (through the bank's proxy: `AUTH_HTTPS_PROXY`).
@@ -446,10 +469,14 @@ In CI: a Langfuse prompt webhook (new version / label change) → GitHub
 
 ### Act 5.4 — promote and roll back · EXP-05
 
-**Show.** Presenter console → **Promote staging** → portal header shows the
-new production version; ask a question, the trace links to v2. Then
-**Roll back** → production returns to v1 within ~10 s. No redeploy. In the
-self-hosted instance this move required Admin rights and appears in the audit log.
+**Frame.** "Compliance asks for v2 anyway — it states the investment-advice rule
+explicitly. How does it reach production, and how fast can you undo it?"
+
+**Show.** Presenter console → **Promote staging**: production moves to v2; the
+portal header shows the new version; ask a question and the trace links to v2.
+Then **Roll back**: production returns to v1 within ~10 s. No redeploy, no code
+change. Because `production` is a protected label, only an Admin/Owner (or an
+API key they issued) can do this, and both moves appear in the audit log.
 
 ### 🧪 Lab 3 (optional, 5 min) — prompt experiment in the UI
 
@@ -471,13 +498,16 @@ Prompts → v2 → **Experiments** → run against `northwind-golden-qa-v1` with
 
 ## Presenter prep (morning of)
 
-1. `./scripts/up.sh` (self-hosted stack) and `./scripts/run_portal.sh`
-   (portal + MCP server). Portal header shows the Langfuse target and the served
-   production prompt version — it must say **production v1**.
+1. `./scripts/up.sh` (n8n + APM stand-in) and `./scripts/run_portal.sh`
+   (portal + MCP server). The portal header shows the Langfuse Cloud target and
+   the served production prompt version — it must say **production v1**.
 2. Warm-up traffic: Presenter console → *Generate production traffic* (~3 min)
-   so the last-hour views are populated.
-3. Label 10–15 items in the SME queue (sme-faithfulness, sme-compliance), then
-   run `scripts/judge_calibration.py --bakeoff` once so the numbers are ready.
-4. Make sure `production` points at v1 (`scripts/prompt_label.py --show`).
-5. Open the tabs in the table at the top. Log in to http://localhost:3100 as
-   the admin user from `.env`.
+   so the last-hour views are populated; also *Run voice calls* and *Run n8n
+   complaint workflow* once.
+3. Label 10–15 items in the SME queue (`sme-faithfulness`, `sme-compliance`),
+   then run `.venv/bin/python scripts/judge_calibration.py --bakeoff` once so the
+   numbers are ready.
+4. In the Cloud UI: protect the `production` prompt label (Project settings →
+   Prompts) and check Organization settings → Audit logs shows entries.
+5. `.venv/bin/python scripts/prompt_label.py --show` → production must be v1.
+6. Open the tabs in the table at the top.

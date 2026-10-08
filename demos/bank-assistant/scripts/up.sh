@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Start the Northwind Bank platform (self-hosted Langfuse EE + n8n + APM stand-in).
+# Start local services: n8n + APM stand-in (default), or add the self-hosted
+# Langfuse EE stack with --selfhosted.
 # The Enterprise license key is read at runtime from the repo-root .env, so it
 # is never copied into this demo's files.
 set -euo pipefail
@@ -12,7 +13,8 @@ if [[ -z "${LANGFUSE_EE_LICENSE_KEY:-}" && -f "$LICENSE_ENV" ]]; then
   export LANGFUSE_EE_LICENSE_KEY
 fi
 [[ -n "${LANGFUSE_EE_LICENSE_KEY:-}" ]] && echo "✓ Enterprise license key found" || echo "! No EE license key — running as OSS"
-docker compose up -d "$@"
+if [[ "${1:-}" == "--selfhosted" ]]; then shift; docker compose --profile selfhosted up -d "$@"; else
+  docker compose up -d n8n jaeger "$@"; echo "✓ n8n http://localhost:5678 · Jaeger http://localhost:16686 (Langfuse: Cloud project in .env.cloud)"; exit 0; fi
 echo "Waiting for Langfuse (http://localhost:3100) ..."
 for i in $(seq 1 90); do
   curl -sf http://localhost:3100/api/public/health >/dev/null && { echo "✓ Langfuse healthy"; break; }

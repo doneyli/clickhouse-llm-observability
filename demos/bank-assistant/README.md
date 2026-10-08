@@ -11,6 +11,7 @@ Northwind Bank is fictional; all data is synthetic.
 
 - **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md) — 2-hour run-of-show with labs
 - **What it proves, by capability ID:** [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md)
+- **Requirements and validation status, with evidence links:** [REQUIREMENTS_TRACKER.md](REQUIREMENTS_TRACKER.md)
 - **Architecture and deployment models:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Security, SSO, RBAC, audit, retention, export:** [docs/ENTERPRISE_SECURITY.md](docs/ENTERPRISE_SECURITY.md)
 - **Operating self-hosted Langfuse:** [docs/OPERATIONS.md](docs/OPERATIONS.md)
@@ -31,9 +32,10 @@ Northwind Bank is fictional; all data is synthetic.
  n8n :5678 ── complaint-triage workflow ──► Langfuse
 ```
 
-`docker-compose.yml` runs the **self-hosted Langfuse v4 Enterprise** stack
-(web, worker, Postgres, ClickHouse, Redis, MinIO) plus n8n and Jaeger. The
-Python app runs from `.venv`.
+The demo runs against a **Langfuse Cloud** project. `docker-compose.yml` runs
+n8n and Jaeger locally; `--profile selfhosted` (or `./scripts/up.sh --selfhosted`)
+adds a full self-hosted Langfuse v4 Enterprise stack on :3100 — the starting
+point for a self-hosted POC. The Python app runs from `.venv`.
 
 ## Targets
 
@@ -49,7 +51,7 @@ Shell-exported `LANGFUSE_*` variables are ignored on purpose (`northwind/config.
 ```bash
 uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -r requirements.txt
 cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from the repo-root .env
-./scripts/up.sh                 # self-hosted stack + n8n + Jaeger
+./scripts/up.sh                 # n8n + Jaeger (add --selfhosted for local Langfuse EE)
 # Cloud: put project keys in .env.cloud (LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY)
 .venv/bin/python scripts/seed_prompts.py
 .venv/bin/python scripts/seed_evals.py
@@ -58,7 +60,6 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 .venv/bin/python scripts/generate_traffic.py --scenario all
 .venv/bin/python scripts/fill_annotation_queue.py 20
 ./scripts/run_comparisons.sh    # prompt A/B, model comparison, red-team runs
-./scripts/bootstrap_selfhosted.sh   # same state + RBAC users, protected label, audit trail on :3100
 ./scripts/setup_n8n.sh          # n8n workflow (see n8n/README.md)
 .venv/bin/python scripts/make_voice_samples.py   # synthetic caller audio (already committed)
 ```
@@ -77,7 +78,7 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/run_experiment.py` | prompt A/B (`--prompt-label`), model comparison (`--model`) | EXP-02, EXP-03, EVA-05 |
 | `scripts/prompt_gate.py` | CI gate: exit 1 on regression | EXP-06 |
 | `scripts/prompt_label.py` | promote / roll back by moving labels | EXP-04, EXP-05 |
-| `scripts/bootstrap_selfhosted.sh` | Enterprise state on the self-hosted instance | ENT-01, ENT-02 |
+| `scripts/bootstrap_selfhosted.sh` | optional: same demo state on a local self-hosted EE instance | — |
 
 ## Known limits (say them out loud)
 

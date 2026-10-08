@@ -105,6 +105,7 @@
     $$(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
     $$(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${name}`));
     store.set("tab", name);
+    window.scrollTo(0, 0);
     if (name === "voice") loadVoice();
     if (name === "presenter") { loadActs(); loadInfo(); }
     if (name === "assistant") setTimeout(() => { const t = $("#transcript"); t.style.scrollBehavior = "auto"; t.scrollTop = t.scrollHeight; t.style.scrollBehavior = ""; $("#input").focus({ preventScroll: true }); }, 30);

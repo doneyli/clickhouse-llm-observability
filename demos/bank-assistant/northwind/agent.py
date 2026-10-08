@@ -32,6 +32,7 @@ from typing import Annotated, Any, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.callbacks import Callbacks
 from langchain_core.tools import tool
 from langfuse import propagate_attributes
 from langfuse.langchain import CallbackHandler
@@ -62,6 +63,27 @@ _INVESTMENT = re.compile(
     r"\bbitcoin\b|\bcrypto(currency)?\b|best investment|guaranteed returns?|double my money|stock tip)")
 _ADVICE_IN_ANSWER = re.compile(
     r"(?i)(you should (buy|invest|sell)|i (recommend|suggest) (buying|investing|selling)|guaranteed (return|profit))")
+
+
+def _nest(config_: Optional[RunnableConfig]):
+    """Make the callback handler's observation for THIS tool/node the current span.
+
+    LangChain runs the (sync) Langfuse callback handler in an executor thread
+    during async runs, so the OTel context it attaches is not visible here.
+    Look the run up instead, so our explicit spans (retriever, MCP client,
+    guardrail) nest under the LangGraph tool/node that produced them.
+    """
+    from contextlib import nullcontext
+
+    from opentelemetry import trace as otel_trace
+    try:
+        cb = config_.get("callbacks") if isinstance(config_, dict) else config_  # config or a run manager
+        run_id = getattr(cb, "parent_run_id", None)
+        handler = next(h for h in getattr(cb, "handlers", []) if isinstance(h, CallbackHandler))
+        span = getattr(handler._runs.get(run_id), "_otel_span", None)
+        return otel_trace.use_span(span, end_on_exit=False) if span is not None else nullcontext()
+    except Exception:  # noqa: BLE001 — nesting is cosmetic; never break the turn
+        return nullcontext()
 
 
 def _now_ms() -> float:
@@ -115,11 +137,11 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
     """Tools bound to the AUTHENTICATED customer. The model never sees or chooses the id."""
 
     @tool
-    async def search_knowledge_base(query: str) -> str:
+    async def search_knowledge_base(query: str, callbacks: Callbacks = None) -> str:
         """Search Northwind Bank's help-center articles (products, fees, limits, policies).
         Returns articles with ids like KB-102 that you must cite."""
         used.append("search_knowledge_base")
-        with langfuse.start_as_current_observation(as_type="retriever", name="kb-retrieval",
+        with _nest(callbacks), langfuse.start_as_current_observation(as_type="retriever", name="kb-retrieval",
                                                    input={"query": query, "k": 3}) as r:
             docs = knowledge.search(query, k=3)
             r.update(output={"documents": [{k: d[k] for k in ("id", "title", "source", "score", "effective_date")}
@@ -131,10 +153,10 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
             return "No matching articles."
         return "\n\n".join(f"[{d['id']}] {d['title']} — source: {d['source']}\n{d['text']}" for d in docs)
 
-    async def _mcp(name: str, args: dict) -> dict:
+    async def _mcp(name: str, args: dict, config_: Optional[RunnableConfig] = None) -> dict:
         used.append(name)
         args = {"customer_id": customer_id, **args}
-        with langfuse.start_as_current_observation(as_type="span", name=f"mcp-client: {name}",
+        with _nest(config_), langfuse.start_as_current_observation(as_type="span", name=f"mcp-client: {name}",
                                                    input=args, metadata={"mcp.server": config.MCP_URL}) as s:
             if session is None:
                 data = {"error": "BANKING_SYSTEM_UNAVAILABLE"}
@@ -157,29 +179,29 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
         return data
 
     @tool
-    async def list_accounts() -> dict:
+    async def list_accounts(callbacks: Callbacks = None) -> dict:
         """List the signed-in customer's accounts (ids, balances) and cards (last 4 digits, status)."""
-        return await _mcp("list_accounts", {})
+        return await _mcp("list_accounts", {}, callbacks)
 
     @tool
-    async def get_recent_transactions(account_id: str, days: int = 30) -> dict:
+    async def get_recent_transactions(account_id: str, days: int = 30, callbacks: Callbacks = None) -> dict:
         """Recent transactions of one of the customer's accounts. Use list_accounts first to get ids."""
-        return await _mcp("get_recent_transactions", {"account_id": account_id, "days": days})
+        return await _mcp("get_recent_transactions", {"account_id": account_id, "days": days}, callbacks)
 
     @tool
-    async def block_card(card_last4: str, reason: str) -> dict:
+    async def block_card(card_last4: str, reason: str, callbacks: Callbacks = None) -> dict:
         """Block one of the customer's cards immediately (lost, stolen, fraud). Needs the last 4 digits."""
-        return await _mcp("block_card", {"card_last4": card_last4, "reason": reason})
+        return await _mcp("block_card", {"card_last4": card_last4, "reason": reason}, callbacks)
 
     @tool
-    async def open_dispute(transaction_id: str, reason: str) -> dict:
+    async def open_dispute(transaction_id: str, reason: str, callbacks: Callbacks = None) -> dict:
         """Open a dispute for one of the customer's transactions (transaction id like TX-88101)."""
-        return await _mcp("open_dispute", {"transaction_id": transaction_id, "reason": reason})
+        return await _mcp("open_dispute", {"transaction_id": transaction_id, "reason": reason}, callbacks)
 
     @tool
-    async def schedule_callback(topic: str, preferred_time: str = "next available") -> dict:
+    async def schedule_callback(topic: str, preferred_time: str = "next available", callbacks: Callbacks = None) -> dict:
         """Schedule a call-back from a human Northwind agent."""
-        return await _mcp("schedule_callback", {"topic": topic, "preferred_time": preferred_time})
+        return await _mcp("schedule_callback", {"topic": topic, "preferred_time": preferred_time}, callbacks)
 
     return [search_knowledge_base, list_accounts, get_recent_transactions, block_card,
             open_dispute, schedule_callback]
@@ -188,8 +210,8 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
 def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict, outcome: dict):
     llm_with_tools = llm.bind_tools(tools)
 
-    async def input_guardrail(state: State) -> dict:
-        with langfuse.start_as_current_observation(
+    async def input_guardrail(state: State, config: RunnableConfig) -> dict:
+        with _nest(config), langfuse.start_as_current_observation(
                 as_type="guardrail", name="input-guardrail", input=_text(state["messages"][-1].content),
                 metadata={"policy": "northwind-input-v2", "engine": "rules"}) as g:
             g.update(output=check, level="WARNING" if check["risks"] else "DEFAULT")
@@ -202,9 +224,9 @@ def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict
         ai = await llm_with_tools.ainvoke(msgs, config)
         return {"messages": [ai]}
 
-    async def output_guardrail(state: State) -> dict:
+    async def output_guardrail(state: State, config: RunnableConfig) -> dict:
         answer = _text(state["messages"][-1].content)
-        with langfuse.start_as_current_observation(
+        with _nest(config), langfuse.start_as_current_observation(
                 as_type="guardrail", name="output-guardrail", input=answer,
                 metadata={"policy": "northwind-output-v1", "engine": "rules"}) as g:
             result = assess_output(answer)

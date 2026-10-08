@@ -26,9 +26,9 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | EXP-04 | Prompt management, dynamic consumption | prompt fetched by label at runtime with cache + fallback; generations linked to the version | Live | Act 5.1 · `northwind/prompts.py` |
 | EXP-05 | Prompt rollback | move the `production` label back; live within ~10 s; no redeploy | Live | Act 5.4 · `scripts/prompt_label.py` |
 | EXP-06 | Quality gate / regression | `prompt_gate.py` exits 1 on the regression prompt; CI wiring via prompt webhook | Live (local) · Config (CI) | Act 5.3 · `cicd/` |
-| ENT-01 | SSO with Entra ID and RBAC | org roles + project-level role (EE) live; Entra ID OIDC configuration | Live (RBAC) · Config (Entra ID) | M4 · `docs/ENTERPRISE_SECURITY.md` |
-| ENT-02 | Audit logs | prompt promotions/rollbacks, membership and key changes in the audit log (EE) | Live (self-hosted) | M4 |
-| ENT-03 | Data protection and retention | client-side PII masking; server-side ingestion masking (EE); per-project retention (EE) | Live (masking, retention setting) · Config (server-side masking) | Act 1.3, M4 |
+| ENT-01 | SSO with Entra ID and RBAC | org roles + project-level role live; SCIM endpoint; Entra ID OIDC configuration for self-hosted | Live (RBAC, SCIM) · Config (Entra ID) | M4 · `docs/ENTERPRISE_SECURITY.md` |
+| ENT-02 | Audit logs | prompt promotions/rollbacks, membership and key changes in the org audit log (Enterprise) | Live (Cloud org) | M4 |
+| ENT-03 | Data protection and retention | client-side PII masking; per-project retention (90 days on the demo project); server-side ingestion masking (self-hosted EE) | Live (masking, retention) · Config (server-side masking) | Act 1.3, M4 |
 | ENT-04 | Export and portability | REST API, UI export, scheduled export to S3 (Parquet/CSV/JSONL) | Live | M4 |
 | GATE-01 | Governance, identity and access | ENT-01, ENT-02, protected prompt label | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |
 | GATE-02 | Security and data protection | masking, guardrails, red-team suite, retention | Evidence | M3 |
