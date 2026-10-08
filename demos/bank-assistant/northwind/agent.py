@@ -1,0 +1,332 @@
+"""
+Northwind Bank retail assistant — a LangGraph agent instrumented with Langfuse.
+
+    START → input-guardrail ─(blocked)──────────────────────────► END
+                  │
+                  ▼
+              assistant (LLM + tools) ◄──► tools (RAG + MCP banking)
+                  │ (no more tool calls)
+                  ▼
+           output-guardrail → END
+
+What lands in Langfuse for ONE customer turn (one trace):
+  * root `agent` observation `northwind-assistant` — input = customer message,
+    output = answer, metadata.context = every piece of evidence the model saw
+    (what LLM-as-a-judge evaluators grade against)            OBS-01, EVA-01
+  * LangGraph nodes, LLM generations (tokens, cost, latency), tool calls —
+    auto-captured by the Langfuse LangChain CallbackHandler        OBS-01, OBS-05
+  * `retriever` observation with document ids, sources, scores      OBS-03
+  * MCP client spans + the MCP server's spans, in the same trace    OBS-04
+  * `guardrail` observations + deterministic security scores        EVA-03
+  * session, user, tags, environment, release, linked prompt version
+  * the same trace id in the APM (see config.py)                    OBS-06
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+import time
+from typing import Annotated, Any, Optional, TypedDict
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+from langfuse import propagate_attributes
+from langfuse.langchain import CallbackHandler
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+from northwind import config, knowledge, masking, prompts
+
+TRACE_NAME = "northwind-assistant"  # stable, low-cardinality — the question goes in input
+
+REFUSAL = ("I can't help with that request. I can only help with your own Northwind Bank accounts "
+           "and with questions about our products and services.")
+
+_INJECTION = re.compile(
+    r"(?i)(ignore (all |any |the |your )?(previous|prior|above|earlier) (instructions|rules|prompts?)"
+    r"|disregard (your|the) (rules|instructions)|system prompt|developer mode|jailbreak|\bDAN\b"
+    r"|reveal (your|the) (instructions|prompt|rules|configuration)|you are now|pretend (you are|to be)"
+    r"|act as (an? )?(admin|developer|bank employee)|bypass|override (the )?(rules|policy|safety))")
+_OTHER_CUSTOMER = re.compile(
+    r"(?i)(\bC-\d{4}\b|another customer|other customer'?s?|someone else'?s|"
+    r"my (wife|husband|neighbou?r|friend|boss)'?s (account|card|balance|transactions))")
+_INVESTMENT = re.compile(
+    r"(?i)(should i (buy|invest|sell|put)|which (stock|stocks|crypto|coin|fund) (should|to)|"
+    r"\bbitcoin\b|\bcrypto(currency)?\b|best investment|guaranteed returns?|double my money|stock tip)")
+_ADVICE_IN_ANSWER = re.compile(
+    r"(?i)(you should (buy|invest|sell)|i (recommend|suggest) (buying|investing|selling)|guaranteed (return|profit))")
+
+
+def _now_ms() -> float:
+    return time.perf_counter() * 1000
+
+
+def assess_input(text: str, customer_id: str) -> dict:
+    """Deterministic input checks. Production: LLM Guard / Lakera / a classifier."""
+    other = [m for m in re.findall(r"\bC-\d{4}\b", text) if m != customer_id]
+    risks = []
+    if _INJECTION.search(text):
+        risks.append("prompt_injection")
+    if other or (_OTHER_CUSTOMER.search(text) and not re.search(rf"\b{re.escape(customer_id)}\b", text)):
+        risks.append("cross_customer_access")
+    if _INVESTMENT.search(text):
+        risks.append("investment_advice")
+    _, pii = masking.scrub(text)
+    blocking = [r for r in risks if r in ("prompt_injection", "cross_customer_access")]
+    return {"risks": risks, "blocked": bool(blocking), "pii_shared": sorted(pii),
+            "primary_risk": (blocking or risks or ["none"])[0]}
+
+
+def assess_output(answer: str) -> dict:
+    """Output DLP + compliance: redact leaked secrets, flag advice language."""
+    cleaned, leaked = masking.scrub(answer)
+    leaked = {c for c in leaked if c in ("card", "national_id", "otp", "iban", "account")}
+    return {"answer": cleaned if leaked else answer, "leaked": sorted(leaked),
+            "advice_language": bool(_ADVICE_IN_ANSWER.search(answer))}
+
+
+def _text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    return "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+
+
+def make_llm(model: str):
+    if model.startswith(("gpt", "o1", "o3", "o4")):
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=model, temperature=0.2)
+    from langchain_anthropic import ChatAnthropic
+    return ChatAnthropic(model=model, temperature=0.2, max_tokens=1024)
+
+
+class State(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    blocked: bool
+
+
+def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, evidence: list, used: list):
+    """Tools bound to the AUTHENTICATED customer. The model never sees or chooses the id."""
+
+    @tool
+    async def search_knowledge_base(query: str) -> str:
+        """Search Northwind Bank's help-center articles (products, fees, limits, policies).
+        Returns articles with ids like KB-102 that you must cite."""
+        used.append("search_knowledge_base")
+        with langfuse.start_as_current_observation(as_type="retriever", name="kb-retrieval",
+                                                   input={"query": query, "k": 3}) as r:
+            docs = knowledge.search(query, k=3)
+            r.update(output={"documents": [{k: d[k] for k in ("id", "title", "source", "score", "effective_date")}
+                                           for d in docs]},
+                     metadata={"index": "help-center-tfidf", "documents_returned": len(docs)})
+        for d in docs:
+            evidence.append(f"[{d['id']}] {d['title']} ({d['source']}): {d['text']}")
+        if not docs:
+            return "No matching articles."
+        return "\n\n".join(f"[{d['id']}] {d['title']} — source: {d['source']}\n{d['text']}" for d in docs)
+
+    async def _mcp(name: str, args: dict) -> dict:
+        used.append(name)
+        args = {"customer_id": customer_id, **args}
+        with langfuse.start_as_current_observation(as_type="span", name=f"mcp-client: {name}",
+                                                   input=args, metadata={"mcp.server": config.MCP_URL}) as s:
+            if session is None:
+                data = {"error": "BANKING_SYSTEM_UNAVAILABLE"}
+            else:
+                carrier: dict = {}
+                TraceContextTextMapPropagator().inject(carrier)  # W3C context → MCP _meta
+                res = await session.call_tool(name, args, meta=carrier)
+                data = res.structuredContent or {}
+                if "result" in data and len(data) == 1:
+                    data = data["result"]
+                if not data and res.content:
+                    try:
+                        data = json.loads(res.content[0].text)
+                    except Exception:  # noqa: BLE001
+                        data = {"text": res.content[0].text}
+                if res.isError:
+                    s.update(level="ERROR", status_message=str(data)[:200])
+            s.update(output=data)
+        evidence.append(f"[tool:{name}] {json.dumps(data, default=str)}")
+        return data
+
+    @tool
+    async def list_accounts() -> dict:
+        """List the signed-in customer's accounts (ids, balances) and cards (last 4 digits, status)."""
+        return await _mcp("list_accounts", {})
+
+    @tool
+    async def get_recent_transactions(account_id: str, days: int = 30) -> dict:
+        """Recent transactions of one of the customer's accounts. Use list_accounts first to get ids."""
+        return await _mcp("get_recent_transactions", {"account_id": account_id, "days": days})
+
+    @tool
+    async def block_card(card_last4: str, reason: str) -> dict:
+        """Block one of the customer's cards immediately (lost, stolen, fraud). Needs the last 4 digits."""
+        return await _mcp("block_card", {"card_last4": card_last4, "reason": reason})
+
+    @tool
+    async def open_dispute(transaction_id: str, reason: str) -> dict:
+        """Open a dispute for one of the customer's transactions (transaction id like TX-88101)."""
+        return await _mcp("open_dispute", {"transaction_id": transaction_id, "reason": reason})
+
+    @tool
+    async def schedule_callback(topic: str, preferred_time: str = "next available") -> dict:
+        """Schedule a call-back from a human Northwind agent."""
+        return await _mcp("schedule_callback", {"topic": topic, "preferred_time": preferred_time})
+
+    return [search_knowledge_base, list_accounts, get_recent_transactions, block_card,
+            open_dispute, schedule_callback]
+
+
+def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict, outcome: dict):
+    llm_with_tools = llm.bind_tools(tools)
+
+    async def input_guardrail(state: State) -> dict:
+        with langfuse.start_as_current_observation(
+                as_type="guardrail", name="input-guardrail", input=_text(state["messages"][-1].content),
+                metadata={"policy": "northwind-input-v2", "engine": "rules"}) as g:
+            g.update(output=check, level="WARNING" if check["risks"] else "DEFAULT")
+        if check["blocked"]:
+            return {"blocked": True, "messages": [AIMessage(content=REFUSAL)]}
+        return {"blocked": False}
+
+    async def assistant(state: State, config: RunnableConfig) -> dict:  # noqa: F811 — LangGraph injects by name
+        msgs = [SystemMessage(content=system_text)] + state["messages"]
+        ai = await llm_with_tools.ainvoke(msgs, config)
+        return {"messages": [ai]}
+
+    async def output_guardrail(state: State) -> dict:
+        answer = _text(state["messages"][-1].content)
+        with langfuse.start_as_current_observation(
+                as_type="guardrail", name="output-guardrail", input=answer,
+                metadata={"policy": "northwind-output-v1", "engine": "rules"}) as g:
+            result = assess_output(answer)
+            g.update(output={k: v for k, v in result.items() if k != "answer"},
+                     level="WARNING" if result["leaked"] or result["advice_language"] else "DEFAULT")
+        outcome.update(result)
+        if result["leaked"]:
+            return {"messages": [AIMessage(content=result["answer"])]}
+        return {}
+
+    g = StateGraph(State)
+    g.add_node("input-guardrail", input_guardrail)
+    g.add_node("assistant", assistant)
+    g.add_node("tools", ToolNode(tools))
+    g.add_node("output-guardrail", output_guardrail)
+    g.add_edge(START, "input-guardrail")
+    g.add_conditional_edges("input-guardrail", lambda s: END if s.get("blocked") else "assistant")
+    g.add_conditional_edges("assistant", tools_condition, {"tools": "tools", END: "output-guardrail"})
+    g.add_edge("tools", "assistant")
+    g.add_edge("output-guardrail", END)
+    return g.compile()
+
+
+def _history(history: Optional[list]) -> list[BaseMessage]:
+    out: list[BaseMessage] = []
+    for h in history or []:
+        out.append(HumanMessage(content=h["content"]) if h["role"] == "user" else AIMessage(content=h["content"]))
+    return out
+
+
+async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Optional[str] = None,
+                   history: Optional[list] = None, channel: str = "web", model: Optional[str] = None,
+                   prompt_label: Optional[str] = None, tags: Optional[list] = None,
+                   extra_metadata: Optional[dict] = None, trace_name: str = TRACE_NAME) -> dict:
+    """One customer turn = one trace. Returns the answer plus links into Langfuse and the APM."""
+    langfuse = config.get_langfuse()
+    model = model or config.AGENT_MODEL
+    system_text, lf_prompt = prompts.get_system_prompt(langfuse, prompt_label)
+    check = assess_input(message, customer_id)
+    evidence: list[str] = []
+    used: list[str] = []
+    outcome: dict = {}
+    label = prompt_label or "production"
+
+    trace_tags = sorted(set(["northwind-assistant", f"channel:{channel}", "team:retail-digital"]
+                            + [f"risk:{r}" for r in check["risks"]] + (tags or [])))
+    meta = {"channel": channel, "customer_segment": _segment(customer_id), "model": model,
+            "prompt_label": label, **{k: str(v) for k, v in (extra_metadata or {}).items()}}
+
+    t0 = _now_ms()
+    with propagate_attributes(session_id=session_id, user_id=customer_id, tags=trace_tags,
+                              metadata=meta, version=config.RELEASE, trace_name=trace_name,
+                              prompt=lf_prompt):
+        with langfuse.start_as_current_observation(as_type="agent", name=TRACE_NAME, input=message) as root:
+            trace_id = root.trace_id
+            handler = CallbackHandler()
+            run_cfg = {"callbacks": [handler], "recursion_limit": 14,
+                       "run_name": "northwind-langgraph", "metadata": {"langfuse_session_id": session_id}}
+            llm = make_llm(model)
+
+            async def _invoke(session):
+                tools = _build_tools(langfuse, session, customer_id, evidence, used)
+                graph = _graph(langfuse, llm, tools, system_text, customer_id, check, outcome)
+                return await graph.ainvoke({"messages": _history(history) + [HumanMessage(content=message)],
+                                            "blocked": False}, run_cfg)
+
+            error = None
+            try:
+                if check["blocked"]:
+                    state = await _invoke(None)
+                else:
+                    async with streamablehttp_client(config.MCP_URL) as (read, write, _):
+                        async with ClientSession(read, write) as session:
+                            await session.initialize()
+                            state = await _invoke(session)
+            except Exception as exc:  # noqa: BLE001 — recorded on the trace, then surfaced
+                import traceback
+                traceback.print_exception(exc)
+                while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+                    exc = exc.exceptions[0]
+                error = exc
+                state = {"messages": [AIMessage(content="Sorry — I'm having trouble right now. "
+                                                        "Please try again or call us.")], "blocked": False}
+                root.update(level="ERROR", status_message=f"{type(exc).__name__}: {exc}"[:300])
+
+            answer = _text(state["messages"][-1].content)
+            cited = sorted(set(re.findall(r"\bKB-\d{3}\b", answer)))
+            retrieved = sorted(set(re.findall(r"\[(KB-\d{3})\]", "\n".join(evidence))))
+            root.update(output=answer, metadata={
+                "context": "\n\n".join(evidence) or "(no retrieval or tool evidence)",
+                "tools_used": ",".join(used) or "none", "cited_sources": ",".join(cited) or "none",
+                "retrieved_sources": ",".join(retrieved) or "none",
+                "prompt_version": str(getattr(lf_prompt, "version", "fallback")),
+                "apm_trace_url": config.apm_url(trace_id),
+                "latency_ms": str(round(_now_ms() - t0))})
+            obs_id = root.id
+
+    _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved)
+    if error is not None:
+        config.flush()
+    return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
+            "apm_url": config.apm_url(trace_id), "sources": cited, "retrieved": retrieved,
+            "tools_used": used, "blocked": check["blocked"], "risks": check["risks"],
+            "prompt_version": getattr(lf_prompt, "version", None), "model": model,
+            "error": f"{type(error).__name__}: {error}" if error else None}
+
+
+def _segment(customer_id: str) -> str:
+    return {"C-1002": "premier", "C-1004": "premier"}.get(customer_id, "everyday")
+
+
+def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved):
+    """Deterministic, zero-cost scores on every turn — the first line of evals."""
+    s = lambda **kw: langfuse.create_score(trace_id=trace_id, observation_id=obs_id, **kw)  # noqa: E731
+    s(name="security-risk", value=check["primary_risk"], data_type="CATEGORICAL",
+      comment=f"rules engine: {','.join(check['risks']) or 'no risk patterns'}")
+    s(name="guardrail-blocked", value=1 if check["blocked"] else 0, data_type="BOOLEAN")
+    s(name="pii-in-input", value=1 if check["pii_shared"] else 0, data_type="BOOLEAN",
+      comment=",".join(check["pii_shared"]) or None)
+    if outcome:
+        s(name="output-pii-leak", value=1 if outcome.get("leaked") else 0, data_type="BOOLEAN")
+        s(name="advice-language", value=1 if outcome.get("advice_language") else 0, data_type="BOOLEAN")
+    if "search_knowledge_base" in used:
+        s(name="cites-sources", value=1 if set(cited) & set(retrieved) else 0, data_type="BOOLEAN",
+          comment=f"cited={cited} retrieved={retrieved}")
