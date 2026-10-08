@@ -9,5 +9,18 @@
   },
   "soft": {
     "avg-correctness": 0.8
+  },
+  "per_dataset": {
+    "northwind-golden-qa-es-v1": {
+      "hard": {
+        "avg-language-match": 1.0,
+        "avg-formal-register": 0.9,
+        "avg-must-include": 0.9,
+        "avg-source-recall": 0.8
+      },
+      "soft": {
+        "avg-correctness": 0.8
+      }
+    }
   }
 }

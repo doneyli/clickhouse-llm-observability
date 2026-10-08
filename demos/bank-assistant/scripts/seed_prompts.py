@@ -11,7 +11,7 @@ from northwind import config, prompts  # noqa: E402
 
 VERSIONS = [
     (prompts.V1_BASELINE, ["production"], "v1 baseline — KB first, banking tools, decline off-topic"),
-    (prompts.V2_CANDIDATE, ["staging"], "v2 — inline citations, no guessing, advice + security rules"),
+    (prompts.V2_CANDIDATE, ["staging"], "candidate — inline citations, no guessing, advice + security rules, formal Spanish (usted)"),
     (prompts.V3_REGRESSION, ["development"], "v3 'growth' rewrite — upsell Premier/investments (expect CI gate to block)"),
 ]
 

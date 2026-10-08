@@ -130,17 +130,44 @@ DOCS: list[Doc] = [
         "passwords or register devices."),
 ]
 
+# Spanish titles + keywords per article, indexed alongside the English text so a
+# Spanish question retrieves the same policy (bilingual bank). The article body
+# stays single-source; the assistant answers in the customer's language.
+ES_KEYWORDS = {
+    "KB-101": "Tarjeta perdida o robada: bloquear tarjeta, reposición, tarjeta nueva, envío exprés, PIN, CVV",
+    "KB-102": "Disputar un cargo, transacción no reconocida, contracargo, crédito provisional, reclamo de tarjeta, días",
+    "KB-103": "Tarjeta de crédito: intereses, tasa, comisión por pago tardío, mora, avance de efectivo, pago mínimo, comisión por transacción en el exterior",
+    "KB-104": "Usar la tarjeta en el exterior, viaje, aviso de viaje, cajero en el extranjero, retiro, límite diario",
+    "KB-201": "Transferencias nacionales, límite diario, transferencia a otros bancos, pagos inmediatos, aumento de límite",
+    "KB-202": "Transferencia internacional, giro, SWIFT, comisión, costo, hora de corte, tipo de cambio, recibir giro",
+    "KB-301": "Cuenta Everyday, cuenta Premier, cuota de manejo, cuota mensual, exoneración, beneficios",
+    "KB-302": "Protección de sobregiro, sobregiro, cargo por sobregiro, desactivar, costo, cobro",
+    "KB-303": "Cuenta de ahorros, depósito a término, CDT, tasa de interés, retiro anticipado, penalidad, seguro de depósitos",
+    "KB-304": "Abrir una cuenta, verificación de identidad, documento de identidad, comprobante de domicilio, requisitos",
+    "KB-401": "Préstamo personal, crédito de libre inversión, tasa, plazo, prepago, pago anticipado, penalidad, comisión de apertura",
+    "KB-402": "Crédito hipotecario, hipoteca, vivienda, porcentaje de financiación, documentos, tasa fija",
+    "KB-501": "Fraude, phishing, estafa, suplantación, código de un solo uso, contraseña, nunca pedimos",
+    "KB-502": "Protección de datos del asistente virtual, privacidad, datos de otros clientes, información sensible",
+    "KB-601": "Quejas y reclamos, PQR, escalamiento, defensor del consumidor financiero, tiempos de respuesta",
+    "KB-602": "Contacto, horarios de atención, línea telefónica, sucursales, devolución de llamada, asesor humano",
+    "KB-701": "Inversiones, asesoría de inversión, fondos, criptomonedas, bitcoin, acciones, asesor financiero",
+    "KB-702": "Banca digital, restablecer contraseña, olvidé mi contraseña, nuevo dispositivo, celular nuevo, aplicación",
+}
+
 _BY_ID = {d.id: d for d in DOCS}
-_TOKEN = re.compile(r"[a-z0-9]+")
+_TOKEN = re.compile(r"[a-z0-9áéíóúñü]+")
 _STOP = set("a an the and or of to in on for is are be by with your you we our it can i my me "
-            "do does what how when which this that from at as if not no".split())
+            "do does what how when which this that from at as if not no "
+            "el la los las un una de del que y en por para con su mi es se lo le al cómo cuánto "
+            "cuál qué puedo quiero tengo".split())
 
 
 def _tokens(text: str) -> list[str]:
     return [t for t in _TOKEN.findall(text.lower()) if t not in _STOP]
 
 
-_doc_tf = [Counter(_tokens(f"{d.title} {d.title} {d.text}")) for d in DOCS]
+_doc_tf = [Counter(_tokens(f"{d.title} {d.title} {d.text} {ES_KEYWORDS.get(d.id, '')} "
+                           f"{ES_KEYWORDS.get(d.id, '')}")) for d in DOCS]
 _df = Counter(t for tf in _doc_tf for t in tf)
 _idf = {t: math.log((1 + len(DOCS)) / (1 + n)) + 1 for t, n in _df.items()}
 

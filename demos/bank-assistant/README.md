@@ -56,10 +56,11 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 .venv/bin/python scripts/seed_prompts.py
 .venv/bin/python scripts/seed_evals.py
 .venv/bin/python scripts/seed_datasets.py
+.venv/bin/python scripts/seed_dashboard.py
 ./scripts/run_portal.sh         # portal + MCP server → http://localhost:8090
 .venv/bin/python scripts/generate_traffic.py --scenario all
 .venv/bin/python scripts/fill_annotation_queue.py 20
-./scripts/run_comparisons.sh    # prompt A/B, model comparison, red-team runs
+./scripts/run_all_experiments.sh --fresh   # prompt A/B (EN+ES), model comparison, gates, red-team
 ./scripts/setup_n8n.sh          # n8n workflow (see n8n/README.md)
 .venv/bin/python scripts/make_voice_samples.py   # synthetic caller audio (already committed)
 ```
@@ -74,6 +75,7 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/seed_evals.py` | judge LLM connection, score configs, 3 managed judges + rules, SME queue | EVA-01, 03, 04, 06 |
 | `scripts/fill_annotation_queue.py` | worst-first SME sample | EVA-06 |
 | `scripts/judge_calibration.py [--bakeoff]` | judge vs SME agreement; judge-model bake-off | EVA-06 |
+| `scripts/seed_dashboard.py` | quality, risk and cost dashboard as code | EVA-07, OBS-05 |
 | `scripts/seed_datasets.py` | golden Q&A with expected outputs; red-team set | EXP-01 |
 | `scripts/run_experiment.py` | prompt A/B (`--prompt-label`), model comparison (`--model`) | EXP-02, EXP-03, EVA-05 |
 | `scripts/prompt_gate.py` | CI gate: exit 1 on regression | EXP-06 |

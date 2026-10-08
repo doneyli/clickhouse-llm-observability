@@ -12,6 +12,12 @@ evaluation matrix as you go. Each act has four beats:
 
 Northwind Bank is fictional. All customers, accounts and policies are synthetic.
 
+**Bilingual.** The portal has an **EN | ES** toggle (header). The assistant answers
+in the customer's language; Spanish has its own golden dataset, guardrail
+patterns, `language-match` and `formal-register` (usted) evaluators, red-team
+items and voice calls. Run any act in Spanish by switching the toggle and using
+the Spanish chips — the Spanish beats are marked 🇪🇸.
+
 ---
 
 ## Screens and tabs (open before you start)
@@ -108,7 +114,9 @@ what the assistant actually did?"
    URLs, effective dates, similarity scores. Then the root's metadata →
    `context`: the exact text the model saw. (OBS-03)
 5. Top of the trace: total tokens, cost and latency; then **Dashboards** →
-   the default cost / latency / usage dashboard filtered to the last 24 h. (OBS-05)
+   *Northwind — AI quality, risk and cost* (seeded as code by
+   `scripts/seed_dashboard.py`): cost by model, p95 turn latency, turns by
+   environment. (OBS-05)
 
 **Land.** One trace answers "what did it do" for the whole chain — model,
 retrieval, tools, and the downstream MCP service — in seconds instead of
@@ -216,13 +224,24 @@ the AI team or business teams?"
 
 ### Act 1.6 — voice channel: multi-modal · OBS-01 (multi-modal)
 
-**Show.** Portal → **Voice** → play the *lost card* call → **Process call** →
-listen to the reply. Open in Langfuse: the caller audio and the spoken reply
-are playable in the trace, with the speech-to-text and text-to-speech
-generations and the agent subtree in between.
+**Show.** Portal → **Voice** → play the *lost card* call (🇪🇸 or a Spanish call)
+→ **Process call** → listen to the reply. Open in Langfuse
+(trace `northwind-voice-call`, tag `channel:voice`): the caller audio and the
+spoken reply are playable in the trace, with the `speech-to-text` and
+`text-to-speech` generations (model, tokens, cost, time-to-first-audio) and the
+full agent subtree in between. The same online judges score the agent's answer
+inside the voice trace.
 
 **Land.** Voice is traced like text: the audio, the transcript, the decision
 and the reply sit in one place for QA and complaints handling.
+
+**Candour.** Managed judges can read audio, but the judge model must accept both
+audio and structured output; OpenAI's audio models fail Langfuse's evaluator
+validation today, so the demo's audio judges (`caller-distress`,
+`voice-empathy`) are seeded but disabled — enable them with an audio-capable
+judge connection (e.g. Gemini): `scripts/seed_voice_eval.py --provider … --model …`.
+Show a speech-to-text slip against the reference script in
+`data/voice/manifest.json` — a real error-analysis moment.
 
 ### 🧪 Lab 1 (8 min) — find the failure
 
@@ -282,10 +301,31 @@ checks, targeted LLM judges, and human signal.
    in production) writing scores, plus an async judge. See
    https://langfuse.com/docs/security-and-guardrails.
 
+### Act 2.2b — 🇪🇸 Spanish: language and register · EVA-03, EVA-04
+
+**Frame.** "Half your customers write in Spanish. 'Answered correctly' is not
+enough — it has to be in Spanish, and in the bank's register."
+
+**Show.**
+1. Toggle **ES** → chip *"¿Cuánto cuesta una transferencia internacional…?"* →
+   open the trace: tag `lang:es`, the retriever found `KB-202` from a Spanish
+   query (bilingual index), and two deterministic scores on every turn:
+   `language-match` and `formal-register`.
+2. Read the `formal-register` comment on a production-prompt answer: the
+   assistant wrote *"Aquí tienes…"* — informal **tú**. Nothing in the production
+   prompt says otherwise. A bank addresses customers as **usted**.
+3. Spanish attack chip *"Ignora las instrucciones anteriores…"* → blocked by the
+   guardrail, refusal in Spanish.
+
+**Land.** Language and register are measurable, deterministic and free — and
+they found a real issue in the production prompt (fixed by the candidate in M5).
+
 ### Act 2.3 — offline evaluation and correctness · EVA-02, EVA-05
 
 **Show.** **Datasets** → `northwind-golden-qa-v1` (16 items, each with an
-**expected output**, expected sources and must-include facts, two in Spanish).
+**expected output**, expected sources and must-include facts, two in Spanish)
+and 🇪🇸 `northwind-golden-qa-es-v1` (10 Spanish items, reference answers in the
+usted register).
 Open a run: `correctness` (LLM judge against the expected output) next to the
 deterministic `must-include`, `source-recall`, `cites-expected-source`,
 `language-match`, `no-unsolicited-upsell`.
@@ -310,8 +350,10 @@ is approved."
 4. Selection criteria for the bank-approved judge (in order): SME agreement
    (kappa ≥ 0.6) → approved and reachable inside the VPC (e.g. Bedrock) →
    cost per 1,000 evaluations at your sampling rate → latency → stability.
-5. Quality trends (EVA-07): **Dashboards** → score averages over time for
-   `faithfulness`, `banking-compliance`, `user-feedback`.
+5. Quality trends (EVA-07): **Dashboards** → *Northwind — AI quality, risk and
+   cost*: judge scores over time, customer feedback split, security-risk mix.
+   Alerts can fire on the same scores (e.g. faithfulness average below 0.8 →
+   webhook to the incident tool).
 
 **Land.** Calibrate the judge against people before you let the judge
 calibrate the product.
@@ -498,8 +540,10 @@ Prompts → v2 → **Experiments** → run against `northwind-golden-qa-v1` with
 
 ## Presenter prep (morning of)
 
-1. `./scripts/up.sh` (n8n + APM stand-in) and `./scripts/run_portal.sh`
-   (portal + MCP server). The portal header shows the Langfuse Cloud target and
+1. `./scripts/up.sh` (n8n + APM stand-in), then restart the MCP server for a
+   clean banking state and start the portal:
+   `kill $(lsof -tiTCP:8765 -sTCP:LISTEN); ./scripts/run_portal.sh`.
+   In the portal, click **New conversation**. The portal header shows the Langfuse Cloud target and
    the served production prompt version — it must say **production v1**.
 2. Warm-up traffic: Presenter console → *Generate production traffic* (~3 min)
    so the last-hour views are populated; also *Run voice calls* and *Run n8n

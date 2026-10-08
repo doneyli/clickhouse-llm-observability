@@ -25,9 +25,13 @@ from northwind import config  # noqa: E402
 TRACE_NAME = "northwind-assistant"
 JUDGE = {"provider": "anthropic", "model": config.JUDGE_MODEL}
 
+# The assistant's own `agent` observation, in chat traces AND inside voice-call
+# traces (where it is a child of the voice root). Experiment traces have their
+# own trace name, so they never burn judge tokens.
 ROOT_FILTER = [
-    {"type": "stringOptions", "column": "traceName", "operator": "any of", "value": [TRACE_NAME]},
-    {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True},
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": [TRACE_NAME, "northwind-voice-call"]},
+    {"type": "stringOptions", "column": "name", "operator": "any of", "value": [TRACE_NAME]},
     {"type": "stringOptions", "column": "environment", "operator": "any of", "value": ["production"]},
 ]
 

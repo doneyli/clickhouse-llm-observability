@@ -1,0 +1,73 @@
+# Northwind Bank demo — prompt quality gate in CI (EXP-06).
+#
+# Langfuse fires a GitHub `repository_dispatch` when a prompt version or label
+# changes (Prompts → Automations → GitHub Repository Dispatch, event type
+# `northwind-prompt-update`). This workflow runs the golden dataset(s) against the
+# labelled prompt and FAILS on a regression, which blocks the promotion job.
+#
+# Setup (once):
+#   1. Repo secrets: NORTHWIND_LANGFUSE_BASE_URL, NORTHWIND_LANGFUSE_PUBLIC_KEY,
+#      NORTHWIND_LANGFUSE_SECRET_KEY, ANTHROPIC_API_KEY (and OPENAI_API_KEY for
+#      model comparisons).
+#   2. Langfuse automation → GitHub Repository Dispatch with a PAT that can
+#      trigger workflows on this repo.
+# Demo without touching prompts: Actions → this workflow → Run workflow →
+# prompt label `development` → watch the gate fail.
+name: Northwind prompt gate
+
+on:
+  repository_dispatch:
+    types: [northwind-prompt-update]
+  workflow_dispatch:
+    inputs:
+      prompt_label:
+        description: Prompt label to gate
+        required: true
+        default: staging
+        type: choice
+        options: [staging, development, production]
+
+concurrency:
+  group: northwind-gate-${{ github.event.inputs.prompt_label || 'dispatch' }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: demos/bank-assistant
+    env:
+      NORTHWIND_PROFILE: cloud
+      LABEL: ${{ github.event.inputs.prompt_label || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Write Langfuse target (from secrets)
+        run: |
+          {
+            echo "LANGFUSE_BASE_URL=${{ secrets.NORTHWIND_LANGFUSE_BASE_URL }}"
+            echo "LANGFUSE_PUBLIC_KEY=${{ secrets.NORTHWIND_LANGFUSE_PUBLIC_KEY }}"
+            echo "LANGFUSE_SECRET_KEY=${{ secrets.NORTHWIND_LANGFUSE_SECRET_KEY }}"
+          } > .env.cloud
+          touch .env
+      - name: Start the core-banking MCP server
+        run: |
+          python -m northwind.mcp_server > mcp.log 2>&1 &
+          sleep 3
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Gate — English golden set
+        run: python scripts/prompt_gate.py --prompt-label "$LABEL"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Gate — Spanish golden set
+        run: python scripts/prompt_gate.py --prompt-label "$LABEL" --dataset northwind-golden-qa-es-v1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

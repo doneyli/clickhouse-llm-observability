@@ -20,12 +20,12 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | EVA-05 | Offline evaluation | dataset experiments with item- and run-level evaluators | Live | Act 2.3, 5.2 |
 | EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; SME annotation queue; judge-vs-human agreement; judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
 | EVA-07 | Quality trends | score averages over time on dashboards | Live | Act 2.4 |
-| EXP-01 | Golden dataset and expected outputs | `northwind-golden-qa-v1` (16 items, EN + ES) and `northwind-redteam-v1` | Live | Act 2.3 |
+| EXP-01 | Golden dataset and expected outputs | `northwind-golden-qa-v1` (16 items), `northwind-golden-qa-es-v1` (10 Spanish items), `northwind-redteam-v1` (10, EN + ES) | Live | Act 2.3 |
 | EXP-02 | Prompt A/B experiment | production vs staging label on the same dataset, compare view | Live | Act 5.2 |
 | EXP-03 | Model / configuration comparison | Claude Sonnet vs GPT-4.1, same prompt and items | Live | Act 5.2 |
 | EXP-04 | Prompt management, dynamic consumption | prompt fetched by label at runtime with cache + fallback; generations linked to the version | Live | Act 5.1 · `northwind/prompts.py` |
 | EXP-05 | Prompt rollback | move the `production` label back; live within ~10 s; no redeploy | Live | Act 5.4 · `scripts/prompt_label.py` |
-| EXP-06 | Quality gate / regression | `prompt_gate.py` exits 1 on the regression prompt; CI wiring via prompt webhook | Live (local) · Config (CI) | Act 5.3 · `cicd/` |
+| EXP-06 | Quality gate / regression | `prompt_gate.py` exits 1 on the regression prompt (English and Spanish golden sets); GitHub Actions workflow triggered by a Langfuse prompt webhook | Live (local) · Config (CI) | Act 5.3 · `cicd/` |
 | ENT-01 | SSO with Entra ID and RBAC | org roles + project-level role live; SCIM endpoint; Entra ID OIDC configuration for self-hosted | Live (RBAC, SCIM) · Config (Entra ID) | M4 · `docs/ENTERPRISE_SECURITY.md` |
 | ENT-02 | Audit logs | prompt promotions/rollbacks, membership and key changes in the org audit log (Enterprise) | Live (Cloud org) | M4 |
 | ENT-03 | Data protection and retention | client-side PII masking; per-project retention (90 days on the demo project); server-side ingestion masking (self-hosted EE) | Live (masking, retention) · Config (server-side masking) | Act 1.3, M4 |
@@ -35,3 +35,5 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | GATE-03 | Architectural integration | LangGraph, MCP, n8n, voice, APM; AWS reference architecture | Evidence | M3 · `docs/ARCHITECTURE.md` |
 | GATE-04 | Operation and resilience | health endpoints, HA topology, backups, upgrades, platform monitoring | Config | M4 · `docs/OPERATIONS.md` |
 | GATE-05 | Value, Enterprise support and TCO | cost per turn/customer, judge cost lever, TCO worksheet, support model | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |
+
+**Bilingual:** every capability above can be shown in English or Spanish (portal EN | ES toggle); Spanish adds `language-match` and `formal-register` (usted) evaluators online and offline.

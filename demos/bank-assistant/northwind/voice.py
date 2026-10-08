@@ -51,6 +51,12 @@ TTS_MODELS = ("gpt-4o-mini-tts", "tts-1")
 TTS_VOICE = "alloy"
 TTS_INSTRUCTIONS = ("You are a contact-center agent at a retail bank. Speak calmly, warmly and "
                     "clearly, at a measured pace. Sound reassuring, never rushed.")
+# The voice instruction follows the language of the ANSWER (the agent replies in
+# the caller's language), so a Spanish reply is not read with an English accent.
+TTS_INSTRUCTIONS_ES = ("Eres un agente del centro de contacto de un banco. Habla en español "
+                       "latinoamericano neutro, con acento nativo, de forma tranquila, cálida y clara, "
+                       "a un ritmo pausado y con trato de usted. Transmite confianza, sin prisa.")
+LANGUAGES = ("en", "es")  # ISO-639-1 hints accepted by the transcription API
 
 # Langfuse Cloud ships no default prices for OpenAI's speech models, so cost is
 # computed here from OpenAI list prices (USD) and ingested as cost_details.
@@ -68,6 +74,26 @@ _MIME_BY_SUFFIX = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".mpeg": "audio/mp
                    ".oga": "audio/oga", ".webm": "audio/webm", ".flac": "audio/flac"}
 
 NOT_UNDERSTOOD = "Sorry, I didn't catch that. Could you say it again?"
+NOT_UNDERSTOOD_ES = "Disculpe, no le entendí bien. ¿Podría repetirlo, por favor?"
+
+_ES_WORDS = set("el la los las un una de del que y en por para con su sus mi es está cómo cuánto cuál "
+                "qué puedo puede quiero necesito tengo tiene cuenta tarjeta transferencia comisión "
+                "hora corte usted gracias hola favor también pero muy más sí le lo se al".split())
+_EN_WORDS = set("the a an of and to in for with your my is are how what which can could would i you "
+                "it this that on at be have has do does please thanks account card transfer fee".split())
+
+
+def detect_language(text: str) -> str:
+    """'es' or 'en' — a stop-word vote (same idea as northwind.lang, kept local so the
+    voice channel never depends on a module another team is changing)."""
+    try:
+        from northwind import lang as _lang
+        return _lang.detect(text)
+    except Exception:  # noqa: BLE001
+        words = re.findall(r"[a-záéíóúñü]+", (text or "").lower())
+        es = sum(w in _ES_WORDS for w in words) + 2 * len(re.findall(r"[ñ¿¡áéíóú]", text or ""))
+        en = sum(w in _EN_WORDS for w in words)
+        return "es" if es > en else "en"
 
 _client: Optional[openai.AsyncOpenAI] = None
 
@@ -129,16 +155,25 @@ def speakable(answer: str) -> str:
     return text.strip()[:4000]  # the TTS input limit is 4096 characters
 
 
-async def _speech_to_text(langfuse, audio: bytes, filename: str, media: LangfuseMedia) -> str:
-    """Transcribe the caller. One generation, whichever model actually served it."""
+async def _speech_to_text(langfuse, audio: bytes, filename: str, media: LangfuseMedia,
+                         language: Optional[str] = None) -> str:
+    """Transcribe the caller. One generation, whichever model actually served it.
+
+    `language` (ISO-639-1, e.g. "es") is passed when the call's language is known:
+    it improves accuracy on short, emotional utterances and stops a Spanish
+    caller from being transcribed as (translated) English.
+    """
+    hint = language if language in LANGUAGES else None
     with langfuse.start_as_current_observation(
             as_type="generation", name="speech-to-text", input={"audio": media},
-            metadata={"filename": filename, "audio_bytes": len(audio)}) as gen:
+            model_parameters={"language": hint} if hint else None,
+            metadata={"filename": filename, "audio_bytes": len(audio), "language_hint": hint or "auto"}) as gen:
         failed: list[str] = []
         for model in STT_MODELS:
             try:
+                kwargs = {"language": hint} if hint else {}
                 res = await _openai().audio.transcriptions.create(
-                    model=model, file=(filename, audio, audio_mime(filename)))
+                    model=model, file=(filename, audio, audio_mime(filename)), **kwargs)
                 break
             except (openai.NotFoundError, openai.PermissionDeniedError, openai.BadRequestError) as exc:
                 failed.append(f"{model}: {type(exc).__name__}")
@@ -155,13 +190,14 @@ async def _speech_to_text(langfuse, audio: bytes, filename: str, media: Langfuse
         return transcript
 
 
-async def _tts_stream(model: str, text: str) -> tuple[bytes, dict, Optional[datetime]]:
+async def _tts_stream(model: str, text: str,
+                      instructions: str = TTS_INSTRUCTIONS) -> tuple[bytes, dict, Optional[datetime]]:
     """gpt-4o-mini-tts over SSE: returns audio, real token usage and first-audio time."""
     chunks: list[bytes] = []
     usage: dict = {}
     first: Optional[datetime] = None
     async with _openai().audio.speech.with_streaming_response.create(
-            model=model, voice=TTS_VOICE, input=text, instructions=TTS_INSTRUCTIONS,
+            model=model, voice=TTS_VOICE, input=text, instructions=instructions,
             response_format="mp3", stream_format="sse") as resp:
         async for line in resp.iter_lines():
             if not line.startswith("data:") or line.strip() == "data: [DONE]":
@@ -177,16 +213,23 @@ async def _tts_stream(model: str, text: str) -> tuple[bytes, dict, Optional[date
     return b"".join(chunks), usage, first
 
 
-async def _text_to_speech(langfuse, text: str) -> tuple[bytes, str]:
-    """Synthesize the reply. Reply audio goes on the generation OUTPUT as media."""
+async def _text_to_speech(langfuse, text: str, language: Optional[str] = None) -> tuple[bytes, str]:
+    """Synthesize the reply. Reply audio goes on the generation OUTPUT as media.
+
+    The voice instruction matches the language of the reply text (detected when
+    not given), so a Spanish answer is spoken in Latin-American Spanish.
+    """
+    language = language if language in LANGUAGES else detect_language(text)
+    instructions = TTS_INSTRUCTIONS_ES if language == "es" else TTS_INSTRUCTIONS
     with langfuse.start_as_current_observation(
             as_type="generation", name="text-to-speech", input=text,
-            model_parameters={"voice": TTS_VOICE, "response_format": "mp3"}) as gen:
+            model_parameters={"voice": TTS_VOICE, "response_format": "mp3", "language": language},
+            metadata={"instructions": instructions}) as gen:
         failed: list[str] = []
         for model in TTS_MODELS:
             try:
                 if model == "gpt-4o-mini-tts":
-                    audio, usage, first = await _tts_stream(model, text)
+                    audio, usage, first = await _tts_stream(model, text, instructions)
                 else:  # tts-1 has no SSE usage; it is billed per input character
                     res = await _openai().audio.speech.create(
                         model=model, voice=TTS_VOICE, input=text, response_format="mp3")
@@ -200,15 +243,23 @@ async def _text_to_speech(langfuse, text: str) -> tuple[bytes, str]:
         mime = "audio/mpeg"
         gen.update(model=model, output={"audio": LangfuseMedia(content_bytes=audio, content_type=mime)},
                    usage_details=usage or None, cost_details=_cost(model, usage),
-                   completion_start_time=first, metadata={"audio_bytes": len(audio)},
+                   completion_start_time=first,
+                   metadata={"audio_bytes": len(audio), "instructions": instructions if model == "gpt-4o-mini-tts" else "none (tts-1)"},
                    level="WARNING" if failed else "DEFAULT",
                    status_message=f"fell back after {failed}" if failed else None)
         return audio, mime
 
 
 async def run_voice_turn(audio: bytes, filename: str = "call.wav", *, customer_id: str = "C-1001",
-                         session_id: Optional[str] = None, history: Optional[list] = None) -> dict:
-    """One caller utterance = one trace: audio in → transcript → agent → audio out."""
+                         session_id: Optional[str] = None, history: Optional[list] = None,
+                         language: Optional[str] = None) -> dict:
+    """One caller utterance = one trace: audio in → transcript → agent → audio out.
+
+    `language` ("en" / "es") is the call's known language (data/voice/manifest.json);
+    None = let speech-to-text auto-detect. The agent answers in the language the
+    caller speaks — it is never forced.
+    """
+    language = language if language in LANGUAGES else None
     langfuse = config.get_langfuse()
     session_id = session_id or f"call-{uuid.uuid4().hex[:12]}"  # a phone call is a session
     caller_audio = LangfuseMedia(content_bytes=audio, content_type=audio_mime(filename))
@@ -219,11 +270,12 @@ async def run_voice_turn(audio: bytes, filename: str = "call.wav", *, customer_i
                               version=config.RELEASE):
         with langfuse.start_as_current_observation(
                 as_type="agent", name=TRACE_NAME, input={"audio": caller_audio},
-                metadata={"filename": filename, "audio_bytes": len(audio)}) as root:
+                metadata={"filename": filename, "audio_bytes": len(audio),
+                          "call_language_hint": language or "auto"}) as root:
             trace_id = root.trace_id
 
             t = _now_ms()
-            transcript = await _speech_to_text(langfuse, audio, filename, caller_audio)
+            transcript = await _speech_to_text(langfuse, audio, filename, caller_audio, language)
             timings["stt_ms"] = round(_now_ms() - t)
 
             t = _now_ms()
@@ -234,15 +286,18 @@ async def run_voice_turn(audio: bytes, filename: str = "call.wav", *, customer_i
                 turn = await agent.run_turn(
                     transcript, customer_id=customer_id, session_id=session_id, history=history,
                     channel="voice", trace_name=TRACE_NAME,
-                    extra_metadata={"input_modality": "audio", "stt_source": filename})
+                    extra_metadata={"input_modality": "audio", "stt_source": filename,
+                                    "call_language_hint": language or "auto"})
             else:
-                turn = {"answer": NOT_UNDERSTOOD, "trace_id": trace_id, "tools_used": [],
+                turn = {"answer": NOT_UNDERSTOOD_ES if language == "es" else NOT_UNDERSTOOD,
+                        "trace_id": trace_id, "tools_used": [],
                         "blocked": False, "risks": [], "error": None}
             timings["agent_ms"] = round(_now_ms() - t)
 
             t = _now_ms()
-            spoken = speakable(turn["answer"])
-            reply_audio, reply_mime = await _text_to_speech(langfuse, spoken)
+            spoken = speakable(turn["answer"]) or turn["answer"][:4000]
+            reply_language = detect_language(spoken)
+            reply_audio, reply_mime = await _text_to_speech(langfuse, spoken, reply_language)
             timings["tts_ms"] = round(_now_ms() - t)
 
             nested = turn["trace_id"] == trace_id
@@ -250,6 +305,8 @@ async def run_voice_turn(audio: bytes, filename: str = "call.wav", *, customer_i
                 output={"transcript": transcript, "answer": turn["answer"],
                         "reply_audio": LangfuseMedia(content_bytes=reply_audio, content_type=reply_mime)},
                 metadata={**timings, "voice": TTS_VOICE, "agent_trace_nested": nested,
+                          "transcript_language": detect_language(transcript) if transcript else "none",
+                          "reply_language": reply_language,
                           "tools_used": ",".join(turn.get("tools_used") or []) or "none",
                           "apm_trace_url": config.apm_url(trace_id)},
                 level="ERROR" if turn.get("error") else "DEFAULT",
@@ -260,4 +317,5 @@ async def run_voice_turn(audio: bytes, filename: str = "call.wav", *, customer_i
             "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
             "apm_url": config.apm_url(trace_id), "session_id": session_id,
             "agent_trace_nested": nested, "tools_used": turn.get("tools_used") or [],
-            "blocked": turn.get("blocked", False), "risks": turn.get("risks") or [], **timings}
+            "blocked": turn.get("blocked", False), "risks": turn.get("risks") or [],
+            "language_hint": language, "reply_language": reply_language, **timings}

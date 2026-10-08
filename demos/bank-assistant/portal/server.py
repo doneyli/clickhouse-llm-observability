@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import json
 import os
 import re
@@ -71,9 +72,28 @@ CHANNELS = ["web", "app", "whatsapp"]
 ACTS: "OrderedDict[str, dict]" = OrderedDict()
 
 
-def _act(act_id, group, title, script, args, blurb, show, button="Run"):
+LANGS = ("en", "es")  # UI languages (portal toggle EN | ES)
+
+
+def _act(act_id, group, title, script, args, blurb, show, button="Run", lang=None, requires=()):
+    """`requires` = (glob, regex) pairs: the act is "not available yet" until some file
+    matching the glob contains the regex (e.g. a CLI option another team is adding)."""
     ACTS[act_id] = {"id": act_id, "group": group, "title": title, "script": script,
-                    "argv": [PY, script, *args], "blurb": blurb, "show": show, "button": button}
+                    "argv": [PY, script, *args], "blurb": blurb, "show": show, "button": button,
+                    "lang": lang, "requires": tuple(requires)}
+
+
+# Cards that hold more than one act get a shared title / blurb / hint.
+GROUPS = {
+    "3": {"title": "Run voice calls",
+          "blurb": "Processes the recorded calls: speech-to-text → agent → text-to-speech.",
+          "show": "Voice traces with audio attachments, STT/TTS generations and latency."},
+    "8": {"title": "Promote / roll back prompt",
+          "blurb": "Move the protected production label — instantly, without a redeploy.",
+          "show": "Prompts → versions & labels; the production version above updates."},
+}
+_ES_DATASET = "northwind-golden-qa-es-v1"
+_ES_DATASET_DEFINED = ("**/*.py", r"golden-qa-es")  # the Spanish dataset exists in code
 
 
 _act("preflight", "0", "Pre-flight check", "portal/preflight.py", [],
@@ -85,9 +105,12 @@ _act("traffic", "1", "Generate production traffic", "scripts/generate_traffic.py
 _act("redteam", "2", "Red-team attack suite", "scripts/generate_traffic.py", ["--scenario", "security"],
      "Prompt injection, cross-customer access, PII and investment-advice probes.",
      "Filter tags risk:* · security-risk scores · guardrail observations.")
-_act("voice", "3", "Run voice calls", "scripts/run_voice_calls.py", [],
-     "Processes the recorded calls: speech-to-text → agent → text-to-speech.",
-     "Voice traces with audio attachments, STT/TTS generations and latency.")
+_act("voice", "3", "Run voice calls (English)", "scripts/run_voice_calls.py", ["--lang", "en"],
+     "Processes the 5 English recorded calls: speech-to-text → agent → text-to-speech.",
+     "Voice traces with audio attachments, STT/TTS generations and latency.", button="English calls")
+_act("voice_es", "3", "Run voice calls (Spanish)", "scripts/run_voice_calls.py", ["--lang", "es"],
+     "Processes the 3 Spanish recorded calls — same pipeline, Spanish speech-to-text hint.",
+     "Spanish transcript, Spanish reply audio, same trace shape.", button="Spanish calls", lang="es")
 _act("n8n", "4", "Run n8n complaint workflow", "scripts/run_n8n_samples.py", [],
      "Sends sample complaints through the n8n triage workflow.",
      "Low-code workflow traces next to code-first agent traces.")
@@ -108,6 +131,37 @@ _act("promote", "8", "Promote prompt (staging → production)", "scripts/prompt_
 _act("rollback", "8", "Roll back prompt", "scripts/prompt_label.py", ["--rollback"],
      "Moves the production label back to the previous version.",
      "Instant rollback — the app picks it up within seconds.", button="Roll back")
+_act("traffic_es", "9", "Spanish traffic", "scripts/generate_traffic.py", ["--scenario", "es"],
+     "Realistic Spanish-language customer turns across channels, customers and intents.",
+     "Filter tag lang:es · language-match scores · the same dashboards, now with Spanish traffic.",
+     lang="es", requires=[("scripts/generate_traffic.py", r"""["']es["']""")])
+_act("exp_es", "10", "Experiment: Spanish golden dataset", "scripts/run_experiment.py",
+     ["--dataset", _ES_DATASET, "--prompt-label", "production"],
+     "Runs the Spanish golden dataset against the production prompt.",
+     f"Datasets → {_ES_DATASET} → Runs: judge and language-match scores per item.",
+     lang="es", requires=[("scripts/run_experiment.py", r"--dataset"), _ES_DATASET_DEFINED])
+_act("gate_es", "11", "CI gate on Spanish dataset (development prompt)", "scripts/prompt_gate.py",
+     ["--prompt-label", "development", "--dataset", _ES_DATASET],
+     "The same pull-request check, scored on the Spanish golden dataset.",
+     "A regression in either language blocks the prompt before it ships.",
+     lang="es", requires=[("scripts/prompt_gate.py", r"--dataset"), _ES_DATASET_DEFINED])
+
+
+def _requirement_met(pattern: str, regex: str) -> bool:
+    rx = re.compile(regex)
+    for f in DEMO_DIR.glob(pattern):
+        if ".venv" in f.parts or not f.is_file():
+            continue
+        try:
+            if rx.search(f.read_text(errors="replace")):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _act_available(act: dict) -> bool:
+    return (DEMO_DIR / act["script"]).is_file() and all(_requirement_met(g, r) for g, r in act["requires"])
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
@@ -333,7 +387,10 @@ def _voice_samples() -> list[dict]:
                 side = f.with_suffix(".txt")
                 note = side.read_text(errors="replace").strip()[:600] if side.exists() else None
             cid = m.get("customer_id") if m.get("customer_id") in _CUSTOMER_IDS else None
-            out.append({"name": f.name, "title": m.get("scenario") or _pretty_call_name(f.stem),
+            lang = m.get("lang") if m.get("lang") in LANGS else None
+            title = m.get("scenario") or _pretty_call_name(f.stem)
+            out.append({"name": f.name, "title": title, "title_es": m.get("scenario_es") or title,
+                        "lang": lang,
                         "size_kb": round(f.stat().st_size / 1024), "url": f"/api/voice/file/{f.name}",
                         "script": note, "customer_id": cid, "customer_name": names.get(cid)})
     return out
@@ -404,7 +461,6 @@ async def info(refresh: bool = False):
             {"label": "Langfuse project", "url": f"{base}/project/{pid}" if pid else base},
             {"label": "Jaeger (APM)", "url": "http://localhost:16686"},
             {"label": "n8n", "url": "http://localhost:5678"},
-            {"label": "Self-hosted Langfuse", "url": "http://localhost:3100"},
         ],
         "customers": CUSTOMERS,
         "channels": CHANNELS,
@@ -422,6 +478,15 @@ class ChatIn(BaseModel):
     channel: str = "web"
     session_id: Optional[str] = None
     prompt_label: Optional[str] = None
+    lang: Optional[str] = None  # UI language (EN | ES toggle) — recorded, never forced on the answer
+
+
+_CHAT_ERRORS = {
+    "en": {"timeout": "The assistant took too long to answer. Please try again.",
+           "error": "Sorry, something went wrong on our side."},
+    "es": {"timeout": "El asistente tardó demasiado en responder. Por favor, inténtelo de nuevo.",
+           "error": "Lo sentimos, ocurrió un problema de nuestro lado."},
+}
 
 
 @app.post("/api/chat")
@@ -433,19 +498,21 @@ async def chat(body: ChatIn):
         raise HTTPException(400, "unknown customer")
     channel = body.channel if body.channel in CHANNELS else "web"
     label = body.prompt_label if body.prompt_label in ("production", "staging", "development") else None
+    ui_lang = body.lang if body.lang in LANGS else "en"
     session_id = body.session_id or f"nw-{uuid.uuid4()}"
     sess = _session(session_id, body.customer_id)
     t0 = time.perf_counter()
     try:
         res = await asyncio.wait_for(agent.run_turn(
             msg, customer_id=body.customer_id, session_id=session_id, history=list(sess["history"]),
-            channel=channel, prompt_label=label, tags=["source:portal"]), timeout=120)
+            channel=channel, prompt_label=label, tags=["source:portal", f"lang-ui:{ui_lang}"],
+            extra_metadata={"ui_language": ui_lang}), timeout=120)
     except asyncio.TimeoutError:
-        return JSONResponse({"answer": "The assistant took too long to answer. Please try again.",
+        return JSONResponse({"answer": _CHAT_ERRORS[ui_lang]["timeout"],
                              "error": "timeout after 120s", "session_id": session_id,
                              "latency_ms": round((time.perf_counter() - t0) * 1000)}, status_code=200)
     except Exception as exc:  # noqa: BLE001
-        return JSONResponse({"answer": "Sorry, something went wrong on our side.",
+        return JSONResponse({"answer": _CHAT_ERRORS[ui_lang]["error"],
                              "error": f"{type(exc).__name__}: {exc}"[:300], "session_id": session_id,
                              "latency_ms": round((time.perf_counter() - t0) * 1000)}, status_code=200)
     latency = round((time.perf_counter() - t0) * 1000)
@@ -522,9 +589,18 @@ async def voice_process(sample: Optional[str] = Form(None), customer_id: str = F
         raise HTTPException(400, "choose a sample or upload a file")
     if not audio or len(audio) > 25 * 1024 * 1024:
         raise HTTPException(400, "audio is empty or larger than 25 MB")
+    # The call's language (manifest `lang`) is a speech-to-text hint; uploads auto-detect.
+    language = _voice_manifest().get(filename, {}).get("lang") if sample and file is None else None
+    kwargs = {}
+    try:
+        if language in LANGS and "language" in inspect.signature(mod.run_voice_turn).parameters:
+            kwargs["language"] = language
+    except (TypeError, ValueError):
+        pass
     t0 = time.perf_counter()
     try:
-        res = await asyncio.wait_for(mod.run_voice_turn(audio, filename, customer_id=customer_id), timeout=180)
+        res = await asyncio.wait_for(mod.run_voice_turn(audio, filename, customer_id=customer_id, **kwargs),
+                                     timeout=180)
     except asyncio.TimeoutError:
         return JSONResponse({"error": "voice pipeline timed out after 180s"}, status_code=504)
     except Exception as exc:  # noqa: BLE001
@@ -534,15 +610,18 @@ async def voice_process(sample: Optional[str] = Form(None), customer_id: str = F
     out["latency_ms"] = round((time.perf_counter() - t0) * 1000)
     out["filename"] = filename
     out["customer_id"] = customer_id
+    out["call_language"] = kwargs.get("language")
     return out
 
 
 # ── Presenter console endpoints ───────────────────────────────────────────────
 @app.get("/api/acts")
 async def acts():
-    return {"acts": [{k: a[k] for k in ("id", "group", "title", "blurb", "show", "button")}
-                     | {"command": _display_cmd(a), "available": (DEMO_DIR / a["script"]).is_file()}
+    avail = await asyncio.to_thread(lambda: {a["id"]: _act_available(a) for a in ACTS.values()})
+    return {"acts": [{k: a[k] for k in ("id", "group", "title", "blurb", "show", "button", "lang")}
+                     | {"command": _display_cmd(a), "available": avail[a["id"]]}
                      for a in ACTS.values()],
+            "groups": GROUPS,
             "job": _job.summary() if _job else None}
 
 
@@ -552,8 +631,8 @@ async def run_act(act_id: str):
     act = ACTS.get(act_id)
     if act is None:
         raise HTTPException(404, "unknown act")
-    if not (DEMO_DIR / act["script"]).is_file():
-        raise HTTPException(409, f"{act['script']} is not available yet")
+    if not await asyncio.to_thread(_act_available, act):
+        raise HTTPException(409, f"{_display_cmd(act)} is not available yet")
     async with _job_lock:
         if _job and _job.running:
             return JSONResponse({"error": f"'{_job.act['title']}' is still running — stop it first",

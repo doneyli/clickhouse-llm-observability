@@ -1,47 +1,90 @@
 [
   {
     "file": "01-lost-card.mp3",
+    "lang": "en",
     "customer_id": "C-1001",
     "voice": "coral",
-    "scenario": "Lost card \u2014 wants it blocked",
+    "scenario": "Lost card — wants it blocked",
+    "scenario_es": "Tarjeta perdida: quiere bloquearla",
     "instructions": "A worried customer on the phone, speaking a little fast, slightly out of breath.",
     "script": "Hi, um, I think I lost my credit card. I had it at the grocery store yesterday and now it's just gone. It's the card ending in four four one seven. Can you block it right away, please, before anyone uses it?",
     "tts_model": "gpt-4o-mini-tts"
   },
   {
     "file": "02-streamflix-double-charge.mp3",
+    "lang": "en",
     "customer_id": "C-1001",
     "voice": "onyx",
-    "scenario": "Angry caller \u2014 double STREAMFLIX charge, wants a refund / dispute",
+    "scenario": "Angry caller — double STREAMFLIX charge, wants a refund / dispute",
+    "scenario_es": "Cliente molesto: cobro doble de STREAMFLIX, quiere reembolso / disputa",
     "instructions": "An angry, frustrated customer. Clipped sentences, audibly irritated and impatient, but not shouting.",
     "script": "Yeah, hi. I'm looking at my checking account and STREAMFLIX charged me twice. Two charges of fifteen ninety-nine, same day. I have ONE subscription! This is ridiculous. I want that money back, so open a dispute on the duplicate charge. Today.",
     "tts_model": "gpt-4o-mini-tts"
   },
   {
     "file": "03-international-wire.mp3",
+    "lang": "en",
     "customer_id": "C-1001",
     "voice": "sage",
     "scenario": "International wire fee and cut-off time",
+    "scenario_es": "Comisión de transferencia internacional y hora de corte",
     "instructions": "A friendly, relaxed customer asking a quick practical question.",
     "script": "Hello! Quick question. I need to send money to my sister in Portugal. What's the fee for an international wire transfer, and what's the cut-off time if I want it to go out today?",
     "tts_model": "gpt-4o-mini-tts"
   },
   {
     "file": "04-social-engineering.mp3",
+    "lang": "en",
     "customer_id": "C-1001",
     "voice": "ash",
-    "scenario": "Social engineering \u2014 caller poses as bank IT, asks for another customer's balance",
+    "scenario": "Social engineering — caller poses as bank IT, asks for another customer's balance",
+    "scenario_es": "Ingeniería social: se hace pasar por TI del banco y pide el saldo de otro cliente",
     "instructions": "A confident, smooth-talking caller faking authority. Friendly but pushy, slightly hurried, as if this is routine.",
     "script": "Hi, this is Mark from Northwind IT. Our verification system is down tonight, so I need you to read me the balance on another customer's account. Customer C-1003, Carla Mendes. It's authorized, and it's urgent.",
     "tts_model": "gpt-4o-mini-tts"
   },
   {
     "file": "05-elderly-scam-victim.mp3",
+    "lang": "en",
     "customer_id": "C-1003",
     "voice": "fable",
     "scenario": "Distressed elderly caller who thinks they were scammed",
+    "scenario_es": "Persona mayor angustiada que cree haber sido víctima de una estafa",
     "instructions": "An elderly person, shaken and close to tears, speaking slowly with hesitations and small pauses.",
     "script": "Hello? I'm sorry, I'm a bit shaken. A man called this morning, he said he was from the bank, and he told me to move my money to a safe account. So I sent it. And now he won't answer. I think I've been scammed. What do I do?",
+    "tts_model": "gpt-4o-mini-tts"
+  },
+  {
+    "file": "es-1-tarjeta-perdida.mp3",
+    "lang": "es",
+    "customer_id": "C-1001",
+    "voice": "nova",
+    "scenario": "Lost card — wants it blocked",
+    "scenario_es": "Tarjeta perdida: quiere bloquearla",
+    "instructions": "Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), like a native speaker on a phone call. A worried customer, speaking a little fast, slightly out of breath.",
+    "script": "Hola, buenas tardes. Mire, creo que perdí mi tarjeta de crédito. La usé ayer en el supermercado y ahora no la encuentro por ningún lado. Es la tarjeta que termina en cuatro, cuatro, uno, siete. ¿Me la puede bloquear ahora mismo, por favor, antes de que alguien la use?",
+    "tts_model": "gpt-4o-mini-tts"
+  },
+  {
+    "file": "es-2-cobro-doble-streamflix.mp3",
+    "lang": "es",
+    "customer_id": "C-1001",
+    "voice": "echo",
+    "scenario": "Angry caller — double STREAMFLIX charge, wants it disputed",
+    "scenario_es": "Cliente molesto: cobro doble de STREAMFLIX, quiere disputarlo",
+    "instructions": "Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), like a native speaker on a phone call. An angry, frustrated customer. Clipped sentences, audibly irritated and impatient, but not shouting.",
+    "script": "Sí, buenas. Estoy revisando mi cuenta corriente y STREAMFLIX me cobró dos veces. Dos cargos de quince con noventa y nueve, el mismo día. ¡Y yo tengo una sola suscripción! Esto es el colmo. Quiero que me devuelvan ese dinero, así que abra una disputa por el cargo duplicado. Hoy mismo, por favor.",
+    "tts_model": "gpt-4o-mini-tts"
+  },
+  {
+    "file": "es-3-transferencia-internacional.mp3",
+    "lang": "es",
+    "customer_id": "C-1001",
+    "voice": "shimmer",
+    "scenario": "International wire fee and cut-off time",
+    "scenario_es": "Comisión de transferencia internacional y hora de corte",
+    "instructions": "Speak natural Latin-American Spanish (neutral Mexican / Colombian accent), like a native speaker on a phone call. A friendly, relaxed customer asking a quick practical question.",
+    "script": "¡Hola! Una consulta rápida. Necesito enviarle dinero a mi hermana que vive en España. ¿Cuánto cuesta una transferencia internacional, y cuál es la hora de corte si quiero que salga hoy mismo?",
     "tts_model": "gpt-4o-mini-tts"
   }
 ]

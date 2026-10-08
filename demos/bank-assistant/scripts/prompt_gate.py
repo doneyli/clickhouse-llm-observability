@@ -26,8 +26,11 @@ def main():
     ap.add_argument("--prompt-label", default="development")
     ap.add_argument("--model", default=config.AGENT_MODEL)
     ap.add_argument("--thresholds", default=str(ROOT / "cicd" / "thresholds.json"))
+    ap.add_argument("--dataset", default=None, help="default: thresholds.json 'dataset' (English golden set)")
     a = ap.parse_args()
     t = json.loads(Path(a.thresholds).read_text())
+    if a.dataset:
+        t = {**t, "dataset": a.dataset, **t.get("per_dataset", {}).get(a.dataset, {})}
     print(f"Quality gate · prompt label '{a.prompt_label}' · {a.model} · dataset {t['dataset']}\n", flush=True)
     result = run_experiment.run(t["dataset"], a.prompt_label, a.model, run_name=f"gate · {a.prompt_label} · {a.model}")
     got = {e.name: e.value for e in result.run_evaluations}

@@ -13,17 +13,28 @@ frightened voice — the reason this exists.
                          short and plain enough to be SPOKEN on a phone call
   3. rules on the root `northwind-voice-call` observation, production only
 
-Run:  .venv/bin/python scripts/seed_voice_eval.py
+Run:  .venv/bin/python scripts/seed_voice_eval.py                    # openai / gpt-audio
+      .venv/bin/python scripts/seed_voice_eval.py --provider google --model gemini-2.5-flash
 Then: .venv/bin/python scripts/run_voice_calls.py     (rules score NEW traces only)
+
+KNOWN LIMIT (Langfuse Cloud, 2026-10-08): Langfuse pauses an evaluator whose
+model fails its validation (`EVAL_MODEL_CONFIG_INVALID`). OpenAI's audio-input
+chat models (gpt-audio, gpt-audio-mini) are paused on create — they reject
+`response_format: json_schema` (verified against the OpenAI API; tool calls do
+work), and text models like gpt-4o validate but cannot hear audio. This script
+therefore enables a rule ONLY when its evaluator comes back `active`, and
+otherwise prints why. Use a provider whose model takes audio AND structured
+output (e.g. a Google AI Studio / Vertex Gemini connection) to switch it on.
 """
+import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from northwind import config, voice  # noqa: E402
 
-JUDGE_MODEL = "gpt-audio"  # chat-completions audio model; Claude models take no audio input
-JUDGE = {"provider": "openai", "model": JUDGE_MODEL}
+# Default judge: OpenAI's audio-input chat model (Claude models take no audio input).
+DEFAULT_PROVIDER, DEFAULT_MODEL = "openai", "gpt-audio"
 
 ROOT_FILTER = [
     {"type": "stringOptions", "column": "traceName", "operator": "any of", "value": [voice.TRACE_NAME]},
@@ -82,37 +93,50 @@ def _all(path):
 
 
 def main():
-    if not config.OPENAI_API_KEY:
-        raise SystemExit("OPENAI_API_KEY is required for the audio judge")
-    # Upsert by provider name. withDefaultModels keeps the standard OpenAI list;
-    # the audio models are added explicitly so they are selectable for judges.
-    config.api("PUT", "/api/public/llm-connections", {
-        "provider": "openai", "adapter": "openai", "secretKey": config.OPENAI_API_KEY,
-        "customModels": ["gpt-audio", "gpt-audio-mini"], "withDefaultModels": True})
-    print(f"✓ LLM connection: openai (judge model {JUDGE_MODEL})")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--provider", default=DEFAULT_PROVIDER,
+                    help="an LLM-connection provider name in the project (GET /api/public/llm-connections)")
+    ap.add_argument("--model", default=DEFAULT_MODEL, help="an audio-capable model of that provider")
+    args = ap.parse_args()
+    judge = {"provider": args.provider, "model": args.model}
+
+    if args.provider == "openai":
+        if not config.OPENAI_API_KEY:
+            raise SystemExit("OPENAI_API_KEY is required for the OpenAI audio judge")
+        # Upsert by provider name. withDefaultModels keeps the standard OpenAI list;
+        # the audio models are added explicitly so they are selectable for judges.
+        config.api("PUT", "/api/public/llm-connections", {
+            "provider": "openai", "adapter": "openai", "secretKey": config.OPENAI_API_KEY,
+            "customModels": ["gpt-audio", "gpt-audio-mini"], "withDefaultModels": True})
+        print("✓ LLM connection: openai (+ gpt-audio, gpt-audio-mini)")
 
     evaluators = {e["name"]: e for e in _all("/api/public/v2/evaluators")}
     rules = {r["name"]: r for r in _all("/api/public/v2/evaluation-rules")}
     for j in JUDGES:
         body = {"type": "llm_as_judge", "name": j["name"],
                 "description": f"Northwind voice channel — {j['name']} (multi-modal, listens to the call)",
-                "prompt": [{"role": "user", "content": j["prompt"]}], "modelConfig": JUDGE,
+                "prompt": [{"role": "user", "content": j["prompt"]}], "modelConfig": judge,
                 "outputDefinition": {"dataType": "NUMERIC", "scoreValueInstructions": j["value"],
                                      "scoreReasoningInstructions": j["reasoning"]}}
         ev = evaluators.get(j["name"])
         if ev is None:
             ev = config.api("POST", "/api/public/v2/evaluators", body)
-            print(f"+ evaluator {j['name']}")
-        else:
-            print(f"= evaluator {j['name']}")
-        rule = {"name": j["name"], "enabled": True, "sampling": 1.0, "filter": ROOT_FILTER,
+            print(f"+ evaluator {j['name']}  {judge['provider']}/{judge['model']}")
+        else:  # replacing the definition re-validates the model (and un-pauses if it is fixed)
+            ev = config.api("PATCH", f"/api/public/v2/evaluators/{ev['id']}",
+                            {k: v for k, v in body.items() if k != "name"})
+            print(f"~ evaluator {j['name']}  {judge['provider']}/{judge['model']} (reconciled)")
+        active = ev.get("status") == "active"
+        if not active:
+            print(f"  ! evaluator {ev.get('status')}: {ev.get('pausedReason')} — {ev.get('pausedMessage')}")
+        rule = {"name": j["name"], "enabled": active, "sampling": 1.0, "filter": ROOT_FILTER,
                 "evaluatorAssignments": [{"evaluatorId": ev["id"], "variableMapping": j["mapping"]}]}
         if j["name"] in rules:
             config.api("PATCH", f"/api/public/v2/evaluation-rules/{rules[j['name']]['id']}", rule)
-            print(f"~ rule {j['name']} (reconciled)")
         else:
             config.api("POST", "/api/public/v2/evaluation-rules", rule)
-            print(f"+ rule {j['name']}  on {voice.TRACE_NAME} root, sampling=1.0")
+        print(f"{'+' if active else '-'} rule {j['name']} on {voice.TRACE_NAME} root: "
+              f"{'ENABLED, sampling=1.0' if active else 'left DISABLED (evaluator not active)'}")
 
 
 if __name__ == "__main__":

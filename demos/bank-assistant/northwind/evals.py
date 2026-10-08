@@ -18,10 +18,20 @@ import re
 
 from langfuse import Evaluation
 
-from northwind import config
+from northwind import config, lang
 
-_UPSELL = re.compile(r"(?i)\b(upgrad\w*|premier account|platinum card|invest(ment|ing)? products?|grow your savings)\b")
-_SPANISH = re.compile(r"(?i)\b(el|la|los|las|una?|para|cuesta|hora|de|que|transferencia|cuenta)\b")
+# Upsell = RECOMMENDING a product the customer didn't ask about — not merely
+# stating a policy fact ("free for Premier accounts" is in the reference answer).
+_UPSELL = re.compile(
+    r"(?i)(\bupgrad(e|ing)\b|consider (upgrading|switching|opening|moving|investing|(the |a |our )?(premier|platinum))|"
+    r"worth (upgrading|considering|switching)|"
+    r"(i|we) (recommend|suggest) (upgrading|switching|opening|our|the premier|the platinum|investing)|"
+    r"you (could|might|may) (benefit|want to (upgrade|open|switch|consider))|would you like to (upgrade|open)|"
+    r"grow your savings|investment products? (could|can|that)|"
+    # Spanish
+    r"le (recomiendo|sugiero) (actualizar|cambiar|abrir|invertir|la cuenta premier|la tarjeta platinum)|"
+    r"considere (actualizar|cambiar|abrir|invertir)|(mejorar|actualizar)(se)? a (la )?(cuenta )?premier|"
+    r"(hacer|haga) crecer sus ahorros|productos de inversi[oó]n (que|para))")
 
 
 def _answer(output) -> str:
@@ -58,20 +68,26 @@ def cites_expected_source(*, input, output, metadata, **_):
 
 
 def language_match(*, input, output, metadata, **_):
-    lang = (metadata or {}).get("language")
-    if lang not in ("en", "es"):
+    asked = (metadata or {}).get("language") or lang.detect((input or {}).get("question", ""))
+    got = lang.detect(_answer(output))
+    return Evaluation(name="language-match", value=1.0 if got == asked else 0.0,
+                      comment=f"asked in {asked}, answered in {got}")
+
+
+def formal_register(*, input, output, metadata, **_):
+    """Spanish only: a bank addresses customers as "usted", never "tú"."""
+    if (metadata or {}).get("language") != "es":
         return []
-    spanish = len(_SPANISH.findall(_answer(output))) >= 4
-    ok = spanish if lang == "es" else not spanish
-    return Evaluation(name="language-match", value=1.0 if ok else 0.0,
-                      comment=f"asked in {lang}, answered in {'es' if spanish else 'en'}")
+    informal = lang.informal_markers(_answer(output))
+    return Evaluation(name="formal-register", value=0.0 if informal else 1.0,
+                      comment=f"informal markers: {informal}" if informal else "formal (usted)")
 
 
 def no_unsolicited_upsell(*, input, output, **_):
     q = (input or {}).get("question", "")
-    if _UPSELL.search(q) or re.search(r"(?i)premier|platinum|invest|crypto", q):
-        return []  # the customer asked about it — mentioning it is fine
-    m = _UPSELL.search(_answer(output))
+    if re.search(r"(?i)premier|platinum|invest|crypto|bitcoin|upgrad|inversi|cripto", q):
+        return []  # the customer asked about it — discussing it is fine
+    m = _UPSELL.search(re.sub(r"[*_`]", "", _answer(output)))  # markdown would split phrases
     return Evaluation(name="no-unsolicited-upsell", value=0.0 if m else 1.0,
                       comment=f"upsell phrase: {m.group(0)!r}" if m else "no upsell")
 
@@ -118,7 +134,7 @@ def correctness(*, input, output, expected_output, **_):
 
 
 GOLDEN_EVALUATORS = [correctness, must_include, source_recall, cites_expected_source, language_match,
-                     no_unsolicited_upsell]
+                     formal_register, no_unsolicited_upsell]
 REDTEAM_EVALUATORS = [refused]
 
 

@@ -32,13 +32,13 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | EVA-04 | Online evaluation | ✅ | 3 managed rules (sampling 100%, one targeted by tag) and 6 deterministic scores per turn. |
 | EVA-05 | Offline evaluation | ✅ | Dataset experiments with item- and run-level evaluators: [production run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/242a1502-d49b-45af-bca8-018e9f86bae6) |
 | EVA-06 | Human feedback and annotation | 🟡 | Customer 👍/👎 (`user-feedback`) from traffic and the portal. SME queue has 20 items, worst first. **Before the session:** label 10–15 items, then run `scripts/judge_calibration.py --bakeoff`. |
-| EVA-07 | Quality trends | 🟡 | Scores exist over time. Show the dashboard score widgets (walk through the UI). |
+| EVA-07 | Quality trends | ✅ | Seeded dashboard *Northwind — AI quality, risk and cost*: judge scores over time, feedback, security-risk mix ([dashboard](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuz2p34r05e2ad0ec9otchz3)). |
 | EXP-01 | Golden dataset + expected outputs | ✅ | `northwind-golden-qa-v1`: 16 items in EN and ES, with expected output, sources and facts. `northwind-redteam-v1`: 8 items. |
 | EXP-02 | Prompt A/B experiment | ✅ | production v1 vs staging v2: [v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/242a1502-d49b-45af-bca8-018e9f86bae6) · [v2](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d537e8af-6349-4773-8f98-78c21c6884c8). Honest result: v2 is not measurably better (within noise). |
 | EXP-03 | Model / config comparison | ✅ | Claude Sonnet 4.6 vs GPT-4.1: correctness 0.94 vs 0.75, citations 0.88 vs 0.50. [GPT run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/e1abfdb3-36b6-4ca5-bc63-6d3717c756bb) |
 | EXP-04 | Prompt management, dynamic consumption | ✅ | `northwind-assistant-system` v1/v2/v3 with production/staging/development labels. Fetched by label at runtime (10 s cache plus fallback); generations are linked to the prompt version. |
 | EXP-05 | Prompt rollback | ✅ | `prompt_label.py --promote staging` / `--rollback` moves labels with no redeploy. Verified (also on self-hosted). |
-| EXP-06 | Quality gate / regression | ✅ | Gate on v3 "growth" prompt: **exit 1**. upsell 0.31 and language 0.94 fail even though the judge gave correctness 0.97. [gate run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/157bca1c-d282-45a4-86ac-2d5fc1d0b8ab). GitHub Actions wiring is 📄. |
+| EXP-06 | Quality gate / regression | ✅ (EN + ES) | Gate on v3 "growth" prompt: **exit 1**. upsell 0.31 and language 0.94 fail even though the judge gave correctness 0.97. [gate run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/157bca1c-d282-45a4-86ac-2d5fc1d0b8ab). Spanish gate also exits 1 on v3. GitHub Actions workflow `.github/workflows/northwind-prompt-gate.yml` (needs repo secrets) is 📄. |
 | ENT-01 | SSO Entra ID and RBAC | 🟡 RBAC / 📄 Entra | Cloud org roles live (Settings → Members); project-membership API responds. Entra ID setup is in `docs/ENTERPRISE_SECURITY.md` (OIDC, no SAML). SCIM API responds on Cloud (Enterprise). |
 | ENT-02 | Audit logs | 🟡 | Cloud org has Enterprise features; the label promote and rollback via API should appear. **Check:** Org Settings → Audit logs. |
 | ENT-03 | Data protection and retention | ✅ | Client-side PII masking verified on Cloud: card, CVV and email redacted, raw values absent from the whole trace ([card](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/6b7ae876477eda435a0a8d50afeb6838), [email](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/01b896eb98a811334d57e7279b53ba00)). Retention set to 90 days through the API (200). Server-side masking is self-hosted EE only (📄). |
@@ -90,11 +90,23 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | Note | Status | How |
 |---|---|---|
 | Industry view: other companies using Langfuse | 📄 | `docs/INDUSTRY.md` (public stories: Trade Republic, Ramp, SumUp, Merck; adoption stats). |
-| Voice agents, multi-modal observability | ⏳ | voice channel (Act 1.6) |
+| Voice agents, multi-modal observability | ✅ | voice channel (Act 1.6) |
 | Agent instrumentation, with examples | ✅ | LangGraph callback + manual observation types (agent, retriever, tool, guardrail) + MCP cross-process |
 | Build your own evaluator and apply it to different datasets | ✅ / Lab | `banking-compliance` judge; Lab 2 builds `complaint-escalation` and runs it on live traffic and on the golden dataset |
 | Security guardrails (evaluator review) | ✅ | input/output guardrails, red-team dataset, `manipulation-resistance` judge |
 | Order: path to production as module 3, experimentation as module 5 | ✅ | run-of-show order M0 → M1 → M2 → M3 → M4 → M5 |
+
+## C2. Bilingual delivery (English / Spanish)
+
+| Requirement | Status | Evidence / how |
+|---|---|---|
+| Portal switchable to Spanish (toggle) | ⏳ | EN/ES toggle, Spanish chips, Spanish voice calls (being built) |
+| Assistant answers in the customer's language; bilingual retrieval | ✅ | Spanish keywords indexed per article; Spanish queries retrieve the right policy (KB-202, KB-302, …) |
+| Spanish guardrails | ✅ | Spanish injection / cross-customer / investment patterns; Spanish refusal; red-team incl. 2 Spanish attacks: refused-safely 1.0 |
+| Spanish evals: language match, formal register (usted) | ✅ | `language-match` + `formal-register` scores on every turn (online) and in experiments (offline) |
+| Spanish golden dataset + A/B | ✅ | `northwind-golden-qa-es-v1` (10 items): production v1 formal-register **0.00** (uses "tú") vs staging v4 **1.00** |
+| Spanish CI gate | ✅ | `prompt_gate.py --dataset northwind-golden-qa-es-v1` on development: language-match 0.40, formal-register 0.60 → **exit 1** ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/f07e5df8-5e72-455d-a778-ac3b32732055)) |
+| Spanish traffic | ✅ | `generate_traffic.py --scenario es` (8 Spanish conversations incl. attacks and PII) |
 
 ## D. Questions raised during scoping (expect them)
 
@@ -103,10 +115,10 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | Runs in the bank's AWS VPC with no internet egress | 📄 `docs/ARCHITECTURE.md`. Caveats to raise: EE telemetry, Entra login needs an egress proxy, mirror images to ECR, presigned S3 URLs for media. |
 | ALB vs NLB concern | 📄 Langfuse web is plain HTTP; works behind an ALB. Stateful components are internal only. |
 | ClickHouse not yet an approved database in the bank's architecture | Talking point: BYOC (ClickHouse-managed, inside the bank's VPC) vs self-managed via the ClickHouse operator |
-| Spring AI (Java) | ❌ Not built (time). Talking point: Spring AI emits OpenTelemetry through Micrometer and exports to Langfuse's OTLP endpoint (Langfuse docs have a Spring AI page). |
+| Spring AI (Java) | 📄 `docs/SPRING_AI.md` — verified recipe from the Langfuse Spring AI integration page + official example repo (not built into the demo) |
 | Multi-turn / session evaluation (N+1) | 📄 Talking point: real-estate demo pattern. Native session evaluation is expected soon (not verified). |
 | Langfuse Cloud vs self-hosted: same software | ✅ M0 talking point |
-| Frameworks in use: n8n, LangChain/LangGraph, Spring AI (Java) | ✅ n8n, ✅ LangGraph · ❌ Spring AI sample (talking point above) |
+| Frameworks in use: n8n, LangChain/LangGraph, Spring AI (Java) | ✅ n8n, ✅ LangGraph · 📄 Spring AI (`docs/SPRING_AI.md`) |
 
 ## Open items before the session
 
@@ -114,7 +126,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 - [ ] Protect the `production` prompt label in the Cloud UI
 - [ ] Check that Audit logs are visible in Cloud org settings (ENT-02)
 - [x] n8n wired and verified (OBS-02)
-- [ ] Voice result  → update the M1 audio row
+- [x] Voice channel verified (5 calls)
 - [x] Portal built and verified (chat, feedback, voice tab, presenter console)
 - [ ] Restart the MCP server before the session (banking state is in-memory; card 4417 was blocked by traffic runs): `kill $(lsof -tiTCP:8765 -sTCP:LISTEN); ./scripts/run_portal.sh`
 - [ ] Dry run of the full script

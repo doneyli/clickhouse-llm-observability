@@ -99,8 +99,7 @@ print(f"        agent model: {config.AGENT_MODEL} · judge model: {config.JUDGE_
 
 # 6. Local platform
 for name, url in (("Jaeger UI (APM stand-in)", "http://localhost:16686"),
-                  ("n8n", "http://localhost:5678"),
-                  ("Self-hosted Langfuse", "http://localhost:3100/api/public/health")):
+                  ("n8n", "http://localhost:5678")):
     ok, detail = http_ok(url)
     line(OK if ok else WARN, name, f"{url} {detail}")
 apm = urlparse(config.APM_OTLP_ENDPOINT or "")

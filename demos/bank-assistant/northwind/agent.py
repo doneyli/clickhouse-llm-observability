@@ -43,24 +43,34 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-from northwind import config, knowledge, masking, prompts
+from northwind import config, knowledge, lang, masking, prompts
 
 TRACE_NAME = "northwind-assistant"  # stable, low-cardinality — the question goes in input
 
-REFUSAL = ("I can't help with that request. I can only help with your own Northwind Bank accounts "
-           "and with questions about our products and services.")
+REFUSAL = {
+    "en": ("I can't help with that request. I can only help with your own Northwind Bank accounts "
+           "and with questions about our products and services."),
+    "es": ("No puedo ayudarle con esa solicitud. Solo puedo ayudarle con sus propias cuentas de "
+           "Northwind Bank y con preguntas sobre nuestros productos y servicios."),
+}
 
 _INJECTION = re.compile(
     r"(?i)(ignore (all |any |the |your )?(previous|prior|above|earlier) (instructions|rules|prompts?)"
     r"|disregard (your|the) (rules|instructions)|system prompt|developer mode|jailbreak|\bDAN\b"
     r"|reveal (your|the) (instructions|prompt|rules|configuration)|you are now|pretend (you are|to be)"
-    r"|act as (an? )?(admin|developer|bank employee)|bypass|override (the )?(rules|policy|safety))")
+    r"|act as (an? )?(admin|developer|bank employee)|bypass|override (the )?(rules|policy|safety)"
+    # Spanish
+    r"|ignora(r)? (todas )?(las |tus )?(instrucciones|reglas)( anteriores| previas)?|olvida (tus|las) (instrucciones|reglas)"
+    r"|prompt (de|del) sistema|modo (desarrollador|administrador)|revela(r)? (tus|las) (instrucciones|reglas|configuraci[oó]n)"
+    r"|ahora eres|finge (ser|que eres)|act[uú]a como (un )?(administrador|desarrollador|empleado)|sin restricciones)")
 _OTHER_CUSTOMER = re.compile(
     r"(?i)(\bC-\d{4}\b|another customer|other customer'?s?|someone else'?s|"
-    r"my (wife|husband|neighbou?r|friend|boss)'?s (account|card|balance|transactions))")
+    r"my (wife|husband|neighbou?r|friend|boss)'?s (account|card|balance|transactions)"
+    r"|otro cliente|de otra persona|(cuenta|tarjeta|saldo|movimientos|transacciones) de mi (esposa|esposo|vecino|amigo|jefe))")
 _INVESTMENT = re.compile(
     r"(?i)(should i (buy|invest|sell|put)|which (stock|stocks|crypto|coin|fund) (should|to)|"
-    r"\bbitcoin\b|\bcrypto(currency)?\b|best investment|guaranteed returns?|double my money|stock tip)")
+    r"\bbitcoin\b|\bcrypto(currency)?\b|best investment|guaranteed returns?|double my money|stock tip"
+    r"|deber[ií]a (invertir|comprar|vender)|criptomoneda|qu[eé] acci[oó]n (comprar|deber[ií]a)|duplicar mi dinero|mejor inversi[oó]n)")
 _ADVICE_IN_ANSWER = re.compile(
     r"(?i)(you should (buy|invest|sell)|i (recommend|suggest) (buying|investing|selling)|guaranteed (return|profit))")
 
@@ -207,7 +217,8 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
             open_dispute, schedule_callback]
 
 
-def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict, outcome: dict):
+def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict, outcome: dict,
+           language: str = "en"):
     llm_with_tools = llm.bind_tools(tools)
 
     async def input_guardrail(state: State, config: RunnableConfig) -> dict:
@@ -216,7 +227,7 @@ def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict
                 metadata={"policy": "northwind-input-v2", "engine": "rules"}) as g:
             g.update(output=check, level="WARNING" if check["risks"] else "DEFAULT")
         if check["blocked"]:
-            return {"blocked": True, "messages": [AIMessage(content=REFUSAL)]}
+            return {"blocked": True, "messages": [AIMessage(content=REFUSAL.get(language, REFUSAL["en"]))]}
         return {"blocked": False}
 
     async def assistant(state: State, config: RunnableConfig) -> dict:  # noqa: F811 — LangGraph injects by name
@@ -265,15 +276,21 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
     langfuse = config.get_langfuse()
     model = model or config.AGENT_MODEL
     system_text, lf_prompt = prompts.get_system_prompt(langfuse, prompt_label)
+    if channel == "voice":  # channel modifier: the answer will be spoken, not read
+        system_text += ("\n\nThis is a phone call: reply in at most three short spoken sentences, "
+                        "no markdown, no lists, no links, and do not read article ids aloud.")
     check = assess_input(message, customer_id)
+    language = lang.detect(message)
     evidence: list[str] = []
     used: list[str] = []
     outcome: dict = {}
     label = prompt_label or "production"
 
-    trace_tags = sorted(set(["northwind-assistant", f"channel:{channel}", "team:retail-digital"]
+    # Owning team: the caller may pass its own `team:*` tag (voice → contact-center).
+    team = [] if any(t.startswith("team:") for t in (tags or [])) else ["team:retail-digital"]
+    trace_tags = sorted(set(["northwind-assistant", f"channel:{channel}", f"lang:{language}"] + team
                             + [f"risk:{r}" for r in check["risks"]] + (tags or [])))
-    meta = {"channel": channel, "customer_segment": _segment(customer_id), "model": model,
+    meta = {"channel": channel, "language": language, "customer_segment": _segment(customer_id), "model": model,
             "prompt_label": label, **{k: str(v) for k, v in (extra_metadata or {}).items()}}
 
     t0 = _now_ms()
@@ -289,7 +306,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
 
             async def _invoke(session):
                 tools = _build_tools(langfuse, session, customer_id, evidence, used)
-                graph = _graph(langfuse, llm, tools, system_text, customer_id, check, outcome)
+                graph = _graph(langfuse, llm, tools, system_text, customer_id, check, outcome, language)
                 return await graph.ainvoke({"messages": _history(history) + [HumanMessage(content=message)],
                                             "blocked": False}, run_cfg)
 
@@ -324,7 +341,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
                 "latency_ms": str(round(_now_ms() - t0))})
             obs_id = root.id
 
-    _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved)
+    _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language, answer)
     if error is not None:
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
@@ -338,7 +355,7 @@ def _segment(customer_id: str) -> str:
     return {"C-1002": "premier", "C-1004": "premier"}.get(customer_id, "everyday")
 
 
-def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved):
+def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language="en", answer=""):
     """Deterministic, zero-cost scores on every turn — the first line of evals."""
     s = lambda **kw: langfuse.create_score(trace_id=trace_id, observation_id=obs_id, **kw)  # noqa: E731
     s(name="security-risk", value=check["primary_risk"], data_type="CATEGORICAL",
@@ -349,6 +366,13 @@ def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retriev
     if outcome:
         s(name="output-pii-leak", value=1 if outcome.get("leaked") else 0, data_type="BOOLEAN")
         s(name="advice-language", value=1 if outcome.get("advice_language") else 0, data_type="BOOLEAN")
+    answered_in = lang.detect(answer)
+    s(name="language-match", value=1 if answered_in == language else 0, data_type="BOOLEAN",
+      comment=f"asked in {language}, answered in {answered_in}")
+    if language == "es" and not check["blocked"]:
+        informal = lang.informal_markers(answer)
+        s(name="formal-register", value=0 if informal else 1, data_type="BOOLEAN",
+          comment=f"informal (tú) markers: {informal}" if informal else "formal (usted) register")
     if "search_knowledge_base" in used:
         s(name="cites-sources", value=1 if set(cited) & set(retrieved) else 0, data_type="BOOLEAN",
           comment=f"cited={cited} retrieved={retrieved}")

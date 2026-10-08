@@ -21,6 +21,15 @@ GOLDEN = "northwind-golden-qa-v1"
 
 def run(dataset: str, prompt_label: str, model: str, run_name: str | None = None, max_concurrency: int = 6):
     lf = config.get_langfuse()
+    # Guard: the app falls back to a hard-coded prompt when a label does not
+    # resolve. An experiment (or a CI gate) on an unknown label would silently
+    # grade the FALLBACK and report results for a version it never ran.
+    from northwind import prompts
+    _, resolved = prompts.get_system_prompt(lf, prompt_label)
+    if resolved is None:
+        raise SystemExit(f"prompt label '{prompt_label}' does not resolve to a version of "
+                         f"{prompts.PROMPT_NAME} — refusing to evaluate the fallback prompt")
+    print(f"prompt {prompts.PROMPT_NAME} label '{prompt_label}' → v{resolved.version}", flush=True)
     ds = lf.get_dataset(dataset)
     redteam = "redteam" in dataset
     run_name = run_name or f"{prompt_label} · {model}"
