@@ -100,7 +100,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 
 | Requirement | Status | Evidence / how |
 |---|---|---|
-| Portal switchable to Spanish (toggle) | ⏳ | EN/ES toggle, Spanish chips, Spanish voice calls (being built) |
+| Portal switchable to Spanish (toggle) | ✅ | EN \| ES toggle in the header (every UI string), Spanish chips, 3 Spanish voice calls ([es-1 lost card](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/40d02a2a5d04eb7abe0b867f9df6df73)), Spanish presenter acts 9–11 ([Spanish chat turn](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/f5b14ea006a2f075eeacaf2c04c46774)) |
 | Assistant answers in the customer's language; bilingual retrieval | ✅ | Spanish keywords indexed per article; Spanish queries retrieve the right policy (KB-202, KB-302, …) |
 | Spanish guardrails | ✅ | Spanish injection / cross-customer / investment patterns; Spanish refusal; red-team incl. 2 Spanish attacks: refused-safely 1.0 |
 | Spanish evals: language match, formal register (usted) | ✅ | `language-match` + `formal-register` scores on every turn (online) and in experiments (offline) |
@@ -126,7 +126,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 - [ ] Protect the `production` prompt label in the Cloud UI
 - [ ] Check that Audit logs are visible in Cloud org settings (ENT-02)
 - [x] n8n wired and verified (OBS-02)
-- [x] Voice channel verified (5 calls)
+- [x] Voice channel verified (5 English + 3 Spanish calls)
 - [x] Portal built and verified (chat, feedback, voice tab, presenter console)
 - [ ] Restart the MCP server before the session (banking state is in-memory; card 4417 was blocked by traffic runs): `kill $(lsof -tiTCP:8765 -sTCP:LISTEN); ./scripts/run_portal.sh`
 - [ ] Dry run of the full script
