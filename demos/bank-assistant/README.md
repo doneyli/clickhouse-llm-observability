@@ -88,6 +88,41 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/prompt_label.py` | promote / roll back by moving labels; `--set-previous N` repairs the rollback target; exits 1 when nothing changed (a roll back with `previous-production` on the production version is refused) | EXP-04, EXP-05 |
 | `scripts/bootstrap_selfhosted.sh` | optional: same demo state on a local self-hosted EE instance | — |
 
+## Reading data back (Langfuse v4 APIs)
+
+The v3 read endpoints stop working on Langfuse Cloud on **2026-11-16**, and the
+`selfhosted` profile (a v4 server) already answers them with 404. The project's v4
+Migration Assistant lists every call to them, including one-off scripts. For ad-hoc
+reads use `config.api(...)` (`northwind/config.py`) with the replacements below. Each
+one was checked against this demo's Cloud project.
+
+| Instead of | Use | Notes |
+|---|---|---|
+| `GET /traces/{id}` | `GET /v2/observations?traceId=<id>` | The root observation (`isRootObservation: true`) holds the turn's input/output. Add `fields=core,basic,io,metadata`. |
+| `GET /traces?name=…` / `?tags=…` | `GET /v2/observations` with `filter` on `traceName` / `tags` plus `isRootObservation = true` | One row per trace. |
+| `GET /observations/{id}` | `GET /v2/observations` with `filter` on `id` | Returns its `traceId`, e.g. for an annotation-queue item. |
+| `GET /sessions/{id}` | `GET /v2/observations?sessionId=<id>&isRootObservation=true` | One row per turn. |
+| `GET /scores`, `GET /v2/scores` | `GET /v3/scores` with `fields=core,subject` | The target is in `subject` (`kind`, `id`, `traceId`). `observationId` needs `traceId` too (400 otherwise). |
+| `GET /datasets/{name}/runs[/{run}]` | `GET /v2/datasets/{name}` (for its `id`) → `GET /experiments?datasetId=…&name=…` → `GET /experiment-items?experimentId=…&fields=core,io,scores` | Both experiment endpoints **require** `fromStartTime`. Run names are not unique. |
+| `DELETE /datasets/{name}/runs/{run}` | experiment items → `DELETE /traces` with `{"traceIds": [...]}` (≤ 1,000 per call) | Also deletes their observations and scores; see `scripts/run_all_experiments.sh --fresh`. |
+| `GET /metrics` | `GET /v2/metrics?query=…` | e.g. `{"view": "observations", "metrics": [{"measure": "count", "aggregation": "count"}], "filters": [{"column": "isRootObservation", "type": "boolean", "operator": "=", "value": true}], …}` counts traces. |
+
+Traps on `GET /v2/observations`:
+
+- **Unknown query parameters are silently ignored.** `traceName=` and `tags=` are not
+  query parameters: a made-up value still returns rows, so a check built on them always
+  passes. Put them in `filter`, a JSON list of
+  `{"type", "column", "operator", "value"}` conditions.
+- **`filter` overrides every query-parameter filter.** Put the time range in it too
+  (`{"type": "datetime", "column": "startTime", "operator": ">=", "value": …}`).
+- **Fields are opt-in.** The default is `core,basic`; `name` is in `basic`, and `io`,
+  `metadata`, `usage` and `trace_context` must be requested.
+- **Paging uses `meta.cursor`, not `page`.**
+
+Worked examples: `scripts/verify_demo.py` (filters, experiments), `scripts/run_cost_arc.sh`
+(`verify` reads observations, v3 scores and experiment items), `scripts/run_all_experiments.sh`.
+Endpoint-by-endpoint guide: [deprecated API migration](https://langfuse.com/faq/all/deprecated-api-migration).
+
 ## Known limits (say them out loud)
 
 - Regex masking does not catch names or street addresses (needs NER in the hook).
