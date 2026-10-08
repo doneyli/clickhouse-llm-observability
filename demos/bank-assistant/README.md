@@ -9,7 +9,7 @@ correlation, and a self-hosted Enterprise instance for governance features.
 
 Northwind Bank is fictional; all data is synthetic.
 
-- **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md) — 2-hour run-of-show with labs
+- **Present it:** [PRESENTER_KIT.html](PRESENTER_KIT.html) — opening/closing slides, a timed run sheet and the requirements matrix (open in a browser); [DEMO_SCRIPT.md](DEMO_SCRIPT.md) — the full talk track with labs
 - **What it proves, by capability ID:** [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md)
 - **Requirements and validation status, with evidence links:** [REQUIREMENTS_TRACKER.md](REQUIREMENTS_TRACKER.md)
 - **Architecture and deployment models:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
