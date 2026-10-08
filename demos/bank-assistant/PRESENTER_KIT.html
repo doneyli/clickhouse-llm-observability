@@ -1,0 +1,277 @@
+<title>Northwind Presenter Kit</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap">
+<style>
+/* Layout: one reading column; two 16:9 slides you can present full-screen; a run sheet; a status matrix. */
+:root{
+  --bg:#f5f7f8; --surface:#ffffff; --ink:#13202b; --muted:#56646f; --line:#d9e0e4;
+  --navy:#0f2c44; --teal:#0f7c78; --teal-soft:#e2f2f0; --amber:#a35d00; --amber-soft:#fbf0de; --grey-soft:#eef1f3;
+  --live:#0f7c78; --stand:#3d5d9b; --stand-soft:#e7ecf7; --docs:#7a5a12; --docs-soft:#f6eedb;
+  --display:"Fraunces", Georgia, serif; --body:"IBM Plex Sans", system-ui, sans-serif; --mono:"IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e161c; --surface:#15212a; --ink:#e6edf1; --muted:#9fb0bb; --line:#2a3a46;
+  --navy:#cfe3f3; --teal:#4fc2bb; --teal-soft:#123331; --amber:#f0b45c; --amber-soft:#3a2a12; --grey-soft:#1b2a35;
+  --live:#4fc2bb; --stand:#9db6ee; --stand-soft:#1d2a45; --docs:#e3c27a; --docs-soft:#33290f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e161c; --surface:#15212a; --ink:#e6edf1; --muted:#9fb0bb; --line:#2a3a46;
+  --navy:#cfe3f3; --teal:#4fc2bb; --teal-soft:#123331; --amber:#f0b45c; --amber-soft:#3a2a12; --grey-soft:#1b2a35;
+  --live:#4fc2bb; --stand:#9db6ee; --stand-soft:#1d2a45; --docs:#e3c27a; --docs-soft:#33290f; color-scheme:dark}
+body{background:var(--bg); color:var(--ink); font-family:var(--body); font-size:15px; line-height:1.55}
+.wrap{max-width:1080px; margin:0 auto; padding-inline:20px; padding-block:28px 64px; display:flex; flex-direction:column; gap:40px}
+h1,h2,h3{text-wrap:balance; margin:0}
+h1{font-family:var(--display); font-size:2rem; color:var(--navy); letter-spacing:-.01em}
+h2{font-family:var(--display); font-size:1.45rem; color:var(--navy)}
+h3{font-size:1rem; font-weight:600}
+p{margin:0}
+.eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; color:var(--teal)}
+.lede{color:var(--muted); max-width:68ch}
+a{color:var(--teal); text-underline-offset:2px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--teal); outline-offset:2px}
+code,.mono{font-family:var(--mono); font-size:.86em}
+nav.toc{display:flex; flex-wrap:wrap; gap:8px}
+nav.toc a{padding:6px 12px; border:1px solid var(--line); border-radius:999px; text-decoration:none; color:var(--ink); background:var(--surface); font-size:.88rem}
+section{display:flex; flex-direction:column; gap:16px}
+/* slides */
+.slide{aspect-ratio:16/9; max-width:100%; background:var(--navy); color:#fff; border-radius:14px; padding:clamp(18px,3.4vw,44px); display:flex; flex-direction:column; gap:clamp(10px,1.6vw,20px); position:relative; overflow:hidden}
+:root[data-theme="dark"] .slide{background:#0b2235}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .slide{background:#0b2235}}
+.slide:fullscreen{border-radius:0; aspect-ratio:auto; width:100vw; height:100vh; padding:6vh 6vw; justify-content:center}
+.slide .kick{font-family:var(--mono); font-size:clamp(.6rem,1vw,.8rem); letter-spacing:.14em; text-transform:uppercase; color:#8fd6d0}
+.slide h2{color:#fff; font-size:clamp(1.15rem,2.6vw,2.2rem)}
+.slide:fullscreen h2{font-size:3.2vw}
+.cols{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:clamp(6px,1vw,14px); flex:1; min-height:0}
+.col{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:clamp(8px,1.1vw,14px); display:flex; flex-direction:column; gap:6px; min-width:0}
+.col h3{font-size:clamp(.66rem,1.15vw,.98rem); color:#fff}
+.col ul{margin:0; padding-left:1em; font-size:clamp(.56rem,.92vw,.84rem); line-height:1.35; color:#dce8ef}
+.slide:fullscreen .col ul{font-size:1.15vw}.slide:fullscreen .col h3{font-size:1.35vw}
+.tag{display:inline-block; font-family:var(--mono); font-size:.68em; padding:1px 6px; border-radius:4px; margin-left:3px; vertical-align:1px}
+.tag.l{background:#1f8f89; color:#fff}.tag.s{background:#4d6cae; color:#fff}.tag.d{background:#a57d23; color:#fff}
+.slide .foot{font-size:clamp(.56rem,.9vw,.8rem); color:#a9c3d3; display:flex; gap:14px; flex-wrap:wrap}
+.present{align-self:flex-start; font:inherit; font-size:.85rem; padding:7px 14px; border-radius:8px; border:1px solid var(--line); background:var(--surface); color:var(--ink); cursor:pointer}
+.present:hover{border-color:var(--teal)}
+/* links */
+.links{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px}
+.links a{display:flex; flex-direction:column; gap:2px; padding:10px 12px; background:var(--surface); border:1px solid var(--line); border-radius:8px; text-decoration:none; color:var(--ink)}
+.links a span{font-family:var(--mono); font-size:.74rem; color:var(--muted); overflow-wrap:anywhere}
+/* run sheet */
+.block{background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+.block header{display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; align-items:baseline; padding:14px 18px; border-bottom:1px solid var(--line); background:var(--grey-soft)}
+.block header h3{font-size:1.05rem}
+.time{font-family:var(--mono); font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums}
+ol.steps{margin:0; padding:6px 18px 14px 44px; display:flex; flex-direction:column; gap:10px}
+ol.steps li{padding-left:4px}
+.do{font-weight:600}
+.click{display:block; font-family:var(--mono); font-size:.8rem; color:var(--muted); margin-top:2px; overflow-wrap:anywhere}
+.say{display:block; margin-top:3px; padding-left:10px; border-left:2px solid var(--teal); color:var(--ink); font-style:italic}
+.note{display:block; margin-top:4px; font-size:.86rem; color:var(--amber); background:var(--amber-soft); padding:4px 8px; border-radius:6px}
+.ids{font-family:var(--mono); font-size:.72rem; color:var(--teal)}
+/* matrix */
+.legend{display:flex; flex-wrap:wrap; gap:14px; font-size:.86rem; color:var(--muted)}
+.pill{display:inline-block; font-family:var(--mono); font-size:.72rem; font-weight:500; padding:2px 8px; border-radius:999px; white-space:nowrap}
+.pill.live{background:var(--teal-soft); color:var(--live)}
+.pill.stand{background:var(--stand-soft); color:var(--stand)}
+.pill.docs{background:var(--docs-soft); color:var(--docs)}
+.tablewrap{overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:12px}
+table{border-collapse:collapse; width:100%; min-width:760px; font-size:.88rem}
+th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+th{font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); background:var(--grey-soft); position:sticky; top:0}
+tr.group td{background:var(--grey-soft); font-weight:600; color:var(--navy); font-size:.82rem}
+td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
+.summary{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px}
+.summary div{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 14px}
+.summary b{font-family:var(--display); font-size:1.6rem; display:block; font-variant-numeric:tabular-nums}
+@media (max-width:760px){.cols{grid-template-columns:repeat(2,minmax(0,1fr))}.slide{aspect-ratio:auto}.summary{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:10px">
+    <div class="eyebrow">Presenter kit · after the Academy foundation slides</div>
+    <h1>Northwind Bank — live demo</h1>
+    <p class="lede">Order: open with <b>Slide A</b> (what you asked to see → what we'll show), run the <b>run sheet</b> block by block, close with <b>Slide B</b> (what we covered). The <b>matrix</b> is your reference when a question comes up. Every step says what to click and one line to say.</p>
+    <nav class="toc"><a href="#slideA">Slide A · Agenda</a><a href="#links">Tabs to open</a><a href="#run">Run sheet</a><a href="#matrix">Requirements matrix</a><a href="#slideB">Slide B · Recap</a></nav>
+  </header>
+
+  <section id="slideA">
+    <div class="eyebrow">Slide A · open the demo with this</div>
+    <div class="slide" id="sA">
+      <div class="kick">Your evaluation matrix → today's demo</div>
+      <h2>What you asked to see, and how we'll show it</h2>
+      <div class="cols">
+        <div class="col"><h3>1 · Observability</h3><ul>
+          <li>Pro-code trace end to end <span class="tag l">live</span></li><li>n8n low-code <span class="tag l">live</span></li>
+          <li>RAG context + sources <span class="tag l">live</span></li><li>Tools, MCP, iterations <span class="tag l">live</span></li>
+          <li>Tokens, latency, cost <span class="tag l">live</span></li><li>Dynatrace by trace ID <span class="tag s">stand-in</span></li>
+          <li>Voice, PII masking, sessions <span class="tag l">live</span></li></ul></div>
+        <div class="col"><h3>2 · Evaluation</h3><ul>
+          <li>Faithfulness, correctness <span class="tag l">live</span></li><li>Your own bank evaluator <span class="tag l">live</span></li>
+          <li>Online + offline <span class="tag l">live</span></li><li>Human feedback + queues <span class="tag l">live</span></li>
+          <li>Judge calibration, judge choice <span class="tag l">live</span></li><li>Security evaluators <span class="tag l">live</span></li></ul></div>
+        <div class="col"><h3>3 · Experiments &amp; prompts</h3><ul>
+          <li>Golden datasets <span class="tag l">live</span></li><li>Prompt A/B, model compare <span class="tag l">live</span></li>
+          <li>Prompt management <span class="tag l">live</span></li><li>Rollback <span class="tag l">live</span></li>
+          <li>CI quality gate <span class="tag l">live</span></li></ul></div>
+        <div class="col"><h3>4 · Enterprise</h3><ul>
+          <li>RBAC, roles <span class="tag l">live</span></li><li>Entra ID SSO <span class="tag d">config</span></li>
+          <li>Audit logs <span class="tag l">live</span></li><li>Masking + retention <span class="tag l">live</span></li>
+          <li>Export, API <span class="tag l">live</span></li><li>Self-hosted ops <span class="tag d">docs</span></li></ul></div>
+        <div class="col"><h3>5 · Production gates</h3><ul>
+          <li>Governance, security <span class="tag l">evidence</span></li><li>Architecture (AWS, no egress) <span class="tag d">docs</span></li>
+          <li>Operation, resilience <span class="tag d">docs</span></li><li>Business value + TCO <span class="tag l">live</span></li>
+          <li>Story arc: business issues found and fixed <span class="tag l">live</span></li></ul></div>
+      </div>
+      <div class="foot"><span>Northwind Bank is fictional · all data synthetic</span><span>English + Spanish</span><span>live = running software · stand-in = Jaeger for Dynatrace · docs/config = walkthrough</span></div>
+    </div>
+    <button class="present" type="button" data-target="sA">Present Slide A full screen</button>
+  </section>
+
+  <section id="links">
+    <h2>Tabs to open before you start</h2>
+    <div class="links">
+      <a href="http://localhost:8090" target="_blank" rel="noopener"><b>Northwind portal</b><span>localhost:8090 · EN | ES toggle · Presenter console</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f" target="_blank" rel="noopener"><b>Langfuse project</b><span>northwind-bank-assistant</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuzijcgx04bead0iw7s6tpgk" target="_blank" rel="noopener"><b>Business value dashboard</b><span>value, containment, failure modes, by version</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuz2p34r05e2ad0ec9otchz3" target="_blank" rel="noopener"><b>Quality &amp; cost dashboard</b><span>judges, feedback, risk, cost, latency</span></a>
+      <a href="http://localhost:16686" target="_blank" rel="noopener"><b>Jaeger (Dynatrace stand-in)</b><span>localhost:16686</span></a>
+      <a href="http://localhost:5678" target="_blank" rel="noopener"><b>n8n</b><span>localhost:5678 · Complaint triage</span></a>
+      <a href="https://github.com/doneyli/clickhouse-llm-observability/actions/workflows/northwind-prompt-gate.yml" target="_blank" rel="noopener"><b>CI gate (GitHub Actions)</b><span>red: #37786226009 · green: #37786230303</span></a>
+    </div>
+    <p class="lede">Prompt labels right now: <code>production</code> v4 · <code>staging</code> v5 (release candidate) · <code>development</code> v3 (regression) · <code>baseline</code> v1 (where the business issues were found). In the portal click <b>New conversation</b> first.</p>
+  </section>
+
+  <section id="run">
+    <h2>Run sheet (~90 min)</h2>
+    <p class="lede">Data model and the observe → evaluate → experiment → deploy loop are covered by your Academy slides; start straight at Slide A. If time runs short, cut Block 3 to two issues and shorten Block 5.</p>
+
+    <div class="block"><header><h3>Block 0 · Frame it</h3><span class="time">3 min</span></header><ol class="steps">
+      <li><span class="do">Show Slide A.</span><span class="say">"This is your matrix. Everything marked live you'll see running in the next hour; the rest I'll walk through in config and docs."</span></li>
+      <li><span class="do">Portal → Customer assistant.</span><span class="click">localhost:8090 · customer Ana Torres · channel Web</span><span class="say">"A fictional retail bank's assistant: LangGraph agent, RAG over policy articles, banking tools behind an MCP server, in English and Spanish."</span></li>
+    </ol></div>
+
+    <div class="block"><header><h3>Block 1 · Observability</h3><span class="time">25 min · <span class="ids">OBS-01…06</span></span></header><ol class="steps">
+      <li><span class="do">Ask a dispute.</span><span class="click">Chip "Dispute UNKNOWN MERCHANT LAGOS" → answer shows tools list_accounts → get_recent_transactions → open_dispute and a case id</span><span class="say">"One customer turn. Let's see exactly what happened."</span></li>
+      <li><span class="do">Open in Langfuse → walk the trace tree.</span><span class="click">guardrail → LangGraph nodes → ChatAnthropic generations → tool → mcp-client → <b>mcp-server</b> → core-banking</span><span class="say">"The MCP server is a separate service, and it's in the same trace. That's W3C context in the MCP call."</span><span class="ids">OBS-01 · OBS-04</span></li>
+      <li><span class="do">Ask a policy question; open kb-retrieval.</span><span class="click">Chip "International wire fees?" → trace → kb-retrieval → documents, sources, scores</span><span class="say">"Every answer carries the sources it used."</span><span class="ids">OBS-03</span></li>
+      <li><span class="do">Tokens, cost, latency.</span><span class="click">Trace header · then Quality &amp; cost dashboard</span><span class="ids">OBS-05</span></li>
+      <li><span class="do">PII masking.</span><span class="click">Chip "Card number 4111…" → trace input shows [REDACTED_CARD]</span><span class="say">"Redacted before it leaves the process, in English and Spanish."</span><span class="ids">ENT-03</span></li>
+      <li><span class="do">n8n low-code.</span><span class="click">Presenter console → Run n8n complaint workflow → traces named n8n-complaint-triage</span><span class="say">"n8n's own spans and the LLM calls with tokens and cost, joined in one trace."</span><span class="ids">OBS-02</span></li>
+      <li><span class="do">APM correlation.</span><span class="click">Portal answer → Open in APM → same trace id in Jaeger, no prompt text</span><span class="say">"For Dynatrace it's one endpoint and one token. The trace id is the join key."</span><span class="ids">OBS-06</span></li>
+      <li><span class="do">Voice + sessions/users/tags.</span><span class="click">Portal → Voice → play a call → Process call → trace with audio · then Sessions, Users, tag filters</span><span class="ids">multi-modal · sessions · environments</span></li>
+    </ol></div>
+
+    <div class="block"><header><h3>Block 2 · Evaluation</h3><span class="time">20 min · <span class="ids">EVA-01…07</span></span></header><ol class="steps">
+      <li><span class="do">Online judges.</span><span class="click">Evaluators → faithfulness · banking-compliance (policy P1–P5) · manipulation-resistance (100% of flagged + 20% sample)</span><span class="say">"Every production answer graded within a minute, with the reasoning next to it."</span><span class="ids">EVA-01 · EVA-03 · EVA-04</span></li>
+      <li><span class="do">Security.</span><span class="click">Presenter console → Red-team attack suite · Traces filter tag risk:prompt_injection · ES chip "Ignora las instrucciones…"</span><span class="say">"Blocked before the model sees it. Authorization lives in the MCP server, not in the prompt."</span></li>
+      <li><span class="do">Offline + correctness.</span><span class="click">Datasets → northwind-golden-qa-v1 (expected outputs) and northwind-golden-qa-es-v1</span><span class="ids">EVA-02 · EVA-05</span></li>
+      <li><span class="do">Human feedback, calibration, which judge to approve.</span><span class="click">Annotation queues → label one live · Datasets → judge-calibration/faithfulness → compare 4 judge models</span><span class="say">"Sonnet 4.6 agrees on every category; cheaper judges miss the subtle errors. Choose the judge by per-category agreement, then cost."</span><span class="ids">EVA-06 · EVA-07</span></li>
+      <li><span class="do">Lab 2 (optional): build your own evaluator together.</span><span class="click">Evaluators → New → "complaint-escalation" → run on recent traffic</span></li>
+    </ol></div>
+
+    <div class="block"><header><h3>Block 3 · Story arc: business issues found and fixed</h3><span class="time">15 min · pick 3</span></header><ol class="steps">
+      <li><span class="do">Open the Business value dashboard.</span><span class="say">"Engineering says faithfulness is 0.96. What does the business see?"</span><span class="click">Value delivered vs LLM spend · containment · failure modes · bottom row = by trace version (release · prompt)</span></li>
+      <li><span class="do">Spanish customers addressed as "tú".</span><span class="click">Failure modes → informal-register → filter traces formal-register = false → comment lists "tienes" → prompt v1 has no register rule → v5 adds "usted" → ES dataset compare 0.00 → 1.00</span><span class="note">Production is now v4 (already formal), so show the issue on the v1 traces. The training video walks this exact path.</span></li>
+      <li><span class="do">Disputes leak to humans.</span><span class="click">Dispute self-service by version: 1.5.0 low → <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a4e261601983c78e3fd00fcebacec479?observation=a60d0396885d223a" target="_blank" rel="noopener">hero trace</a> → MCP server span window_days: 30 vs KB-102's 60 days → release 1.5.1 → disputes opened 2/10 → 10/10</span><span class="say">"A contact-centre leak caused by a code default two services away. The judges scored the wrong answer 1.0."</span></li>
+      <li><span class="do">Cost regression.</span><span class="click">Cost per turn by version: 1.6.0 +13% → <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/4a34ae082d97d3b3e3d20621ae37671e?observation=af56d633d80f83d7" target="_blank" rel="noopener">hero trace</a> → kb-retrieval returns 8 docs, 6 irrelevant → 1.6.1 → same quality, about USD 1,756 per million turns</span></li>
+      <li><span class="do">Backups if asked:</span><span class="click">mis-selling (compliance judge cites P3 on Premier pitches), investment questions turned away (advisor-lead), customers pasting card data (warning enforced in code, release 1.5.0)</span></li>
+    </ol></div>
+
+    <div class="block"><header><h3>Block 4 · Experiments, prompts, CI</h3><span class="time">12 min · <span class="ids">EXP-01…06</span></span></header><ol class="steps">
+      <li><span class="do">Prompt management.</span><span class="click">Prompts → northwind-assistant-system → versions + labels; fetched by label at runtime, 10 s cache, fallback</span><span class="ids">EXP-04</span></li>
+      <li><span class="do">A/B + model comparison.</span><span class="click">Datasets → golden sets → compare production / staging / GPT-4.1 runs</span><span class="say">"Decide on deterministic metrics; a judge average moves a few points between identical runs."</span><span class="ids">EXP-01…03</span></li>
+      <li><span class="do">CI quality gate.</span><span class="click">GitHub Actions → Northwind prompt gate → red run (v3: upsell 0.38, language 0.88, judge said 0.94) and green run (v5, EN + ES)</span><span class="say">"Saving a prompt in Langfuse triggers this. The judge would have shipped the regression; the deterministic checks blocked it."</span><span class="ids">EXP-06</span></li>
+      <li><span class="do">Promote and roll back.</span><span class="click">Portal → Presenter console → Promote staging / Roll back (header shows the served version)</span><span class="note">Only if you want it live: it changes what production serves. Roll back afterwards.</span><span class="ids">EXP-05</span></li>
+    </ol></div>
+
+    <div class="block"><header><h3>Block 5 · Enterprise and path to production</h3><span class="time">12 min · <span class="ids">ENT-01…04 · GATE-01…05</span></span></header><ol class="steps">
+      <li><span class="do">RBAC + SSO.</span><span class="click">Org settings → Members (roles) · Project settings → Members (project role) · Entra ID: docs/ENTERPRISE_SECURITY.md</span><span class="say">"Entra ID over OIDC, enforced for your domain, default role on first login. SAML isn't supported."</span></li>
+      <li><span class="do">Audit logs.</span><span class="click">Settings → Audit logs → this morning's prompt label moves</span></li>
+      <li><span class="do">Protection, retention, export.</span><span class="click">Project settings → Data retention (90 days) · Traces → Export · API</span></li>
+      <li><span class="do">Self-hosted in your AWS account.</span><span class="click">docs/ARCHITECTURE.md (EKS + ALB, RDS, ElastiCache, S3, ClickHouse BYOC, Bedrock via PrivateLink) · docs/OPERATIONS.md</span><span class="say">"Same codebase as this Cloud project. Day 1 of the POC is one docker compose."</span></li>
+      <li><span class="do">Five gates.</span><span class="click">docs/PATH_TO_PRODUCTION.md: walk the gate table against what they just saw</span></li>
+    </ol></div>
+
+    <div class="block"><header><h3>Block 6 · Close</h3><span class="time">3 min</span></header><ol class="steps">
+      <li><span class="do">Show Slide B.</span><span class="say">"Here's what we covered, and what we'll prove in your environment during the POC."</span></li>
+      <li><span class="do">Ask:</span><span class="say">"Which business KPI would your sponsor want on this dashboard on day one of the POC?"</span></li>
+    </ol></div>
+  </section>
+
+  <section id="matrix">
+    <h2>Requirements matrix</h2>
+    <div class="summary">
+      <div><b>21</b><span class="pill live">live</span> shown on running software</div>
+      <div><b>1</b><span class="pill stand">live · stand-in</span> Jaeger in place of Dynatrace</div>
+      <div><b>6</b><span class="pill docs">docs / oral</span> config walkthrough or documentation</div>
+    </div>
+    <div class="legend"><span><span class="pill live">live</span> running in the demo</span><span><span class="pill stand">stand-in</span> same mechanism, local substitute</span><span><span class="pill docs">docs / oral</span> point to documentation or explain</span></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>ID</th><th>Requirement</th><th>Status</th><th>How / where</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="4">1 · Observability</td></tr>
+        <tr><td class="id">OBS-01</td><td>End-to-end traceability, pro-code</td><td><span class="pill live">live</span></td><td>LangGraph agent auto-traced; sessions, users, tags, environments · Block 1.2</td></tr>
+        <tr><td class="id">OBS-02</td><td>End-to-end traceability, n8n</td><td><span class="pill live">live</span></td><td>n8n OpenTelemetry + LLM generations in one trace · Block 1.6</td></tr>
+        <tr><td class="id">OBS-03</td><td>RAG, context and sources</td><td><span class="pill live">live</span></td><td>kb-retrieval documents, sources, scores · Block 1.3</td></tr>
+        <tr><td class="id">OBS-04</td><td>Tools, MCP, agent iterations</td><td><span class="pill live">live</span></td><td>MCP server spans in the same trace · Block 1.2</td></tr>
+        <tr><td class="id">OBS-05</td><td>Tokens, latency, cost</td><td><span class="pill live">live</span></td><td>Per generation, trace, user; dashboards · Block 1.4</td></tr>
+        <tr><td class="id">OBS-06</td><td>Correlation with Dynatrace</td><td><span class="pill stand">stand-in</span></td><td>Same trace id in Jaeger; Dynatrace = OTLP endpoint + token (docs/DYNATRACE.md) · Block 1.7</td></tr>
+        <tr class="group"><td colspan="4">2 · Evaluation</td></tr>
+        <tr><td class="id">EVA-01</td><td>Faithfulness / groundedness</td><td><span class="pill live">live</span></td><td>Managed judge on every production turn · Block 2.1</td></tr>
+        <tr><td class="id">EVA-02</td><td>Correctness / factuality</td><td><span class="pill live">live</span></td><td>Judge vs expected output + must-include facts · Block 2.3</td></tr>
+        <tr><td class="id">EVA-03</td><td>Custom bank evaluator</td><td><span class="pill live">live</span></td><td>banking-compliance (P1–P5), manipulation-resistance; Lab 2 builds one · Block 2.1</td></tr>
+        <tr><td class="id">EVA-04</td><td>Online evaluation</td><td><span class="pill live">live</span></td><td>Judges + deterministic scores, sampling per rule · Block 2.1</td></tr>
+        <tr><td class="id">EVA-05</td><td>Offline evaluation</td><td><span class="pill live">live</span></td><td>Dataset experiments EN + ES · Block 2.3</td></tr>
+        <tr><td class="id">EVA-06</td><td>Human feedback and annotation</td><td><span class="pill live">live</span></td><td>👍/👎, SME queue, judge calibration across 4 models · Block 2.4</td></tr>
+        <tr><td class="id">EVA-07</td><td>Quality trends</td><td><span class="pill live">live</span></td><td>Two dashboards; by trace version · Block 2.4 / 3</td></tr>
+        <tr class="group"><td colspan="4">3 · Experiments and prompts</td></tr>
+        <tr><td class="id">EXP-01</td><td>Golden dataset, expected outputs</td><td><span class="pill live">live</span></td><td>EN 16, ES 10, red-team 10, disputes 10 · Block 4.2</td></tr>
+        <tr><td class="id">EXP-02</td><td>Prompt A/B</td><td><span class="pill live">live</span></td><td>Run compare; Spanish formal register 0 → 1.00 · Block 4.2</td></tr>
+        <tr><td class="id">EXP-03</td><td>Model / config comparison</td><td><span class="pill live">live</span></td><td>Claude Sonnet vs GPT-4.1; release 1.6.0 vs 1.6.1 cost · Block 4.2 / 3</td></tr>
+        <tr><td class="id">EXP-04</td><td>Prompt management, dynamic consumption</td><td><span class="pill live">live</span></td><td>Fetched by label at runtime · Block 4.1</td></tr>
+        <tr><td class="id">EXP-05</td><td>Prompt rollback</td><td><span class="pill live">live</span></td><td>Move the label back, no redeploy · Block 4.4</td></tr>
+        <tr><td class="id">EXP-06</td><td>Quality gate / regression</td><td><span class="pill live">live</span></td><td>GitHub Actions, triggered by a Langfuse prompt automation · Block 4.3</td></tr>
+        <tr class="group"><td colspan="4">4 · Enterprise enablers</td></tr>
+        <tr><td class="id">ENT-01</td><td>SSO Entra ID and RBAC</td><td><span class="pill live">live</span> <span class="pill docs">SSO config</span></td><td>Roles live; Entra ID OIDC settings walked through (docs/ENTERPRISE_SECURITY.md) · Block 5.1</td></tr>
+        <tr><td class="id">ENT-02</td><td>Audit logs</td><td><span class="pill live">live</span></td><td>Settings → Audit logs (confirm it's enabled on the org) · Block 5.2</td></tr>
+        <tr><td class="id">ENT-03</td><td>Data protection and retention</td><td><span class="pill live">live</span></td><td>PII masking EN + ES, retention 90 days; server-side masking is self-hosted (docs) · Block 1.5 / 5.3</td></tr>
+        <tr><td class="id">ENT-04</td><td>Export and portability</td><td><span class="pill live">live</span></td><td>API + UI export; scheduled S3 export = docs · Block 5.3</td></tr>
+        <tr class="group"><td colspan="4">5 · Production gates</td></tr>
+        <tr><td class="id">GATE-01</td><td>Governance, identity, access</td><td><span class="pill docs">docs + evidence</span></td><td>RBAC, audit, protected labels · PATH_TO_PRODUCTION.md</td></tr>
+        <tr><td class="id">GATE-02</td><td>Security and data protection</td><td><span class="pill live">live evidence</span></td><td>Masking, guardrails, red-team 1.0</td></tr>
+        <tr><td class="id">GATE-03</td><td>Architectural integration</td><td><span class="pill docs">docs + evidence</span></td><td>LangGraph, MCP, n8n, voice, APM live; AWS no-egress reference architecture (ARCHITECTURE.md)</td></tr>
+        <tr><td class="id">GATE-04</td><td>Operation and resilience</td><td><span class="pill docs">docs / oral</span></td><td>HA, scaling, backups, upgrades, platform monitoring (OPERATIONS.md)</td></tr>
+        <tr><td class="id">GATE-05</td><td>Value, Enterprise support, TCO</td><td><span class="pill live">live</span> <span class="pill docs">TCO model</span></td><td>Value vs spend dashboard, cost regression caught; TCO worksheet + support model (PATH_TO_PRODUCTION.md)</td></tr>
+        <tr class="group"><td colspan="4">Also requested</td></tr>
+        <tr><td class="id">—</td><td>Voice / multi-modal</td><td><span class="pill live">live</span></td><td>Audio in the trace, STT/TTS; audio judge needs an audio-capable judge model (oral)</td></tr>
+        <tr><td class="id">—</td><td>Sampling strategy</td><td><span class="pill live">live</span></td><td>Trace sampling + per-rule judge sampling (20%)</td></tr>
+        <tr><td class="id">—</td><td>Industry view</td><td><span class="pill docs">slides / docs</span></td><td>Academy slides + docs/INDUSTRY.md</td></tr>
+        <tr><td class="id">—</td><td>Spring AI (Java)</td><td><span class="pill docs">docs / oral</span></td><td>OpenTelemetry recipe in docs/SPRING_AI.md</td></tr>
+        <tr><td class="id">—</td><td>Spanish</td><td><span class="pill live">live</span></td><td>Portal toggle, Spanish datasets, guardrails, voice, register check</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="slideB">
+    <div class="eyebrow">Slide B · close with this</div>
+    <div class="slide" id="sB">
+      <div class="kick">What we covered today</div>
+      <h2>From a customer turn to a business result, end to end</h2>
+      <div class="cols">
+        <div class="col"><h3>Saw it</h3><ul><li>One trace across agent, RAG, MCP service, n8n, voice</li><li>Masked PII, same trace id in the APM</li><li>Tokens, cost, latency per turn</li></ul></div>
+        <div class="col"><h3>Measured it</h3><ul><li>Faithfulness, correctness, your own compliance judge</li><li>Security red-team, guardrails</li><li>Judge calibrated, judge model chosen on evidence</li></ul></div>
+        <div class="col"><h3>Fixed it</h3><ul><li>Spanish register 0 → 1.00</li><li>Disputes opened 2/10 → 10/10</li><li>Cost regression caught (+13%/turn)</li></ul></div>
+        <div class="col"><h3>Shipped it safely</h3><ul><li>Prompt by label, rollback in one click</li><li>CI gate: regression blocked, candidate passed</li><li>Audit log of every move</li></ul></div>
+        <div class="col"><h3>Next: the POC</h3><ul><li>docker compose in your AWS account</li><li>Your n8n + one LangGraph app</li><li>Entra ID, masking policy, your judge model</li><li>The 5 gates as exit criteria</li></ul></div>
+      </div>
+      <div class="foot"><span>Same codebase in Cloud and self-hosted</span><span>Question for you: which KPI goes on the dashboard on day one?</span></div>
+    </div>
+    <button class="present" type="button" data-target="sB">Present Slide B full screen</button>
+  </section>
+</div>
+<script>
+document.querySelectorAll('.present').forEach(function(b){
+  b.addEventListener('click', function(){
+    var el = document.getElementById(b.getAttribute('data-target'));
+    if (el && el.requestFullscreen) { el.requestFullscreen().catch(function(){}); }
+  });
+});
+</script>
