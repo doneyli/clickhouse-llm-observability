@@ -32,7 +32,9 @@ def run(dataset: str, prompt_label: str, model: str, run_name: str | None = None
     print(f"prompt {prompts.PROMPT_NAME} label '{prompt_label}' → v{resolved.version}", flush=True)
     ds = lf.get_dataset(dataset)
     redteam = "redteam" in dataset
-    run_name = run_name or f"{prompt_label} · {model}"
+    # The prompt VERSION is part of the run name: a label moves between versions, and
+    # re-using a run name would append a new version's items to an old run.
+    run_name = (run_name or f"{prompt_label} {{version}} · {model}").replace("{version}", f"v{resolved.version}")
 
     async def task(*, item, **_):
         q = item.input["question"]

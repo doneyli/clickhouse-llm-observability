@@ -34,7 +34,7 @@ def main():
         t = {**t, "dataset": a.dataset,
              "hard": {**t["hard"], **over.get("hard", {})}, "soft": {**t["soft"], **over.get("soft", {})}}
     print(f"Quality gate · prompt label '{a.prompt_label}' · {a.model} · dataset {t['dataset']}\n", flush=True)
-    result = run_experiment.run(t["dataset"], a.prompt_label, a.model, run_name=f"gate · {a.prompt_label} · {a.model}")
+    result = run_experiment.run(t["dataset"], a.prompt_label, a.model, run_name=f"gate · {a.prompt_label} {{version}} · {a.model}")
     got = {e.name: e.value for e in result.run_evaluations}
     failed = False
     print(f"\n{'metric':<28}{'value':>8}{'threshold':>11}   result")

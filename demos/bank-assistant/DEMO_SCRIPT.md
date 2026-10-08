@@ -41,13 +41,14 @@ and prints the Langfuse links. Use it instead of a terminal on screen.
 |---|---|---|---|
 | 0:00–0:10 | M0 Foundations and architecture | — | talk + one screen |
 | 0:10–0:45 | M1 Observability (tracing) | OBS-01..06 | demo + **Lab 1** |
-| 0:45–1:10 | M2 Evaluation | EVA-01..07 | demo + **Lab 2** |
-| 1:10–1:20 | M3 Path to production | GATE-01..05 | talk over evidence |
-| 1:20–1:40 | M4 Enterprise: security, governance, operations | ENT-01..04 | Cloud org settings + self-hosted docs |
-| 1:40–1:55 | M5 Experimentation and prompts | EXP-01..06 | demo + **Lab 3** |
+| 0:45–1:05 | M2 Evaluation | EVA-01..07 | demo + **Lab 2** |
+| 1:05–1:12 | M3 Path to production | GATE-01..05 | talk over evidence |
+| 1:12–1:27 | M4 Enterprise: security, governance, operations | ENT-01..04 | Cloud org settings + self-hosted docs |
+| 1:27–1:40 | M5 Experimentation and prompts | EXP-01..06 | demo + **Lab 3** |
+| 1:40–1:55 | **Story arc: four business issues, found and fixed** | GATE-05, EVA-07, EXP-02/06 | business dashboard → traces → fix → canary |
 | 1:55–2:00 | Close: POC plan and next steps | — | talk |
 
-If you run short: cut Lab 3 (show it instead), then shorten M3 to the gate table.
+If you run short: cut Lab 3 (show it instead), shorten M3 to the gate table, and run the story arc on two of the four issues (mis-selling + Spanish). Tease the business dashboard early (end of M1) so the arc pays it off.
 
 ---
 
@@ -601,6 +602,102 @@ Prompts → v4 → **Experiments** → run against `northwind-golden-qa-v1` with
 `faithfulness`-style judge you built in Lab 2. No code.
 
 ---
+
+## Story arc · four business issues, found in production and fixed (15 min) · GATE-05, EVA-07, EXP-02, EXP-06
+
+Open **Dashboards → *Northwind — Business value & failure modes***. Every
+widget is a score on the assistant's turns; the bottom row splits each one by
+**trace version** = release + prompt version (e.g. `assistant-1.4.0 · prompt v1`
+is production; `· prompt v5` is a **canary** of the candidate on live traffic).
+
+**Frame.** "Engineering metrics say the assistant is fine — faithfulness is
+~0.96. What does the *business* see? Value delivered, containment, conduct risk,
+lost leads. Let's find four real problems in this data and fix them."
+
+Top row: **Value delivered (USD)** vs **LLM spend (USD)** — the ROI line for
+GATE-05 (value = avoided contact-centre cost per contained outcome + advisor
+leads; the unit values are demo assumptions in `northwind/business.py` — swap
+in the bank's). **Containment rate** and **unsolicited-upsell rate** beside it.
+
+For each issue: **Symptom → Pinpoint → Root cause → Fix → Verify → Result.**
+
+### Issue 1 — Mis-selling: the assistant cross-sells Premier (conduct risk)
+- **Symptom.** *Compliance judge by prompt version*: production (v1) is the
+  lowest bar; *Failure modes* shows `unsolicited-upsell`.
+- **Pinpoint.** Traces → filter score `banking-compliance` < 1 → open the judge's
+  **reasoning**: it names **P3** (unsolicited product promotion) — 23 production
+  answers flagged, P3 the most-cited rule. Pattern: fee questions ("What's the
+  wire fee?") answered with "…a Premier account includes free wires — would you
+  like to upgrade?".
+- **Root cause.** The production prompt has no rule against cross-selling, and
+  the policy articles mention Premier benefits, so the model "helpfully" pitches.
+- **Fix.** Prompt v5, rule 4: *only discuss the products the customer asked about.*
+- **Verify.** Golden set `no-unsolicited-upsell` 1.00 and the gate passes (Act
+  5.3); canary: *Upsell rate by prompt version* — production v1 0.06–0.12 →
+  v5 0.00.
+- **Candour moment — the judge was wrong too.** The *Compliance judge by prompt
+  version* bar for the v5 canary first *dropped* (0.89). Open the reasoning: the
+  judge flagged **P2** for showing the **last four digits** of a card — normal
+  banking practice; P2 forbids *full* numbers. Fix the judge, not the agent:
+  `banking-compliance` is now evaluator **version 2** with P2 clarified
+  (`scripts/seed_evals.py`), and new traffic is scored by v2. Calibrate the
+  judge before you trust its trend.
+
+### Issue 2 — Spanish customers addressed as "tú" (brand, customer experience)
+- **Symptom.** `informal-register` is the most frequent production failure mode;
+  *Formal Spanish by prompt version* is mostly `false` for v1.
+- **Pinpoint.** Traces → filter score `formal-register` = false → the comment lists
+  the informal markers ("tienes", "tu cuenta").
+- **Root cause / Fix.** Nothing in the production prompt sets a register; v4/v5
+  add "in Spanish use the formal *usted*".
+- **Verify.** Spanish golden set `formal-register` 0 → 1.00; canary: production
+  v1 0.00–0.14 → v5 1.00 on live Spanish turns.
+
+### Issue 3 — Investment questions turned away (lost revenue)
+- **Symptom.** *Outcome mix*: `declined-advice`; *Failure modes*:
+  `advice-turned-away`; those turns deliver **USD 0**.
+- **Pinpoint.** Filter score `intent` = investment-advice → production answers
+  "consult a financial advisor" and stops — no next step.
+- **Fix.** v5 rule 5: say you can't advise, **offer to book a licensed advisor**,
+  and if accepted book it with `schedule_callback("advisor: …")` — a new outcome
+  `advisor-lead`, valued as an expected sales lead.
+- **Verify.** *Advisor offered by prompt version*: v1 0.00 → v5 0.67 on the first
+  investment question; booked `advisor-lead` outcomes appear in *Outcome mix*
+  and in *Value delivered* (USD 40 per lead — an assumption to replace).
+
+### Issue 4 — Customers paste card numbers (security, PCI)
+- **Symptom.** `pii-in-input` events; *Customer warned after sharing card data*.
+- **Pinpoint.** The logs are safe — masking redacted the number before export —
+  but the customer must be told never to do it. The v5 canary showed the prompt
+  rule was followed only some of the time (one English answer read the full
+  number and just asked to double-check the last four digits).
+- **Fix — in code, not in the prompt.** A prompt instruction is probabilistic; a
+  must-always rule belongs in the guardrail. Release **1.5.0**: the output
+  guardrail prepends the warning (in the customer's language) whenever card/ID
+  data was shared and the answer didn't warn.
+- **Verify.** *Customer warned after sharing card data*: `assistant-1.4.0 · prompt
+  v5` 0.33 → `assistant-1.5.0 · prompt v5` 1.00. **Land:** the canary caught an
+  incomplete fix before it reached every customer.
+
+### Ship it
+CI gate on v5: English and Spanish golden sets both **pass** (exit 0). Second
+candour moment: the *first* Spanish run failed `must-include` (0.85). Triage
+before touching the agent — both misses were **test** defects: the evaluator
+didn't accept the Spanish decimal comma (*3,85 %*), and one reference answer
+demanded facts the question never asked. Fix the test, re-run, pass. Then
+**Promote staging** (Act 5.4) → the production bars move as new traffic arrives;
+roll back in one click if any business metric dips.
+
+**Land.** Langfuse connects the business symptom to the exact trace, the root
+cause to a versioned fix, and the fix to a measured business result — in both
+languages.
+
+**Ask.** "Which business KPI would your sponsor want on this dashboard on day one
+of the POC — containment, cost per contact, complaints, or conduct risk?"
+
+> Caveats to say out loud: canary slices here are small (3–16 turns per issue),
+> so read direction, not decimals; containment across versions is confounded by
+> the traffic mix; the value per outcome is an assumption to replace.
 
 ## Close (5 min)
 

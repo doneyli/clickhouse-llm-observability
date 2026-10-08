@@ -43,7 +43,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-from northwind import config, knowledge, lang, masking, prompts
+from northwind import business, config, knowledge, lang, masking, prompts
 
 TRACE_NAME = "northwind-assistant"  # stable, low-cardinality — the question goes in input
 
@@ -258,8 +258,16 @@ def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict
             result = assess_output(answer)
             g.update(output={k: v for k, v in result.items() if k != "answer"},
                      level="WARNING" if result["leaked"] or result["advice_language"] else "DEFAULT")
+        # Must-always rule enforced in CODE (release 1.5.0): a prompt instruction to
+        # warn customers who paste card data was followed only some of the time
+        # (the v5 canary showed it), so the guardrail guarantees it.
+        if (set(check["pii_shared"]) & {"card", "otp", "national_id", "iban", "account"}
+                and not business.pii_warned(result["answer"])):
+            result["answer"] = business.WARNING.get(language, business.WARNING["en"]) + "\n\n" + result["answer"]
+            result["pii_warning_added"] = True
+            g.update(metadata={"pii_warning_added": "true"})
         outcome.update(result)
-        if result["leaked"]:
+        if result["leaked"] or result.get("pii_warning_added"):
             return {"messages": [AIMessage(content=result["answer"])]}
         return {}
 
@@ -312,8 +320,11 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
             "prompt_label": label, **{k: str(v) for k, v in (extra_metadata or {}).items()}}
 
     t0 = _now_ms()
+    # Trace version = release + prompt version: the key that lets every quality
+    # AND business metric be split by what was actually served (canary vs prod).
+    served = f"prompt v{lf_prompt.version}" if lf_prompt is not None else "prompt fallback"
     with propagate_attributes(session_id=session_id, user_id=customer_id, tags=trace_tags,
-                              metadata=meta, version=config.RELEASE, trace_name=trace_name,
+                              metadata=meta, version=f"{config.RELEASE} · {served}", trace_name=trace_name,
                               prompt=lf_prompt):
         with langfuse.start_as_current_observation(as_type="agent", name=TRACE_NAME, input=message) as root:
             trace_id = root.trace_id
@@ -368,12 +379,29 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
 
     _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language, answer,
                 offline=(channel == "experiment"))
+    biz = None
+    if channel != "experiment":
+        tool_results = business.evidence_tool_results(evidence)
+        answered_in = lang.detect(answer)
+        biz = business.classify(
+            used=used, actions_ok=[n for n, rs in tool_results.items() if any(business.tool_succeeded(r) for r in rs)],
+            blocked=check["blocked"], risks=check["risks"], cited=cited,
+            # intent from what the answer CITED, else the retriever's own ranking order
+            retrieved_categories=[d.category for d in map(knowledge.get, list(dict.fromkeys(
+                cited + re.findall(r"\[(KB-\d{3})\]", "\n".join(evidence))))) if d],
+            error=error is not None, language_mismatch=answered_in != language,
+            informal=language == "es" and not check["blocked"] and bool(lang.informal_markers(answer)),
+            output_leak=bool(outcome.get("leaked")), advice_language=bool(outcome.get("advice_language")),
+            tool_errors=sum(1 for rs in tool_results.values() for r in rs if not business.tool_succeeded(r)),
+            callback_topics=[r.get("topic", "") for r in tool_results.get("schedule_callback", []) if isinstance(r, dict)],
+            upsell=_unsolicited_upsell(message, answer), pii_shared=check["pii_shared"], answer=answer)
+        _score_business(langfuse, trace_id, obs_id, biz)
     if error is not None:
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
             "apm_url": config.apm_url(trace_id), "sources": cited, "retrieved": retrieved,
             "tools_used": used, "blocked": check["blocked"], "risks": check["risks"],
-            "prompt_version": getattr(lf_prompt, "version", None), "model": model,
+            "prompt_version": getattr(lf_prompt, "version", None), "model": model, "business": biz,
             "error": f"{type(error).__name__}: {error}" if error else None}
 
 
@@ -405,3 +433,32 @@ def _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retriev
     if "search_knowledge_base" in used:
         s(name="cites-sources", value=1 if set(cited) & set(retrieved) else 0, data_type="BOOLEAN",
           comment=f"cited={cited} retrieved={retrieved}")
+
+
+def _unsolicited_upsell(question: str, answer: str) -> bool:
+    from northwind import evals
+    e = evals.no_unsolicited_upsell(input={"question": question}, output={"answer": answer})
+    return isinstance(e, evals.Evaluation) and e.value == 0.0
+
+
+def _score_business(langfuse, trace_id, obs_id, biz: dict):
+    """Business-outcome scores (see northwind/business.py) on the same observation."""
+    s = lambda **kw: langfuse.create_score(trace_id=trace_id, observation_id=obs_id, **kw)  # noqa: E731
+    s(name="task-outcome", value=biz["task-outcome"], data_type="CATEGORICAL")
+    s(name="intent", value=biz["intent"], data_type="CATEGORICAL")
+    s(name="failure-mode", value=biz["failure-mode"], data_type="CATEGORICAL")
+    s(name="contained", value=float(biz["contained"]), data_type="NUMERIC",
+      comment="1 = handled without a human")
+    s(name="unsolicited-upsell", value=float(biz["unsolicited-upsell"]), data_type="NUMERIC",
+      comment="1 = recommended a product the customer did not ask about (conduct risk P3)")
+    if "advisor-offered" in biz:
+        s(name="advisor-offered", value=float(biz["advisor-offered"]), data_type="NUMERIC",
+          comment="investment question: 1 = offered/booked a licensed advisor session")
+    if "pii-education" in biz:
+        s(name="pii-education", value=float(biz["pii-education"]), data_type="NUMERIC",
+          comment="customer shared card/ID data: 1 = told them never to share it")
+    s(name="value-usd", value=biz["value-usd"], data_type="NUMERIC",
+      comment=(f"advisor lead (demo assumption: USD {business.ADVISOR_LEAD_VALUE} expected value)"
+               if biz["task-outcome"] == "advisor-lead" else
+               f"avoided contact cost (demo assumption: USD {business.COST_PER_CONTACT} per contact × "
+               f"deflection credit for '{biz['task-outcome']}')"))

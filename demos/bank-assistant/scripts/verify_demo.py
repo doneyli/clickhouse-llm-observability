@@ -57,6 +57,7 @@ def main():
         for l in get(f"/api/public/v2/prompts/northwind-assistant-system", version=v).get("labels", []):
             labels[l] = v
     check(labels.get("production") == 1, "prompt production → v1", f"labels={labels}")
+    check(labels.get("staging") == 5, "prompt staging → v5 (release candidate)", required=False)
     check("staging" in labels and "development" in labels, "prompt staging + development labels exist")
 
     # ── datasets + runs ──
@@ -94,7 +95,8 @@ def main():
     for n in ["faithfulness", "banking-compliance", "manipulation-resistance"]:
         check(n in names, f"judge scores: {n}", f"n={names.get(n, [0])[0]} latest={names.get(n, [0, None])[1]}")
     for n in ["security-risk", "guardrail-blocked", "pii-in-input", "language-match", "formal-register",
-              "user-feedback", "cites-sources"]:
+              "user-feedback", "cites-sources", "task-outcome", "contained", "value-usd", "failure-mode",
+              "unsolicited-upsell", "advisor-offered", "pii-education"]:
         check(n in names, f"app scores: {n}", f"n={names.get(n, [0])[0]}")
 
     # ── annotation queue ──
@@ -106,7 +108,8 @@ def main():
     # ── dashboard ──
     try:
         dashes = get("/api/public/unstable/dashboards", limit=50).get("data", [])
-        check(any(d.get("name", "").startswith("Northwind") for d in dashes), "Northwind dashboard")
+        check(any(d.get("name", "").startswith("Northwind — AI quality") for d in dashes), "quality dashboard")
+        check(any(d.get("name", "").startswith("Northwind — Business value") for d in dashes), "business value dashboard")
     except RuntimeError as e:
         check(False, "Northwind dashboard", str(e)[:100], required=False)
 

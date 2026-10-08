@@ -43,8 +43,12 @@ def must_include(*, input, output, expected_output, metadata, **_):
     facts = (metadata or {}).get("must_include") or []
     if not facts:
         return []
-    ans = _answer(output).lower().replace(" ", "")
-    hit = [f for f in facts if f.lower().replace(" ", "") in ans]
+    ans = _answer(output).lower().replace(" ", "").replace("\u00a0", "")
+    # Locale-aware: Spanish writes 3,85 % for 3.85 % — both spellings count.
+    def present(fact: str) -> bool:
+        f = fact.lower().replace(" ", "")
+        return any(v in ans for v in {f, f.replace(".", ","), f.replace(",", ".")})
+    hit = [f for f in facts if present(f)]
     return Evaluation(name="must-include", value=len(hit) / len(facts),
                       comment=f"found {hit} of {facts}")
 
