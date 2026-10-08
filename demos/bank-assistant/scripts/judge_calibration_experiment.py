@@ -76,6 +76,10 @@ ITEMS = [
     ("m04", "What's the daily limit for transfers to other banks?", ctx("KB-201"),
      "Transfers to other banks are free up to USD 5,000 a day on Everyday accounts, and higher on Premier. [KB-201]",
      "0.5", "'higher' instead of USD 20,000"),
+    ("m06", "How do I turn overdraft protection off?", ctx("KB-302"),
+     "You can switch it off any time in the app: 1. Open the app and go to Account settings. 2. Tap Overdraft "
+     "Protection and toggle it off. Transactions that would overdraw the account are then declined at no charge. [KB-302]",
+     "0.5", "invented navigation steps / menu names not in KB-302"),
     ("m05", "Do personal loans have a prepayment penalty?", ctx("KB-401"),
      "No prepayment penalty. Rates are fixed, from 8.9% to about 22% depending on your profile. [KB-401]",
      "0.5", "'about 22%' vs 21.9%"),
