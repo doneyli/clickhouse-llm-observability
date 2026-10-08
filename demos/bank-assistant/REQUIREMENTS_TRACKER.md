@@ -47,7 +47,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | GATE-02 | Security and data protection | ✅ evidence | masking, guardrails, red-team (10 items, EN + ES) refused-safely 1.0 ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xwvb04yead0eozy5z3q1/runs/86456e2a-5078-480e-a96e-588a0237fb19)), retention |
 | GATE-03 | Architectural integration | ✅ evidence | LangGraph + MCP + n8n + APM live; AWS reference architecture in `docs/ARCHITECTURE.md` (ALB, no NLB) |
 | GATE-04 | Operation and resilience | 📄 | `docs/OPERATIONS.md` (HA, scaling, backups, upgrades, monitoring) |
-| GATE-05 | Value, Enterprise support and TCO | 📄 | `docs/PATH_TO_PRODUCTION.md` TCO worksheet + support model (no invented prices) |
+| GATE-05 | Value, Enterprise support and TCO | ✅ value + 📄 TCO | `docs/PATH_TO_PRODUCTION.md` TCO worksheet + support model (no invented prices) |
 
 ## B. Requested training modules (2-hour session)
 
@@ -119,6 +119,20 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | Multi-turn / session evaluation (N+1) | 📄 Talking point: real-estate demo pattern. Native session evaluation is expected soon (not verified). |
 | Langfuse Cloud vs self-hosted: same software | ✅ M0 talking point |
 | Frameworks in use: n8n, LangChain/LangGraph, Spring AI (Java) | ✅ n8n, ✅ LangGraph · 📄 Spring AI (`docs/SPRING_AI.md`) |
+
+## E. Business value and failure modes — the story arc
+
+Dashboard: [Northwind — Business value & failure modes](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuzijcgx04bead0iw7s6tpgk) (13 widgets; value vs spend, containment, outcomes, failure modes, and each issue split by trace version = release + prompt version). Business scores on every live turn: `task-outcome`, `contained`, `value-usd`, `intent`, `failure-mode`, `unsolicited-upsell`, `advisor-offered`, `pii-education` (`northwind/business.py`; value per outcome = demo assumptions).
+
+| Business issue (found in production data) | Symptom → pinpoint | Fix | Verified |
+|---|---|---|---|
+| Mis-selling: unsolicited Premier upsell (conduct risk) | compliance judge flagged 23 answers, P3 most cited; upsell failure mode | prompt v5 rule 4 | upsell rate v1 0.06–0.12 → v5 0.00 (canary); golden no-upsell 1.00; gate passes |
+| Spanish customers addressed as "tú" | `informal-register` top failure mode | v4/v5 formal-register rule | canary v1 0.00–0.14 → v5 1.00; ES golden 0 → 1.00 |
+| Investment questions turned away (lost leads) | `declined-advice` / `advice-turned-away`, USD 0 | v5 rule 5: offer + book advisor (`advisor-lead`) | advisor offered v1 0.00 → v5 0.67; advisor leads booked and valued |
+| Customers paste card numbers (PCI) | `pii-in-input`; customer-warned rate | prompt rule (v5) was followed 1/3 → **code** fix: release 1.5.0 output guardrail | warned `1.4.0 · v5` 0.33 → `1.5.0 · v5` 1.00 |
+| (judge false positive) compliance dip on v5 canary | judge reasoning: P2 for last-4 digits | `banking-compliance` evaluator **v2** (P2 clarified) | new traffic scored by v2 |
+| (test defect) first ES gate fail on v5 | must-include misses | locale-aware evaluator + fixed ES item | ES gate on v5 exit 0 ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/8562d3ec-7896-47fc-afb8-1d2cea75339b)); EN gate exit 0 ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/a5d46b7c-4e03-43c7-993b-46f54419b07c)) |
+| Disputes leak to humans; cost regression | — | not built (time) — options in the session notes | ❌ |
 
 ## Open items before the session
 

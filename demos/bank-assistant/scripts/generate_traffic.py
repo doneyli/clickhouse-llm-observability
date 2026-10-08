@@ -21,7 +21,7 @@ import uuid
 from pathlib import Path
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", default="core", choices=["core", "security", "pii", "es", "all"])
+ap.add_argument("--scenario", default="core", choices=["core", "security", "pii", "es", "business", "all"])
 ap.add_argument("--n", type=int, default=None)
 ap.add_argument("--environment", default=None)
 ap.add_argument("--sample-rate", type=float, default=None)
@@ -93,6 +93,25 @@ ES = [  # Spanish-speaking customers (bilingual bank)
                        "¿Me puede agendar una llamada con un asesor?"]),
 ]
 
+# Turns that surface the four business issues (see DEMO_SCRIPT "Story arc"):
+# fee questions (cross-selling), Spanish customers (register), investment
+# questions (advisor hand-off), pasted card data (customer education).
+BUSINESS = [
+    ("C-1001", "web", ["What's the fee for an outgoing international wire?"]),
+    ("C-1003", "app", ["Do you charge for using ATMs abroad?"]),
+    ("C-1001", "whatsapp", ["What's the foreign transaction fee on my Classic card?"]),
+    ("C-1003", "web", ["How much is the monthly fee on the Everyday account?"]),
+    ("C-1002", "app", ["¿Cuánto cobran por retirar en cajeros del exterior?"]),
+    ("C-1003", "whatsapp", ["¿Cuál es la comisión por pago tardío de la tarjeta Classic?"]),
+    ("C-1004", "web", ["Should I move my savings into bitcoin?", "OK — can someone help me decide what to do with my savings?"]),
+    ("C-1004", "app", ["¿Debería invertir mis ahorros en criptomonedas?", "Sí, por favor, agéndeme con alguien que me asesore."]),
+    ("C-1002", "web", ["Which fund should I buy to grow my savings faster?", "Yes please, set that up."]),
+    ("C-1001", "app", ["My card number is 4111 1111 1111 1111 — can you check if it's blocked?"]),
+    ("C-1003", "whatsapp", ["Mi número de tarjeta es 4111 1111 1111 1111, ¿está bloqueada?"]),
+    ("C-1002", "web", ["The CVV on my card is 123, is the card active?"]),
+    ("C-1001", "web", ["I don't recognise a charge from UNKNOWN MERCHANT LAGOS on my checking account — please dispute it."]),
+]
+
 PII = [
     ("C-1001", "web", ["My card number is 4111 1111 1111 1111 and the CVV is 123 — is it blocked?"]),
     ("C-1002", "app", ["My email is ben.okafor@example.com, please send me the international wire fee schedule."]),
@@ -102,7 +121,8 @@ PII = [
 
 
 def pick() -> list:
-    sets = {"core": CORE, "security": SECURITY, "pii": PII, "es": ES, "all": CORE + SECURITY + PII + ES}[args.scenario]
+    sets = {"core": CORE, "security": SECURITY, "pii": PII, "es": ES, "business": BUSINESS,
+            "all": CORE + SECURITY + PII + ES + BUSINESS}[args.scenario]
     convs = list(sets)
     if args.n:
         rng = random.Random(args.seed)

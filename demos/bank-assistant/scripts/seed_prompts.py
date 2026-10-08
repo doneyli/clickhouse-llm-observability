@@ -13,6 +13,7 @@ VERSIONS = [
     (prompts.V1_BASELINE, ["production"], "v1 baseline — KB first, banking tools, decline off-topic"),
     (prompts.V2_CANDIDATE, ["staging"], "candidate — inline citations, no guessing, advice + security rules, formal Spanish (usted)"),
     (prompts.V3_REGRESSION, ["development"], "v3 'growth' rewrite — upsell Premier/investments (expect CI gate to block)"),
+    (prompts.V5_RELEASE, ["staging"], "v5 release — no cross-selling (P3), advisor hand-off, warn on shared card data, formal Spanish"),
 ]
 
 

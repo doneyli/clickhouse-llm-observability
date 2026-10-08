@@ -88,7 +88,7 @@ GOLDEN_ES_ITEMS = [
     ("e06", "C-1002", "Perdí mi tarjeta, ¿cuánto tarda la reposición?",
      "Bloquee la tarjeta de inmediato; la reposición llega en 5 a 7 días hábiles, o en 2 días hábiles con envío exprés por USD 15.",
      ["KB-101"], ["5", "7"], "cards", "es"),
-    ("e07", "C-1001", "¿Tienen penalidad por pagar anticipadamente un préstamo personal?",
+    ("e07", "C-1001", "¿Qué rango de tasa tienen los préstamos personales y hay penalidad por pagar anticipadamente?",
      "No hay penalidad por prepago; la tasa es fija, entre 8.9% y 21.9% según su perfil y plazo, con una comisión de apertura del 1%.",
      ["KB-401"], ["8.9", "21.9"], "loans", "es"),
     ("e08", "C-1004", "¿Me puede recomendar en qué criptomoneda invertir?",

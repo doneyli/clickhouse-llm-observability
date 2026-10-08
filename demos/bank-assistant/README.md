@@ -57,6 +57,7 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 .venv/bin/python scripts/seed_evals.py
 .venv/bin/python scripts/seed_datasets.py
 .venv/bin/python scripts/seed_dashboard.py
+.venv/bin/python scripts/seed_business_dashboard.py
 ./scripts/run_portal.sh         # portal + MCP server → http://localhost:8090
 .venv/bin/python scripts/generate_traffic.py --scenario all
 .venv/bin/python scripts/fill_annotation_queue.py 20
@@ -76,6 +77,8 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/fill_annotation_queue.py` | worst-first SME sample | EVA-06 |
 | `scripts/judge_calibration.py [--bakeoff]` | judge vs SME agreement; judge-model bake-off | EVA-06 |
 | `scripts/seed_dashboard.py` | quality, risk and cost dashboard as code | EVA-07, OBS-05 |
+| `scripts/seed_business_dashboard.py` | business value & failure-mode dashboard (value vs spend, containment, outcomes, each issue by prompt version) | GATE-05, EVA-07 |
+| `scripts/generate_traffic.py --scenario business [--prompt-label staging]` | the four business issues, on production or as a canary | story arc |
 | `scripts/seed_datasets.py` | golden Q&A with expected outputs; red-team set | EXP-01 |
 | `scripts/run_experiment.py` | prompt A/B (`--prompt-label`), model comparison (`--model`) | EXP-02, EXP-03, EVA-05 |
 | `scripts/prompt_gate.py` | CI gate: exit 1 on regression | EXP-06 |
