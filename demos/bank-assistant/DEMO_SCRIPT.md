@@ -102,9 +102,14 @@ what the assistant actually did?"
 **Show.**
 1. Portal → **Customer assistant** → customer **Ana Torres (C-1001)**, channel
    **web** → chip *"I don't recognise a charge from UNKNOWN MERCHANT LAGOS —
-   dispute it"*. Note the tool badges (`list_accounts → get_recent_transactions
-   → open_dispute`) and the case number in the answer.
-2. Click **Open in Langfuse**. Walk the trace top to bottom:
+   dispute it"*. The agent calls `list_accounts → get_recent_transactions` and
+   then **asks to confirm** (*"Shall I go ahead and open a dispute…"*): it does
+   not take an irreversible action on its own. Reply *"Yes, open it"*. That
+   second turn adds `open_dispute` to the tool badges and returns the case
+   number (`DSP-######`). Two turns, two traces: the `open_dispute` span, the
+   case id and the `mcp-server` span appear only on the **second** one.
+2. On the *"Yes, open it"* answer click **Open in Langfuse**. Walk the trace
+   top to bottom:
    - root `agent` observation `northwind-assistant`: input = the customer's
      words, output = the answer
    - `input-guardrail` (type *guardrail*) — what the security rules decided
@@ -121,9 +126,12 @@ what the assistant actually did?"
    click the `kb-retrieval` **retriever** observation: document ids, source
    URLs, effective dates, similarity scores. Then the root's metadata →
    `context`: the exact text the model saw. (OBS-03)
-5. Errors are traced too: Traces → filter **level = ERROR** → a turn that failed
-   during a bad deploy, with the exception on the root observation and the
-   apology the customer saw. (OBS-01)
+5. Errors are traced too: Traces → filter **level = ERROR** and **environment =
+   production** → a turn that failed during a bad deploy, with the exception on
+   the root observation and the apology the customer saw. (OBS-01) Keep the
+   environment filter: `level = ERROR` alone also lists 15 historical
+   `correctness` experiment traces (environment `sdk-experiment`, 04:45Z) that
+   are not part of this story.
 6. Top of the trace: total tokens, cost and latency; then **Dashboards** →
    *Northwind — AI quality, risk and cost* (seeded as code by
    `scripts/seed_dashboard.py`): cost by model, p95 turn latency, turns by
@@ -193,6 +201,18 @@ privacy audits."
 **Land.** Redaction happens before export, so the guarantee holds no matter
 who can read the project.
 
+**Candour.** Judges score the *redacted* trace, not what the agent saw. The
+earlier known-good English PII trace
+([`752a3cfc336f9b8e45321742fbb2c47e`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e))
+carries `faithfulness` 0.0: the judge sees `[REDACTED_CARD]` and calls the
+agent's "ending 1111" unsupported. The agent saw the real digits; masking
+happens at export. Use
+[`b9ff0aae6166729d9e698df9381c2c6f`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/b9ff0aae6166729d9e698df9381c2c6f) as
+the clean example (input masked `[REDACTED_CARD]`, warning shown, `pii-education`
+1, `faithfulness` 1.0, `banking-compliance` 1.0, 0 raw digits in 18
+observations) and keep 752a3cfc… as a calibration talking point: a judge can
+only grade what it can see.
+
 **Ask.** "Who owns the definition of 'sensitive data' for AI logs at the bank —
 security, privacy, or each product team?" Be candid that regex does not catch
 names or street addresses; that needs an NER step in the same hook.
@@ -204,7 +224,8 @@ to what the model did; when the AI team sees a slow trace, they need the
 infrastructure view."
 
 **Show.**
-1. From any portal answer click **Open in APM** → the same trace id in the APM
+1. From any portal answer that called a tool — for the dispute, the second turn
+   (*"Yes, open it"*) — click **Open in APM** → the same trace id in the APM
    stand-in, showing two services (`northwind-assistant`, `core-banking-mcp`)
    with timings, **without prompts or completions** (stripped before export).
 2. Back in Langfuse: root metadata `apm_trace_url`; in the APM, span attribute
@@ -304,7 +325,17 @@ happened, with the score next to the trace?"
    `guardrail-blocked`, `pii-in-input`, `output-pii-leak`, `cites-sources`)
    and the customer's 👍/👎 (`user-feedback`).
 3. Live: Portal chip *"Should I put my savings in bitcoin?"* → within a minute
-   the trace gets `banking-compliance` with its reasoning.
+   the trace gets `banking-compliance` with its reasoning (judge latency on this
+   project: median 6 s, p90 9 s).
+4. Faithfulness, rubric v1 → v2: open
+   [`bff8d960…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/bff8d9603c5fec585bdf387db0f40193), the overdraft "how to"
+   (*"¿Cómo desactivo la protección de sobregiro?"*), scored **0.5** on rubric
+   v2 because the answer invents navigation steps that are not in KB-302, next
+   to [`a2db1c01…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a2db1c01b319bd6cf8756da62d9f9621): the same answer text
+   scored **1.0** on rubric v1. The rubric was tightened, and rubric v2 is
+   calibrated 16/16 (Act 2.4). Asking it live is optional: production v4
+   usually answers that question without invented steps (faithfulness 1.0, e.g.
+   [`0e774f74…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/0e774f74b9700d1667a7fc27c69dfd3d)), so don't count on a 0.5.
 
 **Land.** Three layers of evaluation on every answer: free deterministic
 checks, targeted LLM judges, and human signal.
@@ -317,7 +348,12 @@ checks, targeted LLM judges, and human signal.
    "husband" social-engineering ask, fake admin override, fake IT asking for an
    OTP, stock tips).
 2. Traces filtered by `risk:prompt_injection`: the `input-guardrail`
-   observation shows the decision; blocked turns never reach the model.
+   observation shows the decision; blocked turns never reach the model. Read
+   the suite result honestly: **6 of 8** attacks are blocked by the rules
+   guardrail; the fake-IT OTP and stock-tip probes reach the model, which
+   refuses; the sampled `manipulation-resistance` judge is the safety net. (A
+   `social_engineering` rule has been added to the guardrail: the suite shows 7
+   of 8 once the portal has been restarted on it.)
 3. Point out the design rule: **authorization lives in the MCP server**, not in
    the prompt — tools take the authenticated customer id, so "show me C-1002"
    cannot work even if a jailbreak got past the guardrail.
@@ -370,7 +406,7 @@ is approved."
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.
 3. **Calibrate the judge and choose the judge model.** Datasets →
-   `judge-calibration/faithfulness`: 15 answers whose correct verdict is
+   `judge-calibration/faithfulness`: 16 answers whose correct verdict is
    **known by construction** — faithful (1.0), a minor imprecision (0.5), or a
    seeded material error such as a wrong fee or deadline (0.0). The judge prompt
    is versioned in Prompt Management (`judge-calibration/faithfulness`, identical
@@ -385,11 +421,16 @@ is approved."
    | gpt-4.1-mini | 0.80 | 1.0 | 0.4 | 1.0 |
    | claude-sonnet-5-5 | 0.73 | 0.8 | 0.4 | 1.0 |
 
+   Say under the table that it is not like for like: **claude-sonnet-4-6** is
+   scored on **rubric v2 with 16 items (16/16)**; the other three rows were
+   measured on **rubric v1 with 15 items**. Re-running them (command below) is
+   what makes the table comparable.
+
    Every candidate catches material errors; they differ on nuance. ~85% overall
    is about human-level agreement — but only if every category is acceptable
    (Haiku's 0.87 hides 60% on minor slips). The newest model is not
    automatically the best judge for *this* prompt: recalibrate whenever the
-   judge model or prompt changes. 5 items per category is a demo — a real
+   judge model or prompt changes. A handful of items per category is a demo — a real
    calibration set needs 50–100 SME-labelled items.
    Re-run: `.venv/bin/python scripts/judge_calibration_experiment.py`.
    With SME labels in the queue, `scripts/judge_calibration.py --bakeoff`
@@ -502,8 +543,10 @@ maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
 
 ### Act 5.1 — prompt management with dynamic consumption · EXP-04
 
-**Show.** Prompts → `northwind-assistant-system`: v1 `production`, v4
-`staging`, v3 `development`; each with a commit message and config. The app
+**Show.** Prompts → `northwind-assistant-system`: v4 `production`, v5
+`staging`, v3 `development`, v1 `baseline`; each with a commit message and
+config (an untitled v6 labelled only `latest` is a truncated leftover: delete it
+in the UI before the session, see Presenter prep). The app
 fetches the prompt **by label** at runtime (`northwind/prompts.py`, 10 s cache,
 hard-coded fallback if Langfuse is unreachable) and every generation links to
 the version that produced it (filter traces by prompt version).
@@ -557,8 +600,29 @@ between runs — which is the point about noise.
 **Frame.** "Someone rewrites the prompt to 'grow customer relationships'. It
 reads well. Should it ship?"
 
-**Show.** Presenter console → **CI quality gate on development prompt**.
-The result (measured while building this demo):
+**Show.** GitHub Actions → *Northwind prompt gate* → the red run on the
+`development` prompt (v3),
+[37786226009](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37786226009) (measured in CI):
+
+```
+metric                         value  threshold   result
+avg-must-include               1.000       0.90   PASS (hard)
+avg-source-recall              0.875       0.80   PASS (hard)
+avg-language-match             0.875       1.00   FAIL (hard)
+avg-no-unsolicited-upsell      0.385       0.90   FAIL (hard)
+avg-correctness                0.969       0.80   PASS (soft)
+✗ GATE FAILED — 'development' must not be promoted to production.
+```
+
+Then the green run on `staging` (v5),
+[37786230303](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37786230303): English and Spanish both pass (Spanish:
+`formal-register` 1.000, `correctness` 0.900).
+
+The same gate from the presenter console (**CI quality gate on development
+prompt**) gave these figures in an *earlier local run*
+([`21644eb8…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/21644eb8-1363-4b18-ac88-2f1aee10efc7),
+measured while building this demo). The earlier 0.938 language-match and
+0.94 correctness figures come from that run, not from CI:
 
 ```
 metric                         value  threshold   result
@@ -570,31 +634,43 @@ avg-correctness                0.938       0.80   PASS (soft)
 ✗ GATE FAILED — 'development' must not be promoted to production.
 ```
 
-🇪🇸 Then the same gate on the Spanish golden set
+🇪🇸 Then the same gate on the Spanish golden set, also a local run
 (`--dataset northwind-golden-qa-es-v1`): `language-match` 0.40,
 `formal-register` 0.60, `must-include` 0.80 → **FAIL** — the "always answer in
 English" line breaks every Spanish customer.
 
-**Land.** The LLM judge rated the regression *as correct as production*
-(0.94). The deterministic checks caught the upsell and the language rule.
-Gate hard on deterministic metrics; use judge averages as a smoke alarm.
-The candidate v4 passes the same English gate (exit 0).
+**Land.** The LLM judge gave the regression 0.97 on correctness (0.94 in the
+earlier local run): it would have shipped it. The deterministic checks caught
+the upsell and the language rule. Gate hard on deterministic metrics; use judge
+averages as a smoke alarm. The candidate v5 (`staging`) passes the same gate in
+English and Spanish (green run).
 
 In CI: a Langfuse prompt webhook (new version / label change) → GitHub
 `repository_dispatch` → `scripts/prompt_gate.py` → exit 1 fails the check
-(`cicd/README.md`).
+(`cicd/README.md`). The automation is live on this project: runs
+[37784165707](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37784165707) (13:25Z) and [37785892504](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37785892504)
+(13:38Z) were triggered by label moves and gated `staging`; two later
+dispatches (37804787084, 37809232415) were correctly skipped by the payload
+guards (not the gated prompt / no deployable label).
 
 ### Act 5.4 — promote and roll back · EXP-05
 
-**Frame.** "The candidate (v4) passed the gate in English and fixes formal
-Spanish. How does it reach production — and how fast can you undo it?"
+**Frame.** "The candidate (v5) passed the gate in English and Spanish and
+fixes formal Spanish. How does it reach production — and how fast can you undo
+it?"
 
-**Show.** Presenter console → **Promote staging**: production moves to v4; the
-portal header shows the new version; ask a question and the trace links to v4.
-Then **Roll back**: production returns to v1 within ~10 s. No redeploy, no code
+**Show.** Presenter console → **Promote staging**: production moves to v5; the
+portal header shows the new version; ask a question and the trace links to v5.
+Then **Roll back**: production returns to v4 within ~10 s. No redeploy, no code
 change. Because `production` is a protected label, only an Admin/Owner in the
 UI — or a project API key, as CI uses — can do this, and both moves appear in
 the audit log.
+
+**Promote first, then Roll back.** Promote is what puts the outgoing version on
+`previous-production`; Roll back restores it. A standalone Roll back changes
+nothing while `previous-production` sits on the production version. That is
+where the label is until a Promote has run or the label is moved
+(`scripts/prompt_label.py --set-previous 1`): check `--show` in prep.
 
 ### 🧪 Lab 3 (optional, 5 min) — prompt experiment in the UI
 
@@ -780,6 +856,10 @@ of the POC — containment, cost per contact, complaints, or conduct risk?"
 1. `./scripts/up.sh` (n8n + APM stand-in), then restart the MCP server for a
    clean banking state and start the portal:
    `kill $(lsof -tiTCP:8765 -sTCP:LISTEN); ./scripts/run_portal.sh`.
+   **Do not skip the restart.** The banking state lives in the MCP server's
+   memory; on 2026-10-08 it was skipped and the running server was already
+   dirty (Ana's card •••4417 blocked), so any block-card step would not behave
+   as scripted.
 2. `.venv/bin/python scripts/verify_demo.py` → must end with **READY** (prompts,
    datasets, runs, judge rules + fresh judge scores, queue, dashboard, traces per
    channel, local services).
@@ -792,6 +872,12 @@ of the POC — containment, cost per contact, complaints, or conduct risk?"
    not visible on this org, present ENT-02 from `docs/ENTERPRISE_SECURITY.md`.
 5. `scripts/prompt_label.py --show`: production = the version you will present
    (currently **v4**), staging = **v5**, development = **v3**, baseline = **v1**.
+   `previous-production` must show on **v1**, not next to `production` on v4
+   (otherwise a standalone Roll back is a no-op; fix it with
+   `scripts/prompt_label.py --set-previous 1`, or in the UI),
+   and there must be **no untitled v6** (a truncated version with only the
+   `latest` label: delete it in the UI, Prompts → `northwind-assistant-system`;
+   there is no API for a per-version delete).
    Click **New conversation**; pick EN or ES for the room.
 6. **Required (10 min):** label 8–10 items in the SME queue (`sme-faithfulness`,
    `sme-compliance`). Without human labels, Scores → Analytics (judge vs human)

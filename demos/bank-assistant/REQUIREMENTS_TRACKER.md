@@ -31,17 +31,17 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | EVA-03 | Custom bank evaluator | ✅ | `banking-compliance` (conduct policy P1–P5): mean 0.92, n=115 (inspect the 0.0s — at least one is a judge false positive, a calibration talking point). `manipulation-resistance` 1.0, n=24 (100% of guardrail-flagged + 20% sample of the rest). Deterministic guardrail scores on every turn (EN + ES). |
 | EVA-04 | Online evaluation | ✅ | 3 managed rules (sampling 100%, one targeted by tag) and 6 deterministic scores per turn. |
 | EVA-05 | Offline evaluation | ✅ | Dataset experiments with item- and run-level evaluators (EN + ES): [EN production run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d0a9afed-6401-4e71-9b76-aaf354962bbe) · [ES production run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/aa375259-5822-4948-837b-fe8100c830f5) |
-| EVA-06 | Human feedback and annotation | ✅ | Customer 👍/👎 (`user-feedback`) on traffic + portal; SME queue (20 items, worst-first, score configs `sme-faithfulness` / `sme-compliance` / `sme-failure-mode`). **Judge calibration** as Langfuse experiments on `judge-calibration/faithfulness` (labels known by construction): Sonnet 4.6 1.00, Haiku 4.5 0.87, GPT-4.1-mini 0.80, Sonnet 5.5 0.73 — per-category breakdown in Act 2.4 ([Sonnet 4.6 run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/aa64b188-9a42-4379-9e9c-7c88cc86c7a2)). Optional: label SME items live → `judge_calibration.py --bakeoff` vs human labels. |
+| EVA-06 | Human feedback and annotation | ✅ | Customer 👍/👎 (`user-feedback`) on traffic + portal; SME queue (30 items, 1 completed so far, worst-first; **label 8–10 before the session**; score configs `sme-faithfulness` / `sme-compliance` / `sme-failure-mode`). **Judge calibration** as Langfuse experiments on `judge-calibration/faithfulness` (16 items, labels known by construction): rubric v2 scores 16/16 on Sonnet 4.6; the other judges were measured on rubric v1 with 15 items: Haiku 4.5 0.87, GPT-4.1-mini 0.80, Sonnet 5.5 0.73 — per-category breakdown in Act 2.4 ([Sonnet 4.6 run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/aa64b188-9a42-4379-9e9c-7c88cc86c7a2)). Optional: label SME items live → `judge_calibration.py --bakeoff` vs human labels. |
 | EVA-07 | Quality trends | ✅ | Seeded dashboard *Northwind — AI quality, risk and cost*: judge scores over time, feedback, security-risk mix ([dashboard](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuz2p34r05e2ad0ec9otchz3)). |
-| EXP-01 | Golden dataset + expected outputs | ✅ | `northwind-golden-qa-v1` (16 items, 2 in Spanish), `northwind-golden-qa-es-v1` (10), `northwind-redteam-v1` (10, EN + ES), `judge-calibration/faithfulness` (15). Expected output, sources and must-include facts per item. |
+| EXP-01 | Golden dataset + expected outputs | ✅ | `northwind-golden-qa-v1` (16 items, 2 in Spanish), `northwind-golden-qa-es-v1` (10), `northwind-redteam-v1` (10, EN + ES), `judge-calibration/faithfulness` (16). Expected output, sources and must-include facts per item. |
 | EXP-02 | Prompt A/B experiment | ✅ | production v1 vs staging v4 — EN: [v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d0a9afed-6401-4e71-9b76-aaf354962bbe) · [v4](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/17952a0a-cf13-421a-a8ce-ae81ac75fe8a); ES: [v1](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/aa375259-5822-4948-837b-fe8100c830f5) · [v4](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2wt0m056oad0edbc59izw/runs/0ad3da07-f2fe-483d-97bc-ba26128a1b55). v4 wins on deterministic metrics: formal-register 0→1.00, no-upsell 0.92→1.00; judge correctness within noise. |
 | EXP-03 | Model / config comparison | ✅ | Claude Sonnet 4.6 vs GPT-4.1 on the same prompt + items: cites-expected-source 0.88 vs 0.56, correctness 0.91 vs 0.88 ([GPT run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/b686530c-8a60-496d-9556-2549f25498ee)) |
-| EXP-04 | Prompt management, dynamic consumption | ✅ | `northwind-assistant-system`: v1 `production`, v4 `staging`, v3 `development` (v2 superseded). Fetched by label at runtime (10 s cache + fallback); generations linked to the prompt version. |
-| EXP-05 | Prompt rollback | ✅ | Promote staging → production and roll back, run on the Cloud project (production back on v1; `previous-production` label shows the history). No redeploy. |
-| EXP-06 | Quality gate / regression | ✅ (EN + ES) | Gate on v3 'growth' prompt **exit 1** in both languages — EN: upsell 0.385, language 0.938 while the judge gave correctness 0.94 ([EN gate run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/21644eb8-1363-4b18-ac88-2f1aee10efc7)); ES: language 0.40, formal 0.60. Candidate v4 passes the EN gate (exit 0). **Live in GitHub Actions**: `northwind-prompt-gate.yml` — `development` (v3) ❌ [run](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37782257818), `staging` (v5) ✅ EN + ES [run](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37782262586). Auto-trigger on prompt change = Langfuse UI automation (GitHub Repository Dispatch, event `northwind-prompt-update`) — no public API, set up manually. |
+| EXP-04 | Prompt management, dynamic consumption | ✅ | `northwind-assistant-system`: v4 `production`, v5 `staging`, v3 `development`, v1 `baseline` (v2 superseded). Fetched by label at runtime (10 s cache + fallback); generations linked to the prompt version. |
+| EXP-05 | Prompt rollback | ✅ | Promote staging → production and roll back, run on the Cloud project (production v4 at rest; `previous-production` must sit on v1 — **promote before rollback**: a standalone Roll back is a no-op while `previous-production` is on the production version). `previous-production` shows the history. No redeploy. |
+| EXP-06 | Quality gate / regression | ✅ (EN + ES) | Gate on v3 'growth' prompt **exit 1** in both languages. **In CI** ([red run 37786226009](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37786226009), `development` v3): must-include 1.000, source-recall 0.875, language-match 0.875 ❌, no-unsolicited-upsell 0.385 ❌, judge correctness 0.969 — the judge would have shipped it. An earlier **local** run ([EN gate run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/21644eb8-1363-4b18-ac88-2f1aee10efc7)) gave language 0.938 and correctness 0.94; ES (local): language 0.40, formal 0.60. The candidate passes: v4 locally (EN, exit 0); v5 `staging` in CI, EN + ES ([green run 37786230303](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37786230303); ES formal-register 1.000, correctness 0.900). **Live in GitHub Actions**: `northwind-prompt-gate.yml` — earlier manual runs `development` (v3) ❌ [run](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37782257818), `staging` (v5) ✅ EN + ES [run](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37782262586). **Langfuse → GitHub automation is live** (Prompts → Automations → GitHub Repository Dispatch, event `northwind-prompt-update`; set up in the UI, no public API): [37784165707](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37784165707) (13:25Z) and [37785892504](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37785892504) (13:38Z) were auto-triggered by label moves and gated `staging`; runs 37804787084 and 37809232415 were correctly skipped by the payload guards (not the gated prompt / no deployable label). |
 | ENT-01 | SSO Entra ID and RBAC | 🟡 RBAC / 📄 Entra | Cloud org roles live (Settings → Members); project-membership API responds. Entra ID setup is in `docs/ENTERPRISE_SECURITY.md` (OIDC, no SAML). SCIM API responds on Cloud (Enterprise). |
 | ENT-02 | Audit logs | 🟡 | Cloud org has Enterprise features; the label promote and rollback via API should appear. **Check:** Org Settings → Audit logs. |
-| ENT-03 | Data protection and retention | ✅ | Client-side PII masking (EN + ES: card/Luhn, CVV/OTP/código, national ID/cédula, account/número de cuenta, email, phone) verified on Cloud ([card](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/6b7ae876477eda435a0a8d50afeb6838), [email](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/01b896eb98a811334d57e7279b53ba00)); retention 90 days set via API. ⚠️ One early trace (before a regex fix) holds a synthetic national ID unmasked — see open items. Server-side masking is self-hosted EE (📄). |
+| ENT-03 | Data protection and retention | ✅ | Client-side PII masking (EN + ES: card/Luhn, CVV/OTP/código, national ID/cédula, account/número de cuenta, email, phone) verified on Cloud ([card](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/6b7ae876477eda435a0a8d50afeb6838), [email](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/01b896eb98a811334d57e7279b53ba00)); retention 90 days set via API. ⚠️ Two early traces (before the masking fixes) hold a synthetic national ID unmasked — see open items. Server-side masking is self-hosted EE (📄). |
 | ENT-04 | Export and portability | 🟡 | REST API used throughout (v2 observations, v3 scores). Blob-export integration API responds (no bucket configured). UI CSV/JSON export: show live. |
 | GATE-01 | Governance, identity and access | 📄 + evidence | `docs/PATH_TO_PRODUCTION.md`; uses ENT-01/02 and protected label |
 | GATE-02 | Security and data protection | ✅ evidence | masking, guardrails, red-team (10 items, EN + ES) refused-safely 1.0 ([run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xwvb04yead0eozy5z3q1/runs/86456e2a-5078-480e-a96e-588a0237fb19)), retention |
@@ -82,7 +82,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | M5 | Golden datasets and expected outputs | ✅ | Act 2.3 / 5.2 |
 | M5 | Prompt A/B, model and config comparison | ✅ | Act 5.2 |
 | M5 | Prompt management with dynamic consumption, rollback | ✅ | Acts 5.1, 5.4 |
-| M5 | CI/CD regression quality gate | ✅ local / 📄 CI | Act 5.3 |
+| M5 | CI/CD regression quality gate | ✅ local + ✅ CI (GitHub Actions, auto-triggered by the Langfuse prompt automation) | Act 5.3 |
 | M5 | Prompt lifecycle: labels (dev/stg/prod), versioning, approval flow | ✅ labels + versions · 🟡 approval = protected `production` label (**set it in the UI**: Project Settings → Prompts → Protected labels) | Acts 5.1, 5.4 |
 
 ## C. Additional topics requested
@@ -122,7 +122,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 
 ## E. Business value and failure modes — the story arc
 
-Dashboard: [Northwind — Business value & failure modes](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuzijcgx04bead0iw7s6tpgk) (13 widgets; value vs spend, containment, outcomes, failure modes, and each issue split by trace version = release + prompt version). Business scores on every live turn: `task-outcome`, `contained`, `value-usd`, `intent`, `failure-mode`, `unsolicited-upsell`, `advisor-offered`, `pii-education` (`northwind/business.py`; value per outcome = demo assumptions).
+Dashboard: [Northwind — Business value & failure modes](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuzijcgx04bead0iw7s6tpgk) (18 widgets; value vs spend, containment, outcomes, failure modes, and each issue split by trace version = release + prompt version). Business scores on every live turn: `task-outcome`, `contained`, `value-usd`, `intent`, `failure-mode`, `unsolicited-upsell`, `advisor-offered`, `pii-education` (`northwind/business.py`; value per outcome = demo assumptions).
 
 | Business issue (found in production data) | Symptom → pinpoint | Fix | Verified |
 |---|---|---|---|
@@ -140,14 +140,35 @@ Dashboard: [Northwind — Business value & failure modes](https://us.cloud.langf
 - [ ] **Label 8–10 SME queue items** (`sme-faithfulness`, `sme-compliance`) so
       Scores → Analytics (judge vs human) has pairs; then
       `scripts/judge_calibration.py --bakeoff`
-- [ ] Protect the `production` prompt label (Project settings → protected prompt labels)
-- [ ] Confirm Settings → Audit logs is visible on the org (ENT-02); else present from docs
-- [ ] Optional clean-up in the Langfuse UI (deletion is the owner's call):
-      the trace with an unmasked *synthetic* national ID from before the masking
-      fix — `54f2beeae9f211f33cb56c9c465be073` (+ its 2 judge traces) — and the
-      4 ERROR traces from the first smoke test (session `smoke-1`, user C-1001).
-      Use "last 1 hour" views in the session and they won't show anyway.
+- [ ] Protect the `production` prompt label (Project settings → protected prompt labels) —
+      could not be verified through the API (2026-10-08); check in the UI
+- [ ] Confirm Settings → Audit logs is visible on the org (ENT-02); else present from docs —
+      an Enterprise-plan feature, could not be verified through the API (2026-10-08)
+- [ ] **Delete prompt v6** in the UI (Prompts → `northwind-assistant-system` → v6): a
+      truncated version with no commit message and only the `latest` label; the API
+      has no per-version delete
+- [ ] **Move `previous-production` to v1.** It sits on v4 next to `production`, so a
+      standalone Roll back is a no-op until a Promote has run or the label is moved
+      (check with `scripts/prompt_label.py --show`, fix with `--set-previous 1`); always promote before rollback
+- [ ] Clean-up in the Langfuse UI (deletion is the owner's call): the traces with an
+      unmasked *synthetic* national ID from before the masking fixes —
+      `d369ce3ba506a3f12e7647e8853edda2` (session `pii-live-es`; raw synthetic cédula
+      in child spans, produced by the portal before the 10:01 masking fix) and
+      `54f2beeae9f211f33cb56c9c465be073` (+ its 2 judge traces `63d2929c…`,
+      `e958d163…`) — and the 4 ERROR traces from the first smoke test (session
+      `smoke-1`, user C-1001). Until they are deleted, use "last 24 h" views and
+      avoid session `pii-live-es`.
+- [ ] Delete or ignore the 15 historical `correctness` ERROR experiment traces
+      (environment `sdk-experiment`, 04:45Z): they show up under Traces → level =
+      ERROR together with the `smoke-1` ones. Filter environment = production
+- [ ] **Restart the MCP server before the session**: its in-memory banking state is
+      dirty (card 4417 is already blocked)
 - [ ] Morning prep in DEMO_SCRIPT.md (restart MCP, `verify_demo.py`, warm-up traffic)
-- [x] n8n, voice (5 EN + 3 ES), portal (EN | ES), adversarial review (Fable) — done
+- [x] n8n, voice (5 EN + 3 ES), portal (EN | ES), adversarial review (Fable; second
+      pass 2026-10-08 17:00Z: 18 findings, remediation PR) — done
 - [x] CI gate live in GitHub Actions (secrets set; dev ❌ / staging ✅ proven)
-- [ ] Optional: Langfuse → GitHub automation (Prompts → Automations → GitHub Repository Dispatch) for auto-trigger
+- [x] Langfuse → GitHub automation (Prompts → Automations → GitHub Repository Dispatch)
+      is live: auto-triggered runs [37784165707](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37784165707) (13:25Z) and
+      [37785892504](https://github.com/doneyli/clickhouse-llm-observability/actions/runs/37785892504) (13:38Z) gated `staging` after label moves; runs
+      37804787084 and 37809232415 were correctly skipped by the payload guards
+      (not the gated prompt / no deployable label)

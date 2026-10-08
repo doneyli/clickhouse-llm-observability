@@ -51,6 +51,7 @@ Shell-exported `LANGFUSE_*` variables are ignored on purpose (`northwind/config.
 ```bash
 uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -r requirements.txt
 cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from the repo-root .env
+.venv/bin/python -m unittest discover -s tests -t .   # guardrail, masking and business-classifier tests
 ./scripts/up.sh                 # n8n + Jaeger (add --selfhosted for local Langfuse EE)
 # Cloud: put project keys in .env.cloud (LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY)
 .venv/bin/python scripts/seed_prompts.py
@@ -95,3 +96,7 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
   guardrail rules + a custom judge. Production would put LLM Guard, Lakera,
   NeMo or Bedrock Guardrails in the guardrail step.
 - 16 golden items is a demo-sized dataset: small deltas between runs are noise.
+- A number the customer repeats later without its keyword within ~20 characters is not
+  redacted; the output guardrail re-scrubs the answer with the same anchors.
+- The rules guardrail blocks 7 of 8 red-team probes after the social-engineering rule
+  (6 of 8 before it); the remainder relies on the model's refusal and the sampled judge.
