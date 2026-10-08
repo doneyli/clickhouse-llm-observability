@@ -1,0 +1,243 @@
+# Northwind Bank (fictional) — "bank-in-a-box"
+#
+# Default (`docker compose up -d`): n8n + the APM stand-in only; the demo uses a
+# Langfuse CLOUD project. `--profile selfhosted` additionally starts a full
+# self-hosted Langfuse v4 Enterprise stack on :3100 — the POC starting point.
+#
+# Self-hosted Langfuse v4 with the Enterprise license, plus the pieces a bank's
+# AI platform team plugs into it: an n8n instance (low-code), an MCP server
+# fronting core banking, and an OpenTelemetry APM stand-in (Jaeger) playing the
+# role of Dynatrace. Everything runs inside one Docker network with telemetry
+# off — the same "no egress" posture a regulated VPC imposes.
+#
+# Based on the official compose file for langfuse v4.53.0
+# (https://github.com/langfuse/langfuse/blob/v4.53.0/docker-compose.yml), with:
+#   * ports moved off the defaults so it coexists with the repo's root stack
+#   * project/org/user bootstrap (LANGFUSE_INIT_*) for a reproducible demo
+#   * batch export to object storage switched on (ENT-04)
+#   * TELEMETRY_ENABLED=false — NOTE: with an EE license key set, Langfuse still sends
+#     usage telemetry (see docs/ENTERPRISE_SECURITY.md); clarify for no-egress VPCs
+#
+# Demo-only secrets live in .env (see .env.example). Production guidance —
+# managed Postgres/Redis/S3, ClickHouse BYOC, HA — is in docs/ARCHITECTURE.md and docs/OPERATIONS.md.
+
+name: northwind
+
+x-langfuse-env: &langfuse-env
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3100}
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+  SALT: ${SALT:-northwind-demo-salt}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env (openssl rand -hex 32)}
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_EE_LICENSE_KEY: ${LANGFUSE_EE_LICENSE_KEY:-}
+  LANGFUSE_LOG_LEVEL: ${LANGFUSE_LOG_LEVEL:-info}
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:19090
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "true"
+  LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+  LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+  LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+  LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: http://localhost:19090
+  LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${REDIS_AUTH:-myredissecret}
+  # Judges and the playground call model providers from inside the platform.
+  # In the bank this is a VPC endpoint (Bedrock) or an internal gateway.
+  LANGFUSE_EVALUATOR_MEDIA_TRANSPORT: ${LANGFUSE_EVALUATOR_MEDIA_TRANSPORT:-}
+
+services:
+  langfuse-worker:
+    profiles: [selfhosted]
+    image: docker.langfuse.com/langfuse/langfuse-worker:${LANGFUSE_VERSION:-4.53.0}
+    restart: always
+    depends_on: &langfuse-depends-on
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    environment:
+      <<: *langfuse-env
+    ports:
+      - 127.0.0.1:13030:3030
+
+  langfuse-web:
+    profiles: [selfhosted]
+    image: docker.langfuse.com/langfuse/langfuse:${LANGFUSE_VERSION:-4.53.0}
+    restart: always
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3100:3000
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-northwind-nextauth-secret}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
+      # Bootstrap: one org, one project, one owner — reproducible demo state.
+      LANGFUSE_INIT_ORG_ID: northwind
+      LANGFUSE_INIT_ORG_NAME: Northwind Bank
+      LANGFUSE_INIT_PROJECT_ID: retail-assistant
+      LANGFUSE_INIT_PROJECT_NAME: retail-assistant
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-northwind-retail}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-northwind-retail}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@northwind.example}
+      LANGFUSE_INIT_USER_NAME: Platform Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-northwind-demo-1}
+      # SSO (ENT-01). Uncomment with a real Entra ID app registration; see
+      # docs/ENTERPRISE_SECURITY.md.
+      # AUTH_AZURE_AD_CLIENT_ID: ${AUTH_AZURE_AD_CLIENT_ID:-}
+      # AUTH_AZURE_AD_CLIENT_SECRET: ${AUTH_AZURE_AD_CLIENT_SECRET:-}
+      # AUTH_AZURE_AD_TENANT_ID: ${AUTH_AZURE_AD_TENANT_ID:-}
+      # AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING: "true"
+      # AUTH_DOMAINS_WITH_SSO_ENFORCEMENT: northwind.example
+      # AUTH_DISABLE_USERNAME_PASSWORD: "true"
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:3000/api/public/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  clickhouse:
+    profiles: [selfhosted]
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    restart: always
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    ports:
+      - 127.0.0.1:18123:8123
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio:
+    profiles: [selfhosted]
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+    ports:
+      - 19090:9000
+      - 127.0.0.1:19091:9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  redis:
+    profiles: [selfhosted]
+    image: docker.io/redis:7
+    restart: always
+    command: --requirepass ${REDIS_AUTH:-myredissecret} --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_AUTH:-myredissecret}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  postgres:
+    profiles: [selfhosted]
+    image: docker.io/postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - 127.0.0.1:15432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ── APM stand-in for Dynatrace (OBS-06) ────────────────────────────────────
+  # Receives the SAME OpenTelemetry spans (same trace id) the app sends to
+  # Langfuse. Swap for Dynatrace by pointing APM_OTLP_ENDPOINT at
+  # https://<env-id>.live.dynatrace.com/api/v2/otlp/v1/traces (see docs/DYNATRACE.md).
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    restart: always
+    ports:
+      - 16686:16686          # UI
+      - 127.0.0.1:14318:4318 # OTLP/HTTP
+
+  # ── Low-code (OBS-02) ──────────────────────────────────────────────────────
+  # n8n's built-in OpenTelemetry module exports one span per workflow run and
+  # per node straight to Langfuse's OTLP endpoint. The workflow itself adds the
+  # LLM generations under the same trace id (see n8n/README.md).
+  # scripts/setup_n8n.sh writes the N8N_OTEL_* values into .env.
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:-latest}
+    restart: always
+    ports:
+      - 5678:5678
+    environment:
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_SECURE_COOKIE: "false"
+      GENERIC_TIMEZONE: UTC
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE: "true"
+      N8N_OTEL_ENABLED: ${N8N_OTEL_ENABLED:-false}
+      N8N_OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      N8N_OTEL_EXPORTER_OTLP_ENDPOINT: ${N8N_OTEL_EXPORTER_OTLP_ENDPOINT:-http://langfuse-web:3000/api/public/otel}
+      N8N_OTEL_EXPORTER_OTLP_HEADERS: ${N8N_OTEL_EXPORTER_OTLP_HEADERS:-}
+      N8N_OTEL_EXPORTER_SERVICE_NAME: n8n-northwind
+      N8N_OTEL_TRACES_INCLUDE_NODE_SPANS: "true"
+      N8N_OTEL_TRACES_SAMPLE_RATE: "1.0"
+      # Demo: also trace runs started from the editor. Keep "true" in production.
+      N8N_OTEL_TRACES_PRODUCTION_ONLY: "false"
+      OTEL_RESOURCE_ATTRIBUTES: ${N8N_OTEL_RESOURCE_ATTRIBUTES:-deployment.environment=production}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/workflows:ro
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  clickhouse_logs:
+  minio_data:
+  redis_data:
+  n8n_data:

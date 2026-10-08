@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Northwind Bank Assistant</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=10">
+</head>
+<body>
+  <!-- inline icon sprite -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-logo" viewBox="0 0 32 32"><path d="M16 4l3.2 8.8L28 16l-8.8 3.2L16 28l-3.2-8.8L4 16l8.8-3.2z" fill="#14A79C"/><path d="M16 9.5l1.6 4.9 4.9 1.6-4.9 1.6-1.6 4.9-1.6-4.9-4.9-1.6 4.9-1.6z" fill="#fff"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></symbol>
+      <symbol id="i-console" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 9l3 3-3 3M12 15h5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+      <symbol id="i-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.9L14 10h5.8a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 18.4 21H7V10l4-8a3.1 3.1 0 0 1 4 3.9z"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.1L10 14H4.2a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 5.6 3H17v11l-4 8a3.1 3.1 0 0 1-4-3.9z"/></symbol>
+      <symbol id="i-tool" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></symbol>
+      <symbol id="i-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5z"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+      <symbol id="i-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+      <symbol id="i-wa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21l1.7-5A9 9 0 1 1 8 19.3z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1-1.5-2-1-1 .8a4 4 0 0 1-1.8-1.8l.8-1-1-2z"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Northwind Bank">
+      <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#13315c"/><use href="#i-logo"/></svg>
+      <div>
+        <div class="brand-name">Northwind Bank</div>
+        <div class="brand-sub" data-i18n="brand.sub">Digital Assistant · AI Observability demo</div>
+      </div>
+    </a>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="assistant" aria-selected="true"><svg><use href="#i-chat"/></svg><span data-i18n="tab.assistant">Customer assistant</span></button>
+      <button class="tab" role="tab" data-tab="voice" aria-selected="false"><svg><use href="#i-phone"/></svg><span data-i18n="tab.voice">Voice</span></button>
+      <button class="tab" role="tab" data-tab="presenter" aria-selected="false"><svg><use href="#i-console"/></svg><span data-i18n="tab.presenter">Presenter console</span></button>
+    </nav>
+    <div class="topbar-right">
+      <span class="env-pill" id="envPill" title=""><span class="dot" id="envDot"></span><span id="envText">connecting…</span></span>
+      <div class="lang-toggle" id="langToggle" role="group" aria-label="Interface language" data-i18n-aria="lang.group" data-i18n-title="lang.group" title="Interface language">
+        <svg aria-hidden="true"><use href="#i-globe"/></svg>
+        <button type="button" data-lang="en" aria-pressed="true" lang="en">EN</button>
+        <button type="button" data-lang="es" aria-pressed="false" lang="es">ES</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── TAB 1: Customer assistant ─────────────────────── -->
+    <section class="view active" id="view-assistant">
+      <div class="assistant-layout">
+        <aside class="sidebar">
+          <div class="card">
+            <p class="section-label" data-i18n="side.customer">Signed-in customer</p>
+            <div class="customer-list" id="customerList" role="radiogroup" aria-label="Customer" data-i18n-aria="side.customerGroup"></div>
+          </div>
+          <div class="card">
+            <div class="field">
+              <label data-i18n="side.channel">Channel</label>
+              <div class="seg" id="channelSeg">
+                <button data-ch="web" aria-pressed="true"><svg><use href="#i-globe"/></svg>Web</button>
+                <button data-ch="app" aria-pressed="false"><svg><use href="#i-mobile"/></svg>App</button>
+                <button data-ch="whatsapp" aria-pressed="false"><svg><use href="#i-wa"/></svg>WhatsApp</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="labelSel" data-i18n="side.label">Prompt label</label>
+              <select class="input" id="labelSel">
+                <option value="" data-i18n="side.labelDefault">production (default)</option>
+                <option value="staging">staging</option>
+                <option value="development">development</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="side.conversation">Conversation</label>
+              <div class="session-row">
+                <span class="session-id" id="sessionId" title="Langfuse session id">—</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <div class="card chat">
+          <div class="chat-head">
+            <div class="bot-avatar"><svg viewBox="0 0 32 32"><use href="#i-logo"/></svg></div>
+            <div>
+              <div class="chat-title" data-i18n="chat.title">Northwind Assistant</div>
+              <div class="chat-sub"><span class="online"></span><span id="chatSub">&nbsp;</span></div>
+            </div>
+            <div class="spacer"></div>
+            <span class="badge badge-ok" title="Every turn is traced in Langfuse" data-i18n-title="chat.tracedTitle"><svg><use href="#i-lock"/></svg><span data-i18n="chat.traced">Traced · PII-masked</span></span>
+            <button class="btn btn-sm" id="newConv"><svg><use href="#i-plus"/></svg><span data-i18n="chat.new">New conversation</span></button>
+          </div>
+          <div class="transcript" id="transcript"></div>
+          <div class="chips" id="chips"></div>
+          <form class="composer" id="composer" autocomplete="off">
+            <textarea id="input" rows="1" placeholder="Message Northwind Assistant…" aria-label="Message" data-i18n-placeholder="chat.placeholder" data-i18n-aria="chat.inputAria"></textarea>
+            <button class="btn btn-primary" id="sendBtn" type="submit"><svg><use href="#i-send"/></svg><span data-i18n="chat.send">Send</span></button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TAB 2: Voice ───────────────────────────────────── -->
+    <section class="view" id="view-voice">
+      <div class="voice-layout">
+        <div class="voice-col">
+          <div class="card voice-toolbar">
+            <label for="voiceCustomer" data-i18n="voice.caller">Caller</label>
+            <select class="input" id="voiceCustomer"></select>
+            <button class="btn btn-sm btn-ghost" id="voiceRefresh" title="Reload sample calls" data-i18n-title="voice.reload" data-i18n-aria="voice.reload"><svg><use href="#i-refresh"/></svg></button>
+          </div>
+          <div id="voiceList" class="voice-col"></div>
+          <div class="card upload" id="uploadCard">
+            <div class="call-head">
+              <div class="call-icon"><svg><use href="#i-upload"/></svg></div>
+              <div><div class="call-title" data-i18n="voice.upload">Upload a call</div><div class="call-file" data-i18n="voice.formats">.wav or .mp3</div></div>
+            </div>
+            <div class="row">
+              <label class="btn btn-sm file-btn"><input type="file" id="voiceFile" class="sr-only" accept=".wav,.mp3,audio/wav,audio/mpeg"><svg><use href="#i-upload"/></svg><span data-i18n="voice.choose">Choose file</span></label>
+              <span class="file-name" id="voiceFileName">No file chosen</span>
+              <button class="btn btn-sm btn-primary" id="voiceUploadBtn" disabled><svg><use href="#i-play"/></svg><span data-i18n="voice.process">Process call</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="card result" id="voiceResult">
+          <div class="empty-result" id="voiceEmpty">
+            <svg><use href="#i-phone"/></svg>
+            <p data-i18n-html="voice.empty">Pick a recorded call and press <b>Process call</b>. The caller's audio is transcribed, answered by the same assistant, and spoken back — one trace in Langfuse.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TAB 3: Presenter console ──────────────────────── -->
+    <section class="view" id="view-presenter">
+      <div class="card status-strip" id="statusStrip">
+        <div class="stat-cell"><div class="k" data-i18n="pres.env">Environment</div><div class="v" id="stEnv">—</div><div class="s" id="stRelease">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.target">Langfuse target</div><div class="v" id="stTarget">—</div><div class="s" id="stBase">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.prompt">Production prompt</div><div class="v" id="stPrompt">—</div><div class="s" id="stPromptName">&nbsp;</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.label">Served label</div><div class="v" id="stLabel">—</div><div class="s" data-i18n="pres.labelSub">portal default</div></div>
+        <div class="stat-cell"><div class="k" data-i18n="pres.model">Agent model</div><div class="v" id="stModel">—</div><div class="s" id="stProfile">&nbsp;</div></div>
+        <div class="stat-links" id="stLinks"></div>
+      </div>
+      <div class="presenter-layout">
+        <div class="acts" id="acts"></div>
+        <div class="card console">
+          <div class="console-head">
+            <span class="ttl" id="conTitle">Console</span>
+            <span class="run-pill" id="conPill">idle</span>
+            <span class="grow"></span>
+            <span class="elapsed" id="conElapsed"></span>
+            <button class="btn stop hidden" id="conStop"><svg><use href="#i-stop"/></svg><span data-i18n="con.stop">Stop</span></button>
+            <button class="btn" id="conClear" data-i18n="con.clear">Clear</button>
+          </div>
+          <pre class="console-body" id="conBody"><div class="console-empty">Run a demo act — its output streams here, and any Langfuse links it prints appear below as buttons.</div></pre>
+          <div class="console-links hidden" id="conLinks"><div class="lbl" data-i18n="con.links">Links from output</div><div class="list" id="conLinkList"></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <script src="/static/app.js?v=10"></script>
+</body>
+</html>
