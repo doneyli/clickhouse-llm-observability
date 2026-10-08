@@ -37,6 +37,7 @@ DEFLECTION = {
     "answered-policy": 0.40,         # fee / policy question answered with a source
     "escalated-to-human": 0.00,      # call-back booked — a human still works it
     "advisor-lead": 0.00,            # valued separately as ADVISOR_LEAD_VALUE (revenue, not cost)
+    "dispute-unresolved": 0.00,      # customer asked to dispute, no dispute opened → they will call
     "declined-advice": 0.00,         # referred to a licensed advisor
     "refused": 0.00,                 # guardrail refusal (risk avoided, not cost)
     "out-of-scope": 0.00,
@@ -53,6 +54,8 @@ _PII_WARNING = re.compile(r"(?i)(never|don't|do not|please don't|avoid) shar|(wi
                           r"|nunca (comparta|compart|le pediremos|pedimos|solicitamos)|no (comparta|debe compartir|compartir)"
                           r"|evite compartir|utilice solo los [uú]ltimos (4|cuatro) d[ií]gitos")
 _SENSITIVE = {"card", "otp", "national_id", "iban", "account"}
+DISPUTE_REQUEST = re.compile(r"(?i)disput|chargeback|don'?t recogni[sz]e|didn'?t make|unauthori[sz]ed charge|"
+                             r"no reconozco|disputar|desconozco|reclam(ar|o) (un|el) cargo|cargo (que )?no (hice|reconozco)")
 
 
 def advisor_offered(answer: str) -> bool:
@@ -72,7 +75,7 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
              cited: list[str], retrieved_categories: list[str], error: bool,
              language_mismatch: bool, informal: bool, output_leak: bool, advice_language: bool,
              tool_errors: int, callback_topics: list[str] = (), upsell: bool = False,
-             pii_shared: list[str] = (), answer: str = "") -> dict:
+             pii_shared: list[str] = (), answer: str = "", dispute_requested: bool = False) -> dict:
     """Map one turn to outcome, containment, value, intent and primary failure mode."""
     if error:
         outcome = "failed"
@@ -80,6 +83,8 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
         outcome = "refused"
     elif any(a in ACTIONS for a in actions_ok):
         outcome = "resolved-self-service"
+    elif dispute_requested:
+        outcome = "dispute-unresolved"   # asked to dispute, nothing opened → will become a contact
     elif any(_ADVISOR_TOPIC.search(t or "") for t in callback_topics):
         outcome = "advisor-lead"
     elif "schedule_callback" in used:
@@ -97,7 +102,7 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
         intent = "attack"
     elif "block_card" in used:
         intent = "card-lost-stolen"
-    elif "open_dispute" in used:
+    elif "open_dispute" in used or dispute_requested:
         intent = "dispute"
     elif "investment_advice" in risks or any(_ADVISOR_TOPIC.search(t or "") for t in callback_topics):
         intent = "investment-advice"
@@ -123,6 +128,8 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
         failure = "pii-in-answer"
     elif tool_errors:
         failure = "tool-error"
+    elif outcome == "dispute-unresolved":
+        failure = "dispute-not-resolved"
     elif language_mismatch:
         failure = "wrong-language"
     elif advice_language:

@@ -89,7 +89,7 @@ PROJECT_ID = env("LANGFUSE_PROJECT_ID", "retail-assistant")
 # NORTHWIND_ENVIRONMENT / NORTHWIND_SAMPLE_RATE (process env) override the .env
 # defaults for one run — e.g. a staging batch, or a 25%-sampled batch.
 ENVIRONMENT = os.environ.get("NORTHWIND_ENVIRONMENT") or env("LANGFUSE_TRACING_ENVIRONMENT", "production")
-RELEASE = env("NORTHWIND_RELEASE", "assistant-1.5.0")  # 1.5.0: guardrail enforces the card-data warning
+RELEASE = env("NORTHWIND_RELEASE", "assistant-1.6.1")  # see agent.py release knobs; 1.5.0 card-data warning guardrail
 SAMPLE_RATE = float(os.environ.get("NORTHWIND_SAMPLE_RATE") or env("LANGFUSE_SAMPLE_RATE", "1.0"))
 os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = ENVIRONMENT
 os.environ["LANGFUSE_SAMPLE_RATE"] = str(SAMPLE_RATE)

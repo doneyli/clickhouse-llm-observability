@@ -68,20 +68,24 @@ TRANSACTIONS = {
         {"id": "TX-88101", "date": _d(4), "merchant": "UNKNOWN MERCHANT 0042 LAGOS", "amount": -412.00},
         {"id": "TX-88090", "date": _d(6), "merchant": "Payroll ACME Corp", "amount": 3150.00},
         {"id": "TX-88071", "date": _d(9), "merchant": "City Electric", "amount": -88.10},
+        {"id": "TX-87950", "date": _d(41), "merchant": "GADGETSTORE ONLINE", "amount": -389.99},
     ],
     "ACC-1002-01": [
         {"id": "TX-77310", "date": _d(1), "merchant": "Airline FlyNorth", "amount": -1240.00},
         {"id": "TX-77302", "date": _d(3), "merchant": "Hotel Lisboa Centro", "amount": -860.35},
         {"id": "TX-77288", "date": _d(8), "merchant": "Wire to J. Okafor (GB)", "amount": -5000.00},
+        {"id": "TX-77150", "date": _d(47), "merchant": "TRAVELHUB BOOKING", "amount": -1120.00},
     ],
     "ACC-1003-01": [
         {"id": "TX-66012", "date": _d(1), "merchant": "Rent - Parkview Apts", "amount": -1100.00},
         {"id": "TX-66009", "date": _d(1), "merchant": "Overdraft fee", "amount": -15.00},
         {"id": "TX-66001", "date": _d(5), "merchant": "Coffee Corner", "amount": -4.50},
+        {"id": "TX-65890", "date": _d(38), "merchant": "FITCLUB MEMBERSHIP", "amount": -59.90},
     ],
     "ACC-1004-01": [
         {"id": "TX-55440", "date": _d(2), "merchant": "Brokerage transfer", "amount": -5000.00},
         {"id": "TX-55431", "date": _d(7), "merchant": "Salary KimTech", "amount": 9800.00},
+        {"id": "TX-55300", "date": _d(52), "merchant": "ELECTROMART", "amount": -749.00},
     ],
 }
 
@@ -152,7 +156,7 @@ def get_recent_transactions(customer_id: str, account_id: str, days: int = 30, c
         if account_id not in owned:
             return {"error": "ACCESS_DENIED", "detail": f"{account_id} does not belong to the signed-in customer"}
         cutoff = (_today - timedelta(days=days)).isoformat()
-        return {"account_id": account_id,
+        return {"account_id": account_id, "window_days": days, "from_date": cutoff,
                 "transactions": [t for t in TRANSACTIONS.get(account_id, []) if t["date"] >= cutoff]}
     return _run(ctx, "get_recent_transactions",
                 {"customer_id": customer_id, "account_id": account_id, "days": days}, fn)
