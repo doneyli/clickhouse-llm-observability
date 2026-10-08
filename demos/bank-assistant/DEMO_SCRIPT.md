@@ -28,7 +28,9 @@ the Spanish chips — the Spanish beats are marked 🇪🇸.
 | Langfuse Cloud project `northwind-bank-assistant` | portal header → "Langfuse" | every act |
 | APM stand-in for Dynatrace (Jaeger) | http://localhost:16686 | M1 |
 | n8n | http://localhost:5678 | M1 |
-| Docs | `docs/ARCHITECTURE.md`, `docs/ENTERPRISE_SECURITY.md`, `docs/OPERATIONS.md`, `docs/PATH_TO_PRODUCTION.md`, `docs/DYNATRACE.md` | M0, M3, M4 |
+| Docs | `docs/ARCHITECTURE.md`, `docs/INDUSTRY.md`, `docs/ENTERPRISE_SECURITY.md`, `docs/OPERATIONS.md`, `docs/PATH_TO_PRODUCTION.md`, `docs/DYNATRACE.md`, `docs/SPRING_AI.md` | M0, M1, M3, M4 |
+| Lab handout | `LABS.md` | M1, M2, M5 |
+| Requirements + evidence | `REQUIREMENTS_TRACKER.md` (live links per requirement) | close |
 
 The portal's **Presenter console** tab runs every scripted step with one click
 and prints the Langfuse links. Use it instead of a terminal on screen.
@@ -41,7 +43,7 @@ and prints the Langfuse links. Use it instead of a terminal on screen.
 | 0:10–0:45 | M1 Observability (tracing) | OBS-01..06 | demo + **Lab 1** |
 | 0:45–1:10 | M2 Evaluation | EVA-01..07 | demo + **Lab 2** |
 | 1:10–1:20 | M3 Path to production | GATE-01..05 | talk over evidence |
-| 1:20–1:40 | M4 Enterprise: security, governance, operations | ENT-01..04 | self-hosted demo |
+| 1:20–1:40 | M4 Enterprise: security, governance, operations | ENT-01..04 | Cloud org settings + self-hosted docs |
 | 1:40–1:55 | M5 Experimentation and prompts | EXP-01..06 | demo + **Lab 3** |
 | 1:55–2:00 | Close: POC plan and next steps | — | talk |
 
@@ -74,6 +76,10 @@ see them on real traffic."
    worker, Postgres, ClickHouse, Redis, S3. For the POC, day one is the
    `docker compose` in `docs/ARCHITECTURE.md`; production is the Helm chart or
    the Terraform module."
+
+5. Industry view (2 min, `docs/INDUSTRY.md`): public adoption numbers and
+   financial-services users with published stories (e.g. Trade Republic runs it
+   self-hosted). Keep it to public sources.
 
 **Land.** The software is identical in Cloud and self-hosted. The Enterprise
 license switches on governance features; it doesn't change the product.
@@ -125,6 +131,9 @@ reading logs from three systems.
 **Ask.** "Your teams use LangGraph, Spring AI and n8n. Which of those carries
 the most production traffic today, and which is hardest to debug?"
 
+> Java / Spring AI teams: the same trace model via OpenTelemetry (Micrometer →
+> OTLP → Langfuse) — `docs/SPRING_AI.md` has the verified recipe.
+>
 > Show-me-the-code: `northwind/agent.py` — `run_turn()` (root observation +
 > `propagate_attributes`), `_build_tools()` (retriever observation, MCP client
 > span with `TraceContextTextMapPropagator().inject`), `northwind/mcp_server.py`
@@ -303,14 +312,14 @@ checks, targeted LLM judges, and human signal.
 
 ### Act 2.2b — 🇪🇸 Spanish: language and register · EVA-03, EVA-04
 
-**Frame.** "Half your customers write in Spanish. 'Answered correctly' is not
+**Frame.** "Many customers write in Spanish. 'Answered correctly' is not
 enough — it has to be in Spanish, and in the bank's register."
 
 **Show.**
 1. Toggle **ES** → chip *"¿Cuánto cuesta una transferencia internacional…?"* →
    open the trace: tag `lang:es`, the retriever found `KB-202` from a Spanish
-   query (bilingual index), and two deterministic scores on every turn:
-   `language-match` and `formal-register`.
+   query (bilingual index), and two deterministic scores: `language-match`
+   (every turn) and `formal-register` (every Spanish turn).
 2. Read the `formal-register` comment on a production-prompt answer: the
    assistant wrote *"Aquí tienes…"* — informal **tú**. Nothing in the production
    prompt says otherwise. A bank addresses customers as **usted**.

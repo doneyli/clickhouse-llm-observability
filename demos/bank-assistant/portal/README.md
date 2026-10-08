@@ -1,6 +1,7 @@
 # Northwind Bank — presenter portal
 
-One page, three tabs, for screen-sharing the Northwind Bank (fictional) Langfuse demo.
+One page, three tabs, for screen-sharing the Northwind Bank (fictional) Langfuse demo —
+in **English or Spanish** (EN | ES toggle in the header).
 
 ```bash
 scripts/run_portal.sh            # start / restart in the background → http://localhost:8090
@@ -15,6 +16,23 @@ running (`logs/mcp.log`), and prints which Langfuse target (`config.PROFILE`,
 base URL), environment, prompt label and model are active. It never prints keys.
 Shell-exported `LANGFUSE_*` variables are unset — the demo's `.env` (+ `.env.cloud`
 overlay) decides the target.
+
+## Language (EN | ES)
+
+The header toggle switches every UI string (tabs, sidebar, badges, voice tab,
+presenter cards, console, toasts) between English and Latin-American Spanish
+(formal *usted*). Brand, metric, score, tool and file names and commands stay as-is.
+
+- Choice is remembered per browser (`localStorage`); `?lang=es` / `?lang=en` in the URL wins.
+- ES shows Spanish quick-prompt chips (incl. *protección de sobregiro*).
+- Each chat turn sends the UI language: the trace gets the tag `lang-ui:es|en` and
+  metadata `ui_language`. The assistant answers in the language the customer **writes**
+  in — the UI language is recorded, never forced.
+- Voice tab lists the calls in the active language first, with an EN / ES badge per call.
+  Spanish calls (`data/voice/es-*.mp3`, manifest `"lang": "es"`) are transcribed with a
+  `language="es"` hint; the TTS voice instruction follows the language of the answer.
+- Strings live in ONE dictionary (`I18N` in `static/app.js`); act text in English comes
+  from `ACTS` in `server.py`, Spanish overrides are `act.<id>.*` keys in the dictionary.
 
 ## Tabs
 
@@ -34,12 +52,18 @@ The browser sends only an act id; the server maps it to one of these argv lists
 | 0 | Pre-flight check | `.venv/bin/python portal/preflight.py` (read-only; checks MCP, Langfuse auth, prompt labels, datasets, model keys present, Jaeger, n8n, voice samples, scripts) |
 | 1 | Generate production traffic | `.venv/bin/python scripts/generate_traffic.py --n 20` |
 | 2 | Red-team attack suite | `.venv/bin/python scripts/generate_traffic.py --scenario security` |
-| 3 | Run voice calls | `.venv/bin/python scripts/run_voice_calls.py` |
+| 3 | Run voice calls (English · Spanish) | `.venv/bin/python scripts/run_voice_calls.py --lang en` · `… --lang es` |
 | 4 | Run n8n complaint workflow | `.venv/bin/python scripts/run_n8n_samples.py` |
 | 5 | Experiment: prompt A/B | `.venv/bin/python scripts/run_experiment.py --prompt-label staging` |
 | 6 | Experiment: model comparison | `.venv/bin/python scripts/run_experiment.py --model gpt-4.1` |
 | 7 | CI quality gate | `.venv/bin/python scripts/prompt_gate.py --prompt-label development` |
 | 8 | Promote / roll back prompt | `.venv/bin/python scripts/prompt_label.py --promote staging` · `… --rollback` |
+| 9 | Spanish traffic | `.venv/bin/python scripts/generate_traffic.py --scenario es` |
+| 10 | Experiment: Spanish golden dataset | `.venv/bin/python scripts/run_experiment.py --dataset northwind-golden-qa-es-v1 --prompt-label production` |
+| 11 | CI gate on Spanish dataset (development prompt) | `.venv/bin/python scripts/prompt_gate.py --prompt-label development --dataset northwind-golden-qa-es-v1` |
+
+Acts 9–11 show "not available yet" until their script supports the option
+(`requires` in `ACTS`: e.g. `--scenario es`, `--dataset`, and the Spanish dataset defined in code).
 
 After 8 finishes, the header re-reads the production prompt version.
 
@@ -49,6 +73,8 @@ After 8 finishes, the header re-reads the production prompt version.
 curl -s localhost:8090/api/info                                   # target, prompt version, links
 curl -s -X POST localhost:8090/api/chat -H 'Content-Type: application/json' \
   -d '{"message":"What is the late payment fee on the Classic card?","customer_id":"C-1001","channel":"web","session_id":"nw-smoke-1"}'
+curl -s -X POST localhost:8090/api/chat -H 'Content-Type: application/json' \
+  -d '{"message":"¿Cuánto cuesta una transferencia internacional?","customer_id":"C-1001","session_id":"nw-smoke-es-1","lang":"es"}'
 curl -s -X POST localhost:8090/api/feedback -H 'Content-Type: application/json' \
   -d '{"trace_id":"<32-hex>","value":0,"comment":"too long"}'
 curl -s -X POST localhost:8090/api/run/preflight                  # → {job_id}
