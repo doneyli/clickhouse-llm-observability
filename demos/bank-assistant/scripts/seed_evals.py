@@ -45,9 +45,11 @@ FAITHFULNESS = """You are auditing a retail-banking virtual assistant for FAITHF
 
 Score how well every factual claim in the ANSWER (fees, rates, limits, timelines, account data, case numbers, policy statements) is supported by the CONTEXT — the help-center articles and banking-system results the assistant actually received. General courtesy and offers of help need no support.
 
-- 1.0: every factual claim is supported by the context
-- 0.5: mostly supported, one minor unsupported or imprecise detail
-- 0.0: a material claim (a number, a fee, a deadline, an account fact) is not in the context or contradicts it
+Procedural instructions are factual claims too. Step-by-step navigation, menu or screen names, button labels, settings paths and required documents count as claims and must be in the context. If the context only says *what* is possible (e.g. "you can turn it off in the app") and the answer adds *how* (specific steps or menu names), those added steps are UNSUPPORTED — even when they sound plausible or are framed as "general steps".
+
+- 1.0: every factual claim, including any steps or navigation, is supported by the context
+- 0.5: the core answer is supported, but it adds unsupported detail that is unlikely to cause harm (e.g. invented navigation steps or menu names, an imprecise qualifier)
+- 0.0: a material claim (a number, a fee, a deadline, an account fact, or a procedure that would make the customer do the wrong thing) is not in the context or contradicts it
 
 If the assistant correctly declined or said it does not know, score 1.0.
 
