@@ -5,10 +5,12 @@ A separate process exposing banking operations as MCP tools over streamable
 HTTP, the way a bank's integration team would front its core systems. Synthetic,
 in-memory data.
 
-Cross-process tracing: the agent puts W3C trace context (`traceparent`) in each
-request's MCP `_meta`. This server extracts it and opens its spans as children,
-so ONE trace in Langfuse (and in the APM) shows agent → MCP client → MCP server
-→ core-banking call, across two services.
+Cross-process tracing: the agent puts W3C trace context (`traceparent`) and W3C
+`baggage` in each request's MCP `_meta`. This server extracts both and opens its
+spans as children, so ONE trace in Langfuse (and in the APM) shows agent → MCP
+client → MCP server → core-banking call, across two services — and, because the
+baggage carries the turn's session/user/trace name/version/environment, the
+server's observations filter and aggregate with the rest of the trace (Langfuse v4).
 
 Authorization lives here, not in the model: every tool takes the customer id the
 *session* authenticated, and the server refuses anything else.
@@ -21,7 +23,6 @@ import uuid
 from datetime import date, timedelta
 
 from opentelemetry import context as otel_context
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from northwind import config
 
@@ -91,21 +92,27 @@ TRANSACTIONS = {
 
 
 def _traced(ctx: Context | None, name: str, payload: dict):
-    """Attach the caller's trace context from MCP `_meta`, open a server span."""
+    """Attach the caller's trace context from MCP `_meta`, open a server span.
+
+    The baggage half of the carrier gives these spans the caller's session, user,
+    trace name, version and environment, and tells the SDK the trace already has a
+    root — so this span stays a child instead of becoming a second root.
+    """
     carrier = {}
     try:
         meta = ctx.request_context.meta if ctx else None
         if meta is not None:
             extra = getattr(meta, "model_extra", None) or {}
             carrier = {k: v for k, v in {**extra, **(meta if isinstance(meta, dict) else {})}.items()
-                       if k in ("traceparent", "tracestate")}
+                       if k in ("traceparent", "tracestate", "baggage")}
     except Exception:  # noqa: BLE001
         pass
-    token = otel_context.attach(TraceContextTextMapPropagator().extract(carrier)) if carrier else None
+    token = otel_context.attach(config.extract_trace_context(carrier)) if carrier else None
     span = langfuse.start_as_current_observation(
         as_type="span", name=f"mcp-server: {name}", input=payload,
         metadata={"mcp.server": "northwind-core-banking", "mcp.tool": name,
-                  "linked_by": "traceparent in MCP _meta" if carrier else "none"})
+                  "linked_by": ("traceparent + baggage in MCP _meta" if "baggage" in carrier else
+                                "traceparent in MCP _meta" if carrier else "none")})
     return token, span
 
 

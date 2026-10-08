@@ -8,6 +8,7 @@ APM stand-in, n8n). Exit 1 if any REQUIRED check fails.
 Run: .venv/bin/python scripts/verify_demo.py [--hours 24]
 """
 import argparse
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -43,6 +44,20 @@ def cursor_all(path, **params):
             return out
 
 
+# The experiments API requires a start-time lower bound; this one predates the demo.
+EXPERIMENTS_SINCE = "2026-01-01T00:00:00Z"
+
+
+def experiment_names(dataset_id: str) -> list:
+    """Experiment (dataset run) names on a dataset — v4 experiments API.
+
+    Replaces GET /datasets/{name}/runs, which Langfuse Cloud removes on 2026-11-16
+    and a v4 self-hosted server (the `selfhosted` profile) already answers with 404.
+    """
+    return [e["name"] for e in cursor_all("/api/public/experiments", datasetId=dataset_id,
+                                          fromStartTime=EXPERIMENTS_SINCE, fields="core")]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hours", type=int, default=24)
@@ -71,11 +86,11 @@ def main():
             d = get(f"/api/public/v2/datasets/{q}")
             items = get("/api/public/dataset-items", datasetName=ds, limit=50)["data"]
             check(len(items) >= n, f"dataset {ds}", f"{len(items)} items")
-            runs = [r["name"] for r in get(f"/api/public/datasets/{q}/runs", limit=50)["data"]]
-            check(bool(runs), f"  runs on {ds}", ", ".join(sorted(runs))[:300])
+            runs = experiment_names(d["id"])
+            check(bool(runs), f"  runs on {ds}", ", ".join(sorted(set(runs)))[:300])
         except RuntimeError as e:
             check(False, f"dataset {ds}", str(e)[:120])
-    golden_runs = [r["name"] for r in get("/api/public/datasets/northwind-golden-qa-v1/runs", limit=50)["data"]]
+    golden_runs = experiment_names(get("/api/public/v2/datasets/northwind-golden-qa-v1")["id"])
     for want in ["production · claude-sonnet-4-6", "staging · claude-sonnet-4-6", "production · gpt-4.1"]:
         check(want in golden_runs, f"  golden run '{want}'")
 
@@ -116,10 +131,35 @@ def main():
         check(False, "Northwind dashboard", str(e)[:100], required=False)
 
     # ── traces per channel ──
+    # One root observation per trace. traceName is not a query parameter of
+    # /v2/observations — passed as one it is silently ignored and the check passes
+    # on ANY observation in the window — so it goes in the `filter` JSON.
     for trace_name in ["northwind-assistant", "northwind-voice-call", "n8n-complaint-triage"]:
-        obs = get("/api/public/v2/observations", traceName=trace_name, fromStartTime=since, limit=50,
-                  fields="core")["data"]
-        check(len(obs) > 0, f"traces '{trace_name}' in window", f"{len(obs)}+ observations")
+        roots = json.dumps([
+            {"type": "string", "column": "traceName", "operator": "=", "value": trace_name},
+            {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True},
+            {"type": "datetime", "column": "startTime", "operator": ">=", "value": since}])
+        obs = get("/api/public/v2/observations", filter=roots, limit=50, fields="core")["data"]
+        check(len(obs) > 0, f"traces '{trace_name}' in window", f"{len(obs)}{'+' if len(obs) == 50 else ''} traces")
+
+    # ── v4 trace shape: one root per trace, the session id on every observation ──
+    # v4 filters and aggregates per observation. An MCP server span that misses the
+    # caller's baggage becomes a SECOND root with no session (config.inject_trace_context).
+    # A warning, not a failure: traces recorded before that fix stay in the window.
+    latest = json.dumps([
+        {"type": "string", "column": "traceName", "operator": "=", "value": "northwind-assistant"},
+        {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True},
+        {"type": "datetime", "column": "startTime", "operator": ">=", "value": since}])
+    roots = get("/api/public/v2/observations", filter=latest, limit=10, fields="core,basic")["data"]
+    extra_roots, no_session = 0, 0
+    for r in roots:
+        obs = get("/api/public/v2/observations", traceId=r["traceId"], limit=100, fields="core,basic")["data"]
+        extra_roots += sum(1 for o in obs if o.get("isRootObservation")) > 1
+        no_session += bool(r.get("sessionId")) and any(o.get("sessionId") != r["sessionId"] for o in obs)
+    check(bool(roots) and not extra_roots, "v4 trace shape: one root per assistant trace",
+          f"{extra_roots}/{len(roots)} latest traces have more than one root", required=False)
+    check(bool(roots) and not no_session, "v4 trace shape: session id on every observation",
+          f"{no_session}/{len(roots)} latest traces have observations outside the session", required=False)
 
     # ── local services ──
     for name, url, req in [("portal", "http://localhost:8090/", True), ("MCP server", "http://localhost:8765/mcp", True),

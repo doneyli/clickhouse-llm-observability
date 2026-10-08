@@ -182,7 +182,7 @@ To get P, divide the bytes of all tables that hold observations (v4: `events_ful
 ### Golden-path templates (owned by the platform team)
 
 1. **Python LangGraph service**: the `../northwind/config.py` pattern. One TracerProvider, Langfuse processor plus an APM processor with payloads stripped, masking, sampling, flushing both exporters.
-2. **MCP server**: W3C trace context read from MCP `_meta`, server-side authorization (`../northwind/mcp_server.py`).
+2. **MCP server**: W3C trace context **and baggage** read from MCP `_meta`, server-side authorization (`../northwind/mcp_server.py`). The baggage carries the Langfuse trace attributes, so the downstream service's observations keep the caller's session, user and environment and stay children of the caller's root (Langfuse v4 filters per observation). Inject it only into calls to your own services, because baggage travels in a header.
 3. **Retriever contract**: a `retriever` observation whose output lists document ids, sources and scores (`../northwind/knowledge.py`).
 4. **Prompt client**: fetch by label, cache TTL, fallback prompt, prompt linked to the generation (`../northwind/prompts.py`).
 5. **Masking library + unit tests**: shared regex/NER policy and the server-side masker contract.

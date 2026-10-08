@@ -14,6 +14,7 @@
 >   really a shell-key/project mismatch producing false 404s.
 >
 > Execution records: §11a (Phase 1), §11d (Phase 2), §11e (Phase 3), §11f (Phase 4).
+> Later passes: §15 (deprecated-API sweep), §16 (`demos/bank-assistant`).
 
 ---
 
@@ -1222,3 +1223,65 @@ Zero legacy `target=trace` rows, so the §13 conclusion holds: no `set_current_t
 escape hatch is needed anywhere. **Exports: unchanged from §14** — still no repo code
 configuring one, and no public API to read them (`integrations`/`blob-storage-integrations`
 both 404 on a project key).
+
+## 16. `demos/bank-assistant` — v4 readiness pass (2026-10-08)
+
+Target confirmed before any read: Langfuse **US Cloud**, project `northwind-bank-assistant`
+(the demo's own `.env.cloud`). Project access was read-only — **no project writes were
+made** (no traces ingested, no rules or evaluators changed). The demo's
+`selfhosted` profile runs a **v4 server** (`langfuse:4.53.0`, no
+`LANGFUSE_MIGRATION_V4_*` overrides → `events_only`), ClickHouse 25.12, Postgres 17, Redis 7,
+so unlike the main stack (§15) there is nothing to block on: deprecated reads already 404
+there today.
+
+**SDK: already v4.** Declared `langfuse>=4.13.1,<5.0`, resolved **4.17.0** (latest on PyPI,
+2026-10-05); no lockfile. Root input/output on the `agent` root, `propagate_attributes`
+wraps the root before any child, `trace_name`/`version`/`prompt` propagated, no
+`set_current_trace_io`, no `api.trace.*` / `api.legacy.*`, no raw `/ingestion`. n8n's
+hand-built OTLP sends `x-langfuse-ingestion-version: 4` and copies trace attributes to every
+span it emits.
+
+Three defects, each invisible from an exit code:
+
+| Defect | Evidence | Fix |
+|---|---|---|
+| **The MCP server's first span was a second root of every tool-using trace.** It carried its own trace name (`mcp-server: list_accounts`), no session/user, and `environment=production` even inside experiments. In v4's root-observation view each MCP call is an extra "trace" row. | Project data, 3 days: all **406** `mcp-server:` spans `isRootObservation=true`, `environment=production`, incl. **40 experiment traces** (`sdk-experiment` everywhere else). `verify_demo.py` now finds 3 of the 10 latest assistant traces with >1 root. | The agent sends W3C **baggage** next to `traceparent` in MCP `_meta` (`config.inject_trace_context` / `extract_trace_context`), with `propagate_attributes(..., as_baggage=True)` scoped to the MCP call only. Baggage carries the SDK's `langfuse_trace_id` app-root claim (suppresses the second root) plus session, user, trace name, version and the turn's *effective* environment. |
+| `verify_demo.py` and `run_all_experiments.sh --fresh` used **`GET`/`DELETE /datasets/{name}/runs`** | removed on Cloud 2026-11-16; 404 on the `selfhosted` profile now | `GET /experiments` (+ `/experiment-items` → `DELETE /traces` ≤1,000 ids for `--fresh`) |
+| `verify_demo.py` "traces per channel" passed on **any** observation | `traceName` is not a `/v2/observations` query param — a bogus value returned 5 rows; the `filter` form returns 0 | `filter` JSON with `traceName` + `isRootObservation`; reports trace counts, not observation counts |
+
+Verified offline with a two-process harness (real `agent.run_turn` + real MCP server over
+HTTP, fake LLM, spans captured in memory, nothing exported): before → server span
+`is_app_root=True`, no session/user/trace name/version, `production` inside an experiment;
+after → child span with all five, `sdk-experiment` inside the experiment; a sampled-out
+turn (non-recording root) still answers, and the server follows the unsampled parent.
+The baggage header carries exactly `langfuse_trace_id`, `_user_id`, `_session_id`,
+`_version`, `_trace_name`, `_environment`. `verify_demo.py` old vs new against the project:
+identical experiment names (API parity), both READY. `--fresh` dry-run with DELETE stubbed:
+37 batched calls, 630 trace ids, nothing deleted.
+
+Found on the way: **tags do not survive W3C baggage in SDK 4.17** — a list is sent as its
+Python repr and arrives as one string tag (`"['channel:web', 'lang:en', …]"`), so tags are
+deliberately left out; the MCP server's spans have no tags. n8n's own
+`workflow.execute`/`node.execute` spans still carry no Langfuse attributes (not
+cost-bearing; documented in `demos/bank-assistant/n8n/README.md`).
+
+**Evaluators: nothing to migrate.** `GET /v2/evaluation-rules` → 6 rules, all
+observation-level (no `mappingType: legacy` mapping, no `datasetId` filter): `faithfulness`,
+`banking-compliance`, `manipulation-resistance`, `manipulation-resistance-sampled` enabled;
+`caller-distress`, `voice-empathy` disabled (their `gpt-audio` evaluators are paused,
+`EVAL_MODEL_CONFIG_INVALID` — a known model limit, not a v4 issue). Last 24 h: 65 / 63 / 11
+judge scores, all `subject.kind=observation` on the `northwind-assistant` agent
+observation; experiments run in `sdk-experiment`, which the rules' `environment=production`
+filter excludes. No managed experiment-target evaluators (experiment scoring is in-SDK).
+**Exports:** 0 blob-storage integrations (read with the org key); PostHog/Mixpanel have no
+read API.
+
+| Area | Status | Notes / next action |
+|---|---|---|
+| Project access | `ready` | US Cloud `northwind-bank-assistant` confirmed via `GET /projects`; reads only |
+| SDK/instrumentation | `changed` | MCP baggage fix; live after the MCP server **and** the agent process (portal) restart from the fixed code |
+| Trace evaluators | `manual action` | API: 6 observation-level rules, 0 legacy (project-verified). Still owed: a glance at the Evaluators UI for **Legacy** rows (the API may not list every legacy target): <https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/evals> |
+| Dataset evaluators | `manual action` | API: no dataset/experiment-target rules; same UI check |
+| Direct APIs | `changed` | 3 call sites migrated; no deprecated endpoint left in the demo |
+| Exports | `manual action` | blob storage: none; confirm PostHog/Mixpanel in Project Settings → Integrations |
+| Verification/rollback | `blocked` | no non-production project to canary into, and test traces were not written into the live workshop project. Next: run a few turns from the fixed code against a sandbox project, then `verify_demo.py` (both v4 shape checks must PASS). Rollback = revert the commit; no project state changed |
