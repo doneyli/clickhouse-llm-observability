@@ -89,7 +89,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
     <div class="eyebrow">Presenter kit · after the Academy foundation slides</div>
     <h1>Northwind Bank — live demo</h1>
     <p class="lede">Order: open with <b>Slide A</b> (what you asked to see → what we'll show), run the <b>run sheet</b> block by block, close with <b>Slide B</b> (what we covered). The <b>matrix</b> is your reference when a question comes up. Every step says what to click and one line to say.</p>
-    <nav class="toc"><a href="#slideA">Slide A · Agenda</a><a href="#links">Tabs to open</a><a href="#run">Run sheet</a><a href="#matrix">Requirements matrix</a><a href="#slideB">Slide B · Recap</a></nav>
+    <nav class="toc"><a href="#slideA">Slide A · Agenda</a><a href="#links">Tabs to open</a><a href="#fresh">Fresh traces</a><a href="#run">Run sheet</a><a href="#matrix">Requirements matrix</a><a href="#slideB">Slide B · Recap</a></nav>
   </header>
 
   <section id="slideA">
@@ -139,6 +139,21 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
     <p class="lede">Prompt labels right now: <code>production</code> v4 · <code>staging</code> v5 (release candidate) · <code>development</code> v3 (regression) · <code>baseline</code> v1 (where the business issues were found). In the portal click <b>New conversation</b> first.</p>
   </section>
 
+  <section id="fresh">
+    <h2>Fresh traces (verified on the live stack today)</h2>
+    <p class="lede">Every channel was re-run and checked right before the session. Open these if a live step is slow or you want a known-good example.</p>
+    <div class="links">
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e" target="_blank" rel="noopener"><b>PII · English</b><span>card + CVV → [REDACTED_CARD], [REDACTED_SECRET]; 0 raw values in 10 observations</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener"><b>PII · Spanish</b><span>cédula, número de cuenta, código → redacted everywhere</span></a>
+      <a href="http://localhost:16686/trace/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener"><b>APM · same trace id in Jaeger</b><span>14 spans, no prompt or answer text, no PII, back-link to Langfuse</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/315deeb8069623f961c8a10d0a7b0af4" target="_blank" rel="noopener"><b>Voice · English</b><span>wire-fee call: caller + reply audio, STT/TTS, agent in one trace</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a07539a9adfb5e35128d3ee06a70c48c" target="_blank" rel="noopener"><b>Voice · Spanish</b><span>transferencia internacional: transcript + spoken reply in Spanish</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/590a04e746bcd4ce87d7c58f6c37ab98" target="_blank" rel="noopener"><b>n8n · complaint triage</b><span>11 n8n spans + 2 LLM generations, 799 tokens, $0.0038</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/1be9e4f473f5f7a0e939f77f47e5341a" target="_blank" rel="noopener"><b>Dispute opened (after fix)</b><span>MCP server span window_days 60, DSP case id</span></a>
+      <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a4e261601983c78e3fd00fcebacec479?observation=a60d0396885d223a" target="_blank" rel="noopener"><b>Dispute missed (before fix)</b><span>MCP server span window_days 30 vs 60-day policy</span></a>
+    </div>
+  </section>
+
   <section id="run">
     <h2>Run sheet (~90 min)</h2>
     <p class="lede">Data model and the observe → evaluate → experiment → deploy loop are covered by your Academy slides; start straight at Slide A. If time runs short, cut Block 3 to two issues and shorten Block 5.</p>
@@ -153,10 +168,10 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
       <li><span class="do">Open in Langfuse → walk the trace tree.</span><span class="click">guardrail → LangGraph nodes → ChatAnthropic generations → tool → mcp-client → <b>mcp-server</b> → core-banking</span><span class="say">"The MCP server is a separate service, and it's in the same trace. That's W3C context in the MCP call."</span><span class="ids">OBS-01 · OBS-04</span></li>
       <li><span class="do">Ask a policy question; open kb-retrieval.</span><span class="click">Chip "International wire fees?" → trace → kb-retrieval → documents, sources, scores</span><span class="say">"Every answer carries the sources it used."</span><span class="ids">OBS-03</span></li>
       <li><span class="do">Tokens, cost, latency.</span><span class="click">Trace header · then Quality &amp; cost dashboard</span><span class="ids">OBS-05</span></li>
-      <li><span class="do">PII masking.</span><span class="click">Chip "Card number 4111…" → trace input shows [REDACTED_CARD]</span><span class="say">"Redacted before it leaves the process, in English and Spanish."</span><span class="ids">ENT-03</span></li>
-      <li><span class="do">n8n low-code.</span><span class="click">Presenter console → Run n8n complaint workflow → traces named n8n-complaint-triage</span><span class="say">"n8n's own spans and the LLM calls with tokens and cost, joined in one trace."</span><span class="ids">OBS-02</span></li>
-      <li><span class="do">APM correlation.</span><span class="click">Portal answer → Open in APM → same trace id in Jaeger, no prompt text</span><span class="say">"For Dynatrace it's one endpoint and one token. The trace id is the join key."</span><span class="ids">OBS-06</span></li>
-      <li><span class="do">Voice + sessions/users/tags.</span><span class="click">Portal → Voice → play a call → Process call → trace with audio · then Sessions, Users, tag filters</span><span class="ids">multi-modal · sessions · environments</span></li>
+      <li><span class="do">PII masking.</span><span class="click">Chip "Card number 4111…" → trace input shows [REDACTED_CARD]</span><span class="say">"Redacted before it leaves the process, in English and Spanish."</span><span class="click">Known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e" target="_blank" rel="noopener">English</a> · <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener">Spanish</a></span><span class="ids">ENT-03</span></li>
+      <li><span class="do">n8n low-code.</span><span class="click">Presenter console → Run n8n complaint workflow → traces named n8n-complaint-triage</span><span class="say">"n8n's own spans and the LLM calls with tokens and cost, joined in one trace."</span><span class="click">Known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/590a04e746bcd4ce87d7c58f6c37ab98" target="_blank" rel="noopener">n8n trace</a></span><span class="ids">OBS-02</span></li>
+      <li><span class="do">APM correlation.</span><span class="click">Portal answer → Open in APM → same trace id in Jaeger, no prompt text</span><span class="say">"For Dynatrace it's one endpoint and one token. The trace id is the join key."</span><span class="click">Known-good: <a href="http://localhost:16686/trace/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener">Jaeger trace</a> (use a dispute or balance question to show two services)</span><span class="ids">OBS-06</span></li>
+      <li><span class="do">Voice + sessions/users/tags.</span><span class="click">Portal → Voice → play a call → Process call → trace with audio · then Sessions, Users, tag filters · known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/315deeb8069623f961c8a10d0a7b0af4" target="_blank" rel="noopener">English call</a> · <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a07539a9adfb5e35128d3ee06a70c48c" target="_blank" rel="noopener">Spanish call</a></span><span class="ids">multi-modal · sessions · environments</span></li>
     </ol></div>
 
     <div class="block"><header><h3>Block 2 · Evaluation</h3><span class="time">20 min · <span class="ids">EVA-01…07</span></span></header><ol class="steps">
