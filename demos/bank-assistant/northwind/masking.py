@@ -23,6 +23,11 @@ Known limits — say them out loud:
     them (use an NER model or an LLM classifier inside the hook)
   * `user_id` is deliberately left alone: it is a pseudonymous customer handle,
     and the Users view, cost attribution and session grouping depend on it
+  * account numbers, national IDs and one-time codes are anchored on their keyword
+    (within 20 characters), so a number echoed later WITHOUT it is not caught:
+    "Your ID 1020304050 cannot be changed" passes through. A bare digit run cannot be
+    told from an amount or an internal id; only values with their own shape (Luhn-valid
+    cards, IBANs, SSNs, phone numbers, emails) are caught without a keyword
 """
 
 from __future__ import annotations
@@ -52,6 +57,26 @@ def _redact_card(match: "re.Match[str]") -> str:
     """
     text = match.group(0)
     return "[REDACTED_CARD]" if _luhn(re.sub(r"\D", "", text)) else text
+
+
+# Balance and statement phrasing around an account keyword: the digits are money, not
+# an account number — "account balance is 12500 00 USD", "cuenta con saldo 12500 00",
+# "el saldo de la cuenta es 12500 00 USD". Redacting them corrupts exactly the figures
+# the judges grade. "What's the balance of account 12345678?" is still redacted: the
+# balance word comes first and nothing says "is", so the number names the account.
+_MONEY_AFTER_KEYWORD = re.compile(r"(?i)\b(balance|saldo|statement|extracto)\b")
+_MONEY_BEFORE_KEYWORD = re.compile(r"(?i)\b(balance|saldo) (of|de|en)( the| my| your| la| su| mi| tu)? $")
+_COPULA = re.compile(r"(?i)\b(is|was|es|era|fue)\b|[:=]")
+
+
+def _redact_account(match: "re.Match[str]") -> str:
+    """Redact the number after an account keyword, keeping the keyword — unless the
+    phrase is a balance or statement figure (see above)."""
+    label = match.group(1)
+    before = match.string[max(0, match.start() - 24):match.start()]
+    if _MONEY_AFTER_KEYWORD.search(label) or (_MONEY_BEFORE_KEYWORD.search(before) and _COPULA.search(label)):
+        return match.group(0)
+    return f"{label}[REDACTED_ACCOUNT]"
 
 
 def _keep_label(replacement: str):
@@ -89,7 +114,7 @@ _PATTERNS: "list[tuple[str, re.Pattern[str], object]]" = [
     # ids (ACC-1001-01, TX-88101) survive. English and Spanish.
     ("account", re.compile(r"(?i)(\b(?:account|acct|a/c|n(?:[uú]|\\u00fa)mero de cuenta|cuenta)\b[^0-9]{0,20}?)"
                            r"\d[\d -]{6,18}\d\b"),
-     _keep_label("[REDACTED_ACCOUNT]")),
+     _redact_account),
     ("phone", re.compile(r"\+\d{1,3}[\s.\-()]*(?:\d[\s.\-()]*){6,14}\d"), "[REDACTED_PHONE]"),
     ("phone", re.compile(r"\b\d{3}[\s.\-]\d{3}[\s.\-]\d{4}\b"), "[REDACTED_PHONE]"),
 ]

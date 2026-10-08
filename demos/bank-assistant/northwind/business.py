@@ -48,34 +48,72 @@ DEFLECTION = {
 ACTIONS = {"block_card", "open_dispute"}
 
 _ADVISOR_TOPIC = re.compile(r"(?i)advis|invest|asesor|inversi")
-_ADVISOR_OFFER = re.compile(r"(?i)(book|schedule|arrange|set up|agendar|programar|reservar|coordinar)\b.{0,80}\b(advis|asesor)"
-                            r"|(advis|asesor)\w*\b.{0,80}\b(session|appointment|call|sesi[oó]n|cita|llamada)")
+# An OFFER to set something up with an advisor — "arrange a session", "connect you
+# with a licensed advisor", "agendarle una cita con un asesor". Pointing the customer
+# away ("please speak with one of our licensed advisors") is not an offer, and the
+# second arm needs the advisor NOUN: "I can't advise … please call us" is not one.
+_ADVISOR_OFFER = re.compile(
+    r"(?i)\b(book|schedule|arrange|set up|connect you|put you in touch|introduce you"
+    r"|agend|program(ar|e|o)|reserv|coordin|conect|pon(er|erle|erlo|erla)? en contacto)\w*\b.{0,80}\b(advis|asesor)"
+    r"|\b(advisor|adviser|asesor)(a|es|as)?\b.{0,80}\b(session|appointment|call|meeting|sesi[oó]n|cita|llamada|reuni[oó]n)")
+# Telling the customer not to share card data, in any of the ways a model phrases it.
 _PII_WARNING = re.compile(r"(?i)(never|don't|do not|please don't|avoid) shar|(will|would) never ask|never ask (you )?for"
-                          r"|only (use|share|give) the last (4|four) digits"
+                          r"|(recommend|suggest|advise|best) (not|against|avoiding) shar|refrain from shar"
+                          r"|(no|don't|do not) need to (share|give|send|type|enter)"
+                          r"|only (use|share|give|need) the last (4|four) digits"
                           r"|nunca (comparta|compart|le pediremos|pedimos|solicitamos)|no (comparta|debe compartir|compartir)"
-                          r"|evite compartir|utilice solo los [uú]ltimos (4|cuatro) d[ií]gitos")
+                          r"|evite compartir|no (es necesario|hace falta) que (me )?(d[eé]|comparta|env[ií]e|escriba|proporcione)"
+                          r"|(use|utilice|indique|basta con) (solo |solamente |[uú]nicamente )?los [uú]ltimos (4|cuatro) d[ií]gitos")
 _SENSITIVE = {"card", "otp", "national_id", "iban", "account"}
 # A REQUEST to dispute a charge — not a question that merely mentions a past dispute
-# ("how long did my last dispute take?" is a complaint, not a dispute request).
+# ("how long did my last dispute take?" is a complaint, not a dispute request), and not
+# a policy question ("how long do I have to dispute a card transaction?"). The text is
+# read one sentence at a time: a policy phrase before the dispute words in the SAME
+# sentence makes it a question, so "I don't recognise this charge. How long will the
+# dispute take?" is still a request.
+_DISPUTE_POLICY_Q = (r"\b(how long|how many days|how much time|time limit|deadline"
+                     r"|cu[aá]nto tiempo|cu[aá]ntos d[ií]as|qu[eé] plazo|plazo (para|de))\b")
 DISPUTE_REQUEST = re.compile(
-    r"(?i)(\b(please |want to |like to |need to |can you |could you )?dispute (the|this|that|a|an|my) "
+    rf"(?i)(^|[.?!¡¿\n])((?!{_DISPUTE_POLICY_Q})[^.?!])*?"
+    r"(\b(please |want to |like to |need to |can you |could you )?dispute (the|this|that|a|an|my) "
     r"(\w+ ){0,4}(charge|transaction|payment|debit)|\bdispute it\b|open (a |the )?dispute|chargeback"
-    r"|don'?t recogni[sz]e|didn'?t (make|authori[sz]e)|unauthori[sz]ed (charge|transaction)"
+    r"|\b(please|kindly|go ahead and) dispute\b"   # "Please dispute the duplicate one."
+    r"|don['\u2019]?t recogni[sz]e|didn['\u2019]?t (make|authori[sz]e)|unauthori[sz]ed (charge|transaction)"
     r"|disput(ar|e|a) (el|este|ese|un|una|la) (\w+ ){0,3}(cargo|transacci[oó]n|cobro|pago)"
     r"|abr(a|ir) (una |la )?disputa|no reconozco|desconozco (el|un|este) cargo|cargo que no (hice|reconozco)"
     r"|reclam(ar|o) (un|el) cargo)")
 # The agent found the charge and asks the customer to confirm before opening it.
 _AWAITING_CONFIRMATION = re.compile(
     r"(?i)(shall i|should i|would you like me to|do you want me to|can you confirm|please confirm|is this the"
-    r"|¿desea que|¿quiere que|¿confirma|¿es (este|ese|esta)|por favor confirme|¿le abro|¿procedo)")
+    r"|¿desea que|¿quiere que|¿le gustar[ií]a que|¿confirma|¿me confirma|¿es (este|ese|esta)|por favor confirme"
+    r"|¿le abro|¿procedo)")
+# Evidence that the charge was FOUND: its transaction id, an amount in either currency
+# order ("$412", "USD 412", "389,99 USD", "412 dólares"), or the answer naming the
+# charge — unless it says it could not find it ("I couldn't find that charge. Can you
+# confirm the merchant?" asks for details; nothing is awaiting confirmation).
+_TX_ID = re.compile(r"\bTX-\d{5}\b")
+_AMOUNT = re.compile(r"(?i)(\$|\bUSD|\bEUR|€)\s?\d|\d[\d.,]*\s?(USD|EUR|€|d[oó]lares|dollars)\b")
+_CHARGE_WORD = re.compile(r"(?i)\b(charge|transaction|payment|debit|cargo|cobro|transacci[oó]n|pago|movimiento)s?\b")
+_NOT_FOUND = re.compile(
+    r"(?i)\b(do not|don't|can't|cannot|could not|couldn't|did not|didn't|unable to|was not able to|wasn't able to)"
+    r" (see|find|locate|spot)\b"
+    r"|\bno (veo|encuentro|encontr[eé]|aparece|figura|hay ning[uú]n)\b"
+    r"|\bno (pude|puedo|logr[eé]|logro) (encontrar|ver|ubicar|localizar)\b")
+
+
+def _plain(text: str) -> str:
+    """Models write typographic apostrophes (don’t); the patterns use ASCII ones."""
+    return (text or "").replace("\u2019", "'")
 
 
 def advisor_offered(answer: str) -> bool:
-    return bool(_ADVISOR_OFFER.search(answer or ""))
+    return bool(_ADVISOR_OFFER.search(_plain(answer)))
 
 
 def pii_warned(answer: str) -> bool:
-    return bool(_PII_WARNING.search(answer or ""))
+    return bool(_PII_WARNING.search(_plain(answer)))
+
+
 LOOKUPS = {"list_accounts", "get_recent_transactions"}
 
 
@@ -95,7 +133,7 @@ def classify(*, used: list[str], actions_ok: list[str], blocked: bool, risks: li
         outcome = "refused"
     elif any(a in ACTIONS for a in actions_ok):
         outcome = "resolved-self-service"
-    elif dispute_requested and _AWAITING_CONFIRMATION.search(answer or "") and re.search(r"\bTX-\d{5}\b|\$\s?\d|USD\s?\d", answer or ""):
+    elif dispute_requested and dispute_awaiting_confirmation(answer):
         outcome = "dispute-awaiting-confirmation"   # found the charge, asks before acting — not a failure
     elif dispute_requested:
         outcome = "dispute-unresolved"   # asked to dispute, nothing opened → will become a contact
@@ -200,5 +238,16 @@ WARNING = {
 
 
 def dispute_awaiting_confirmation(answer: str) -> bool:
-    return bool(_AWAITING_CONFIRMATION.search(answer or "")
-                and re.search(r"\bTX-\d{5}\b|\$\s?\d|USD\s?\d", answer or ""))
+    """The agent found the charge and asks before opening it — judged on the next turn.
+
+    A transaction id is enough on its own: it can only come from the banking tool. An
+    amount or the word "charge" also counts unless the answer says the charge was not
+    found — the model often echoes the customer's amount back ("I couldn't find a
+    USD 412 charge — can you confirm the date?"), and that turn is a miss, not a wait.
+    """
+    answer = _plain(answer)
+    if not _AWAITING_CONFIRMATION.search(answer):
+        return False
+    if _TX_ID.search(answer):
+        return True
+    return not _NOT_FOUND.search(answer) and bool(_AMOUNT.search(answer) or _CHARGE_WORD.search(answer))

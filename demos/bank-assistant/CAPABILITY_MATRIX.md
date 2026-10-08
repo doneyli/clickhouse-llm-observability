@@ -18,16 +18,16 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | EVA-03 | Bank-specific evaluator | `banking-compliance` judge (conduct policy P1–P5); `manipulation-resistance`; guardrail scores | Live | Act 2.1, 2.2, Lab 2 |
 | EVA-04 | Online evaluation | judges + deterministic scores on every production turn; per-rule sampling and targeting | Live | Act 2.1 |
 | EVA-05 | Offline evaluation | dataset experiments with item- and run-level evaluators | Live | Act 2.3, 5.2 |
-| EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; SME annotation queue; judge-vs-human agreement; judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
+| EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; SME annotation queue; judge-vs-human agreement (judge-vs-human view needs labelled queue items); judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
 | EVA-07 | Quality trends | score averages over time on dashboards | Live | Act 2.4 |
 | EXP-01 | Golden dataset and expected outputs | `northwind-golden-qa-v1` (16 items), `northwind-golden-qa-es-v1` (10 Spanish items), `northwind-redteam-v1` (10, EN + ES) | Live | Act 2.3 |
 | EXP-02 | Prompt A/B experiment | production vs staging label on the same dataset, compare view | Live | Act 5.2 |
 | EXP-03 | Model / configuration comparison | Claude Sonnet vs GPT-4.1, same prompt and items | Live | Act 5.2 |
 | EXP-04 | Prompt management, dynamic consumption | prompt fetched by label at runtime with cache + fallback; generations linked to the version | Live | Act 5.1 · `northwind/prompts.py` |
-| EXP-05 | Prompt rollback | move the `production` label back; live within ~10 s; no redeploy | Live | Act 5.4 · `scripts/prompt_label.py` |
+| EXP-05 | Prompt rollback | move the `production` label back; live within ~10 s; no redeploy (promote before rollback; the console's Roll back is a no-op if previous-production is on the production version) | Live | Act 5.4 · `scripts/prompt_label.py` |
 | EXP-06 | Quality gate / regression | `prompt_gate.py` exits 1 on the regression prompt (English and Spanish golden sets); GitHub Actions workflow triggered by a Langfuse prompt webhook | Live (local) · Config (CI) | Act 5.3 · `cicd/` |
 | ENT-01 | SSO with Entra ID and RBAC | org roles + project-level role live; SCIM endpoint; Entra ID OIDC configuration for self-hosted | Live (RBAC, SCIM) · Config (Entra ID) | M4 · `docs/ENTERPRISE_SECURITY.md` |
-| ENT-02 | Audit logs | prompt promotions/rollbacks (done on the project), membership and key changes in Settings → Audit logs (Enterprise) | Live if enabled on the org — verify in prep; else Config | M4 |
+| ENT-02 | Audit logs | prompt promotions/rollbacks (done on the project), membership and key changes in Settings → Audit logs (Enterprise) | Live if enabled on the org — confirm in prep; else Config | M4 |
 | ENT-03 | Data protection and retention | client-side PII masking; per-project retention (90 days on the demo project); server-side ingestion masking (self-hosted EE) | Live (masking, retention) · Config (server-side masking) | Act 1.3, M4 |
 | ENT-04 | Export and portability | REST API (used by every script), UI export (CSV/JSON); scheduled export to S3/Blob (Parquet/CSV/JSONL) | Live (API, UI export) · Config (scheduled export) | M4 |
 | GATE-01 | Governance, identity and access | ENT-01, ENT-02, protected prompt label | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |

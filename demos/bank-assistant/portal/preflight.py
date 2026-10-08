@@ -83,6 +83,35 @@ try:
 except Exception as exc:  # noqa: BLE001
     line(FAIL, "Langfuse client", f"{type(exc).__name__}: {exc}"[:160])
 
+# 3b. Rollback readiness (Act 5.4): previous-production must sit on a DIFFERENT version than
+#     production, and there must be no untitled stray version. Three GETs.
+try:
+    sys.path.insert(0, str(DEMO_DIR / "scripts"))
+    import prompt_label  # imported here so a problem in it can never stop the rest of the pre-flight
+
+    lookups = {lbl: prompt_label.fetch_label(lbl, timeout=10) for lbl in ("production", "previous-production", "latest")}
+    vs, meta = {}, {}
+    for pr in filter(None, lookups.values()):
+        vs[pr["version"]] = pr.get("labels", [])
+        meta[pr["version"]] = {"commitMessage": pr.get("commitMessage")}
+    cur, prev = lookups["production"], lookups["previous-production"]
+    if prev is None:
+        line(WARN, "Rollback target", "no version carries previous-production — 'Roll back' has nothing to go back to; "
+             "run scripts/prompt_label.py --promote staging, or --set-previous N")
+    elif cur and cur["version"] == prev["version"]:
+        line(FAIL, "Rollback target", f"production and previous-production are both on v{cur['version']} — "
+             "'Roll back' would do nothing; run scripts/prompt_label.py --set-previous N")
+    else:
+        line(OK, "Rollback target", f"production v{cur['version'] if cur else '?'} · "
+                                    f"previous-production v{prev['version']}")
+    untitled = [a for a in prompt_label.label_anomalies(vs, meta) if "untitled" in a]
+    for a in untitled:
+        line(WARN, "Untitled prompt version", a)
+    if not untitled and lookups["latest"]:
+        line(OK, "Untitled prompt version", f"none (latest is v{lookups['latest']['version']})")
+except Exception as exc:  # noqa: BLE001
+    line(WARN, "Rollback target", f"could not read prompt labels: {str(exc).splitlines()[0][:120]}")
+
 # 4. Datasets (for the experiment acts)
 try:
     ds = config.api("GET", "/api/public/v2/datasets", timeout=10, params={"limit": 50})["data"]
