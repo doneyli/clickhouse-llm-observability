@@ -62,6 +62,23 @@ TRACE_NAME = "handle-concierge-chat-message"
 CONVERSATION_END_TAG = "conversation_end"
 SNAPSHOT_NAME = "conversation-snapshot"
 
+# How the managed conversation-level rule FINDS the snapshot. It used to match on
+# SNAPSHOT_NAME, which coupled a display name to a live evaluation rule in the
+# worst way: renaming the observation silently stopped the judge, and editing the
+# rule silently stopped matching the code — no error on either side.
+#
+# This is an explicit, purpose-built selector instead. It is a stable contract
+# with the rule, not a label for humans, so it is safe to rename SNAPSHOT_NAME.
+# The rule's filter is `metadata.langfuse_eval_target = conversation-transcript`
+# (a `stringObject` filter on the observation `metadata` column) — see
+# scripts/seed_managed_evaluators.sh, which reads both constants below.
+#
+# A short scalar is exactly what metadata is for; the caveat above applies only to
+# putting the TRANSCRIPT there (it would be clipped). The transcript stays on the
+# observation input, which is not capped.
+EVAL_TARGET_KEY = "langfuse_eval_target"
+EVAL_TARGET_CONVERSATION = "conversation-transcript"
+
 # --- lightweight language detection (Spanish vs English) for language-match ---
 # Only Spanish FUNCTION/verb words — strong language signals. Deliberately NOT
 # real-estate nouns or place names (piso, terraza, barrio, familia, Malasaña…):
@@ -394,16 +411,20 @@ def run_turn(
             # re-judges an ever-longer transcript N times and the cost scales
             # quadratically. This fires once.
             #
-            # A rule on this observation MUST filter by `name` (unlike the seeded
-            # per-turn rules, which filter on `isRootObservation` precisely so a
-            # rename cannot silently break them). That drift risk is real here:
-            # renaming SNAPSHOT_NAME without updating the rule stops the judge
-            # firing with no error anywhere. Keep the constant and the rule in
-            # sync — scripts/seed_managed_evaluators.sh reads it.
+            # The rule finds this observation by its `langfuse_eval_target`
+            # metadata, NOT by `name` (the seeded per-turn rules use
+            # `isRootObservation` for the same reason: a rename must not be able
+            # to silently break a judge). The name below is therefore free to
+            # change; EVAL_TARGET_* is the contract with the rule, and
+            # scripts/seed_managed_evaluators.sh reads both constants.
             if is_final_turn:
                 transcript = history + [{"role": "user", "content": query},
                                         {"role": "assistant", "content": final_text}]
-                with lf.start_as_current_observation(as_type="span", name=SNAPSHOT_NAME) as snap:
+                with lf.start_as_current_observation(
+                    as_type="span",
+                    name=SNAPSHOT_NAME,
+                    metadata={EVAL_TARGET_KEY: EVAL_TARGET_CONVERSATION},
+                ) as snap:
                     snap.update(input={"transcript": transcript,
                                        "turns": len(transcript) // 2},
                                 output=final_text)

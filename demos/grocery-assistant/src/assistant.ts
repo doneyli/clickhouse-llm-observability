@@ -118,6 +118,24 @@ export const CONVERSATION_END_TAG = "conversation_end";
  */
 export const COLLAPSED_GENERATION_NAME = "generate-response";
 
+/**
+ * How a conversation-level evaluation rule FINDS the snapshot observation.
+ *
+ * Matching it by `name` would couple a display name to a live evaluation rule in
+ * the worst way — rename the observation and the judge silently stops firing;
+ * edit the rule and it silently stops matching the code, with no error on either
+ * side. This metadata pair is an explicit contract with the rule instead, so
+ * SNAPSHOT_NAME above is free to change. The rule filters on
+ * `metadata.langfuse_eval_target = conversation-transcript` (a `stringObject`
+ * filter on the observation `metadata` column).
+ *
+ * Only the short selector goes in metadata — the transcript itself stays on the
+ * observation input, because metadata values are coerced to strings and capped,
+ * and a judge would silently score a clipped conversation.
+ */
+export const EVAL_TARGET_KEY = "langfuse_eval_target";
+export const EVAL_TARGET_CONVERSATION = "conversation-transcript";
+
 const SYSTEM_PROMPT = [
   "You are the shopping assistant for Northwind Grocers, a regional grocery chain.",
   "",
@@ -249,6 +267,8 @@ async function runTurnInstrumentedWell(
           const snapshot = startObservation(SNAPSHOT_NAME, {
             input: { transcript, turns: transcript.length / 2 },
             output: answer,
+            // What a rule matches on — never the name. See EVAL_TARGET_KEY.
+            metadata: { [EVAL_TARGET_KEY]: EVAL_TARGET_CONVERSATION },
           });
           snapshot.end();
           out.transcript = transcript;
@@ -426,6 +446,10 @@ async function runTurnWithCollapsedLoop(
           const snapshot = startObservation(SNAPSHOT_NAME, {
             input: { transcript, turns: transcript.length / 2 },
             output: answer,
+            // Same selector as `good` — the loop's shape is the ONLY thing
+            // `collapsed` gets wrong, so a conversation-level rule must still
+            // match it. See EVAL_TARGET_KEY.
+            metadata: { [EVAL_TARGET_KEY]: EVAL_TARGET_CONVERSATION },
           });
           snapshot.end();
           out.transcript = transcript;
