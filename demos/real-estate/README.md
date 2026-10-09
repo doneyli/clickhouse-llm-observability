@@ -313,7 +313,7 @@ curl -sG -u "$PK:$SK" --data-urlencode 'query={"view":"observations",
 # -> Invalid dimension __does_not_exist__. Must be one of id,evaluatorId,…
 ```
 
-Five things that cost real debugging time and are worth knowing before you write
+Six things that cost real debugging time and are worth knowing before you write
 a seeder — all verified against Cloud, September 2026:
 
 | Gotcha | What happens |
@@ -323,6 +323,15 @@ a seeder — all verified against Cloud, September 2026:
 | **A widget sees fewer dimensions than the Metrics API does** | `experimentName` and `datasetRunId` are queryable but not chartable, so experiment comparison stays in the Experiments UI. `promptName` works as a *dimension* but not as a *filter column*. Validate against the Metrics API first — then be ready for the widget endpoint to refuse anyway, which is why `seed_dashboards.py` skips a rejected widget instead of abandoning the dashboard |
 | The Metrics API says `aggregation`, the widget says **`agg`** | Same concept, two spellings, one silent 400 |
 | `limit` on the list endpoints **caps at 100** | Asking for 200 is a 400, not a clamp |
+| **`tags` is a filter, not a breakdown** | As a *dimension* it groups by the whole tag array, order-sensitively: `['real-estate','property-concierge','portal']` and `['portal','property-concierge','real-estate']` render as two bars for one surface. This demo shipped a "spend by tag" widget that did exactly that before it was caught. Filter on tags; break down by a single-valued field such as `environment` |
+
+The dashboard's **Env** selector filters every widget that doesn't carry its own
+environment filter — and it does not default to every environment. Here it
+defaults to `default` + `sdk-experiment`, which silently drops
+`langfuse-llm-as-a-judge`, where the managed judges' own LLM calls are recorded.
+The production-vs-evaluation widget pins its environments for that reason, which
+is also why its total runs slightly above its neighbours': the difference *is*
+what the judges cost.
 
 High-cardinality dimensions (`userId`, `sessionId`, `experimentName`) additionally
 need both a `config.row_limit` and a descending `orderBy` on a measure — the
