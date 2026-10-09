@@ -32,6 +32,12 @@ from gates import GateResult, gate_database_selection, gate_response_quality
 # the demo stays fast and no loop can spin indefinitely.
 GATE_MAX_ATTEMPTS = 2
 
+# Refine mode (Pattern #5 — evaluator-optimizer) is opt-in so the default demo
+# path (catalog-only, no execution) is unchanged. When on, the retrieve-context
+# step is replaced by a generate -> critique -> refine loop grounded in real
+# ClickHouse EXPLAIN + bounded execution.
+REFINE_MODE = os.getenv("REFINE_MODE", "0") == "1"
+
 
 def _managed_or_fallback(name: str, fallback_template: str,
                          label: str = "production") -> ChatPromptTemplate:
@@ -111,14 +117,19 @@ ANALYSIS_FALLBACK = (
 # ChatPromptTemplate treats them as literal (Langfuse's get_langchain_prompt()
 # escapes them for the managed path).
 GATE_GROUNDING_FALLBACK = (
-    "You are a strict verifier for a data-assistant pipeline. The assistant does NOT\n"
-    "execute SQL — it drafts analysis and example queries only.\n\n"
+    "You are a strict verifier for a data-assistant pipeline. Every figure in the\n"
+    "response must be present in the CONTEXT below. The context is either catalog\n"
+    "metadata only (no result rows exist, so the response must not report any) or\n"
+    "the real rows a bounded read-only query returned (which the response MAY\n"
+    "report). Judge against the context you are given, not an assumption about\n"
+    "whether SQL was executed.\n\n"
     "Question: {question}\n"
     "Analysis: {analysis}\n"
     "Context: {context}\n"
     "Response: {response}\n\n"
     "FAIL the response if ANY of these hold:\n"
-    "- It presents specific numbers or rankings as if they were executed query results.\n"
+    "- It states specific numbers or rankings that do NOT appear in the context\n"
+    "  (i.e. it presents guesses as if they were query results).\n"
     "- It references databases or tables not present in the analysis or context.\n"
     "- It does not address the question.\n"
     "Otherwise PASS.\n\n"
@@ -283,16 +294,20 @@ class ClickHouseSQLPipeline:
             "verdict": "pass" if result.passed else "fail", "reason": result.reason,
         })
 
-    def query(self, question: str, callbacks: list = None) -> str:
+    def query(self, question: str, callbacks: list = None, fault: str = None) -> str:
         """Execute the full gated Text-to-SQL chain.
 
         Two LLM steps (analysis, response) each guarded by a gate with bounded
         retry (GATE_MAX_ATTEMPTS). Gate 1 exhausted -> abort; Gate 2 exhausted ->
-        escalate. Public signature unchanged so main.py keeps working.
+        escalate.
 
         Args:
             question: The user's question
             callbacks: Optional list of LangChain callbacks (e.g., Langfuse handler)
+            fault: Optional deterministic fault injected inside the refine loop
+                (e.g. "wrong-column") so the multi-iteration beat is
+                reproducible. Distinct from the DEMO_FAULT env var, which
+                _apply_fault reads to force a *gate* failure.
         """
         config = {"callbacks": callbacks} if callbacks else {}
         self.gate_log = []
@@ -324,8 +339,16 @@ class ClickHouseSQLPipeline:
                     "stopping rather than guessing. Try naming a topic covered by the "
                     "public catalog (e.g. UK property, NYC taxi, GitHub, Hacker News).")
 
-        # ── Step 2: retrieve context (unchanged) ──────────────────────────────
-        context = self.retrieve_context(question, analysis)
+        # ── Step 2: gather context ────────────────────────────────────────────
+        if REFINE_MODE:
+            # generate -> critique -> refine, grounded in real EXPLAIN + bounded
+            # execution. This REPLACES the catalog-only lookup, so Gate 2's
+            # grounding check below grades against real executed rows instead of
+            # table names — which is what closed the DEMO_SCRIPT honesty note.
+            from sql_refine_loop import run_refine_loop
+            context = run_refine_loop(question, analysis, fault=fault).as_context()
+        else:
+            context = self.retrieve_context(question, analysis)  # legacy catalog-only path
 
         # ── Step 3 + Gate 2: response, gated on SQL policy + grounding ────────
         # Bind the same callbacks to the grounding grader so its Haiku call is
@@ -342,7 +365,7 @@ class ClickHouseSQLPipeline:
                  "context": context if attempt == 1 else (
                      f"{context}\n\n[Retry {attempt}: previous response was rejected — "
                      f"{gate2.reason}. Fix this; keep any SQL read-only with a LIMIT, "
-                     f"and never present numbers as executed query results.]")},
+                     f"and state no figure that is not already in the context above.]")},
                 config={**config, "metadata": {"purpose": "response_generation",
                                                "attempt": attempt,
                                                "gate_failure_reason": None if attempt == 1 else _capped(gate2.reason)}})

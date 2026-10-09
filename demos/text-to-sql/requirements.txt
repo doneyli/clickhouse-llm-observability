@@ -13,3 +13,7 @@ python-dotenv>=1.0.0,<2.0.0
 # API server (server.py — makes port 8002 serve /query; CLI mode unchanged)
 fastapi>=0.115.0,<1.0.0
 uvicorn>=0.30.0,<1.0.0
+
+# ClickHouse client — the refine loop's evidence runner (EXPLAIN + bounded
+# read-only execution against sql.clickhouse.com); see sql_evidence.py
+clickhouse-connect>=0.7,<1.0

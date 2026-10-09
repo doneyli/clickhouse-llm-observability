@@ -28,7 +28,7 @@ it across the whole stack.
 
 | App | What it is | Instrumentation |
 |-----|-----------|-----------------|
-| `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP — the P1 **prompt-chaining-with-gates** demo (deterministic catalog gate + hybrid grounding gate, bounded retry, abort/escalate) | LangChain + Langfuse `CallbackHandler` |
+| `demos/text-to-sql/` | NL → SQL over ClickHouse via MCP — the P1 **prompt-chaining-with-gates** demo (deterministic catalog gate + hybrid grounding gate, bounded retry, abort/escalate), plus an optional generate→critique→refine loop (`--refine`) that grounds the gates in real EXPLAIN + bounded execution | LangChain + Langfuse `CallbackHandler` + typed observations |
 | `demos/vector-rag/` | RAG over ChromaDB | LangChain + Langfuse `CallbackHandler` |
 | `demos/agentic-rag/` | Self-correcting RAG on ClickHouse-native vectors | LangGraph + Langfuse SDK |
 | `demos/support-triage-parallel/` | Parallel ticket triage — sectioning fan-out + best-of-N SQL voting (Pattern #3) | Anthropic API (asyncio) + Langfuse SDK |
