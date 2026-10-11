@@ -254,7 +254,7 @@ def _create(name: str, text: str, label: str, message: str, config: dict = None)
 def _unpack(entry):
     """Normalize a PROMPTS entry to (name, text, message, label, config)."""
     name, text, message = entry[0], entry[1], entry[2]
-    label = entry[3] if len(entry) > 3 else LABEL
+    label = entry[3] if len(entry) > 3 else "production"
     config = entry[4] if len(entry) > 4 else CONFIG
     return name, text, message, label, config
 
