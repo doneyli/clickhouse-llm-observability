@@ -268,6 +268,29 @@ services:
           export LANGFUSE_HOST="$${LITELLM_LANGFUSE_INTERNAL_URL}"
           export LANGFUSE_OTEL_HOST="$${LITELLM_LANGFUSE_INTERNAL_URL}"
         fi
+        # The admin UI (/ui) authenticates against LiteLLM's own Postgres — without
+        # DATABASE_URL every login fails with "Authentication Error, Not connected
+        # to DB!". But the proxy EXITS at boot (code 3) when DATABASE_URL points at
+        # a Postgres it cannot reach, and in cloud mode langfuse-postgres (profile
+        # `langfuse`) never runs. So the URL is set only when there is something
+        # to connect to, in this order:
+        #   1. LITELLM_DATABASE_URL from .env — explicit, so a bad value fails loudly;
+        #   2. a `litellm` database on the Langfuse stack's Postgres, if that
+        #      container is running (LiteLLM creates the database on first boot);
+        #   3. none — proxying and tracing work, only the UI login does not.
+        # An empty DATABASE_URL is not "unset" to LiteLLM (it exits on that too),
+        # so the variable is exported only in cases 1 and 2.
+        if [ -n "$${LITELLM_DATABASE_URL:-}" ]; then
+          export DATABASE_URL="$${LITELLM_DATABASE_URL}"
+        elif python -c "import socket; socket.gethostbyname('langfuse-postgres')" 2>/dev/null; then
+          export DATABASE_URL="postgresql://langfuse:langfuse@langfuse-postgres:5432/litellm"
+        else
+          echo "litellm-proxy: langfuse-postgres is not running and LITELLM_DATABASE_URL is unset — starting without a database (admin UI login disabled)." >&2
+        fi
+        if [ -n "$${DATABASE_URL:-}" ]; then
+          # Lets the UI persist model config instead of being read-only against config.yaml.
+          export STORE_MODEL_IN_DB="$${LITELLM_STORE_MODEL_IN_DB:-True}"
+        fi
         exec /app/docker/prod_entrypoint.sh --config /app/config.yaml --port 4000
     ports:
       - "${LITELLM_PORT:-4000}:4000"
@@ -283,19 +306,14 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - LANGFUSE_OTEL_HOST=${LANGFUSE_INTERNAL_URL:-http://langfuse-web:3000}
       - OTEL_SERVICE_NAME=litellm-gateway-demo
-      # The LiteLLM admin UI (/ui) authenticates against its own Postgres — without
-      # DATABASE_URL every login fails with "Authentication Error, Not connected to
-      # DB!". Reuses the Langfuse stack's Postgres via a separate `litellm` database
-      # so no Langfuse table is touched. Startup runs prisma migrations (~30-60s on
-      # first boot), which is why the healthcheck start_period is generous.
-      - DATABASE_URL=${LITELLM_DATABASE_URL:-postgresql://langfuse:langfuse@langfuse-postgres:5432/litellm}
-      # Lets the UI persist model config instead of being read-only against config.yaml.
-      - STORE_MODEL_IN_DB=${LITELLM_STORE_MODEL_IN_DB:-True}
+      # DATABASE_URL / STORE_MODEL_IN_DB are chosen at startup in `command` above,
+      # because whether a Postgres exists depends on the deploy mode.
     # No depends_on for langfuse-postgres on purpose: it lives in the `langfuse`
     # profile, and run_demo.sh starts this service with `--profile demo` alone —
     # a cross-profile depends_on makes Compose reject the project outright
-    # ("depends on undefined service"). setup.sh brings the Langfuse stack up
-    # first, so Postgres is already running by the time this starts.
+    # ("depends on undefined service"). In self-hosted mode setup.sh brings the
+    # Langfuse stack up first; in cloud mode it never runs, and `command` above
+    # starts the proxy without a database instead.
     profiles:
       - demo
     volumes:
@@ -305,8 +323,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      # Generous: the first boot with DATABASE_URL set runs prisma migrations before
-      # the server binds :4000.
+      # Generous: a boot with a database runs prisma migrations before the server
+      # binds :4000.
       start_period: 120s
 
   # =============================================================================

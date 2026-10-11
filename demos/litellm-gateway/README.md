@@ -123,16 +123,22 @@ logs, virtual keys, teams and budgets. Log in with username `admin` and the
 
 The UI authenticates against LiteLLM's **own** Postgres database. Without
 `DATABASE_URL` every login fails with `Authentication Error, Not connected to
-DB!`, so the service points at a separate `litellm` database on the Langfuse
-stack's Postgres (no Langfuse table is touched):
+DB!`. The service picks its database at startup:
 
-```bash
-docker exec langfuse-postgres psql -U langfuse -d langfuse -c "CREATE DATABASE litellm"
-```
+| situation | database | admin UI |
+|---|---|---|
+| `LITELLM_DATABASE_URL` set in `.env` | that one | works |
+| self-hosted — `langfuse-postgres` running | a separate `litellm` database on it (no Langfuse table is touched) | works |
+| cloud mode — no local Postgres | none | login fails; proxying and tracing still work |
 
-Prisma migrations run on first boot and take ~30-60s before `:4000` binds, which
-is why the healthcheck uses a long `start_period`. Override the connection with
-`LITELLM_DATABASE_URL` if you would rather use a separate Postgres.
+LiteLLM creates the `litellm` database itself on first boot, so there is nothing
+to create by hand. Prisma migrations then take ~30-60s before `:4000` binds,
+which is why the healthcheck uses a long `start_period`.
+
+The database is never set unconditionally because the proxy **exits at boot**
+when `DATABASE_URL` points at a Postgres it cannot reach, which would take the
+whole gateway demo down in cloud mode, not just the UI. In cloud mode, set
+`LITELLM_DATABASE_URL` to a Postgres you run if you want the UI.
 
 ## What is configured
 
