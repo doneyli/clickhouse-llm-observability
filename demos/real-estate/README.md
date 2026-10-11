@@ -228,7 +228,10 @@ data/personas.py         7 personas, each difficult in ONE named way
 agent/concierge.py       is_final_turn=True ──▶ `conversation_end` tag (propagated)
                                             └▶ `conversation-snapshot` observation
                                                = the ONE observation a managed
-                                                 conversation judge can match
+                                                 conversation judge can match —
+                                                 selected by its metadata
+                                                 `langfuse_eval_target`, never
+                                                 by its name
 ```
 
 - **`stated-constraint-respected`** and **`reference-resolved`** are produced by all

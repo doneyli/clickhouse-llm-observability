@@ -52,10 +52,11 @@ The old script skipped any rule whose name already existed, and said so:
 "this 'already present' check skips a rule whose FILTER has drifted. It will
 not repair one." That bit us. On 2026-09-03 the live `stated-constraint-respected`
 rule was edited to filter on `metadata.langfuse_eval_target =
-conversation-transcript`; the agent never writes that key (its snapshot
-observations come back with empty metadata), so the judge matched nothing and
-scored nothing for the next 20 days, silently. The seeder could not have fixed
-it.
+conversation-transcript` while the code that writes that key was still
+unmerged (its snapshot observations on `main` came back with empty metadata),
+so the judge matched nothing and scored nothing for the next 20 days, silently.
+The seeder could not have fixed it. The rule filters on that key again now, but
+only because the emitter reached `main` first (#77).
 
 So this module RECONCILES: if a rule exists but its filter, assignments,
 sampling or enabled flag differ from what the demo needs, it PATCHes it back
@@ -117,7 +118,10 @@ def info(msg: str) -> None:
 # reply-level judges run on that root observation: input={"query"}, output=the
 # final answer.
 TRACE_NAME = "handle-concierge-chat-message"
-SNAPSHOT_NAME = "conversation-snapshot"  # keep in sync with agent/concierge.py
+# The conversation judge's selector. Keep in sync with EVAL_TARGET_KEY /
+# EVAL_TARGET_CONVERSATION in agent/concierge.py.
+EVAL_TARGET_KEY = "langfuse_eval_target"
+EVAL_TARGET_CONVERSATION = "conversation-transcript"
 
 # Shared by both Langfuse-template judges. 1 = good, consistent with the code
 # and custom scores in this demo. (We deliberately do not seed the built-in
@@ -183,13 +187,19 @@ Think step by step."""
 # CONVERSATION hold together", because an observation-level evaluator sees ONLY
 # the observation it matched — not siblings, not children. So this is a custom
 # evaluator whose single variable is the whole transcript, wired to the
-# `conversation-snapshot` observation the agent emits on the final turn.
+# snapshot observation the agent emits on the final turn.
 #
 # Two deliberate differences from the rules above:
-#   * Filtered by observation `name`, NOT `isRootObservation` — the snapshot is
-#     a CHILD of the root span, so the root filter would never match it. That
-#     makes this rule name-coupled: rename SNAPSHOT_NAME without updating it
-#     here and the judge goes quiet with no error anywhere.
+#   * Selected by observation METADATA, not `isRootObservation` — the snapshot
+#     is a CHILD of the root span, so the root filter would never match it.
+#     Not by `name` either: a name filter couples a display name to a live
+#     rule, so a rename silences the judge with no error anywhere. The agent
+#     stamps `langfuse_eval_target = conversation-transcript` on the snapshot
+#     purely as this rule's selector. `metadata` is a `stringObject` filter
+#     column: {type, column, key, operator, value}, string operators only.
+#     The emitter shipped first (#77) and this filter second, never the other
+#     way round; see the module docstring for what happened the one time the
+#     order was reversed.
 #   * The metric is named after the failure it detects, not a generic quality
 #     word. Langfuse's own eval guidance is explicit that helpfulness /
 #     relevance / task-completion style names are hard to act on.
@@ -272,8 +282,8 @@ JUDGES = [
             "filter": [
                 {"type": "stringOptions", "column": "traceName", "operator": "any of",
                  "value": [TRACE_NAME]},
-                {"type": "stringOptions", "column": "name", "operator": "any of",
-                 "value": [SNAPSHOT_NAME]},
+                {"type": "stringObject", "column": "metadata", "key": EVAL_TARGET_KEY,
+                 "operator": "=", "value": EVAL_TARGET_CONVERSATION},
             ],
         },
     },
@@ -489,9 +499,10 @@ UI_FALLBACK = """
     3. Evaluators > + New evaluator > LLM-as-a-Judge (blank, NOT a template) —
        name 'stated-constraint-respected', one variable {{{{transcript}}}},
        numeric score, mapping transcript -> input ($.transcript). Rule filter:
-       traceName any of [{trace}] AND name any of [{snapshot}]. This is the
-       conversation-level judge: it runs once per conversation, on the snapshot
-       observation the agent emits on the final turn.
+       traceName any of [{trace}] AND Metadata key '{key}' = '{value}' (not
+       the observation name). This is the conversation-level judge: it runs
+       once per conversation, on the snapshot observation the agent emits on
+       the final turn.
 
   Tip: the sample-observation panel on the right of the editor runs the judge
   against real traffic before you save it — worth using on step 3.
@@ -537,7 +548,7 @@ def main() -> int:
              "API — run this script against localhost so it seeds Postgres, "
              "or upgrade the server to v4.")
         print(UI_FALLBACK.format(project=project, trace=TRACE_NAME,
-                                 snapshot=SNAPSHOT_NAME))
+                                 key=EVAL_TARGET_KEY, value=EVAL_TARGET_CONVERSATION))
         return 0
 
     info(f"{len(evaluators)} evaluator(s), {len(rules)} rule(s) already in the project")
@@ -555,7 +566,7 @@ def main() -> int:
 
     if failed:
         print(UI_FALLBACK.format(project=project, trace=TRACE_NAME,
-                                 snapshot=SNAPSHOT_NAME))
+                                 key=EVAL_TARGET_KEY, value=EVAL_TARGET_CONVERSATION))
     elif not args.dry_run:
         print()
         print("  Judges score NEW traffic automatically (allow a few minutes).")

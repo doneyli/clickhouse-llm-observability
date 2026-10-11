@@ -67,18 +67,13 @@ SNAPSHOT_NAME = "conversation-snapshot"
 # live evaluation rule in the worst way: rename the observation and the judge stops
 # firing, edit the rule and it stops matching the code, with no error either way.
 #
-# ⚠️ EMITTED BUT NOT YET CONSUMED — the coupling is still there. The live
-# conversation rule continues to filter on `name any of [conversation-snapshot]`,
-# so **renaming SNAPSHOT_NAME still silently stops the judge**. Do not treat the
-# name as cosmetic until a rule actually filters on this metadata.
-#
-# The filter that would consume it is
-# `metadata.langfuse_eval_target = conversation-transcript` — a `stringObject`
+# The `stated-constraint-respected` rule filters on exactly this pair:
+# `metadata.langfuse_eval_target = conversation-transcript`, a `stringObject`
 # filter ({type, column, key, operator, value}) on the observation `metadata`
-# column, valid on Cloud and on self-hosted 3.221.1. It is NOT in
-# scripts/seed_managed_evaluators.sh: that script's Cloud branch talks to
-# /api/public/unstable/evaluation-rules, which now returns 404, so the filter
-# belongs with the v2-API Cloud seeder instead.
+# column (see scripts/seed_managed_evaluators_cloud.py). SNAPSHOT_NAME is
+# therefore cosmetic and safe to rename. These two values are not: change either
+# and the judge silently matches nothing, so change the seeder in the same commit
+# and re-run it to reconcile the live rule.
 #
 # A short scalar is exactly what metadata is for; the "coerced and capped" caveat
 # above applies only to putting the TRANSCRIPT there. The transcript stays on the
@@ -418,13 +413,10 @@ def run_turn(
             # re-judges an ever-longer transcript N times and the cost scales
             # quadratically. This fires once.
             #
-            # A rule on this observation currently MUST filter by `name` (unlike
-            # the seeded per-turn rules, which filter on `isRootObservation`
-            # precisely so a rename cannot silently break them). That drift risk
-            # is real here: renaming SNAPSHOT_NAME without updating the rule stops
-            # the judge firing with no error anywhere. The EVAL_TARGET_* metadata
-            # below is emitted so a rule CAN stop depending on the name — see the
-            # constants; nothing filters on it yet.
+            # The rule finds this observation by its EVAL_TARGET_* metadata, not
+            # by `name`, for the same reason the per-turn rules use
+            # `isRootObservation`: a rename must not be able to silently break a
+            # judge. See the constants.
             if is_final_turn:
                 transcript = history + [{"role": "user", "content": query},
                                         {"role": "assistant", "content": final_text}]

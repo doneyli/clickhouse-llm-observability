@@ -126,10 +126,11 @@ export const COLLAPSED_GENERATION_NAME = "generate-response";
  * worst way — rename the observation and the judge silently stops firing; edit
  * the rule and it silently stops matching the code, with no error on either side.
  *
- * ⚠️ Emitted but not yet consumed: no rule filters on this today, so
- * SNAPSHOT_NAME above is NOT yet cosmetic. The filter that would consume it is
+ * This project has no managed conversation rule today. If you add one, filter on
  * `metadata.langfuse_eval_target = conversation-transcript` (a `stringObject`
- * filter on the observation `metadata` column).
+ * filter on the observation `metadata` column), not on SNAPSHOT_NAME. That is
+ * the same selector the real-estate demo's `stated-constraint-respected` rule
+ * uses, live.
  *
  * Only the short selector goes in metadata — the transcript itself stays on the
  * observation input, because metadata values are coerced to strings and capped,
@@ -269,7 +270,7 @@ async function runTurnInstrumentedWell(
           const snapshot = startObservation(SNAPSHOT_NAME, {
             input: { transcript, turns: transcript.length / 2 },
             output: answer,
-            // Selector for a conversation-level rule (nothing filters on it yet).
+            // What a conversation-level rule matches on — never the name. See EVAL_TARGET_KEY.
             metadata: { [EVAL_TARGET_KEY]: EVAL_TARGET_CONVERSATION },
           });
           snapshot.end();
