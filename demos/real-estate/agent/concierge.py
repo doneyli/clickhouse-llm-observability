@@ -62,19 +62,26 @@ TRACE_NAME = "handle-concierge-chat-message"
 CONVERSATION_END_TAG = "conversation_end"
 SNAPSHOT_NAME = "conversation-snapshot"
 
-# How the managed conversation-level rule FINDS the snapshot. It used to match on
-# SNAPSHOT_NAME, which coupled a display name to a live evaluation rule in the
-# worst way: renaming the observation silently stopped the judge, and editing the
-# rule silently stopped matching the code — no error on either side.
+# A purpose-built selector for a conversation-level rule to match on, so that the
+# rule need not match SNAPSHOT_NAME. Matching by name couples a display name to a
+# live evaluation rule in the worst way: rename the observation and the judge stops
+# firing, edit the rule and it stops matching the code, with no error either way.
 #
-# This is an explicit, purpose-built selector instead. It is a stable contract
-# with the rule, not a label for humans, so it is safe to rename SNAPSHOT_NAME.
-# The rule's filter is `metadata.langfuse_eval_target = conversation-transcript`
-# (a `stringObject` filter on the observation `metadata` column) — see
-# scripts/seed_managed_evaluators.sh, which reads both constants below.
+# ⚠️ EMITTED BUT NOT YET CONSUMED — the coupling is still there. The live
+# conversation rule continues to filter on `name any of [conversation-snapshot]`,
+# so **renaming SNAPSHOT_NAME still silently stops the judge**. Do not treat the
+# name as cosmetic until a rule actually filters on this metadata.
 #
-# A short scalar is exactly what metadata is for; the caveat above applies only to
-# putting the TRANSCRIPT there (it would be clipped). The transcript stays on the
+# The filter that would consume it is
+# `metadata.langfuse_eval_target = conversation-transcript` — a `stringObject`
+# filter ({type, column, key, operator, value}) on the observation `metadata`
+# column, valid on Cloud and on self-hosted 3.221.1. It is NOT in
+# scripts/seed_managed_evaluators.sh: that script's Cloud branch talks to
+# /api/public/unstable/evaluation-rules, which now returns 404, so the filter
+# belongs with the v2-API Cloud seeder instead.
+#
+# A short scalar is exactly what metadata is for; the "coerced and capped" caveat
+# above applies only to putting the TRANSCRIPT there. The transcript stays on the
 # observation input, which is not capped.
 EVAL_TARGET_KEY = "langfuse_eval_target"
 EVAL_TARGET_CONVERSATION = "conversation-transcript"
@@ -411,12 +418,13 @@ def run_turn(
             # re-judges an ever-longer transcript N times and the cost scales
             # quadratically. This fires once.
             #
-            # The rule finds this observation by its `langfuse_eval_target`
-            # metadata, NOT by `name` (the seeded per-turn rules use
-            # `isRootObservation` for the same reason: a rename must not be able
-            # to silently break a judge). The name below is therefore free to
-            # change; EVAL_TARGET_* is the contract with the rule, and
-            # scripts/seed_managed_evaluators.sh reads both constants.
+            # A rule on this observation currently MUST filter by `name` (unlike
+            # the seeded per-turn rules, which filter on `isRootObservation`
+            # precisely so a rename cannot silently break them). That drift risk
+            # is real here: renaming SNAPSHOT_NAME without updating the rule stops
+            # the judge firing with no error anywhere. The EVAL_TARGET_* metadata
+            # below is emitted so a rule CAN stop depending on the name — see the
+            # constants; nothing filters on it yet.
             if is_final_turn:
                 transcript = history + [{"role": "user", "content": query},
                                         {"role": "assistant", "content": final_text}]

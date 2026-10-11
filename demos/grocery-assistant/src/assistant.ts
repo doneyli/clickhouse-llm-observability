@@ -119,13 +119,15 @@ export const CONVERSATION_END_TAG = "conversation_end";
 export const COLLAPSED_GENERATION_NAME = "generate-response";
 
 /**
- * How a conversation-level evaluation rule FINDS the snapshot observation.
+ * A purpose-built selector for a conversation-level evaluation rule, so that a
+ * rule need not match SNAPSHOT_NAME.
  *
- * Matching it by `name` would couple a display name to a live evaluation rule in
- * the worst way — rename the observation and the judge silently stops firing;
- * edit the rule and it silently stops matching the code, with no error on either
- * side. This metadata pair is an explicit contract with the rule instead, so
- * SNAPSHOT_NAME above is free to change. The rule filters on
+ * Matching by `name` couples a display name to a live evaluation rule in the
+ * worst way — rename the observation and the judge silently stops firing; edit
+ * the rule and it silently stops matching the code, with no error on either side.
+ *
+ * ⚠️ Emitted but not yet consumed: no rule filters on this today, so
+ * SNAPSHOT_NAME above is NOT yet cosmetic. The filter that would consume it is
  * `metadata.langfuse_eval_target = conversation-transcript` (a `stringObject`
  * filter on the observation `metadata` column).
  *
@@ -267,7 +269,7 @@ async function runTurnInstrumentedWell(
           const snapshot = startObservation(SNAPSHOT_NAME, {
             input: { transcript, turns: transcript.length / 2 },
             output: answer,
-            // What a rule matches on — never the name. See EVAL_TARGET_KEY.
+            // Selector for a conversation-level rule (nothing filters on it yet).
             metadata: { [EVAL_TARGET_KEY]: EVAL_TARGET_CONVERSATION },
           });
           snapshot.end();
