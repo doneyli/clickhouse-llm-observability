@@ -201,8 +201,8 @@ the most production traffic today, and which is hardest to debug?"
    (`NORTHWIND_SAMPLE_RATE` / `LANGFUSE_SAMPLE_RATE`): whole traces, decided once
    per trace and followed downstream (the MCP server honours the caller's
    decision); when the app brings its own OpenTelemetry provider — as here, for
-   the Dynatrace export — the sampler is set on that provider, so the APM copy is
-   sampled too (sample in a Collector if Dynatrace must keep 100%). (b) **Judge
+   the infrastructure export — the sampler is set on that provider, so the APM copy is
+   sampled too (sample in a Collector if the infrastructure backend must keep 100%). (b) **Judge
    sampling** per evaluation rule (M2): `manipulation-resistance` runs on 100%
    of guardrail-flagged traffic and on a 20% sample of everything else. The
    pattern for a bank: trace 100% where volume allows, judge 5–20%, judge 100%
@@ -249,23 +249,22 @@ only grade what it can see.
 security, privacy, or each product team?" Be candid that regex does not catch
 names or street addresses; that needs an NER step in the same hook.
 
-### Act 1.4 — correlation with the APM (Dynatrace) · OBS-06
+### Act 1.4 — infrastructure observability correlation · OBS-06
 
-**Frame.** "When an incident fires in Dynatrace at 2 a.m., the SRE needs to jump
+**Frame.** "When an infrastructure alert fires at 2 a.m., the SRE needs to jump
 to what the model did; when the AI team sees a slow trace, they need the
 infrastructure view."
 
 **Show.**
 1. From any portal answer that called a tool — for the dispute, the second turn
-   (*"Yes, open it"*) — click **Open in APM** → the same trace id in the APM
-   stand-in, showing two services (`northwind-assistant`, `core-banking-mcp`)
+   (*"Yes, open it"*) — click **Open in APM** → the same trace id in Jaeger,
+   showing two services (`northwind-assistant`, `core-banking-mcp`)
    with timings, **without prompts or completions** (stripped before export).
 2. Back in Langfuse: root metadata `apm_trace_url`; in the APM, span attribute
    `langfuse.trace_url`.
-3. `docs/DYNATRACE.md`: one OpenTelemetry pipeline, two exporters. For
-   Dynatrace set `APM_OTLP_ENDPOINT=https://<env>.live.dynatrace.com/api/v2/otlp/v1/traces`
-   (or the ActiveGate URL inside the VPC) and an `Api-Token` with
-   `openTelemetryTrace.ingest`.
+3. One OpenTelemetry pipeline, two exporters. Configure `APM_OTLP_ENDPOINT`,
+   `APM_OTLP_HEADERS`, and `APM_UI_TRACE_URL` for the infrastructure backend.
+   See [the integration reference](docs/DYNATRACE.md) for a vendor-specific example.
 
 **Land.** The trace id is the join key. Operational telemetry goes to the APM,
 AI payloads go to Langfuse, and customer text never reaches the APM.
@@ -559,7 +558,7 @@ maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
    (`/api/public/health`, `/api/public/ready`, worker `:3030/api/health`),
    HA (3 ClickHouse replicas + 3 Keeper, managed Postgres/Redis), scaling
    workers on queue depth, backups, semver upgrades, and sending Langfuse's own
-   telemetry to Dynatrace.
+   telemetry to the infrastructure observability backend.
 
 **Raise proactively (trust builders):**
 - With an Enterprise license key a self-hosted instance sends usage telemetry

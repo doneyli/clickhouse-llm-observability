@@ -1,13 +1,13 @@
 # Northwind Bank (fictional) — "bank-in-a-box"
 #
-# Default (`docker compose up -d`): n8n + the APM stand-in only; the demo uses a
+# Default (`docker compose up -d`): n8n + infrastructure observability; the demo uses a
 # Langfuse CLOUD project. `--profile selfhosted` additionally starts a full
 # self-hosted Langfuse v4 Enterprise stack on :3100 — the POC starting point.
 #
 # Self-hosted Langfuse v4 with the Enterprise license, plus the pieces a bank's
 # AI platform team plugs into it: an n8n instance (low-code), an MCP server
-# fronting core banking, and an OpenTelemetry APM stand-in (Jaeger) playing the
-# role of Dynatrace. Everything runs inside one Docker network with telemetry
+# fronting core banking, and Jaeger for infrastructure observability through
+# OpenTelemetry. Everything runs inside one Docker network with telemetry
 # off — the same "no egress" posture a regulated VPC imposes.
 #
 # Based on the official compose file for langfuse v4.53.0
@@ -192,10 +192,10 @@ services:
       timeout: 3s
       retries: 10
 
-  # ── APM stand-in for Dynatrace (OBS-06) ────────────────────────────────────
+  # ── Infrastructure observability (Jaeger, OBS-06) ─────────────────────────
   # Receives the SAME OpenTelemetry spans (same trace id) the app sends to
-  # Langfuse. Swap for Dynatrace by pointing APM_OTLP_ENDPOINT at
-  # https://<env-id>.live.dynatrace.com/api/v2/otlp/v1/traces (see docs/DYNATRACE.md).
+  # Langfuse. Configure APM_OTLP_ENDPOINT for another OTLP backend.
+  # Vendor integration example: docs/DYNATRACE.md.
   jaeger:
     image: jaegertracing/jaeger:2.22.0
     restart: always

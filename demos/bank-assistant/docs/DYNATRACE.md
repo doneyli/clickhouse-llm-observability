@@ -3,7 +3,7 @@
 **What this covers:** how the demo puts the same W3C trace id in Langfuse and in an APM, the Dynatrace endpoints and tokens to use (including the no-egress ActiveGate option), the collector alternative and its trap, monitoring Langfuse itself, and alerting and cross-linking.
 **Capability IDs:** OBS-06 (APM correlation); supports OBS-04 (cross-process MCP traces), ENT-03 (no customer text to the APM), GATE-03, GATE-04.
 
-Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](https://docs.dynatrace.com/docs/ingest-from/opentelemetry/getting-started/otlp-export) and [Events API v2](https://docs.dynatrace.com/docs/dynatrace-api/environment-api/events-v2/post-event) pages. Locally, **Jaeger stands in for Dynatrace** (`../docker-compose.yml`, UI `http://localhost:16686`, OTLP `http://localhost:14318/v1/traces`).
+Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](https://docs.dynatrace.com/docs/ingest-from/opentelemetry/getting-started/otlp-export) and [Events API v2](https://docs.dynatrace.com/docs/dynatrace-api/environment-api/events-v2/post-event) pages. **Jaeger provides local infrastructure observability** (`../docker-compose.yml`, UI `http://localhost:16686`, OTLP `http://localhost:14318/v1/traces`). This guide documents Dynatrace as a production integration example.
 
 ## 1. Division of labour
 
@@ -24,7 +24,7 @@ Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](ht
    AI spans, PII-masked via mask_otel_spans    ALL spans, prompt/completion
    (SDK-side root and app-root handling)       attributes STRIPPED + langfuse.trace_url
                  |                                    |
-             Langfuse                         Dynatrace (local demo: Jaeger)
+             Langfuse                         APM (local: Jaeger)
 ```
 
 The implementation is in `../northwind/config.py`:

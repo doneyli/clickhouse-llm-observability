@@ -101,7 +101,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
         <div class="col"><h3>1 · Observability</h3><ul>
           <li>Pro-code trace end to end <span class="tag l">live</span></li><li>n8n low-code <span class="tag l">live</span></li>
           <li>RAG context + sources <span class="tag l">live</span></li><li>Tools, MCP, iterations <span class="tag l">live</span></li>
-          <li>Tokens, latency, cost <span class="tag l">live</span></li><li>Dynatrace by trace ID <span class="tag s">stand-in</span></li>
+          <li>Tokens, latency, cost <span class="tag l">live</span></li><li>Infrastructure trace ID <span class="tag l">live</span></li>
           <li>Voice, PII masking, sessions <span class="tag l">live</span></li></ul></div>
         <div class="col"><h3>2 · Evaluation</h3><ul>
           <li>Faithfulness, correctness <span class="tag l">live</span></li><li>Your own bank evaluator <span class="tag l">live</span></li>
@@ -120,7 +120,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
           <li>Operation, resilience <span class="tag d">docs</span></li><li>Business value + TCO <span class="tag l">live</span></li>
           <li>Story arc: business issues found and fixed <span class="tag l">live</span></li></ul></div>
       </div>
-      <div class="foot"><span>Northwind Bank is fictional · all data synthetic</span><span>English + Spanish</span><span>live = running software · stand-in = Jaeger for Dynatrace · docs/config = walkthrough</span></div>
+      <div class="foot"><span>Northwind Bank is fictional · all data synthetic</span><span>English + Spanish</span><span>live = running software · docs/config = walkthrough</span></div>
     </div>
     <button class="present" type="button" data-target="sA">Present Slide A full screen</button>
   </section>
@@ -132,7 +132,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
       <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f" target="_blank" rel="noopener"><b>Langfuse project</b><span>northwind-bank-assistant</span></a>
       <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuzijcgx04bead0iw7s6tpgk" target="_blank" rel="noopener"><b>Business value dashboard</b><span>value, containment, failure modes, by version</span></a>
       <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/dashboards/cmuz2p34r05e2ad0ec9otchz3" target="_blank" rel="noopener"><b>Quality &amp; cost dashboard</b><span>judges, feedback, risk, cost, latency</span></a>
-      <a href="http://localhost:16686" target="_blank" rel="noopener"><b>Jaeger (Dynatrace stand-in)</b><span>localhost:16686</span></a>
+      <a href="http://localhost:16686" target="_blank" rel="noopener"><b>Jaeger (infrastructure observability)</b><span>localhost:16686</span></a>
       <a href="http://localhost:5678" target="_blank" rel="noopener"><b>n8n</b><span>localhost:5678 · Complaint triage</span></a>
       <a href="https://github.com/doneyli/clickhouse-llm-observability/actions/workflows/northwind-prompt-gate.yml" target="_blank" rel="noopener"><b>CI gate (GitHub Actions)</b><span>red: #37786226009 · green: #37786230303</span></a>
     </div>
@@ -186,7 +186,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
       <li><span class="do">Tokens, cost, latency.</span><span class="click">Trace header · then Quality &amp; cost dashboard</span><span class="ids">OBS-05</span></li>
       <li><span class="do">PII masking.</span><span class="click">Chip "Card number 4111…" → trace input shows [REDACTED_CARD]</span><span class="say">"Redacted before it leaves the process, in English and Spanish."</span><span class="click">Known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/b9ff0aae6166729d9e698df9381c2c6f" target="_blank" rel="noopener">English</a> (card → [REDACTED_CARD], warning shown, 0 raw digits in 18 observations) · <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener">Spanish</a></span><span class="note">Older English trace <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e" target="_blank" rel="noopener">752a3cfc…</a> (judge gave it faithfulness 0.0 because it only sees the redacted card — a calibration talking point)</span><span class="ids">ENT-03</span></li>
       <li><span class="do">n8n low-code.</span><span class="click">Presenter console → Run n8n complaint workflow → traces named n8n-complaint-triage</span><span class="say">"n8n's own spans and the LLM calls with tokens and cost, joined in one trace."</span><span class="click">Known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/590a04e746bcd4ce87d7c58f6c37ab98" target="_blank" rel="noopener">n8n trace</a></span><span class="ids">OBS-02</span></li>
-      <li><span class="do">APM correlation.</span><span class="click">Portal answer → Open in APM → same trace id in Jaeger, no prompt text</span><span class="say">"For Dynatrace it's one endpoint and one token. The trace id is the join key."</span><span class="click">Known-good: <a href="http://localhost:16686/trace/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener">Jaeger trace</a> (use the dispute's second turn, "Yes, open it", or a balance question to show two services)</span><span class="ids">OBS-06</span></li>
+      <li><span class="do">Infrastructure correlation.</span><span class="click">Portal answer → Open in APM → same trace id in Jaeger, no prompt text</span><span class="say">"The trace id links the AI and infrastructure views. OpenTelemetry carries the operational spans."</span><span class="click">Known-good: <a href="http://localhost:16686/trace/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener">Jaeger trace</a> (use the dispute's second turn, "Yes, open it", or a balance question to show two services)</span><span class="ids">OBS-06</span></li>
       <li><span class="do">Voice + sessions/users/tags.</span><span class="click">Portal → Voice → play a call → Process call → trace with audio · then Sessions, Users, tag filters · known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/315deeb8069623f961c8a10d0a7b0af4" target="_blank" rel="noopener">English call</a> · <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a07539a9adfb5e35128d3ee06a70c48c" target="_blank" rel="noopener">Spanish call</a></span><span class="ids">multi-modal · sessions · environments</span></li>
     </ol></div>
 
@@ -231,10 +231,10 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
     <h2>Requirements matrix</h2>
     <div class="summary">
       <div><b>20</b><span class="pill live">live</span> shown on running software · plus 1 live if enabled (ENT-02, Audit logs)</div>
-      <div><b>1</b><span class="pill stand">live · stand-in</span> Jaeger in place of Dynatrace</div>
+      <div><b>1</b><span class="pill live">live</span> Infrastructure observability in Jaeger</div>
       <div><b>6</b><span class="pill docs">docs / oral</span> config walkthrough or documentation</div>
     </div>
-    <div class="legend"><span><span class="pill live">live</span> running in the demo</span><span><span class="pill stand">stand-in</span> same mechanism, local substitute</span><span><span class="pill docs">docs / oral</span> point to documentation or explain</span></div>
+    <div class="legend"><span><span class="pill live">live</span> running in the demo</span><span><span class="pill docs">docs / oral</span> point to documentation or explain</span></div>
     <div class="tablewrap"><table>
       <thead><tr><th>ID</th><th>Requirement</th><th>Status</th><th>How / where</th></tr></thead>
       <tbody>
@@ -244,7 +244,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
         <tr><td class="id">OBS-03</td><td>RAG, context and sources</td><td><span class="pill live">live</span></td><td>kb-retrieval documents, sources, scores · Block 1.3</td></tr>
         <tr><td class="id">OBS-04</td><td>Tools, MCP, agent iterations</td><td><span class="pill live">live</span></td><td>MCP server spans in the same trace · Block 1.2</td></tr>
         <tr><td class="id">OBS-05</td><td>Tokens, latency, cost</td><td><span class="pill live">live</span></td><td>Per generation, trace, user; dashboards · Block 1.4</td></tr>
-        <tr><td class="id">OBS-06</td><td>Correlation with Dynatrace</td><td><span class="pill stand">stand-in</span></td><td>Same trace id in Jaeger; Dynatrace = OTLP endpoint + token (docs/DYNATRACE.md) · Block 1.7</td></tr>
+        <tr><td class="id">OBS-06</td><td>Infrastructure correlation</td><td><span class="pill live">live</span></td><td>Same trace id in Jaeger; vendor integration example in docs/DYNATRACE.md · Block 1.7</td></tr>
         <tr class="group"><td colspan="4">2 · Evaluation</td></tr>
         <tr><td class="id">EVA-01</td><td>Faithfulness / groundedness</td><td><span class="pill live">live</span></td><td>Managed judge on every production turn · Block 2.1</td></tr>
         <tr><td class="id">EVA-02</td><td>Correctness / factuality</td><td><span class="pill live">live</span></td><td>Judge vs expected output + must-include facts · Block 2.3</td></tr>

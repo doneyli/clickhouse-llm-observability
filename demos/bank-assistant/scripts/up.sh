@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start local services: n8n + APM stand-in (default), or add the self-hosted
+# Start local services: n8n + infrastructure observability (default), or add the self-hosted
 # Langfuse EE stack with --selfhosted.
 # The Enterprise license key is read at runtime from the repo-root .env, so it
 # is never copied into this demo's files.

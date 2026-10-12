@@ -185,7 +185,7 @@ Stop this demo's containers with `docker compose --profile selfhosted stop`.
 | SSO, RBAC, audit, retention, and export | [Enterprise security](docs/ENTERPRISE_SECURITY.md) |
 | Capacity, availability, backups, and upgrades | [Operations](docs/OPERATIONS.md) |
 | Production gates, cost, and adoption | [Path to production](docs/PATH_TO_PRODUCTION.md) |
-| APM correlation | [Dynatrace](docs/DYNATRACE.md) |
+| Infrastructure observability | [APM integration example](docs/DYNATRACE.md) |
 | Java instrumentation | [Spring AI](docs/SPRING_AI.md) |
 
 ## Limits

@@ -127,7 +127,7 @@ line(OK if config.OPENAI_API_KEY else WARN, "OpenAI API key",
 print(f"        agent model: {config.AGENT_MODEL} · judge model: {config.JUDGE_MODEL}", flush=True)
 
 # 6. Local platform
-for name, url in (("Jaeger UI (APM stand-in)", "http://localhost:16686"),
+for name, url in (("Infrastructure observability (Jaeger)", "http://localhost:16686"),
                   ("n8n", "http://localhost:5678")):
     ok, detail = http_ok(url)
     line(OK if ok else WARN, name, f"{url} {detail}")

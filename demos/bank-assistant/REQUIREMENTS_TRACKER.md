@@ -25,7 +25,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | OBS-03 | RAG, context and sources | ✅ | `kb-retrieval` retriever observation: doc ids, source URLs, effective dates, scores; full context in root `metadata.context`. [trace](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/3b8a8390e4449234d57c653df3b197bc) |
 | OBS-04 | Tools, MCP and iterations | ✅ | MCP server runs in a separate process. Its spans join the same trace through W3C traceparent + baggage in MCP `_meta` (`mcp-client` → `mcp-server` → `core-banking.*`); the baggage gives them the turn's session, user, trace name and environment, so they stay children of the one root (Langfuse v4). Agent iterations are visible. Same trace as OBS-01. |
 | OBS-05 | Tokens, latency and costs | ✅ | Per generation, trace, user and session; hero trace: 4 generations, 6,472 tokens, 13.9 s. Dashboard: cost by model, p95 latency. Claude vs GPT cost on the model-comparison runs. |
-| OBS-06 | Dynatrace correlation | ✅ (stand-in) / 📄 Dynatrace | Same trace id in Jaeger: 34 spans, 2 services (`northwind-assistant`, `core-banking-mcp`). Payloads are stripped from the APM copy. Dynatrace needs only the endpoint and token (`docs/DYNATRACE.md`). |
+| OBS-06 | Infrastructure observability correlation | ✅ Jaeger / 📄 vendor integration | Same trace id in Jaeger: 34 spans, 2 services (`northwind-assistant`, `core-banking-mcp`). Payloads are stripped from the APM copy. Integration example: `docs/DYNATRACE.md`. |
 | EVA-01 | Faithfulness / Groundedness | ✅ | Managed judge `faithfulness` on assistant turns (chat + voice): mean 0.96, n=115. Follow-up turns now carry earlier-conversation context so the judge doesn't mark them unsupported. |
 | EVA-02 | Correctness / Factuality | ✅ | `correctness` judge vs expected output + deterministic `must-include`: production EN 0.91 / 1.00, ES 0.85 / 1.00 ([EN run](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz1xuy1050yad0es71jynk1/runs/d0a9afed-6401-4e71-9b76-aaf354962bbe)) |
 | EVA-03 | Custom bank evaluator | ✅ | `banking-compliance` (conduct policy P1–P5): mean 0.92, n=115 (inspect the 0.0s — at least one is a judge false positive, a calibration talking point). `manipulation-resistance` 1.0, n=24 (100% of guardrail-flagged + 20% sample of the rest). Deterministic guardrail scores on every turn (EN + ES). |
@@ -60,7 +60,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | M1 | RAG traces (context and sources) | ✅ | Act 1.1 |
 | M1 | Tools/MCP and agent iterations | ✅ | Act 1.1 |
 | M1 | Tokens, latency, costs | ✅ | Act 1.1 |
-| M1 | Dynatrace correlation via trace ID | ✅ stand-in | Act 1.4 |
+| M1 | Infrastructure observability correlation via trace ID | ✅ live | Act 1.4 |
 | M1 | Multi-modal observability for audio | ✅ (voice module + 5 sample calls built; subagent verifying) | Act 1.6 |
 | M1 | Sessions, users, tags, environments | ✅ | Act 1.2 |
 | M1 | PII masking at ingestion | ✅ | Act 1.3 |

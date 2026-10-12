@@ -3,7 +3,7 @@
 Checks the Langfuse project through the public API (prompts, datasets, runs,
 evaluators, rules, recent judge executions, score configs, annotation queue,
 dashboard, traces per channel) plus the local services (MCP server, portal,
-APM stand-in, n8n). Exit 1 if any REQUIRED check fails.
+infrastructure observability, n8n). Exit 1 if any REQUIRED check fails.
 
 It also checks demo HYGIENE — the state a presenter inherits from earlier rehearsals:
 prompt labels (rollback target, untitled versions, text drift vs northwind/prompts.py),
@@ -369,7 +369,7 @@ def main():
 
     # ── local services ──
     for name, url, req in [("portal", "http://localhost:8090/", True), ("MCP server", "http://localhost:8765/mcp", True),
-                           ("APM stand-in (Jaeger)", "http://localhost:16686/", True), ("n8n", "http://localhost:5678/", True)]:
+                           ("Infrastructure observability (Jaeger)", "http://localhost:16686/", True), ("n8n", "http://localhost:5678/", True)]:
         try:
             code = httpx.get(url, timeout=5).status_code
             check(code < 500 or name == "MCP server", f"{name} up", f"HTTP {code}", required=req)

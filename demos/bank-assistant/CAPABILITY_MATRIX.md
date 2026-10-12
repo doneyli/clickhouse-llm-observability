@@ -12,7 +12,7 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | OBS-03 | RAG, context and sources | `retriever` observation with document ids, source URLs, effective dates, scores; full context on the root | Live | Act 1.1 · `northwind/knowledge.py` |
 | OBS-04 | Tools, MCP and agent iterations | MCP server in a separate process joined to the same trace via W3C context in MCP `_meta`; agent graph shows the loop | Live | Act 1.1 · `northwind/mcp_server.py` |
 | OBS-05 | Tokens, latency and cost | per generation, per trace, per user, dashboards | Live | Act 1.1 |
-| OBS-06 | Correlation with Dynatrace | one OTel pipeline, two exporters, same trace id; payload-free APM copy; links both ways | Live (Jaeger stand-in) · Config (Dynatrace) | Act 1.4 · `docs/DYNATRACE.md` |
+| OBS-06 | Infrastructure observability correlation | one OTel pipeline, two exporters, same trace id; payload-free APM copy; links both ways | Live (Jaeger) · Config (vendor integration) | Act 1.4 · `docs/DYNATRACE.md` |
 | EVA-01 | Faithfulness / groundedness | managed LLM judge on production traffic against retrieved context | Live | Act 2.1 |
 | EVA-02 | Correctness / factuality | LLM judge against expected outputs + deterministic must-include facts | Live | Act 2.3 · `northwind/evals.py` |
 | EVA-03 | Bank-specific evaluator | `banking-compliance` judge (conduct policy P1–P5); `manipulation-resistance`; guardrail scores | Live | Act 2.1, 2.2, Lab 2 |

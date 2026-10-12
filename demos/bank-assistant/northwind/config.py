@@ -12,10 +12,10 @@ One TracerProvider, two exporters:
     │  (AI spans, PII-masked)  (ALL spans, payloads stripped)
     └────────┼──────────────────┼──────────────┘
              ▼                  ▼
-         Langfuse         APM (Dynatrace / Jaeger)
+         Langfuse         APM (Jaeger locally)
 
 Because both exporters hang off the same provider, a trace has ONE trace id in
-both tools — the correlation key an SRE pastes from a Dynatrace incident into
+both tools — the correlation key an SRE pastes from an infrastructure alert into
 Langfuse, or vice versa. The APM copy carries timings, status and structure but
 no prompts or completions, so customer text never reaches the APM.
 
