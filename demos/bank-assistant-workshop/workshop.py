@@ -82,7 +82,11 @@ def main():
     p = commands.add_parser("chat"); p.add_argument("question"); p.add_argument("--customer", default="C-1001")
     p = commands.add_parser("prompt"); p.add_argument("--variant", choices=["baseline", "candidate"], default="baseline")
     p.add_argument("--label", default="workshop-baseline")
-    p = commands.add_parser("dataset"); p.add_argument("--reviewed", action="store_true")
+    p = commands.add_parser("dataset")
+    review = p.add_mutually_exclusive_group()
+    review.add_argument("--reviewed", action="store_true")
+    review.add_argument("--allow-draft", action="store_true",
+                        help="Explicitly authorize synthetic rehearsal data; keep human-review markers pending.")
     p = commands.add_parser("experiment"); p.add_argument("--prompt-label", default="workshop-baseline")
     p.add_argument("--model"); p.add_argument("--no-judge", action="store_true")
     p.add_argument("--dataset-version", help="Historical dataset version timestamp for a repeatable comparison.")

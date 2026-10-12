@@ -248,7 +248,7 @@ class State(TypedDict):
 
 def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, evidence: list, used: list,
                  trace_attrs: dict):
-    """Tools bound to the AUTHENTICATED customer. The model never sees or chooses the id.
+    """Tools bound to the selected synthetic customer. The model cannot choose the id.
 
     `trace_attrs` go to the MCP server as W3C baggage, so its spans carry this
     turn's session, user, trace name, version and environment (Langfuse v4
@@ -265,7 +265,7 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
                                                    input={"query": query, "k": RETRIEVAL_K,
                                                           "min_score": RETRIEVAL_MIN_SCORE}) as r:
             docs = knowledge.search(query, k=RETRIEVAL_K, min_score=RETRIEVAL_MIN_SCORE)
-            r.update(output={"documents": [{k: d[k] for k in ("id", "title", "source", "score", "effective_date")}
+            r.update(output={"documents": [{k: d[k] for k in ("id", "title", "source", "score", "effective_date", "text")}
                                            for d in docs]},
                      metadata={"index": "help-center-tfidf", "documents_returned": len(docs)})
         for d in docs:
@@ -353,16 +353,15 @@ def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict
                 as_type="guardrail", name="output-guardrail", input=answer,
                 metadata={"policy": "northwind-output-v1", "engine": "rules"}) as g:
             result = assess_output(answer)
-            g.update(output={k: v for k, v in result.items() if k != "answer"},
+            # Complete the transformation before ending its observation. Updating
+            # an ended span loses the warning metadata in the exported trace.
+            if (set(check["pii_shared"]) & {"card", "otp", "national_id", "iban", "account"}
+                    and not business.pii_warned(result["answer"])):
+                result["answer"] = business.WARNING.get(language, business.WARNING["en"]) + "\n\n" + result["answer"]
+                result["pii_warning_added"] = True
+                g.update(metadata={"pii_warning_added": "true"})
+            g.update(output=result,
                      level="WARNING" if result["leaked"] or result["advice_language"] else "DEFAULT")
-        # Must-always rule enforced in CODE (release 1.5.0): a prompt instruction to
-        # warn customers who paste card data was followed only some of the time
-        # (the v5 canary showed it), so the guardrail guarantees it.
-        if (set(check["pii_shared"]) & {"card", "otp", "national_id", "iban", "account"}
-                and not business.pii_warned(result["answer"])):
-            result["answer"] = business.WARNING.get(language, business.WARNING["en"]) + "\n\n" + result["answer"]
-            result["pii_warning_added"] = True
-            g.update(metadata={"pii_warning_added": "true"})
         outcome.update(result)
         if result["leaked"] or result.get("pii_warning_added"):
             return {"messages": [AIMessage(content=result["answer"])]}

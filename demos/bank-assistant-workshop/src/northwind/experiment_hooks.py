@@ -42,10 +42,12 @@ async def correctness(*, input, output, expected_output, **kwargs):
               '{"score": 0 or 1, "reason": "brief reason"}. Ignore paraphrasing and formatting.')
     payload = json.dumps({"question": input, "answer": output["answer"], "reference": expected_output})
     try:
-        with config.get_langfuse().start_as_current_observation(as_type="evaluator", name="bank-workshop-correctness"):
+        with config.get_langfuse().start_as_current_observation(
+                as_type="evaluator", name="bank-workshop-correctness", input=json.loads(payload)) as observation:
             response = await llm.ainvoke([SystemMessage(content=rubric), HumanMessage(content=payload)],
                                         config={"callbacks": tracing.callbacks()})
-        value, reason = parse_judge(agent._text(response.content))
+            value, reason = parse_judge(agent._text(response.content))
+            observation.update(output={"score": value, "reason": reason})
         return Evaluation(name="correctness", value=value, comment=reason)
     except Exception as exc:
         # Infrastructure/parser failure is missing evidence, not a wrong answer.

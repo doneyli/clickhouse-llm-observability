@@ -22,6 +22,8 @@ Review every reference against `src/northwind/knowledge.py` and the guardrail be
 
 The helper upserts stable IDs into `bank-workshop/<WORKSHOP_ID>/regression-v1`. Repeating does not duplicate IDs. It does not delete remote items absent from the local file. To change the scenario materially, use a new dataset name/version rather than mixing incomparable tests.
 
+For an instructor rehearsal explicitly authorized by the dataset owner, `dataset --allow-draft` uploads only synthetic examples and preserves the pending human-review markers. It does not replace the participant review exercise or make draft references production ground truth. The default command still refuses an unreviewed upload.
+
 Choose one monitored failure and draft an additional item. Keep a minimal safe synthetic reproduction. Review the expected behavior before uploading it. Core examples avoid blocking cards or opening disputes because those operations change state or depend on multi-turn confirmation.
 
 **Verify:** input/reference/metadata are separate in Langfuse; exactly the intended item IDs exist in your fresh workshop dataset; Spanish examples have Spanish references; blocked requests expect refusal.

@@ -138,6 +138,36 @@ class MonitoringAndJudges(unittest.TestCase):
         self.assertEqual(captured["prompt_version"], 7)
 
 
+class DraftDatasetAuthorization(unittest.TestCase):
+    def test_default_and_unreviewed_uploads_stop_before_cloud_access(self):
+        from scripts import helpers
+        for args in (SimpleNamespace(reviewed=False, allow_draft=False),
+                     SimpleNamespace(reviewed=True, allow_draft=False)):
+            with self.subTest(args=args), patch.object(config, "require_langfuse") as cloud:
+                with self.assertRaises(ValueError):
+                    helpers.seed_dataset(args)
+                cloud.assert_not_called()
+
+    def test_authorized_draft_preserves_review_markers(self):
+        from scripts import helpers
+        from unittest.mock import MagicMock
+        client = MagicMock()
+        with patch.object(config, "require_langfuse", return_value=client):
+            helpers.seed_dataset(SimpleNamespace(reviewed=False, allow_draft=True))
+        self.assertEqual(client.create_dataset_item.call_count, 8)
+        for call in client.create_dataset_item.call_args_list:
+            self.assertTrue(call.kwargs["metadata"]["reference_review_required"])
+            self.assertTrue(call.kwargs["metadata"]["synthetic"])
+
+    def test_draft_override_rejects_non_synthetic_items(self):
+        from scripts import helpers
+        with patch.object(helpers, "load_data", return_value=[{"metadata": {"synthetic": False}}]), \
+             patch.object(config, "require_langfuse") as cloud:
+            with self.assertRaisesRegex(ValueError, "synthetic"):
+                helpers.seed_dataset(SimpleNamespace(reviewed=False, allow_draft=True))
+            cloud.assert_not_called()
+
+
 class ExperimentCompletion(unittest.TestCase):
     """Regression cases found by the Astra audit; no SDK network calls."""
     def setUp(self):

@@ -1,6 +1,6 @@
 # Workshop validation
 
-Validation report for the separate workshop copy. Live rehearsal is a distinct acceptance step.
+Validation report for the separate workshop copy. The [2026-10-12 live rehearsal](docs/2026-10-12-live-rehearsal.md) records real Cloud exports, model answers, experiment results and remaining acceptance steps.
 
 ## Local checks
 
@@ -19,20 +19,32 @@ Local results are recorded after the build below. An offline pass does not valid
 
 The instructor must perform these in a dedicated workshop project:
 
-- [ ] Start 00 and verify an untraced policy answer. A model key being present is insufficient.
-- [ ] Complete 02 and run authentication preflight. Confirm one root per request, model/token data, RAG sources, session grouping and MCP server children in the same trace.
-- [ ] Inspect synthetic card masking at export and the output guardrail. A regex test is not a complete privacy validation.
-- [ ] Publish baseline, complete 03 and confirm the linked prompt version on generations. Demonstrate and restore a missing-label fallback.
-- [ ] Complete 04 and inspect all three signal targets. Preview the platform judge on the structured root fields and verify the intended filter.
-- [ ] Review all eight references, clear the review markers, seed the dataset and record the dataset version.
-- [ ] Complete 06 and run baseline/candidate with identical model, judge and dataset version. Check ACTIVE item completion, per-item dataset-run linkage and applicable score coverage, including `--no-judge`.
-- [ ] Inspect both improved and unimproved items. Record actual run/trace links. No expected improvement percentage is guaranteed.
-- [ ] Stop and restart both processes to reset a synthetic blocked card. Rehearse returning the serving label to baseline.
+- [x] Start 00 and verify a real untraced policy answer.
+- [x] Complete 02 and run authentication preflight. Confirm one logical root per request, model/token data, RAG sources, session grouping and MCP server children in the same trace.
+- [x] Inspect synthetic card masking at export and the output guardrail. This remains a scoped synthetic check, not complete privacy validation.
+- [x] Publish baseline, complete 03 and confirm the linked prompt version on generations. Demonstrate and restore a missing-label fallback.
+- [x] Complete 04 and inspect all three signal targets. Cloud accepted a disabled platform-judge draft with structured field mappings and a strict root/session filter.
+- [ ] Execute the actual platform-judge preview after authorization to upload its provider key; calibrate the rubric with a human.
+- [x] Check all eight references against the copied KB/guardrail behavior, upload the explicitly authorized synthetic draft without clearing human-review markers, and record the dataset version.
+- [ ] Have an instructor review all eight references and clear the review markers. Draft rehearsal upload does not establish production ground truth.
+- [x] Complete 06 and run baseline/candidate with identical model, judge and dataset version. Check ACTIVE item completion, per-item dataset-run linkage and applicable score coverage, including `--no-judge`.
+- [x] Inspect both improved and unimproved items. Record actual run/trace links. No expected improvement percentage is guaranteed.
+- [x] Stop and restart both processes to reset a synthetic blocked card. Rehearse returning the serving label to baseline.
 - [ ] Test the distributed archive on another machine before a group session.
 
 Source: [MCP tracing best practices](https://langfuse.com/docs/observability/best-practices), [MCP SDK experiments](https://langfuse.com/docs/evaluation/experiments/experiments-via-sdk), [examined source](https://github.com/doneyli/clickhouse-llm-observability/tree/6af4e7b0d7f87f888860e57f71614af207be62ac/demos/bank-assistant). Rehearsal requirements are a MEDIUM confidence delivery assessment; documented SDK mechanics are HIGH confidence.
 
-## Recorded build results
+## Current rehearsal results, 2026-10-12
+
+- Python 3.12.12 installed the pinned requirements in this checkout. All 45 tests pass, including three new draft-authorization tests and extended real SDK export assertions for retrieval bodies and guardrail transformations.
+- The package validator passed all 80 source hashes, documentation links, dataset expectations and all nine offline starting states. All nine checkpoints were regenerated from the corrected reference root. The release ZIP's 729 files matched their source bytes; all nine checkpoint manifests were present, and private settings, actual credentials, environments and caches were excluded. Installation on another machine remains pending.
+- Cloud verification confirmed the dedicated project/organization, six traced serving paths, masking, MCP nesting, sessions, linked generations and signal targets. Baseline/candidate/no-judge runs each completed eight ACTIVE items with 30/30/22 required scores and verified remote run links.
+- Baseline cited the expected source on 5/6 policy items; candidate on 6/6. Both passed facts 6/6, language 8/8, refusals 2/2 and the local correctness judge 8/8. The no-judge run passed all applicable deterministic checks. All references remain synthetic and pending instructor review.
+- The frozen dataset timestamp is `2026-10-12T09:48:48.619694+00:00`; a historical read matched all 24 experiment inputs/references. The native experiment-item version field remains null with the pinned SDK; see the report for that limitation.
+- A disabled platform evaluator/rule exists and Cloud validated its mappings. Actual platform execution is pending credential-transfer authorization; no broad scoring rule was activated.
+- Prompt fallback, candidate serving, baseline rollback and reset of a fictional blocked card passed real model/MCP checks. Actual evidence links are in the report.
+
+## Initial build results, 2026-10-11
 
 - Python 3.12.14; resolved and installed pinned requirements, including Langfuse 4.17.0, LangGraph 1.2.14 and MCP 1.30.0.
 - 42 unittest tests passed after the Astra adversarial audit. One uses the actual SDK and LangChain callbacks with an in-memory span exporter: a single nested trace contains agent/generation/retriever/guardrail types, session propagation, masked synthetic card data, the effective workshop label and linked managed prompt version. No network exporter or live project was used.

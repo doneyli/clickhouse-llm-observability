@@ -22,10 +22,13 @@ def load_data():
 
 
 def seed_dataset(args):
-    if not args.reviewed:
+    allow_draft = getattr(args, "allow_draft", False)
+    if not args.reviewed and not allow_draft:
         raise ValueError("Review data/seed-dataset.json references against the synthetic KB, then pass --reviewed.")
     data = load_data()
-    if any(item["metadata"].get("reference_review_required", True) for item in data):
+    if allow_draft and any(item["metadata"].get("synthetic") is not True for item in data):
+        raise ValueError("--allow-draft is limited to synthetic rehearsal examples.")
+    if not allow_draft and any(item["metadata"].get("reference_review_required", True) for item in data):
         raise ValueError("Mark each item's reference_review_required=false only after reviewing its expected behavior.")
     lf = config.require_langfuse()
     try:
@@ -34,12 +37,15 @@ def seed_dataset(args):
         if getattr(exc, "status_code", None) != 404:
             raise
         lf.create_dataset(name=DATASET_NAME, description="Synthetic banking policy and refusal regression examples.",
-                          metadata={"workshop": config.WORKSHOP_ID, "synthetic": True})
+                          metadata={"workshop": config.WORKSHOP_ID, "synthetic": True,
+                                    "reference_review_required": any(item["metadata"].get("reference_review_required", True) for item in data)})
     for item in data:
         identifier = hashlib.sha256(f"{DATASET_NAME}/{item['id']}".encode()).hexdigest()[:32]
         lf.create_dataset_item(dataset_name=DATASET_NAME, id=identifier, input=item["input"],
                                expected_output=item["expected_output"], metadata=item["metadata"])
     print(f"Upserted {len(data)} items into {DATASET_NAME}. Unlisted remote items are not deleted.")
+    if allow_draft:
+        print("Synthetic rehearsal only. Human-review markers are preserved; these references are not production ground truth.")
 
 
 def required_scores(item, *, include_judge):
@@ -126,3 +132,4 @@ def run_experiment(args):
     if getattr(result, "dataset_run_url", None):
         print(result.dataset_run_url)
     validate_experiment(result, required)
+    return result

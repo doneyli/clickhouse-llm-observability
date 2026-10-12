@@ -1,5 +1,6 @@
 """Real SDK export and callback hierarchy, captured in memory with synthetic data."""
 import asyncio
+import json
 from unittest.mock import patch
 import unittest
 import uuid
@@ -67,6 +68,15 @@ class TraceExport(unittest.TestCase):
             self.assertNotIn("4111 1111 1111 1111",attributes)
             self.assertIn("REDACTED_CARD",attributes)
             self.assertIn("offline-session",attributes)
+            retrieval = next(span for span in spans if span.name == "kb-retrieval")
+            documents = json.loads(retrieval.attributes["langfuse.observation.output"])["documents"]
+            self.assertTrue(all(doc["text"] for doc in documents))
+            guardrail = next(span for span in spans if span.name == "output-guardrail"
+                             and span.attributes.get("langfuse.observation.type") == "guardrail")
+            transformed = json.loads(guardrail.attributes["langfuse.observation.output"])
+            self.assertTrue(transformed["pii_warning_added"])
+            self.assertEqual(transformed["answer"], result["answer"])
+            self.assertEqual(guardrail.attributes["langfuse.observation.metadata.pii_warning_added"], "true")
             self.assertEqual(roots[0].attributes.get("langfuse.trace.metadata.prompt_label"), "workshop-candidate")
             generations = [span for span in spans if span.attributes.get("langfuse.observation.type") == "generation"]
             self.assertTrue(generations)

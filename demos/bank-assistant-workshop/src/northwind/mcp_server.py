@@ -124,8 +124,10 @@ def _run(ctx, name, payload, fn):
         with cm as span:
             with langfuse.start_as_current_observation(
                     as_type="span", name=f"core-banking.{name}",
-                    metadata={"system": "core-banking", "latency_profile": "mainframe"}):
+                    input=payload,
+                    metadata={"system": "core-banking", "latency_profile": "mainframe"}) as core:
                 result = fn()
+                core.update(output=result)
             span.update(output=result)
             return result
     finally:

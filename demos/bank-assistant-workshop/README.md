@@ -18,7 +18,7 @@ Learners build tracing, managed prompts, monitoring signals and dataset experime
 | 07 | [Evaluation](docs/learner/07-evaluation.md) | [Notes](docs/instructor/07-evaluation.md) | `07-evaluation` | Change citation instructions, rerun, compare evidence. |
 | 08 | [Wrap-up](docs/learner/08-wrap-up.md) | [Notes](docs/instructor/08-wrap-up.md) | `08-wrap-up` | Apply the engineering loop to another app. |
 
-To resume the unfinished Cloud dry run in a new task, use [the handoff prompt](docs/CONTINUE.md).
+The [live rehearsal report](docs/2026-10-12-live-rehearsal.md) records actual Cloud traces and experiments. The [handoff prompt](docs/CONTINUE.md) identifies the remaining platform-preview, human-review and second-machine checks.
 
 The module order, split learner/instructor material and before-exercise states follow the [official workshop](https://github.com/langfuse/langfuse-workshop/blob/fe01d263dd1dcda268f5e461e637394d9ec87676/README.md). Source: Web, official repository, HIGH confidence. Banking behavior comes from the [user-owned banking source](https://github.com/doneyli/clickhouse-llm-observability/tree/6af4e7b0d7f87f888860e57f71614af207be62ac/demos/bank-assistant). This adaptation is not an official Langfuse release.
 
