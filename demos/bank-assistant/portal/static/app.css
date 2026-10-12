@@ -1,6 +1,7 @@
 /* Northwind Bank — presenter portal. Fictional bank, Langfuse brand palette.
    Brand colors come from the supplied Langfuse color icon and light wordmark.
-   Darker blue/coral variants keep small text legible on light surfaces. */
+   Bright brand colors are accents; darker variants support readable text
+   and white labels on filled controls and chat bubbles. */
 :root {
   --brand-blue: #4e9cff;
   --brand-coral: #ff5d5f;
@@ -13,6 +14,7 @@
   --neutral-700: #45413d;
   --neutral-100: #edecea;
   --blue-700: #1f65bb;
+  --blue-800: #194f91;
   --blue-600: #3d8ced;
   --blue-500: var(--brand-blue);
   --blue-100: #dcecff;
@@ -24,7 +26,7 @@
   --red-50: var(--coral-50);
   --amber-700: #8a5a00;
   --amber-50: #fff4dc;
-  --green-600: #16834f;
+  --green-600: #126b40;
   --green-50: #e7f6ee;
 
   --bg: #f5f4f2;
@@ -34,7 +36,10 @@
   --border-strong: #cec9c3;
   --text: var(--brand-charcoal);
   --text-2: #4b4743;
-  --muted: #706b66;
+  --muted: #5f5a55;
+  --primary: var(--blue-700);
+  --primary-hover: var(--blue-800);
+  --on-primary: #ffffff;
   --on-dark: #e9e6e2;
   --on-dark-muted: #b7b1aa;
   --shadow-sm: 0 1px 2px rgba(27, 25, 23, .06);
@@ -110,8 +115,8 @@ main { max-width: 1480px; margin: 0 auto; padding: 22px 28px 40px; }
 }
 .btn:hover { border-color: var(--neutral-700); background: var(--surface-2); }
 .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
-.btn-primary { background: var(--brand-blue); border-color: var(--brand-blue); color: var(--brand-charcoal); }
-.btn-primary:hover { background: var(--blue-600); border-color: var(--blue-600); }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
 .btn-navy { background: var(--neutral-900); border-color: var(--neutral-900); color: #fff; }
 .btn-navy:hover { background: var(--neutral-800); border-color: var(--neutral-800); }
 .btn-danger { background: var(--surface); border-color: var(--coral-100); color: var(--red-600); }
@@ -162,7 +167,7 @@ select.input, input.input {
   transition: border-color .12s, background .12s, box-shadow .12s;
 }
 .customer:hover { border-color: var(--border-strong); background: var(--surface-2); }
-.customer[aria-checked="true"] { border-color: var(--blue-500); background: var(--blue-50); box-shadow: 0 0 0 3px rgba(var(--blue-rgb),.12); }
+.customer[aria-checked="true"] { border-color: var(--blue-700); background: var(--blue-50); box-shadow: 0 0 0 3px rgba(var(--blue-rgb),.12); }
 .avatar {
   width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
   font-weight: 700; font-size: 14px; color: #fff; background: var(--neutral-700);
@@ -200,21 +205,21 @@ select.input, input.input {
 .msg { display: flex; gap: 10px; margin-bottom: 18px; animation: rise .18s ease-out; }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .msg.user { justify-content: flex-end; }
-.msg .bubble { max-width: min(720px, 78%); padding: 11px 15px; border-radius: 16px; font-size: 14.5px; }
-.msg.user .bubble { background: var(--brand-blue); color: var(--brand-charcoal); border-bottom-right-radius: 5px; white-space: pre-wrap; word-wrap: break-word; }
+.msg .bubble { max-width: min(720px, 78%); padding: 11px 15px; border-radius: 16px; font-size: 16px; font-weight: 500; line-height: 1.65; }
+.msg.user .bubble { background: var(--primary); color: var(--on-primary); border-bottom-right-radius: 5px; white-space: pre-wrap; word-wrap: break-word; }
 .msg.bot .mini-avatar { width: 30px; height: 30px; border-radius: 9px; background: var(--neutral-900); display: grid; place-items: center; flex-shrink: 0; margin-top: 2px; }
 .msg.bot .mini-avatar svg { width: 18px; height: 18px; }
 .msg.bot .stack { max-width: min(780px, 88%); min-width: min(660px, 88%); display: flex; flex-direction: column; gap: 8px; }
 .msg.bot .stack > .bubble { align-self: flex-start; }
-.msg.bot .bubble { max-width: none; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 5px; box-shadow: var(--shadow-sm); }
+.msg.bot .bubble { max-width: none; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 5px; box-shadow: var(--shadow-sm); }
 .msg.bot.blocked .bubble { border-color: var(--coral-100); background: var(--coral-50); }
 .msg.bot.errored .bubble { border-color: var(--coral-100); }
 .bubble p { margin: 0 0 8px; }
 .bubble p:last-child, .bubble ul:last-child, .bubble ol:last-child { margin-bottom: 0; }
 .bubble ul, .bubble ol { margin: 4px 0 8px; padding-left: 20px; }
 .bubble li { margin: 2px 0; }
-.bubble h3, .bubble h4 { margin: 6px 0 6px; font-size: 14.5px; }
-.bubble table { border-collapse: collapse; margin: 6px 0 8px; font-size: 13px; }
+.bubble h3, .bubble h4 { margin: 6px 0 6px; font-size: 16px; }
+.bubble table { border-collapse: collapse; margin: 6px 0 8px; font-size: 14px; }
 .bubble th, .bubble td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .bubble th { background: var(--surface-2); }
 .bubble .cite { display: inline-block; font-size: 11px; font-weight: 700; color: var(--blue-700); background: var(--blue-50); border: 1px solid var(--blue-100); border-radius: 5px; padding: 0 5px; line-height: 17px; vertical-align: 1px; }
@@ -267,7 +272,8 @@ select.input, input.input {
   flex: 1; resize: none; min-height: 46px; max-height: 160px; padding: 12px 14px; border-radius: 12px;
   border: 1px solid var(--border-strong); background: var(--surface-2); font-size: 14.5px; line-height: 1.4; outline: none;
 }
-.composer textarea:focus { border-color: var(--blue-500); background: #fff; box-shadow: 0 0 0 3px rgba(var(--blue-rgb),.15); }
+textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
+.composer textarea:focus { border-color: var(--blue-700); background: #fff; box-shadow: 0 0 0 3px rgba(var(--blue-rgb),.15); }
 .composer .btn { height: 46px; padding: 0 18px; border-radius: 12px; }
 
 /* ── Tab 2: voice ────────────────────────────────────────── */
@@ -302,7 +308,7 @@ select.input, input.input {
 .step { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .step .n { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--border); color: var(--text-2); font-size: 10.5px; }
 .step.active { color: var(--neutral-900); border-color: var(--blue-500); background: var(--blue-50); }
-.step.active .n { background: var(--blue-500); color: var(--brand-charcoal); }
+.step.active .n { background: var(--primary); color: var(--on-primary); }
 .step.done { color: var(--green-600); }
 .step.done .n { background: var(--green-600); color: #fff; }
 .turn { display: grid; grid-template-columns: 34px 1fr; gap: 12px; }
@@ -311,7 +317,7 @@ select.input, input.input {
 .turn .who.caller { background: var(--neutral-100); color: var(--neutral-800); }
 .turn .who.bot { background: var(--neutral-900); }
 .turn .lbl { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
-.turn .txt { font-size: 14.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px; }
+.turn .txt { font-size: 16px; font-weight: 500; line-height: 1.65; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px; }
 .turn .txt.bubble { background: var(--surface); }
 .empty-result { margin: auto; text-align: center; color: var(--muted); max-width: 360px; }
 .empty-result svg { width: 42px; height: 42px; color: var(--border-strong); }
@@ -331,7 +337,7 @@ select.input, input.input {
 .act.unavailable { background: var(--surface-2); }
 .act-head { display: flex; gap: 10px; align-items: flex-start; }
 .act-num { width: 26px; height: 26px; border-radius: 8px; background: var(--neutral-900); color: #fff; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; flex-shrink: 0; }
-.act.unavailable .act-num { background: var(--border-strong); }
+.act.unavailable .act-num { background: var(--border-strong); color: var(--text-2); }
 .act-title { font-weight: 700; font-size: 14px; line-height: 1.3; padding-top: 3px; }
 .act-blurb { font-size: 12.5px; color: var(--text-2); line-height: 1.4; }
 .act-show { font-size: 12px; color: var(--muted); line-height: 1.4; }

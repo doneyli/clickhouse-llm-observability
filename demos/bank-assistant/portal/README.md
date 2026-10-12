@@ -3,11 +3,13 @@
 One page, three tabs, for screen-sharing the Northwind Bank (fictional) Langfuse demo —
 in **English or Spanish** (EN | ES toggle in the header).
 
-The portal uses the supplied Langfuse brand palette: blue `#4E9CFF` for primary
-actions and selected states, coral `#FF5D5F` for brand accents, and charcoal
-`#1B1917` for navigation and text. Tokens live in `static/app.css`; darker
-blue/coral variants support readable links and status text. Blue buttons use
-charcoal text, and success/warning indicators retain their semantic colors.
+The portal uses the supplied Langfuse brand palette: blue `#4E9CFF` and coral
+`#FF5D5F` for brand accents, and charcoal `#1B1917` for navigation and body text.
+Tokens live in `static/app.css`; primary buttons and user messages use deeper
+blue `#1F65BB` with white text (5.77:1 contrast), with `#194F91` for button hover.
+Chat and voice responses use 16px medium-weight text with extra line spacing.
+Darker secondary labels, links, and status text stay readable on light surfaces,
+and success/warning indicators retain their semantic colors.
 
 ```bash
 scripts/run_portal.sh            # start / restart in the background → http://localhost:8090
