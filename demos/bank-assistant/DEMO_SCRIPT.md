@@ -401,9 +401,9 @@ needs to agree with your experts — and you need a rule for which judge model
 is approved."
 
 **Show.**
-1. **Annotation queues** → *SME review — assistant answers*: 30 production
-   answers, including the lowest judge scores. Label one live with `sme-faithfulness`,
-   `sme-compliance` and `sme-failure-mode`.
+1. **Annotation queues** → *SME review — assistant answers*: production answers,
+   including the lowest judge scores. Open a **pending** item and label it live with
+   `sme-faithfulness`, `sme-compliance` and `sme-failure-mode`, then complete it.
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.
 3. **Calibrate the judge and choose the judge model.** Datasets →
@@ -882,6 +882,9 @@ of the POC — containment, cost per contact, complaints, or conduct risk?"
    Click **New conversation**; pick EN or ES for the room.
 6. **Required (10 min):** label 8–10 items in the SME queue (`sme-faithfulness`,
    `sme-compliance`). Without human labels, Scores → Analytics (judge vs human)
-   is empty. Then run `.venv/bin/python scripts/judge_calibration.py --bakeoff`
-   once to have the human-label agreement numbers ready.
+   is empty. Leave at least one item **pending** to annotate live. After rehearsals,
+   run `.venv/bin/python scripts/fill_annotation_queue.py 20` to top up the pending
+   backlog, then `scripts/verify_demo.py` to confirm it. Run
+   `.venv/bin/python scripts/judge_calibration.py --bakeoff` once to have the
+   human-label agreement numbers ready.
 7. Open the tabs in the table at the top.

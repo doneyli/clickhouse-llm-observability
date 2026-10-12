@@ -67,6 +67,15 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 .venv/bin/python scripts/make_voice_samples.py   # synthetic caller audio (already committed)
 ```
 
+The annotation queue fill command keeps **20 pending items** by default; the
+positional count sets the desired pending backlog. New items explicitly start as
+`PENDING`. Re-running it adds only the missing items and preserves completed
+reviews and human scores. It follows pagination to find older unqueued answers;
+if there are too few, it exits non-zero with instructions to generate fresh traffic.
+Before presenting Act 2.4, label 8–10 items for judge calibration and leave at least
+one pending to annotate live. Re-run the fill command after rehearsals;
+`scripts/verify_demo.py` fails readiness when the queue has no pending items.
+
 ## Scripts
 
 | Script | What it does | IDs |
@@ -75,7 +84,7 @@ cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from t
 | `scripts/run_voice_calls.py` | synthetic calls through the voice channel (audio in the trace) | OBS-01 multi-modal |
 | `scripts/run_n8n_samples.py` | complaints through the n8n workflow | OBS-02 |
 | `scripts/seed_evals.py` | judge LLM connection, score configs, 3 managed judges + rules, SME queue | EVA-01, 03, 04, 06 |
-| `scripts/fill_annotation_queue.py` | worst-first SME sample | EVA-06 |
+| `scripts/fill_annotation_queue.py [20]` | top up the pending SME backlog, worst-first | EVA-06 |
 | `scripts/judge_calibration.py [--bakeoff]` | judge vs SME agreement; judge-model bake-off | EVA-06 |
 | `scripts/seed_dashboard.py` | quality, risk and cost dashboard as code | EVA-07, OBS-05 |
 | `scripts/seed_business_dashboard.py` | business value & failure-mode dashboard (value vs spend, containment, outcomes, each issue by prompt version) | GATE-05, EVA-07 |
