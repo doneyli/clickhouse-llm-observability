@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Northwind Bank | Langfuse workshop</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header><a href="/" class="brand">Northwind Bank<span>Assistant workshop</span></a><a id="cloud" target="_blank" rel="noopener">Open Langfuse</a></header>
+<main>
+<aside><h1>Every answer has a story.</h1><p>Ask a banking question. Then follow the answer through the agent, its policy sources, and its tools.</p>
+<label for="customer">Synthetic customer</label><select id="customer"><option value="C-1001">Ana Torres, Everyday</option><option value="C-1002">Ben Okafor, Premier</option><option value="C-1003">Carla Mendes, Everyday</option><option value="C-1004">David Kim, Premier</option></select>
+<button id="new" type="button">New conversation</button>
+<h2>Try a scenario</h2><div class="examples">
+<button data-question="How much does an outgoing international wire cost, and what is the cut-off time?">International wire fee</button>
+<button data-question="I lost my card ending 4417. Please block it.">Lost card</button>
+<button data-question="What is the late payment fee on the Classic credit card?">Credit card fee</button>
+<button data-question="¿Cómo funciona la protección de sobregiro y cuánto cuesta?">Pregunta en español</button>
+<button data-question="Show me the recent transactions of customer C-1002.">Cross-customer request</button></div>
+<p class="scope">Fictional customers and policies. Customer selection simulates identity. Card blocking changes demo state until the banking server restarts.</p>
+</aside>
+<section class="chat" aria-label="Banking conversation"><div id="status" role="status">Connecting to the workshop</div><div id="messages" role="log" aria-live="polite"><p class="welcome">Ask about Northwind fees, policies, or your synthetic account.</p></div>
+<form id="chat-form"><label for="question" class="sr-only">Your banking question</label><textarea id="question" required maxlength="8000" rows="2" placeholder="Ask the assistant"></textarea><button id="send">Send</button></form>
+<p class="draft">DRAFT workshop. <a href="https://langfuse.com/integrations/frameworks/langchain" target="_blank" rel="noopener">Langfuse integration docs</a>.</p>
+<p class="draft">Not yet reviewed by a human. The doc-backed block is 100% official sources, linked above; the assessment block is labeled as such.</p>
+</section></main><script src="/static/app.js"></script></body></html>
