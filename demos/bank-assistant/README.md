@@ -1,9 +1,9 @@
 # Northwind Bank Assistant
 
-A banking assistant built with LangGraph, retrieval, MCP tools, and guardrails.
-Use Langfuse to inspect conversations, evaluate answers, compare prompts, and
-test release candidates. The portal supports chat and voice in English and Spanish;
-an n8n workflow demonstrates complaint triage.
+Built and instrumented with Langfuse, this banking assistant uses retrieval,
+MCP tools, and guardrails. Inspect conversations, evaluate answers, compare
+prompts, and test release candidates. The portal supports chat and voice in
+English and Spanish; an n8n workflow demonstrates complaint triage.
 
 Northwind Bank is fictional. All customer data and policies are synthetic.
 This demo has its own environment and services; use the setup below.

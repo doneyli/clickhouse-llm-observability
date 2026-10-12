@@ -95,11 +95,11 @@ langfuse = get_client()        # reads LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
 @observe(as_type="agent", name="my-assistant")
 def answer(question: str) -> str:
     with propagate_attributes(user_id="C-1001", session_id="demo-1", tags=["channel:web"]):
-        return f"echo: {question}"     # call your LangGraph app here
+        return f"echo: {question}"     # call your agent application here
 
 answer("¿Cuánto cuesta una transferencia internacional?")
 langfuse.flush()
 ```
 
-For LangGraph/LangChain, import `CallbackHandler` from `langfuse.langchain`
+For callback-based tracing, import `CallbackHandler` from `langfuse.langchain`
 and pass it in the run configuration; see [agent.py](northwind/agent.py).

@@ -2,7 +2,7 @@
 
 **What this covers:** OBS-01 for Java teams. Spring AI emits OpenTelemetry spans
 for model calls through Micrometer; Langfuse ingests them on its OTLP endpoint.
-Not built into this demo (the demo agent is Python/LangGraph); this is the
+Not built into this demo (the demo agent is Python); this is the
 verified recipe to show alongside it.
 
 Source: [Integrating Langfuse with Spring AI using OpenTelemetry](https://langfuse.com/integrations/frameworks/spring-ai)

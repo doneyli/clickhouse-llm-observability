@@ -7,7 +7,7 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 
 | ID | Capability | How it is shown | Status | Where |
 |---|---|---|---|---|
-| OBS-01 | End-to-end traceability, pro-code | LangGraph agent auto-traced with the Langfuse callback handler; root `agent` observation; sessions, users, tags, environments, release; voice channel with audio in the trace | Live | Act 1.1, 1.2, 1.6 · `northwind/agent.py`, `northwind/voice.py` |
+| OBS-01 | End-to-end traceability, pro-code | Banking agent auto-traced with the Langfuse callback handler; root `agent` observation; sessions, users, tags, environments, release; voice channel with audio in the trace | Live | Act 1.1, 1.2, 1.6 · `northwind/agent.py`, `northwind/voice.py` |
 | OBS-02 | End-to-end traceability, low-code n8n | n8n complaint-triage workflow traced into Langfuse | Live | Act 1.5 · `n8n/README.md` |
 | OBS-03 | RAG, context and sources | `retriever` observation with document ids, source URLs, effective dates, scores; full context on the root | Live | Act 1.1 · `northwind/knowledge.py` |
 | OBS-04 | Tools, MCP and agent iterations | MCP server in a separate process joined to the same trace via W3C context in MCP `_meta`; agent graph shows the loop | Live | Act 1.1 · `northwind/mcp_server.py` |
@@ -32,7 +32,7 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | ENT-04 | Export and portability | REST API (used by every script), UI export (CSV/JSON); scheduled export to S3/Blob (Parquet/CSV/JSONL) | Live (API, UI export) · Config (scheduled export) | M4 |
 | GATE-01 | Governance, identity and access | ENT-01, ENT-02, protected prompt label | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |
 | GATE-02 | Security and data protection | masking, guardrails, red-team suite, retention | Evidence | M3 |
-| GATE-03 | Architectural integration | LangGraph, MCP, n8n, voice, APM; AWS reference architecture | Evidence | M3 · `docs/ARCHITECTURE.md` |
+| GATE-03 | Architectural integration | Agent orchestration, MCP, n8n, voice, APM; AWS reference architecture | Evidence | M3 · `docs/ARCHITECTURE.md` |
 | GATE-04 | Operation and resilience | health endpoints, HA topology, backups, upgrades, platform monitoring | Config | M4 · `docs/OPERATIONS.md` |
 | GATE-05 | Value, Enterprise support and TCO | cost per turn/customer, judge cost lever, TCO worksheet, support model | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |
 

@@ -16,7 +16,7 @@ Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](ht
 ## 2. How the demo does it: one TracerProvider, two processors
 
 ```
-            app process (LangGraph agent, MCP client, our spans)
+            app process (banking agent, MCP client, our spans)
                               |
                  TracerProvider  (one W3C trace id per turn)
                  /                                   \
