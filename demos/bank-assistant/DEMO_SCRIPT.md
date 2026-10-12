@@ -113,8 +113,8 @@ what the assistant actually did?"
    - root `agent` observation `northwind-assistant`: input = the customer's
      words, output = the answer
    - `input-guardrail` (type *guardrail*) — what the security rules decided
-   - the LangGraph nodes (`assistant`, `tools`), auto-captured by the
-     LangChain callback handler — **no manual code per step**
+   - the workflow nodes (`assistant`, `tools`), auto-captured by the
+     Langfuse callback handler — **no manual code per step**
    - each `ChatAnthropic` **generation**: model, input/output tokens, cost, latency
    - `mcp-client: open_dispute` → `mcp-server: open_dispute` →
      `core-banking.open_dispute`: **the MCP server is a different process**,
@@ -141,7 +141,7 @@ what the assistant actually did?"
 retrieval, tools, and the downstream MCP service — in seconds instead of
 reading logs from three systems.
 
-**Ask.** "Your teams use LangGraph, Spring AI and n8n. Which of those carries
+**Ask.** "Your teams use code-based agents, Spring AI and n8n. Which of those carries
 the most production traffic today, and which is hardest to debug?"
 
 > Java / Spring AI teams: the same trace model via OpenTelemetry (Micrometer →
@@ -472,7 +472,7 @@ already seen:
 |---|---|
 | GATE-01 Governance, identity and access | RBAC + project-level role + protected prompt label (M4), Entra ID config |
 | GATE-02 Security and data protection | PII masking (Act 1.3), guardrails + red-team suite (Act 2.2), retention (M4) |
-| GATE-03 Architectural integration | LangGraph + MCP + n8n + voice in one trace model, APM correlation, AWS reference architecture |
+| GATE-03 Architectural integration | Agent orchestration + MCP + n8n + voice in one trace model, APM correlation, AWS reference architecture |
 | GATE-04 Operation and resilience | health/readiness endpoints, HA topology, backups, upgrade path (`docs/OPERATIONS.md`) |
 | GATE-05 Value, Enterprise support and TCO | cost per turn and per customer (Act 1.1), judge cost lever, TCO worksheet, support model |
 
@@ -845,7 +845,7 @@ of the POC — containment, cost per contact, complaints, or conduct risk?"
 
 - Recap the matrix: what was shown live vs documented (see `CAPABILITY_MATRIX.md`).
 - POC plan: day 1 `docker compose` in the bank's AWS account → connect the
-  bank's n8n and one LangGraph app → masking policy → Entra ID → evaluators
+  bank's n8n and one agent application → masking policy → Entra ID → evaluators
   calibrated with SMEs → gate in CI.
 - **Ask:** "What would make this POC a clear yes for each of you — data
   science, analytics, architecture?"
