@@ -40,6 +40,20 @@ def check(ok: bool, name: str, detail: str = "", required: bool = True):
         (FAIL if required else WARN).append(name)
 
 
+def check_annotation_queue(items):
+    """A presentation needs both calibration labels and work for a live reviewer."""
+    n_items = len(items)
+    n_pending = sum(i.get("status") == "PENDING" for i in items)
+    n_done = sum(i.get("status") == "COMPLETED" for i in items)
+    check(n_items >= 10, "SME annotation queue", f"{n_items} items")
+    check(n_pending > 0, "SME queue pending human review",
+          f"{n_pending} pending / {n_done} completed / {n_items} total"
+          + ("" if n_pending else " — run scripts/fill_annotation_queue.py 20 before Act 2.4"))
+    check(n_done >= 8, "SME queue labelled (human labels for the judge-calibration act)",
+          f"{n_done} completed / {n_items} total" + ("" if n_done >= 8 else " — label 8–10 before Act 2.4"),
+          required=False)
+
+
 def get(path, _timeout=30, **params):
     return config.api("GET", path, params=params or None, timeout=_timeout)
 
@@ -276,12 +290,7 @@ def main():
     qs = get("/api/public/annotation-queues", limit=50)["data"]
     q = next((x for x in qs if x["name"].startswith("SME review")), None)
     q_items = page_all(f"/api/public/annotation-queues/{q['id']}/items") if q else []
-    n_items = len(q_items)
-    check(n_items >= 10, "SME annotation queue", f"{n_items} items")
-    n_done = sum(1 for i in q_items if i.get("status") == "COMPLETED")
-    check(n_done >= 8, "SME queue labelled (human labels for the judge-calibration act)",
-          f"{n_done} completed / {n_items} total" + ("" if n_done >= 8 else " — label 8–10 before Act 2.4"),
-          required=False)
+    check_annotation_queue(q_items)
 
     # ── dashboard ──
     try:

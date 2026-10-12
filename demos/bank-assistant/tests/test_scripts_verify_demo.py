@@ -21,6 +21,32 @@ def obs(trace, **fields):
     return {"traceId": trace, "id": f"o-{trace}", **fields}
 
 
+class AnnotationQueueReadiness(unittest.TestCase):
+    def queue_checks(self, statuses):
+        with mock.patch.object(vd, "check") as checked:
+            vd.check_annotation_queue([{"status": status} for status in statuses])
+        return {call.args[1]: call for call in checked.call_args_list}
+
+    def test_all_completed_queue_fails_pending_readiness(self):
+        checks = self.queue_checks(["COMPLETED"] * 10)
+        pending = checks["SME queue pending human review"]
+        self.assertFalse(pending.args[0])
+        self.assertNotEqual(pending.kwargs.get("required"), False)
+        self.assertIn("scripts/fill_annotation_queue.py 20", pending.args[2])
+        self.assertTrue(checks["SME queue labelled (human labels for the judge-calibration act)"].args[0])
+
+    def test_mixed_queue_is_ready_for_both_live_annotation_and_calibration(self):
+        checks = self.queue_checks(["COMPLETED"] * 8 + ["PENDING"] * 2)
+        self.assertTrue(all(call.args[0] for call in checks.values()))
+
+    def test_fresh_queue_has_live_work_but_calibration_labels_are_advisory(self):
+        checks = self.queue_checks(["PENDING"] * 20)
+        self.assertTrue(checks["SME queue pending human review"].args[0])
+        labels = checks["SME queue labelled (human labels for the judge-calibration act)"]
+        self.assertFalse(labels.args[0])
+        self.assertFalse(labels.kwargs["required"])
+
+
 class FindPii(unittest.TestCase):
     def test_every_needle_is_found_in_input_output_or_metadata(self):
         cases = [

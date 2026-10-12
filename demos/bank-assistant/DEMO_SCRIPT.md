@@ -36,7 +36,10 @@ calibration, and experiment workflows before the workshop. Run commands from
    behind `production`, `staging`, and `development`. For rollback,
    `previous-production` must resolve to a different version from `production`;
    use `--set-previous N` to select the intended existing version.
-4. Label 8-10 SME queue items with `sme-faithfulness` and `sme-compliance`.
+4. Label and complete 8-10 SME queue items with `sme-faithfulness` and
+   `sme-compliance`. Leave at least one pending item for live annotation.
+   After rehearsals, run `.venv/bin/python scripts/fill_annotation_queue.py 20`
+   to refill the pending backlog before verification.
    Run `.venv/bin/python scripts/judge_calibration.py`. Add `--bakeoff` to
    compare judge models; select models available to your account with `--models`.
 5. Run `.venv/bin/python scripts/verify_demo.py`. Resolve mandatory failures
@@ -432,9 +435,9 @@ needs to agree with your experts — and you need a rule for which judge model
 is approved."
 
 **Show.**
-1. **Annotation queues** → *SME review — assistant answers*: 30 production
-   answers, including the lowest judge scores. Label one live with `sme-faithfulness`,
-   `sme-compliance` and `sme-failure-mode`.
+1. **Annotation queues** → *SME review — assistant answers*: production answers,
+   including the lowest judge scores. Open a **pending** item and label it live with
+   `sme-faithfulness`, `sme-compliance` and `sme-failure-mode`, then complete it.
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.
 3. **Calibrate the judge and choose the judge model.** Datasets →

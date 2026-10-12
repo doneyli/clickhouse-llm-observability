@@ -127,8 +127,14 @@ Managed judge scores arrive asynchronously. Once scores are visible, run:
 .venv/bin/python scripts/fill_annotation_queue.py 20
 ```
 
-Label 8-10 answers in **SME review**, then run
+The count sets the desired pending backlog. Re-running preserves completed
+reviews and human scores. If there are too few unqueued answers, the command
+exits non-zero; generate fresh traffic and rerun.
+
+Label and complete 8-10 answers in **SME review**, then run
 `.venv/bin/python scripts/judge_calibration.py` to compare judge and human scores.
+Leave at least one item pending for live annotation. Refill after rehearsals;
+`scripts/verify_demo.py` fails readiness when there are no pending items.
 
 ## Optional Workflows
 
