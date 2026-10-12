@@ -13,6 +13,7 @@ This demo has its own environment and services; use the setup below.
 | Task | Guide |
 |---|---|
 | Run the assistant | [Quick start](#quick-start) |
+| Conduct compliance and single-vs-split judges | [Policy evaluation and comparison](docs/COMPLIANCE_EVALUATION.md) |
 | Present the 2-hour workshop | [Demo script](DEMO_SCRIPT.md), [attendee labs](LABS.md), [presenter kit](PRESENTER_KIT.html) (open locally in a browser) |
 | Check coverage and evidence | [Capability matrix](CAPABILITY_MATRIX.md), [requirements tracker](REQUIREMENTS_TRACKER.md) |
 
@@ -117,10 +118,13 @@ After the quick start:
 .venv/bin/python scripts/seed_datasets.py
 .venv/bin/python scripts/seed_dashboard.py
 .venv/bin/python scripts/seed_business_dashboard.py
+.venv/bin/python scripts/seed_compliance_dashboard.py
 .venv/bin/python scripts/generate_traffic.py --scenario all
 ```
 
-Check **Evaluators**, **Datasets**, and both Northwind dashboards in Langfuse.
+Check **Evaluators**, **Datasets**, and the Northwind dashboards in Langfuse.
+Conduct compliance uses five policy judges and a derived overall status/score,
+with explicit coverage and unresolved checks. See the [conduct evaluation guide](docs/COMPLIANCE_EVALUATION.md).
 Managed judge scores arrive asynchronously. Once scores are visible, run:
 
 ```bash
@@ -141,6 +145,7 @@ Leave at least one item pending for live annotation. Refill after rehearsals;
 | Workflow | Command or guide |
 |---|---|
 | Prompt comparison (EN + ES), model comparison, and red-team experiments | `./scripts/run_all_experiments.sh` (requires OpenAI for model comparison; inspect both experiment logs in `logs/` for failures) |
+| Conduct judge comparison: original single, matched single, five policy judges | `.venv/bin/python scripts/compare_compliance.py` (or `--preview` without keys) |
 | Judge-rubric calibration experiment | `.venv/bin/python scripts/judge_calibration_experiment.py` |
 | Voice calls | `.venv/bin/python scripts/run_voice_calls.py --lang en --verify` (requires OpenAI; use `--lang es` for Spanish) |
 | Complaint triage | [n8n setup and verification](n8n/README.md) |
@@ -186,6 +191,7 @@ Stop this demo's containers with `docker compose --profile selfhosted stop`.
 | Topic | Guide |
 |---|---|
 | Portal controls and API | [Portal README](portal/README.md) |
+| Conduct score aggregation, dashboard and comparison walkthrough | [Conduct evaluation](docs/COMPLIANCE_EVALUATION.md) |
 | Data model and deployment architecture | [Architecture](docs/ARCHITECTURE.md) |
 | Langfuse v4 reads, filters, and pagination | [API reference](docs/API_REFERENCE.md) |
 | SSO, RBAC, audit, retention, and export | [Enterprise security](docs/ENTERPRISE_SECURITY.md) |

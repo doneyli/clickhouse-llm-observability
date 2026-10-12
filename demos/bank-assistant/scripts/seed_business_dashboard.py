@@ -49,7 +49,8 @@ WIDGETS = [
      [{"field": "stringValue"}], [{"measure": "count", "agg": "count"}], f("intent"), 8, 3, 4, 5),
     ("Upsell rate by prompt version", "Production vs canary on live traffic", "scores-numeric", "VERTICAL_BAR",
      [{"field": "traceVersion"}], [{"measure": "value", "agg": "avg"}], f("unsolicited-upsell"), 0, 8, 3, 5),
-    ("Compliance judge by prompt version", "banking-compliance (LLM judge) average", "scores-numeric", "VERTICAL_BAR",
+    ("Compliance judge by prompt version", "banking-compliance: derived worst-policy score on new traffic; historical single-judge scores remain. "
+     "This average is not a compliance pass rate; inspect conduct status and coverage in the conduct dashboard.", "scores-numeric", "VERTICAL_BAR",
      [{"field": "traceVersion"}], [{"measure": "value", "agg": "avg"}], f("banking-compliance"), 3, 8, 3, 5),
     ("Advisor offered by prompt version", "Investment questions: share offered/booked a licensed advisor",
      "scores-numeric", "VERTICAL_BAR", [{"field": "traceVersion"}], [{"measure": "value", "agg": "avg"}],
