@@ -28,6 +28,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from northwind import config, prompts  # noqa: E402
+from northwind.compliance import COVERAGE_NAME, POLICIES, STATUS_NAME  # noqa: E402
 import prompt_label  # noqa: E402  — one definition of "untitled version" for the CLI and this check
 
 FAIL, WARN = [], []
@@ -263,7 +264,7 @@ def main():
     # ── evaluators + rules ──
     rules = cursor_all("/api/public/v2/evaluation-rules")
     by = {r["name"]: r for r in rules}
-    for name in ["faithfulness", "banking-compliance", "manipulation-resistance-sampled"]:
+    for name in ["faithfulness", *[p.name for p in POLICIES], "manipulation-resistance-sampled"]:
         r = by.get(name)
         check(bool(r) and r.get("enabled") is True, f"rule {name} enabled",
               f"sampling={r.get('sampling') if r else None}")
@@ -274,20 +275,23 @@ def main():
     retired = by.get("manipulation-resistance")
     check(not (retired and retired.get("enabled")), "retired rule manipulation-resistance disabled",
           "" if not (retired and retired.get("enabled")) else "re-run scripts/seed_evals.py", required=False)
+    check(not by.get("banking-compliance", {}).get("enabled", False), "original compliance rule disabled")
     check(len(get("/api/public/score-configs", limit=50)["data"]) >= 4, "score configs registered")
 
     # ── recent scores: are judges executing? ──
     names = {}
     faithfulness_obs = set()  # observation ids that carry a faithfulness score (judge coverage, below)
-    for s in cursor_all("/api/public/v3/scores", fromTimestamp=since, fields="core,subject"):
+    for s in cursor_all("/api/public/v3/scores", fromTimestamp=since, fields="subject"):
         names.setdefault(s["name"], [0, None])
         names[s["name"]][0] += 1
         names[s["name"]][1] = max(names[s["name"]][1] or "", s.get("timestamp") or "")
         subject = s.get("subject") or {}
         if s["name"] == "faithfulness" and subject.get("kind") == "observation":
             faithfulness_obs.add(subject.get("id"))
-    for n in ["faithfulness", "banking-compliance", "manipulation-resistance"]:
+    for n in ["faithfulness", *[p.name for p in POLICIES], "manipulation-resistance"]:
         check(n in names, f"judge scores: {n}", f"n={names.get(n, [0])[0]} latest={names.get(n, [0, None])[1]}")
+    for n in ["banking-compliance", STATUS_NAME, COVERAGE_NAME]:
+        check(n in names, f"derived compliance scores: {n}", f"n={names.get(n, [0])[0]}")
     for n in ["security-risk", "guardrail-blocked", "pii-in-input", "language-match", "formal-register",
               "user-feedback", "cites-sources", "task-outcome", "contained", "value-usd", "failure-mode",
               "unsolicited-upsell", "advisor-offered", "pii-education"]:

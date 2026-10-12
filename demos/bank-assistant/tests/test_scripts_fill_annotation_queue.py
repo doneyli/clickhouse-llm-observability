@@ -43,7 +43,7 @@ class QueueApi:
                 return deepcopy(created)
         if method == "GET" and path in ("/api/public/v2/observations", "/api/public/v3/scores"):
             rows = self.observations if "observations" in path else [
-                s for s in self.scores if "name" not in params or s.get("name") == params["name"]]
+                s for s in self.scores if "name" not in params or s.get("name") in params["name"].split(",")]
             start = int(params.get("cursor", 0))
             end = start + params["limit"]
             return {"data": rows[start:end], "meta": {"cursor": str(end) if end < len(rows) else None}}
@@ -119,8 +119,9 @@ class PendingBacklog(unittest.TestCase):
         api = QueueApi(observations=[{"id": "a", "traceId": "t"}],
                        scores=[{"name": "turn-cost-usd", "value": 0.01} for _ in range(300)])
         self.assertEqual(self.run_fill(api, ["1"])[0], 0)
-        names = [params.get("name") for _, path, _, params in api.calls if "scores" in path]
-        self.assertEqual(set(names), {"faithfulness", "banking-compliance", "user-feedback"})
+        names = {n for _, path, _, params in api.calls if "scores" in path for n in params["name"].split(",")}
+        self.assertEqual(names, {"faithfulness", "banking-compliance", "banking-compliance-status", "user-feedback",
+                                 *[p.name for p in fill.POLICIES]})
 
     def test_exhaustion_fails_with_fresh_traffic_instructions_without_reopening(self):
         completed = [item("reviewed")]

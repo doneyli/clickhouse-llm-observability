@@ -14,7 +14,7 @@ NAME = "Northwind — AI quality, risk and cost"
 ROOT = [{"column": "name", "operator": "any of", "value": ["northwind-assistant"], "type": "stringOptions"}]
 
 WIDGETS = [  # (name, description, view, chartType, dimensions, metrics, filters, x, y, w, h)
-    ("Judge scores over time", "Average faithfulness and banking-compliance (LLM judges, production)",
+    ("Judge scores over time", "Faithfulness/security judges and derived banking-compliance; averages are not pass rates. See conduct dashboard for status and coverage.",
      "scores-numeric", "LINE_TIME_SERIES", [{"field": "name"}], [{"measure": "value", "agg": "avg"}],
      [{"column": "name", "operator": "any of", "value": ["faithfulness", "banking-compliance", "manipulation-resistance"],
        "type": "stringOptions"}], 0, 0, 6, 5),
