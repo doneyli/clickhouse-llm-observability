@@ -47,11 +47,12 @@ The implementation is in `../northwind/config.py`:
 | Auth header | `Authorization: Api-Token <token>`, a classic access token with scope **`openTelemetryTrace.ingest`** (a platform token uses `Authorization: Bearer <token>` with `openpipeline:traces:ingest`) |
 | Protocol | **OTLP over HTTP with binary protobuf only.** No gRPC, no JSON. `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` |
 
-Demo variables (`../.env.example`) and their Dynatrace values:
+Set these variables in the demo's `.env`, replacing the host, environment ID,
+and token placeholders:
 
-```bash
+```dotenv
 APM_OTLP_ENDPOINT=https://<activegate-host>:9999/e/<env-id>/api/v2/otlp/v1/traces   # full path: passed verbatim to OTLPSpanExporter
-APM_OTLP_HEADERS=Authorization=Api-Token <token with openTelemetryTrace.ingest>
+APM_OTLP_HEADERS="Authorization=Api-Token <token with openTelemetryTrace.ingest>"
 APM_UI_TRACE_URL=https://<env-id>.apps.dynatrace.com/ui/apps/dynatrace.distributedtracing/explorer?traceId={trace_id}
 ```
 
@@ -150,7 +151,10 @@ Map `ALERT` to `CUSTOM_ALERT`, which typically opens a Dynatrace problem; confir
 
 ## 9. Verify locally (5 minutes)
 
-1. `../scripts/up.sh`, then run one assistant turn. The result returns `trace_id`, `trace_url` and `apm_url`.
+Complete the [quick start](../README.md#quick-start). Run commands from
+`demos/bank-assistant`.
+
+1. Run `./scripts/up.sh`, then send one assistant message in the portal. The result returns `trace_id`, `trace_url` and `apm_url`.
 2. Open `apm_url` (Jaeger) and check the same trace id, the agent and MCP server services, and **no** prompt or completion attributes on any span.
 3. Open `trace_url` (Langfuse) and check the same trace id, masked PII, and `apm_trace_url` in the metadata.
-4. To switch to Dynatrace, change the three `APM_*` variables. No code changes.
+4. To switch to Dynatrace, change the three `APM_*` variables, then restart both portal and MCP so they reload configuration.
