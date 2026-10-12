@@ -58,7 +58,7 @@ before presenting.
 |---|---|---|
 | Northwind portal (the bank's app) | http://localhost:8090 | every act |
 | Selected Langfuse project | portal header → "Langfuse" | every act |
-| APM stand-in for Dynatrace (Jaeger) | http://localhost:16686 | M1 |
+| Infrastructure observability (Jaeger) | http://localhost:16686 | M1 |
 | n8n | http://localhost:5678 | M1 |
 | Docs | `docs/ARCHITECTURE.md`, `docs/INDUSTRY.md`, `docs/ENTERPRISE_SECURITY.md`, `docs/OPERATIONS.md`, `docs/PATH_TO_PRODUCTION.md`, `docs/DYNATRACE.md`, `docs/SPRING_AI.md` | M0, M1, M3, M4 |
 | Lab handout | `LABS.md` | M1, M2, M5 |

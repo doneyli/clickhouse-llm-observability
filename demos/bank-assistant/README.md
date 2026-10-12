@@ -160,7 +160,7 @@ for label state and rehearsal.
 | Portal | [localhost:8090](http://localhost:8090) | Chat, voice, presenter console |
 | Core-banking MCP | `http://localhost:8765/mcp` | Started by the portal launcher |
 | Langfuse | Cloud URL or [localhost:3100](http://localhost:3100) | Selected by the profile |
-| Jaeger | [localhost:16686](http://localhost:16686) | Local stand-in for Dynatrace |
+| Jaeger | [localhost:16686](http://localhost:16686) | Local infrastructure observability |
 | n8n | [localhost:5678](http://localhost:5678) | Credentials in `.env` after n8n setup |
 
 | Symptom | Check or fix |
