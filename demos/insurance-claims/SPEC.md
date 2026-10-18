@@ -1,6 +1,6 @@
 # Insurance claims demo — design spec
 
-Status: design, not built. Customer-agnostic: Northwind Life & Annuity is fictional and
+Status: Phase 0 done (`scripts/spike_phase0.py --judge`: 6/6 checks); Phases 1–7 in progress. Customer-agnostic: Northwind Life & Annuity is fictional and
 all data is synthetic. Do not name any customer in this directory.
 
 ## 1. What the demo proves
@@ -187,9 +187,9 @@ and parameters (per-agent model choice).
 Labels: `production`, `staging`, `previous-production`. `production` is a protected label
 on self-hosted Enterprise. A 90/10 split uses two labels plus the prompt `config`.
 
-Strands caveat: Strands creates its own LLM spans, so linking them to the Langfuse prompt
-version needs a small span processor that adds the prompt attributes to the `gen_ai` chat
-spans while a context variable is set. Phase 0 confirms the attribute names.
+Strands prompt linking: Strands creates its own LLM spans; the service wraps the agent run
+in `propagate_attributes(prompt=lf_prompt)` and the backend links its `chat` generation to
+the served prompt version. No custom span processor is needed (verified in Phase 0).
 
 ## 7. Seeded failure modes
 

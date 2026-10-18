@@ -1,0 +1,4 @@
+# Keep customer-specific notes out of the public repo
+customer/
+# Throwaway spike output
+data/documents/spike/
