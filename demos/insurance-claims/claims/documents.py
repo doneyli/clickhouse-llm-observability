@@ -20,7 +20,7 @@ from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1240, 1600
+W, H = 1000, 1360
 INK = (25, 25, 35)
 RULE = (120, 120, 140)
 MARK = (205, 70, 70)
@@ -46,7 +46,7 @@ def _page(title: str, subtitle: str):
 def _watermark(img: Image.Image) -> Image.Image:
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ImageDraw.Draw(layer).text((W // 2, H // 2), "SYNTHETIC SAMPLE — DEMO DATA — NOT AN OFFICIAL RECORD",
-                               font=_font(40), fill=MARK + (70,), anchor="mm")
+                               font=_font(30), fill=MARK + (70,), anchor="mm")
     layer = layer.rotate(28, center=(W // 2, H // 2))
     out = Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB")
     ImageDraw.Draw(out).text((W // 2, H - 70), "SYNTHETIC SAMPLE · Northwind Life & Annuity claims demo",
@@ -87,9 +87,11 @@ def render_death_certificate(f: dict, path: Path) -> Path:
         ("Manner of death", f.get("manner_of_death")),
         ("Certifier", f.get("certifier")),
         ("Date certified", f.get("date_certified")),
+        ("Copy type", "CERTIFIED COPY — issued by the vital records office" if f.get("certified", True)
+         else "UNCERTIFIED PHOTOCOPY — not issued by vital records"),
     ])
     if f.get("note"):
-        _paragraph(d, f"Remarks: {f['note']}", top=980, size=24)
+        _paragraph(d, f"Remarks: {f['note']}", top=1040, size=22, width_chars=70)
     path.parent.mkdir(parents=True, exist_ok=True)
     _watermark(img).save(path, optimize=True)
     return path
@@ -107,7 +109,7 @@ def render_claimant_statement(f: dict, path: Path) -> Path:
     ])
     if f.get("statement"):
         d.text((90, y + 10), "CLAIMANT'S STATEMENT", font=_font(20), fill=RULE)
-        _paragraph(d, f["statement"], top=y + 44, size=26)
+        _paragraph(d, f["statement"], top=y + 44, size=24, width_chars=66)
     path.parent.mkdir(parents=True, exist_ok=True)
     _watermark(img).save(path, optimize=True)
     return path
