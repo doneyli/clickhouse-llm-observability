@@ -22,7 +22,7 @@ tenant or infrastructure). Acts refer to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | | Prompt linked to every generation | LangChain metadata + `propagate_attributes(prompt=)` for Strands | Live | Act 1 |
 | | Promotion and rollback without redeploy | `scripts/prompt_label.py` | Live | Act 5 |
 | CI/CD | Quality gate | `scripts/prompt_gate.py` exits 1 on F1 | Live (local) | Act 5 |
-| | GitHub Actions on prompt change | Langfuse automation → repository dispatch → `.github/workflows/claims-prompt-gate.yml` | Config (needs repo secrets) | cicd/README.md |
+| | GitHub Actions on prompt change | Langfuse automation → repository dispatch → `.github/workflows/claims-prompt-gate.yml` (gates claims-sop-rules and annuity-service-rules) | Config (needs repo secrets) | cicd/README.md |
 | | Terraform | official AWS module + config-as-code seeders | Config | cicd/terraform/main.tf |
 | Governance (self-hosted Enterprise) | Projects per environment and team; project-level roles | claims-prod / claims-dev / annuities-prod; four demo roles | Live | Act 6 · scripts/seed_selfhosted_rbac.py |
 | | Protected `production` label | MEMBER can't move it; ADMIN can | Live | Act 5 |

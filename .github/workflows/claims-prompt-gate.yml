@@ -1,10 +1,13 @@
 # Insurance claims demo — prompt quality gate in CI.
 #
 # WHAT IT DOES
-#   A Langfuse prompt automation (Prompts → Automations → GitHub Repository Dispatch, event type
-#   `claims-prompt-update`) fires on every claims-sop-rules version or label change. This workflow
-#   reads the prompt + labels from the payload, runs claims-golden-v1 against that labelled version
-#   (perfect intake; the SME-codified oracle is the ground truth) and compares the run averages with
+#   Same template as northwind-prompt-gate.yml. A Langfuse prompt automation (Prompts → Automations →
+#   GitHub Repository Dispatch, event type `claims-prompt-update`) fires on every prompt version or label
+#   change in the insurance project. This workflow reads the prompt + labels from the payload and gates
+#   the two prompts that have an answer key:
+#     claims-sop-rules       → claims-golden-v1 (death claims)
+#     annuity-service-rules  → annuity-service-golden-v1 (retirement / annuity servicing)
+#   (perfect intake; the SME-codified oracle is the ground truth), comparing the run averages with
 #   demos/insurance-claims/cicd/thresholds.json. A regression FAILS the job and blocks "Ship it".
 #
 # SETUP (once) — see demos/insurance-claims/cicd/README.md
@@ -12,8 +15,9 @@
 #   ANTHROPIC_API_KEY. The Langfuse automation is a UI step (no public API).
 #
 # DEMO TIP
-#   Actions → Claims prompt gate → Run workflow → `staging` shows the gate BLOCKING the 'concise'
-#   candidate; `production` shows it passing.
+#   Actions → Claims prompt gate → Run workflow → prompt claims-sop-rules, label `staging` → BLOCKED
+#   (the 'concise' candidate); annuity-service-rules + `staging` → BLOCKED on critical recall
+#   ('process-first'); either prompt + `production` → passes.
 name: Claims prompt gate
 
 on:
@@ -21,25 +25,33 @@ on:
     types: [claims-prompt-update]
   workflow_dispatch:
     inputs:
+      prompt_name:
+        description: Prompt to gate
+        required: true
+        default: claims-sop-rules
+        type: choice
+        options: [claims-sop-rules, annuity-service-rules]
       prompt_label:
-        description: claims-sop-rules label to gate
+        description: Label to gate
         required: true
         default: staging
         type: choice
         options: [staging, production, conservative, candidate]
 
 concurrency:
-  group: claims-gate-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_label }}
+  group: claims-gate-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_name }}
   cancel-in-progress: true
 
 jobs:
   gate:
-    name: Evaluate claims-sop-rules against the quality bar
+    name: Evaluate the prompt against the quality bar
     runs-on: ubuntu-latest
     outputs:
       label: ${{ steps.which.outputs.label }}
       is_production: ${{ steps.which.outputs.is_production }}
       skip: ${{ steps.which.outputs.skip }}
+      suite: ${{ steps.which.outputs.suite }}
+      name: ${{ steps.which.outputs.name }}
     defaults:
       run:
         working-directory: demos/insurance-claims
@@ -54,23 +66,27 @@ jobs:
         working-directory: .
         env:
           MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
+          MANUAL_NAME: ${{ github.event.inputs.prompt_name }}
         run: |
           set -euo pipefail
-          GATED="claims-sop-rules"; DEPLOYABLE="production staging conservative candidate"; SKIP=""
+          DEPLOYABLE="production staging conservative candidate"; SKIP=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            NAME="$GATED"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
+            NAME="$MANUAL_NAME"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
           else
             NAME=$(jq -r '.client_payload.prompt.name // ""' "$GITHUB_EVENT_PATH")
             VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
             LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
             LABEL=$(jq -r '(.client_payload.prompt.labels // []) | map(select(. != "latest" and . != "previous-production"))
                            | (map(select(. == "production")) + .) | first // ""' "$GITHUB_EVENT_PATH")
-            if [ "$NAME" != "$GATED" ]; then SKIP="\`$NAME\` is not \`$GATED\`, the prompt this dataset exercises."
+            if [ "$NAME" != "claims-sop-rules" ] && [ "$NAME" != "annuity-service-rules" ]; then
+              SKIP="\`$NAME\` has no answer-key dataset — only claims-sop-rules and annuity-service-rules are gated."
             elif [ -z "$LABEL" ]; then SKIP="version $VERSION carries no deployable label (has: \`${LABELS:-none}\`)."
             elif ! printf '%s' " $DEPLOYABLE " | grep -q " $LABEL "; then SKIP="label \`$LABEL\` is not one of: $DEPLOYABLE."
             fi
           fi
+          SUITE=rules; [ "$NAME" = "annuity-service-rules" ] && SUITE=service
           IS_PROD=false; case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
+          echo "suite=$SUITE" >> "$GITHUB_OUTPUT"; echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "label=$LABEL" >> "$GITHUB_OUTPUT"; echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"; echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
           { echo "### Prompt change"; echo ""; echo "| field | value |"; echo "|---|---|"
             echo "| prompt | \`$NAME\` |"; echo "| version | \`$VERSION\` |"; echo "| labels | \`${LABELS:-none}\` |"
@@ -99,13 +115,14 @@ jobs:
 
       # The rules suite needs neither the MCP server nor the A2A service: it runs the step on known claim
       # files. Non-zero exit on any hard-threshold miss IS the gate.
-      - name: Gate — claims-golden-v1
+      - name: Gate — answer-key dataset for the prompt
         if: steps.which.outputs.skip == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          python scripts/prompt_gate.py --prompt-label "${{ steps.which.outputs.label }}" \
-            --run-name "ci · ${{ steps.which.outputs.label }} v{version} · #${{ github.run_number }}"
+          python scripts/prompt_gate.py --suite "${{ steps.which.outputs.suite }}" \
+            --prompt-label "${{ steps.which.outputs.label }}" \
+            --run-name "ci · ${{ steps.which.outputs.name }} ${{ steps.which.outputs.label }} v{version} · #${{ github.run_number }}"
 
   deploy:
     name: Ship it
@@ -118,6 +135,6 @@ jobs:
           {
             echo "### 🚀 Deployed"
             echo ""
-            echo "\`claims-sop-rules\` (label \`${{ needs.gate.outputs.label }}\`) passed the quality bar and carries \`production\`."
+            echo "\`${{ needs.gate.outputs.name }}\` (label \`${{ needs.gate.outputs.label }}\`) passed the quality bar and carries \`production\`."
             echo "The agents fetch the production-labelled prompt at runtime (10 s cache): nothing to redeploy. Roll back = move the label back."
           } >> "$GITHUB_STEP_SUMMARY"

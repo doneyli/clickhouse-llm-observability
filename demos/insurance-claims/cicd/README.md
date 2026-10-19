@@ -22,17 +22,20 @@ regulatory leak, and the LLM judge does not see it.
 ## Wiring
 
 ```
-Langfuse: save a claims-sop-rules version / move a label
+Langfuse: save a claims-sop-rules / annuity-service-rules version, or move a label
   └─► Prompts → Automations → GitHub Repository Dispatch (event claims-prompt-update)
-        └─► .github/workflows/claims-prompt-gate.yml
+        └─► .github/workflows/claims-prompt-gate.yml   (same template as northwind-prompt-gate.yml)
               1. Decide: prompt name, version, labels from the payload; skip other prompts or unlabelled versions
-              2. Gate the label on claims-golden-v1 (unique run name per CI run) → job summary + run link
+              2. Gate the label on its answer key — claims-sop-rules → claims-golden-v1 (92),
+                 annuity-service-rules → annuity-service-golden-v1 (22, `--suite service`, thresholds under
+                 `suites.service`) — unique run name per CI run → job summary + run link
               3. "Ship it" only if the gate passed AND the version carries `production`
 ```
 
 Setup (once): repo secrets `CLAIMS_LANGFUSE_BASE_URL`, `CLAIMS_LANGFUSE_PUBLIC_KEY`,
 `CLAIMS_LANGFUSE_SECRET_KEY`, `ANTHROPIC_API_KEY`; then in the Langfuse project: Prompts → Automations →
-Create → events *Created* and *Updated*, filter `claims-sop-rules`, action GitHub Repository Dispatch
+Create → events *Created* and *Updated*, filter `claims-sop-rules` and `annuity-service-rules` (or no
+filter: the workflow skips every other prompt), action GitHub Repository Dispatch
 (URL `https://api.github.com/repos/<owner>/<repo>/dispatches`, event type `claims-prompt-update`, a token
 with Actions + Contents read/write). The automation has no public API — it is a UI step.
 

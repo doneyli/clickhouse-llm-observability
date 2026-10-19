@@ -1,8 +1,10 @@
 """
-CI quality gate: evaluate a claims-sop-rules version BEFORE it gets the `production` label.
+CI quality gate: evaluate a claims-sop-rules (or, with --suite service, annuity-service-rules) version
+BEFORE it gets the `production` label.
 
     .venv/bin/python scripts/prompt_gate.py --prompt-label staging      # the 'concise' candidate → exit 1
     .venv/bin/python scripts/prompt_gate.py --prompt-label production   # → exit 0
+    .venv/bin/python scripts/prompt_gate.py --suite service --prompt-label staging   # 'process-first' → exit 1
 
 Runs the rules suite on claims-golden-v1 (perfect intake, the SME-codified oracle as ground truth), reads
 the run-level averages and compares them with cicd/thresholds.json. A MISSING metric is a failure, never a
@@ -36,9 +38,9 @@ def check(name: str, rule: dict, value):
     return "PASS"
 
 
-def render(rows, failed, *, label, version, model, run_name, run_url) -> str:
-    out = [f"## {'❌ **GATE FAILED**' if failed else '✅ **GATE PASSED**'} — `claims-sop-rules` `{label}` (v{version}) · {model}",
-           "", f"Run `{run_name}` on `claims-golden-v1`", ""]
+def render(rows, failed, *, prompt, dataset, label, version, model, run_name, run_url) -> str:
+    out = [f"## {'❌ **GATE FAILED**' if failed else '✅ **GATE PASSED**'} — `{prompt}` `{label}` (v{version}) · {model}",
+           "", f"Run `{run_name}` on `{dataset}`", ""]
     if run_url:
         out += [f"[Open the run in Langfuse]({run_url})", ""]
     out += ["| Metric | Value | Bound | Kind | |", "|---|---|---|---|---|"]
@@ -91,7 +93,8 @@ def main() -> int:
             print(f"{name:<32}{('—' if v is None else f'{v:.3f}'):>8}  {bound:<10} {st} ({kind})")
     url = getattr(result, "dataset_run_url", None)
     model = a.model or "prompt config model"
-    report = render(rows, failed, label=a.prompt_label, version=version, model=model,
+    report = render(rows, failed, prompt=run_experiment.PROMPT.get(a.suite, "claims-sop-rules"), dataset=t["dataset"],
+                    label=a.prompt_label, version=version, model=model,
                     run_name=run_name.replace("{version}", str(version)), run_url=url)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
