@@ -26,7 +26,11 @@ ROOT = "claims-orchestrator"
 
 
 def score(name: str) -> list[dict]:
-    return [{"column": "name", "operator": "any of", "value": [name], "type": "stringOptions"}]
+    """Scores of PRODUCTION claims only. App scores written during experiments carry the client's environment,
+    so environment cannot separate them; the trace name and the `experiment` tag can."""
+    return [{"column": "name", "operator": "any of", "value": [name], "type": "stringOptions"},
+            {"column": "traceName", "operator": "any of", "value": [ROOT], "type": "stringOptions"},
+            {"column": "tags", "operator": "none of", "value": ["experiment"], "type": "arrayOptions"}]
 
 
 def tag(*values: str) -> list[dict]:
@@ -84,8 +88,8 @@ REPORT = ("Claims — agent report card", "Platform view: the same score names i
     ("Warnings and errors by step", "Observations at WARNING or ERROR level", "observations", "HORIZONTAL_BAR",
      [{"field": "name"}], COUNT, [{"column": "level", "operator": "any of", "value": ["WARNING", "ERROR"],
                                    "type": "stringOptions"}] + PROD, 0, 5, 6, 5),
-    ("Tokens by agent", "Total tokens per step observation's generations", "observations", "HORIZONTAL_BAR",
-     [{"field": "traceName"}], [{"measure": "totalTokens", "agg": "sum"}], GEN, 6, 5, 6, 5),
+    ("Tokens by agent", "Total tokens per LLM call site (run name)", "observations", "HORIZONTAL_BAR",
+     [{"field": "name"}], [{"measure": "totalTokens", "agg": "sum"}], GEN, 6, 5, 6, 5),
     ("Citation validity", "Cited rules exist, are in scope and in effect (avg)", "scores-numeric", "NUMBER", [], AVG,
      score("citation-validity"), 0, 10, 3, 3),
     ("Policy agent tool trajectory", "Required MCP tools called (avg)", "scores-numeric", "NUMBER", [], AVG,
@@ -128,11 +132,17 @@ def seed(board) -> None:
         if isinstance(detail, dict) else set()
     for (title, wdesc, view, chart, dims, metrics, filters, x, y, w, h) in widgets:
         try:
-            wid = existing.get(title, {}).get("id")
-            if wid is None:
-                wid = config.api("POST", f"{U}/dashboard-widgets", {
-                    "name": title, "description": wdesc, "view": view, "chartType": chart, "dimensions": dims,
-                    "metrics": metrics, "filters": filters, "chartConfig": {"type": chart}})["id"]
+            body = {"name": title, "description": wdesc, "view": view, "chartType": chart, "dimensions": dims,
+                    "metrics": metrics, "filters": filters, "chartConfig": {"type": chart}}
+            cur = existing.get(title)
+            if cur is None:
+                wid = config.api("POST", f"{U}/dashboard-widgets", body)["id"]
+            else:
+                wid = cur["id"]
+                if any(cur.get(k) != body[k] for k in ("description", "view", "chartType", "dimensions", "metrics",
+                                                         "filters")):
+                    config.api("PATCH", f"{U}/dashboard-widgets/{wid}", body)  # reconcile, never skip a drifted widget
+                    print(f"  ~ {title} (definition updated)")
             if wid not in placed:
                 config.api("POST", f"{U}/dashboards/{dash['id']}/placements",
                            {"type": "widget", "widgetId": wid, "x": x, "y": y, "width": w, "height": h})

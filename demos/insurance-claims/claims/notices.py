@@ -9,7 +9,7 @@ NOTICES = {
     "CA-DISC-001": ("If you believe all or part of this claim has been wrongfully denied or rejected, you may have "
                     "the matter reviewed by the California Department of Insurance, Consumer Services Division."),
     "TX-DISC-001": ("If you have a question or complaint, you may contact the Texas Department of Insurance. "
-                    "You may also call Northwind Life & Annuity toll-free at 1-800-555-0142."),
+                    "You may also call the Northwind Life & Annuity toll-free claims line printed on this letterhead."),
     "FL-DISC-001": ("You may contact the Florida Department of Financial Services, Division of Consumer Services, "
                     "about this claim."),
     "IL-DISC-001": ("If you have a complaint about this claim, you may contact the Illinois Department of Insurance, "

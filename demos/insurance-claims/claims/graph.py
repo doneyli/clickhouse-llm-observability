@@ -152,12 +152,13 @@ def _nest(cfg):
         return nullcontext()
 
 
-def make_llm(model: str, max_tokens: int = 2000):
+def make_llm(model: str, max_tokens: int = 2000, name: Optional[str] = None):
+    """`name` becomes the generation's name in Langfuse (one per LLM call site)."""
     if model.startswith(("gpt", "o1", "o3", "o4")):
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, max_tokens=max_tokens)
+        return ChatOpenAI(model=model, max_tokens=max_tokens, name=name)
     from langchain_anthropic import ChatAnthropic
-    return ChatAnthropic(model=model, max_tokens=max_tokens)
+    return ChatAnthropic(model=model, max_tokens=max_tokens, name=name)
 
 
 def _prompt(rt: Runtime, name: str):
@@ -271,7 +272,7 @@ async def policy_coverage(state: ClaimState, config: RunnableConfig) -> dict:
              _tool("get_employment_status", "Group life only: employment status and conversion election.")]
     by_name = {t.name: t for t in tools}
     system, client, model, max_tokens = _prompt(rt, "claims-policy-coverage")
-    llm = make_llm(model, max_tokens).bind_tools(tools)
+    llm = make_llm(model, max_tokens, "policy-coverage-llm").bind_tools(tools)
     msgs = [SystemMessage(content=system), HumanMessage(content="Claim header:\n" + json.dumps(header, indent=1))]
     called: list[str] = []
     with _nest(cfg), rt.langfuse.start_as_current_observation(
@@ -348,7 +349,7 @@ async def sop_rules(state: ClaimState, config: RunnableConfig) -> dict:
     retrieved_ids = [d["sop_id"] for d in docs]
     sop_text = "\n\n".join(f"===== {d['sop_id']} (version {d['version']}) =====\n{d['text']}" for d in docs)
     system, client, model, max_tokens = _prompt(rt, "claims-sop-rules")
-    llm = make_llm(model, max_tokens).with_structured_output(RuleExtraction, method="json_schema", include_raw=True)
+    llm = make_llm(model, max_tokens, "sop-rules-llm").with_structured_output(RuleExtraction, method="json_schema", include_raw=True)
     user = f"CLAIM FILE:\n{json.dumps(cf, indent=1)}\n\nRETRIEVED SOPs:\n{sop_text}"
     with _nest(cfg), rt.langfuse.start_as_current_observation(
             as_type="agent", name="sop-rules", input={"claim_file": cf, "sops": sop_text},
@@ -423,7 +424,7 @@ async def adjudication(state: ClaimState, config: RunnableConfig) -> dict:
     cf, obs_claim, rules = state["claim_file"], state["observed"], state["rules"]
     embedded = bool(cf["intake_findings"]["embedded_instructions"])
     system, client, model, max_tokens = _prompt(rt, "claims-adjudication")
-    llm = make_llm(model, max_tokens).with_structured_output(Recommendation, method="json_schema", include_raw=True)
+    llm = make_llm(model, max_tokens, "adjudication-llm").with_structured_output(Recommendation, method="json_schema", include_raw=True)
     user = f"CLAIM FILE:\n{json.dumps(cf, indent=1)}\n\nAPPLICABLE RULES:\n{_rule_lines(rules) or '- none'}"
     with _nest(cfg), rt.langfuse.start_as_current_observation(
             as_type="agent", name="adjudication", input={"claim_file": cf, "rules": rules},
@@ -488,7 +489,7 @@ async def correspondence(state: ClaimState, config: RunnableConfig) -> dict:
                                        if r.get("type") in ("BLOCK", "PEND", "DOC_REQUIRED", "DENY")],
              "examiner_note": (state.get("review") or {}).get("note") or state["recommendation"]["examiner_note"]}
     system, client, model, max_tokens = _prompt(rt, "claims-correspondence")
-    llm = make_llm(model, max_tokens)
+    llm = make_llm(model, max_tokens, "correspondence-llm")
     with _nest(cfg), rt.langfuse.start_as_current_observation(
             as_type="agent", name="correspondence", input={"letter_facts": facts, "required_notices": needed},
             metadata={"role": "correspondence", "model": model, "decision": decision,
@@ -739,7 +740,7 @@ async def ask_assistant(claim_id: str, thread_id: Optional[str], question: str, 
 
             tools = {t.name: t for t in (get_claim_state, lookup_sop)}
             system, client, model, max_tokens = _prompt(rt, "claims-examiner-assistant")
-            llm = make_llm(model, max_tokens).bind_tools(list(tools.values()))
+            llm = make_llm(model, max_tokens, "examiner-assistant-llm").bind_tools(list(tools.values()))
             msgs = [SystemMessage(content=system), HumanMessage(content=f"Claim {claim_id}. Examiner asks: {question}")]
             cfg = {"callbacks": [rt.handler], "run_name": "examiner-assistant",
                    "metadata": {"langfuse_prompt": client} if client else {}}
