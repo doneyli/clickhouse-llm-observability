@@ -24,11 +24,11 @@ Requirements for claims governed by Illinois law. (IL here is the state of Illin
 
 ## 3. Interest on proceeds
 
-**IL-INT-001 — Interest.** Add interest at 9% a year on the benefit from the thirty-first (31st) day after the company received due proof of death to the date of payment. No interest is due for the first thirty days. This replaces ALL-INT-001.
+**IL-INT-001 — Interest.** Illinois claims carry no standard interest. If payment is made more than thirty (30) days after the company received due proof of death, add interest at 9% a year from the thirty-first (31st) day after proof to the date of payment. This replaces ALL-INT-001.
 
 ## 4. Required disclosures
 
-**IL-DISC-001 — Disclosure.** Denial letters and any letter that delays payment must include the Illinois Department of Insurance notice.
+**IL-DISC-001 — Disclosure.** Every claim letter on an Illinois claim must include the Illinois Department of Insurance notice.
 
 ## Revision history
 

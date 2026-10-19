@@ -264,11 +264,14 @@ def assemble(header: dict, policy: dict, bens: list[dict], comp: dict, emp: dict
                                   else "certified copy" if certified else "uncertified copy"),
             "claimant_statement": "received" if "claimant_statement" in scanned else "missing",
             "beneficiary_designation": "received" if "beneficiary_form" in scanned else "missing",
-            **{k: "received" if v else "missing" for k, v in forms.items()}},
+            **{k: ("received (all payees)" if k in ("w9", "withholding_election") else "received") if v
+               else "missing" for k, v in forms.items()}},
         "intake_findings": {"consistency_issues": (intake or {}).get("consistency_issues") or [],
                             "embedded_instructions": embedded},
         "dates": {"notice": header["notice_date"], "proof_of_loss_complete": header["proof_date"],
-                  "decision_as_of": header["decision_as_of"]},
+                  "decision_as_of": header["decision_as_of"],
+                  "days_from_proof_to_decision": (date.fromisoformat(header["decision_as_of"])
+                                                  - date.fromisoformat(header["proof_date"])).days},
     }
     if line == catalog.LIFE:
         claim_file["face_amount"] = policy["face_amount"]

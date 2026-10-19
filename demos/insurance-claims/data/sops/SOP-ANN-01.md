@@ -28,7 +28,7 @@ Death claims on deferred annuity contracts.
 
 **ANN-DIST-001 — Distribution options.** For a qualified contract whose beneficiary is not the spouse as sole beneficiary, send the distribution options letter (lump sum or distribution over ten years) within thirty (30) days.
 
-**ANN-TAX-001 — Withholding election.** Taxable gain on the death benefit requires the payee's withholding election (form W-4R) before payment.
+**ANN-TAX-001 — Withholding election missing.** If the file holds no withholding election (form W-4R) from the payee, hold the claim and request it; taxable gain cannot be paid without it.
 
 ## 4. Commission
 

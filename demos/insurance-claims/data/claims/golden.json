@@ -2127,7 +2127,6 @@
   "expected": {
    "rule_ids": [
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -2135,7 +2134,7 @@
    "letter_requirements": [
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": 100000.0,
    "interest_due": 0.0
@@ -2240,7 +2239,6 @@
    "rule_ids": [
     "CP-SPOUSE-001",
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -2248,7 +2246,7 @@
    "letter_requirements": [
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -2346,7 +2344,6 @@
    "rule_ids": [
     "ALL-BEN-002",
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -2354,7 +2351,7 @@
    "letter_requirements": [
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -2445,7 +2442,6 @@
    "rule_ids": [
     "ALL-DOC-003",
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -2453,7 +2449,7 @@
    "letter_requirements": [
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -3050,7 +3046,6 @@
   "expected": {
    "rule_ids": [
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -3058,7 +3053,7 @@
    "letter_requirements": [
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": 250000.0,
    "interest_due": 0.0
@@ -3148,7 +3143,6 @@
    "rule_ids": [
     "ALL-SCR-001",
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001"
    ],
    "critical_rule_ids": [
@@ -3158,7 +3152,7 @@
    "letter_requirements": [
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -3248,7 +3242,6 @@
    "rule_ids": [
     "ALL-BEN-001",
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -3256,7 +3249,7 @@
    "letter_requirements": [
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -4553,8 +4546,7 @@
    "rule_ids": [
     "GRP-COV-002",
     "GRP-ERISA-001",
-    "TX-DISC-001",
-    "TX-INT-001"
+    "TX-DISC-001"
    ],
    "critical_rule_ids": [],
    "decision": "PEND",
@@ -4562,7 +4554,7 @@
     "GRP-ERISA-001",
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -4655,8 +4647,7 @@
    "rule_ids": [
     "GRP-DOC-001",
     "GRP-ERISA-001",
-    "TX-DISC-001",
-    "TX-INT-001"
+    "TX-DISC-001"
    ],
    "critical_rule_ids": [],
    "decision": "PEND",
@@ -4664,7 +4655,7 @@
     "GRP-ERISA-001",
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -4866,8 +4857,7 @@
    "rule_ids": [
     "ALL-BEN-001",
     "GRP-ERISA-001",
-    "IL-DISC-001",
-    "IL-INT-001"
+    "IL-DISC-001"
    ],
    "critical_rule_ids": [],
    "decision": "PEND",
@@ -4875,7 +4865,7 @@
     "GRP-ERISA-001",
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -5478,8 +5468,7 @@
    "rule_ids": [
     "ALL-BEN-002",
     "GRP-ERISA-001",
-    "IL-DISC-001",
-    "IL-INT-001"
+    "IL-DISC-001"
    ],
    "critical_rule_ids": [],
    "decision": "PEND",
@@ -5487,7 +5476,7 @@
     "GRP-ERISA-001",
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -6518,7 +6507,6 @@
     "ANN-DB-001",
     "ANN-DIST-001",
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -6527,7 +6515,7 @@
     "ANN-DIST-001",
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 100,
    "gross_benefit": 340014.46,
    "interest_due": 0.0
@@ -6724,7 +6712,6 @@
    "rule_ids": [
     "ANN-DB-001",
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -6732,7 +6719,7 @@
    "letter_requirements": [
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": 100000.0,
    "interest_due": 0.0
@@ -7339,7 +7326,6 @@
     "ANN-DB-001",
     "ANN-SPOUSE-001",
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -7348,7 +7334,7 @@
     "ANN-SPOUSE-001",
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": 1100000.0,
    "interest_due": 0.0
@@ -7547,7 +7533,6 @@
     "ANN-DB-001",
     "ANN-DIST-001",
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -7556,7 +7541,7 @@
     "ANN-DIST-001",
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -8043,7 +8028,6 @@
     "ANN-DB-001",
     "ANN-SPOUSE-001",
     "TX-DISC-001",
-    "TX-INT-001",
     "TX-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -8052,7 +8036,7 @@
     "ANN-SPOUSE-001",
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -8343,7 +8327,6 @@
   "expected": {
    "rule_ids": [
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001",
     "LIFE-COMM-001",
     "LIFE-CONT-001",
@@ -8357,7 +8340,7 @@
    "letter_requirements": [
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 100,
    "gross_benefit": null,
    "interest_due": null
@@ -8852,8 +8835,7 @@
    "rule_ids": [
     "ALL-DOC-002",
     "GRP-ERISA-001",
-    "TX-DISC-001",
-    "TX-INT-001"
+    "TX-DISC-001"
    ],
    "critical_rule_ids": [],
    "decision": "PEND",
@@ -8861,7 +8843,7 @@
     "GRP-ERISA-001",
     "TX-DISC-001"
    ],
-   "interest_rule": "TX-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -9053,7 +9035,6 @@
     "ANN-SPOUSE-001",
     "ANN-TAX-001",
     "IL-DISC-001",
-    "IL-INT-001",
     "IL-NOT-001"
    ],
    "critical_rule_ids": [],
@@ -9062,7 +9043,7 @@
     "ANN-SPOUSE-001",
     "IL-DISC-001"
    ],
-   "interest_rule": "IL-INT-001@v1",
+   "interest_rule": null,
    "commission_chargeback_pct": 0,
    "gross_benefit": null,
    "interest_due": null
@@ -9280,6 +9261,105 @@
    "SOP-GRP-01",
    "SOP-GRP-02",
    "SOP-NJ-01"
+  ]
+ },
+ {
+  "claim_id": "CLM-2026-10192",
+  "scenario": "annuity, paid 50 days after proof (IL interest from day 31)",
+  "tags": [],
+  "line": "annuity_death",
+  "state": "IL",
+  "policy_number": "NLA-A-107404",
+  "insured": {
+   "name": "Harold Castellano",
+   "date_of_birth": "1944-08-12",
+   "marital_status": "married"
+  },
+  "issue_date": "2021-08-24",
+  "date_of_death": "2026-06-26",
+  "notice_date": "2026-07-11",
+  "proof_date": "2026-07-20",
+  "decision_date": "2026-09-08",
+  "manner_of_death": "natural",
+  "cause_of_death": "Metastatic pancreatic carcinoma",
+  "foreign_death": false,
+  "place_of_death": "IL",
+  "policy_status": "in_force",
+  "overdue_premium": 0.0,
+  "beneficiaries": [
+   {
+    "name": "Sandra Castellano",
+    "relationship": "spouse",
+    "date_of_birth": "1943-05-17",
+    "share_pct": 100,
+    "survived": true
+   }
+  ],
+  "claimant": {
+   "name": "Sandra Castellano",
+   "relationship": "spouse",
+   "is_beneficiary": true
+  },
+  "agent_of_record": "J. Park (agent 40951)",
+  "fy_commission_paid": false,
+  "screening": {
+   "ofac_match": "none"
+  },
+  "qualified": true,
+  "premiums_paid": 100000.0,
+  "withdrawals": 0.0,
+  "contract_value": 118963.94,
+  "documents": {
+   "death_certificate": {
+    "present": true,
+    "certified": true,
+    "certificate_number": "SYN-IL-2026-743058",
+    "certifier": "Dr. L. Okonjo, MD",
+    "date_certified": "2026-06-28"
+   },
+   "claimant_statement": {
+    "present": true,
+    "statement": "My spouse Harold Castellano passed away on 2026-06-26. I am the named beneficiary and I am submitting this claim for the life insurance benefit. Please contact me at home with any questions.",
+    "date_of_death": "2026-06-26",
+    "payout_method": "Retained asset account"
+   },
+   "beneficiary_form": {
+    "present": true
+   },
+   "w9": true,
+   "hipaa_authorization": false,
+   "employer_statement": true,
+   "withholding_form": true
+  },
+  "expected": {
+   "rule_ids": [
+    "ANN-DB-001",
+    "ANN-SPOUSE-001",
+    "IL-DISC-001",
+    "IL-INT-001",
+    "IL-NOT-001"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PAY",
+   "letter_requirements": [
+    "ANN-SPOUSE-001",
+    "IL-DISC-001"
+   ],
+   "interest_rule": "IL-INT-001@v1",
+   "commission_chargeback_pct": 0,
+   "gross_benefit": 118963.94,
+   "interest_due": 586.67
+  },
+  "candidate_sops": [
+   "SOP-ALL-01",
+   "SOP-ALL-02",
+   "SOP-ALL-03",
+   "SOP-ALL-04",
+   "SOP-ALL-05",
+   "SOP-ALL-06",
+   "SOP-ALL-07",
+   "SOP-ANN-01",
+   "SOP-IL-01"
   ]
  }
 ]

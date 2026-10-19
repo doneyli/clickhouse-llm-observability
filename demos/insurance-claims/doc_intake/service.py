@@ -53,7 +53,7 @@ def _agent(system_prompt: str, model_id: str, max_tokens: int = 2048) -> Agent:
     return Agent(
         name=NAME,
         description="Extracts fields from death-claim documents (certificates, statements, beneficiary forms).",
-        model=AnthropicModel(model_id=model_id, max_tokens=max_tokens, params={"temperature": 0}),
+        model=AnthropicModel(model_id=model_id, max_tokens=max_tokens),
         system_prompt=system_prompt,
         callback_handler=None,
         trace_attributes={"team": "document-processing", "framework": "strands"},

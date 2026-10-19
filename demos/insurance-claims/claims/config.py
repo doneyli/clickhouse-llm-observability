@@ -101,7 +101,7 @@ if OPENAI_API_KEY:
     os.environ.setdefault("OPENAI_API_KEY", OPENAI_API_KEY)
 
 # Production runs the current model; experiments compare an upgrade before switching.
-AGENT_MODEL = env("AGENT_MODEL", "claude-sonnet-4-6")
+AGENT_MODEL = env("AGENT_MODEL", "claude-sonnet-5-5")
 INTAKE_MODEL = env("INTAKE_MODEL", "claude-sonnet-4-6")
 JUDGE_MODEL = env("JUDGE_MODEL", "claude-sonnet-4-6")
 
@@ -158,6 +158,7 @@ def _payload_free_exporter(inner):
 
 _provider = None
 _langfuse = None
+SKIPPED_SCOPES = ("com.anthropic.sdk",)
 
 
 def apm_enabled() -> bool:
@@ -204,8 +205,16 @@ def get_langfuse(service_name: str = "claims-orchestrator"):
 
     from claims import masking
 
+    from langfuse.span_filter import is_default_export_span
+
     provider = tracer_provider(service_name)
     _langfuse = Langfuse(
+        # Recent Anthropic SDKs emit their own GenAI spans (scope com.anthropic.sdk.python). The LangChain
+        # callback already records each call as a generation (with the prompt link), so exporting both would
+        # count every LLM call — and its cost — twice. The APM copy keeps them.
+        should_export_span=lambda span: is_default_export_span(span) and not (
+            span.instrumentation_scope is not None
+            and span.instrumentation_scope.name.startswith(SKIPPED_SCOPES)),
         public_key=LANGFUSE_PUBLIC_KEY,
         secret_key=LANGFUSE_SECRET_KEY,
         base_url=LANGFUSE_BASE_URL,

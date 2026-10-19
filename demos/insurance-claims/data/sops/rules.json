@@ -5,7 +5,7 @@
    "rule_id": "ALL-DOC-001",
    "type": "DOC_REQUIRED",
    "severity": "major",
-   "title": "Certified death certificate required",
+   "title": "Death certificate missing or uncertified",
    "condition": {
     "any": [
      {
@@ -43,7 +43,7 @@
    "rule_id": "ALL-DOC-002",
    "type": "DOC_REQUIRED",
    "severity": "major",
-   "title": "Claimant's statement required",
+   "title": "Claimant's statement missing",
    "condition": {
     "fact": "claimant_statement_present",
     "op": "false",
@@ -72,7 +72,7 @@
    "rule_id": "ALL-DOC-003",
    "type": "DOC_REQUIRED",
    "severity": "minor",
-   "title": "Taxpayer certification (W-9) required",
+   "title": "Taxpayer certification (W-9) missing",
    "condition": {
     "fact": "w9_present",
     "op": "false",
@@ -716,7 +716,11 @@
    "type": "PAY_CALC",
    "severity": "major",
    "title": "TX: 18% a year only after day 60 from proof",
-   "condition": true,
+   "condition": {
+    "fact": "days_proof_to_decision",
+    "op": ">",
+    "value": 60
+   },
    "version": 1,
    "effective_from": "2024-01-01",
    "effective_to": null,
@@ -882,7 +886,11 @@
    "type": "PAY_CALC",
    "severity": "major",
    "title": "IL: 9% a year from day 31 after proof",
-   "condition": true,
+   "condition": {
+    "fact": "days_proof_to_decision",
+    "op": ">",
+    "value": 30
+   },
    "version": 1,
    "effective_from": "2024-01-01",
    "effective_to": null,
@@ -1028,7 +1036,7 @@
    "rule_id": "LIFE-CONT-002",
    "type": "DOC_REQUIRED",
    "severity": "major",
-   "title": "Contestable claim needs a medical records authorization",
+   "title": "Contestable claim without a records authorization",
    "condition": {
     "all": [
      {
@@ -1383,7 +1391,7 @@
    "rule_id": "GRP-DOC-001",
    "type": "DOC_REQUIRED",
    "severity": "major",
-   "title": "Employer statement required",
+   "title": "Employer statement missing",
    "condition": {
     "fact": "employer_statement_present",
     "op": "false",
@@ -1606,7 +1614,7 @@
    "rule_id": "ANN-TAX-001",
    "type": "DOC_REQUIRED",
    "severity": "minor",
-   "title": "Tax withholding election required",
+   "title": "Tax withholding election missing",
    "condition": {
     "fact": "withholding_form_present",
     "op": "false",

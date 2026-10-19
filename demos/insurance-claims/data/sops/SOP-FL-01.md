@@ -28,7 +28,7 @@ Requirements for claims governed by Florida law.
 
 ## 4. Required disclosures
 
-**FL-DISC-001 — Disclosure.** Pending and denial letters must include the Florida Division of Consumer Services contact notice.
+**FL-DISC-001 — Disclosure.** Every claim letter — acknowledgment, pending, denial or payment — must include the Florida Division of Consumer Services contact notice.
 
 ## Revision history
 

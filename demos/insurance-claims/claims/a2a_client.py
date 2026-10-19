@@ -13,7 +13,9 @@ scoped to this one call with propagate_attributes(as_baggage=True) by the caller
 from __future__ import annotations
 
 import base64
+import json
 import mimetypes
+import re
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -65,3 +67,12 @@ async def send_message(text: str, files: list[dict], *, context_id: Optional[str
         raise A2AError(f"A2A task {state}: {detail[:300]}")
     return {"text": "\n".join(texts), "task_id": result.get("id"), "context_id": result.get("contextId"),
             "state": state}
+
+
+def parse_json(text: str):
+    """The agent's JSON answer, tolerating a ```json fence or surrounding prose."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    try:
+        return json.loads(m.group(0)) if m else None
+    except json.JSONDecodeError:
+        return None

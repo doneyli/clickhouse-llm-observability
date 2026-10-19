@@ -78,27 +78,26 @@ SOPS: list[dict] = [
           "intro": "Proof of death is the foundation of the file. Photocopies, funeral-home notices and obituaries "
                    "are useful context but are never proof.",
           "rules": [
-              rule("ALL-DOC-001", "DOC_REQUIRED", "major", "Certified death certificate required",
-                   "**ALL-DOC-001 — Certified death certificate.** A certified copy of the death certificate, issued by "
-                   "the vital-records office of the place of death, must be in the file. If the file holds no death "
-                   "certificate, or only an uncertified copy, the claim is placed in pending status and the claimant "
-                   "is asked for a certified copy. No benefit may be paid until it arrives.",
+              rule("ALL-DOC-001", "DOC_REQUIRED", "major", "Death certificate missing or uncertified",
+                   "**ALL-DOC-001 — Death certificate missing or uncertified.** Proof of death is a certified copy of "
+                   "the death certificate issued by the vital-records office of the place of death. If the file holds "
+                   "no death certificate, or only an uncertified copy, place the claim in pending status and ask the "
+                   "claimant for a certified copy. No benefit may be paid until it arrives.",
                    condition=any_(f("death_certificate_present", "false"), f("death_certificate_certified", "false")),
                    action="Pend; request a certified copy of the death certificate"),
           ]},
          {"section": "3", "heading": "Claimant forms",
           "intro": "Each person claiming a share of the proceeds completes their own forms.",
           "rules": [
-              rule("ALL-DOC-002", "DOC_REQUIRED", "major", "Claimant's statement required",
-                   "**ALL-DOC-002 — Claimant's statement.** Every claimant must return a signed Claimant's Statement "
-                   "(form NLA-CS-1). Where it is missing the examiner pends the claim and sends the form; the claim "
-                   "cannot be decided on a telephone notice alone.",
+              rule("ALL-DOC-002", "DOC_REQUIRED", "major", "Claimant's statement missing",
+                   "**ALL-DOC-002 — Claimant's statement missing.** If the file holds no signed Claimant's Statement "
+                   "(form NLA-CS-1), pend the claim and send the form; a claim cannot be decided on a telephone "
+                   "notice alone.",
                    condition=f("claimant_statement_present", "false"),
                    action="Pend; send form NLA-CS-1"),
-              rule("ALL-DOC-003", "DOC_REQUIRED", "minor", "Taxpayer certification (W-9) required",
-                   "**ALL-DOC-003 — Taxpayer certification.** A signed IRS Form W-9 is required from each payee before "
-                   "funds are released. A missing W-9 holds the payment, not the decision; the examiner requests it "
-                   "with the decision letter.",
+              rule("ALL-DOC-003", "DOC_REQUIRED", "minor", "Taxpayer certification (W-9) missing",
+                   "**ALL-DOC-003 — W-9 missing.** If the file holds no signed IRS Form W-9 from the payee, hold the "
+                   "claim and request the form; funds may not be released without it.",
                    condition=f("w9_present", "false"),
                    action="Hold payment; request Form W-9"),
           ]},
@@ -345,6 +344,7 @@ SOPS: list[dict] = [
                    "**TX-INT-001 — Interest.** Texas claims carry no standard interest. If payment is made more than "
                    "sixty (60) days after the company received complete proof of loss, add interest at 18% a year "
                    "from the sixtieth day after proof to the date of payment. This replaces ALL-INT-001.",
+                   condition=f("days_proof_to_decision", ">", 60),
                    supersedes=["ALL-INT-001"], params={"rate": 0.18, "start": "proof_date", "offset_days": 60},
                    action="Add 18% interest only for the days beyond day 60 after proof"),
           ]},
@@ -380,8 +380,8 @@ SOPS: list[dict] = [
          {"section": "4", "heading": "Required disclosures", "intro": "",
           "rules": [
               rule("FL-DISC-001", "NOTIFY", "major", "FL: Division of Consumer Services notice",
-                   "**FL-DISC-001 — Disclosure.** Pending and denial letters must include the Florida Division of "
-                   "Consumer Services contact notice.", letter=True,
+                   "**FL-DISC-001 — Disclosure.** Every claim letter — acknowledgment, pending, denial or payment — must "
+                   "include the Florida Division of Consumer Services contact notice.", letter=True,
                    action="Include the Florida Division of Consumer Services notice"),
           ]},
      ],
@@ -401,17 +401,18 @@ SOPS: list[dict] = [
          {"section": "3", "heading": "Interest on proceeds", "intro": "",
           "rules": [
               rule("IL-INT-001", "PAY_CALC", "major", "IL: 9% a year from day 31 after proof",
-                   "**IL-INT-001 — Interest.** Add interest at 9% a year on the benefit from the thirty-first (31st) "
-                   "day after the company received due proof of death to the date of payment. No interest is due for "
-                   "the first thirty days. This replaces ALL-INT-001.",
+                   "**IL-INT-001 — Interest.** Illinois claims carry no standard interest. If payment is made more than "
+                   "thirty (30) days after the company received due proof of death, add interest at 9% a year from "
+                   "the thirty-first (31st) day after proof to the date of payment. This replaces ALL-INT-001.",
+                   condition=f("days_proof_to_decision", ">", 30),
                    supersedes=["ALL-INT-001"], params={"rate": 0.09, "start": "proof_date", "offset_days": 30},
                    action="Add 9% interest from day 31 after proof"),
           ]},
          {"section": "4", "heading": "Required disclosures", "intro": "",
           "rules": [
               rule("IL-DISC-001", "NOTIFY", "major", "IL: Department of Insurance notice",
-                   "**IL-DISC-001 — Disclosure.** Denial letters and any letter that delays payment must include the "
-                   "Illinois Department of Insurance notice.", letter=True,
+                   "**IL-DISC-001 — Disclosure.** Every claim letter on an Illinois claim must include the Illinois "
+                   "Department of Insurance notice.", letter=True,
                    action="Include the Illinois Department of Insurance notice"),
           ]},
      ],
@@ -467,10 +468,10 @@ SOPS: list[dict] = [
                    version=2, effective_from="2025-01-01",
                    condition=f("months_since_issue", "<", 24),
                    action="Route to the Contestable Claims Unit; release nothing until cleared"),
-              rule("LIFE-CONT-002", "DOC_REQUIRED", "major", "Contestable claim needs a medical records authorization",
-                   "**LIFE-CONT-002 — Records authorization.** For a contestable claim, obtain a signed HIPAA "
-                   "authorization from the claimant for the release of the insured's medical records, if one is not "
-                   "already in the file.",
+              rule("LIFE-CONT-002", "DOC_REQUIRED", "major", "Contestable claim without a records authorization",
+                   "**LIFE-CONT-002 — Records authorization missing.** If a contestable claim (see LIFE-CONT-001) has "
+                   "no signed HIPAA authorization for the release of the insured's medical records in the file, "
+                   "request one from the claimant.",
                    condition=all_(f("months_since_issue", "<", 24), f("hipaa_authorization_present", "false")),
                    action="Request a signed HIPAA authorization"),
           ]},
@@ -587,9 +588,10 @@ SOPS: list[dict] = [
           ]},
          {"section": "3", "heading": "Employer documents", "intro": "",
           "rules": [
-              rule("GRP-DOC-001", "DOC_REQUIRED", "major", "Employer statement required",
-                   "**GRP-DOC-001 — Employer statement.** The employer must certify the insured's enrollment, coverage "
-                   "amounts, salary and employment status on the date of death (form NLA-GE-2). Pend until received.",
+              rule("GRP-DOC-001", "DOC_REQUIRED", "major", "Employer statement missing",
+                   "**GRP-DOC-001 — Employer statement missing.** If the file holds no employer statement (form "
+                   "NLA-GE-2) certifying the insured's enrollment, coverage amounts, salary and employment status on "
+                   "the date of death, pend the claim until it is received.",
                    condition=f("employer_statement_present", "false"), action="Pend; request form NLA-GE-2"),
           ]},
      ],
@@ -651,9 +653,9 @@ SOPS: list[dict] = [
                    "ten years) within thirty (30) days.",
                    condition=all_(f("qualified", "true"), f("spouse_sole_beneficiary", "false")), letter=True,
                    action="Send the distribution options letter within 30 days"),
-              rule("ANN-TAX-001", "DOC_REQUIRED", "minor", "Tax withholding election required",
-                   "**ANN-TAX-001 — Withholding election.** Taxable gain on the death benefit requires the payee's "
-                   "withholding election (form W-4R) before payment.",
+              rule("ANN-TAX-001", "DOC_REQUIRED", "minor", "Tax withholding election missing",
+                   "**ANN-TAX-001 — Withholding election missing.** If the file holds no withholding election (form "
+                   "W-4R) from the payee, hold the claim and request it; taxable gain cannot be paid without it.",
                    condition=f("withholding_form_present", "false"), action="Request form W-4R"),
           ]},
          {"section": "4", "heading": "Commission", "intro": "",

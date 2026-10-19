@@ -320,6 +320,7 @@ def golden(g: Gen) -> list[dict]:
           employment_ended_days=60),
         c(G, "NJ", 37, scenario="group, death 10 days after employment ended (conversion period)",
           employment_ended_days=10),
+        c(A, "IL", 58, scenario="annuity, paid 50 days after proof (IL interest from day 31)", decision_lag=50),
     ]
 
 

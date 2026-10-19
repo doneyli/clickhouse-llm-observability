@@ -85,6 +85,7 @@ def derive_facts(claim: dict) -> dict:
     return {
         "line": claim["line"], "state": claim["state"],
         "months_since_issue": months_between(_d(claim["issue_date"]), dod),
+        "days_proof_to_decision": (_d(claim["decision_date"]) - _d(claim["proof_date"])).days,
         "benefit_amount": gross_benefit(claim),
         "manner_of_death": claim.get("manner_of_death", "natural"),
         "policy_status": claim.get("policy_status", "in_force"),

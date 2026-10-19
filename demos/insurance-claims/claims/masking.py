@@ -60,7 +60,7 @@ _PATTERNS: "list[tuple[str, re.Pattern[str], object]]" = [
     ("ssn", re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[REDACTED_SSN]"),
     ("ssn", re.compile(r"(?i)(\b(?:ssn|social security(?: number| no\.?)?|tin|tax id)\b[^0-9]{0,20}?)\d{9}\b"),
      _keep_label("[REDACTED_SSN]")),
-    ("dob", re.compile(r"(?i)(\b(?:date of birth|dob|born(?: on)?)\b[^0-9]{0,20}?)"
+    ("dob", re.compile(r"(?i)(\b(?:date[ _]of[ _]birth|dob|born(?: on)?)\b[^0-9]{0,20}?)"
                        r"(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})"),
      _keep_label("[REDACTED_DOB]")),
     ("bank_account", re.compile(r"(?i)(\b(?:routing(?: number)?|aba|bank account(?: number)?|account (?:no\.?|number)|"

@@ -24,7 +24,7 @@ Employer group life plans are governed by ERISA. Its claim-procedure timelines r
 
 ## 3. Employer documents
 
-**GRP-DOC-001 — Employer statement.** The employer must certify the insured's enrollment, coverage amounts, salary and employment status on the date of death (form NLA-GE-2). Pend until received.
+**GRP-DOC-001 — Employer statement missing.** If the file holds no employer statement (form NLA-GE-2) certifying the insured's enrollment, coverage amounts, salary and employment status on the date of death, pend the claim until it is received.
 
 ## Revision history
 

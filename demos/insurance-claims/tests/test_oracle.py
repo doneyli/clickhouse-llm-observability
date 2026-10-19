@@ -106,6 +106,8 @@ class Rules(unittest.TestCase):
     def test_texas_interest_only_after_day_60(self):
         quick = base(state="TX", proof_date="2026-06-10", decision_date="2026-07-20")   # day 40
         self.assertEqual(oracle.expected(quick)["interest_due"], 0.0)
+        self.assertNotIn("TX-INT-001", oracle.expected(quick)["rule_ids"])
+        self.assertNotIn("ALL-INT-001", oracle.expected(quick)["rule_ids"])  # replaced even when not triggered
         late = base(state="TX", proof_date="2026-06-10", decision_date="2026-08-24")    # day 75
         self.assertEqual(oracle.expected(late)["interest_due"], round(200000 * 0.18 * 15 / 365, 2))
 

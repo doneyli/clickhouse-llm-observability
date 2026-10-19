@@ -109,8 +109,7 @@ DISCLOSURE_PHRASES = {
     "ANN-DIST-001": ["ten years", "10 years", "10-year"],
 }
 # Which letters must carry which notices (by decision).
-NOTICE_DECISIONS = {"GRP-ERISA-001": {"DENY"}, "ANN-SPOUSE-001": {"PAY"}, "ANN-DIST-001": {"PAY"},
-                    "FL-DISC-001": {"PEND", "DENY"}, "IL-DISC-001": {"PEND", "DENY", "REFER_SIU"}}
+NOTICE_DECISIONS = {"GRP-ERISA-001": {"DENY"}, "ANN-SPOUSE-001": {"PAY"}, "ANN-DIST-001": {"PAY"}}
 
 
 def required_notices(observed: dict, decision: str) -> list[str]:
