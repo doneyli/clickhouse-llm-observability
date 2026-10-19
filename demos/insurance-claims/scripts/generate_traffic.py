@@ -6,6 +6,7 @@ sometimes an examiner question. One claim = one session with 2–3 traces.
   --scenario baseline   golden + adversarial claims on the current release and production prompts
   --scenario canary     a 10% canary of the 'concise' candidate (claims-sop-rules label staging)
   --scenario release-1.4.0   NY/CA/TX/FL/IL claims on the release with the retriever bug (F2)
+  --scenario adversarial     the 12 adversarial claims only
   --limit N  --concurrency N
 
     .venv/bin/python scripts/generate_traffic.py --scenario baseline
@@ -57,6 +58,8 @@ async def main_async(a) -> int:
         pick = rng.sample(pick, min(len(pick), a.limit or 12))
         labels = {"claims-sop-rules": "staging"}
         tags.append("canary")
+    elif a.scenario == "adversarial":
+        pick = [c for c in claims if c["_set"] == "adversarial"]
     else:
         release = "claims-1.4.0"
         pick = [c for c in claims if c["_set"] == "golden" and c["state"] in ("NY", "CA", "TX", "FL", "IL")
@@ -78,7 +81,7 @@ async def main_async(a) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario", default="baseline", choices=["baseline", "canary", "release-1.4.0"])
+    ap.add_argument("--scenario", default="baseline", choices=["baseline", "canary", "release-1.4.0", "adversarial"])
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--concurrency", type=int, default=6)
     return asyncio.run(main_async(ap.parse_args()))

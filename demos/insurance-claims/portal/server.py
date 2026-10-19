@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -38,9 +38,9 @@ class ProcessIn(BaseModel):
 
 
 class ReviewIn(BaseModel):
-    action: str                      # approve | override
-    decision: Optional[str] = None
-    reason: Optional[str] = None
+    action: Literal["approve", "override"]
+    decision: Optional[Literal["PAY", "PEND", "DENY", "REFER_SIU"]] = None
+    reason: Literal["missed-rule", "wrong-rule", "calc-error", "doc-misread", "policy-data-error", "other"] = "other"
     missed_rule_ids: list[str] = []
     note: str = ""
     examiner_id: str = "examiner.demo"
@@ -115,11 +115,19 @@ async def review(claim_id: str, body: ReviewIn):
     s = STATE.get(claim_id)
     if not s or not s.get("recommendation"):
         raise HTTPException(409, "process the claim first")
-    if s.get("review"):
-        raise HTTPException(409, "already reviewed — process the claim again to start over")
-    rv = body.model_dump()
-    res = await graph.resume_claim(claim_id, s["thread_id"], rv, labels=s.get("labels"))
-    s["review"], s["review_result"] = rv, res
+    if body.action == "override" and not body.decision:
+        raise HTTPException(422, "an override needs a decision")
+    lock = LOCKS.setdefault(claim_id, asyncio.Lock())
+    async with lock:  # one resume per paused graph: a double click must not resume (and score) twice
+        if s.get("review") or s.get("reviewing"):
+            raise HTTPException(409, "already reviewed — process the claim again to start over")
+        s["reviewing"] = True
+        try:
+            rv = body.model_dump()
+            res = await graph.resume_claim(claim_id, s["thread_id"], rv, labels=s.get("labels"))
+            s["review"], s["review_result"] = rv, res
+        finally:
+            s["reviewing"] = False
     config.flush()
     return _public(res)
 

@@ -39,8 +39,10 @@ with Actions + Contents read/write). The automation has no public API — it is 
 Every label move fires the automation, including housekeeping moves (`previous-production`): expect a
 gate run for each, and its dataset run.
 
-Release flow: new version → label `staging` → gate → promote (`scripts/prompt_label.py --promote
-staging`) → gate on `production` → Ship it. Roll back: `--rollback` (moves the label; no redeploy).
+Release flow: new version → label `staging` → **gate (this is the check that blocks)** → promote
+(`scripts/prompt_label.py --promote staging`). A `production` label event is already live when the gate
+runs (agents fetch by label with a 10 s cache), so on that path the gate is a post-deploy confirmation —
+a failure there means roll back. Roll back: `--rollback` (moves the labels; no redeploy).
 
 ## Terraform
 

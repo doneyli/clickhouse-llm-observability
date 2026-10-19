@@ -114,8 +114,9 @@ label with a 10 s cache.
 ```
 
 Show the Markdown verdict; in GitHub Actions the same script runs on every prompt change (Langfuse prompt
-automation → repository dispatch → `claims-prompt-gate.yml` → "Ship it" only on a pass with
-`production`). Terraform: the official `langfuse-terraform-aws` module for the instance, the seeders for
+automation → repository dispatch → `claims-prompt-gate.yml`). The blocking check is the gate on
+`staging`, before promotion; a `production` label is live within 10 s, so a gate on that event confirms
+or triggers a rollback. Terraform: the official `langfuse-terraform-aws` module for the instance, the seeders for
 configuration as code ([cicd/README.md](cicd/README.md)).
 
 Self-hosted tab → claims-prod → Prompts: `production` is a **protected** label. Sign in as the claims

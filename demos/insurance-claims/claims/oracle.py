@@ -94,7 +94,7 @@ def derive_facts(claim: dict) -> dict:
         "married": (claim.get("insured") or {}).get("marital_status") == "married",
         "spouse_share_pct": spouse_share,
         "spouse_sole_beneficiary": len(surviving) == 1 and surviving[0]["relationship"] == "spouse",
-        "has_minor_beneficiary": any((age_on(b.get("date_of_birth"), dod) or 99) < 18 for b in surviving),
+        "has_minor_beneficiary": any(a is not None and a < 18 for a in (age_on(b.get("date_of_birth"), dod) for b in surviving)),
         "any_beneficiary_predeceased": len(surviving) < len(bens),
         "no_surviving_beneficiary": not surviving,
         "claimant_is_beneficiary": bool((claim.get("claimant") or {}).get("is_beneficiary", True)),

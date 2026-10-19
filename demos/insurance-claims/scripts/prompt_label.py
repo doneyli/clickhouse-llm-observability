@@ -90,8 +90,11 @@ def main() -> int:
         if prev is None or prev == prod:
             print("nothing to roll back to (previous-production missing or on the production version)")
             return 1
-        set_label(a.name, prev, "production")
+        # Same order as promote: previous-production first (it moves off `prev`, which we already hold),
+        # then production — the end state is identical, and the automation's second event carries
+        # `production`, so the gate evaluates the version now serving.
         set_label(a.name, prod, "previous-production")
+        set_label(a.name, prev, "production")
         print(f"✓ {a.name}: rolled back production v{prod} → v{prev}")
     show(a.name, versions(a.name))
     return 0

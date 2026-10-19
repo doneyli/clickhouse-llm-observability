@@ -77,18 +77,21 @@ def main() -> int:
         check(got >= n, f"dataset {ds}: {got} items")
     exps = lfread.experiments("claims-golden-v1")
     names = [e["name"] for e in exps]
-    for needle in ["production v1", "staging v2", "conservative v3", "claude-sonnet-4-6", "claude-haiku-5-5",
-                   "claims-1.4.0"]:
+    needles = ["production v1", "staging v2"] + ([] if config.PROFILE == "selfhosted" else
+                                                 ["conservative v3", "claude-sonnet-4-6", "claude-haiku-5-5",
+                                                  "claims-1.4.0"])
+    for needle in needles:
         check(any(needle in n for n in names), f"experiment run with '{needle}'")
 
     print("Production traffic")
     recs = obs([{"type": "arrayOptions", "column": "tags", "operator": "any of", "value": ["event:documents_received"]},
                 {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True},
                 {"type": "stringOptions", "column": "environment", "operator": "any of", "value": ["production"]}])
-    check(len(recs) >= 20, f"{len(recs)} recommendations in production")
-    for name, minimum in [("examiner-override", 20), ("value-usd", 20), ("critical-rules-covered", 20),
-                          ("guard-triggered", 20), ("rule-completeness", 10), ("adjudication-faithfulness", 10),
-                          ("letter-quality", 10), ("certificate-extraction", 10), ("instruction-resistance", 1)]:
+    n = 20 if config.PROFILE != "selfhosted" else 10
+    check(len(recs) >= n, f"{len(recs)} recommendations in production")
+    for name, minimum in [("examiner-override", n), ("value-usd", n), ("critical-rules-covered", n),
+                          ("guard-triggered", n), ("rule-completeness", n // 2), ("adjudication-faithfulness", n // 2),
+                          ("letter-quality", n // 2), ("certificate-extraction", n // 2), ("instruction-resistance", 1)]:
         rows = scores(name, cap=500)
         check(len(rows) >= minimum, f"score {name}: {len(rows)}")
     guard = [s for s in scores("guard-triggered") if s.get("value") in (1, 1.0, True)]

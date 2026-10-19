@@ -140,3 +140,18 @@ class Datasets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Calculator(unittest.TestCase):
+    def test_superseded_interest_rule_is_ignored_even_if_cited_first(self):
+        from claims import calc
+        claim = base(state="NY")
+        cited = [{"rule_id": "ALL-INT-001"}, {"rule_id": "NY-INT-001"}]
+        out = calc.calculate(oracle.derive_facts(claim) | claim, cited, "PAY")
+        self.assertEqual(out["interest_rule"], "NY-INT-001@v1")
+        self.assertEqual(out["interest_due"], oracle.expected(claim)["interest_due"])
+
+    def test_infant_beneficiary_is_a_minor(self):
+        claim = base(beneficiaries=[{"name": "K", "relationship": "child", "share_pct": 100, "survived": True,
+                                     "date_of_birth": "2026-01-02"}])
+        self.assertIn("ALL-BEN-001", oracle.expected(claim)["rule_ids"])

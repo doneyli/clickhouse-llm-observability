@@ -295,13 +295,20 @@ async def policy_coverage(state: ClaimState, config: RunnableConfig) -> dict:
                 msgs.append(ToolMessage(content=json.dumps(out), tool_call_id=tc["id"]))
         required = evals.required_tools(header["line"])
         missing = sorted(required - set(called))
-        for name in missing:  # verify: complete the facts, record the miss
+        # Called with a wrong argument (e.g. the claim id instead of the policy number) counts as a miss too.
+        failed = sorted(n for n in required & set(called)
+                        if not isinstance(results.get(n), dict) or "error" in results[n])
+        for name in missing + failed:  # verify: complete the facts with the header's policy number, record the miss
             results[name] = await _mcp(rt, cfg, name, {"policy_number": pn})
-        obs.update(output={"summary": summary, "tools_called": called, "fetched_after_agent": missing},
-                   level="WARNING" if missing else "DEFAULT")
-    _score(rt, "policy", "tool-trajectory", 0.0 if missing else 1.0, "NUMERIC",
-           f"missing tool calls (fetched by the orchestrator): {', '.join(missing)}" if missing
-           else "all required tools called")
+        obs.update(output={"summary": summary, "tools_called": called, "fetched_after_agent": missing,
+                           "refetched_after_error": failed},
+                   level="WARNING" if missing or failed else "DEFAULT")
+    if any(not isinstance(results.get(n), dict) or "error" in results[n] for n in required):
+        raise RuntimeError(f"policy admin has no usable record for {pn}: "
+                           f"{ {n: results.get(n) for n in required} }"[:300])
+    _score(rt, "policy", "tool-trajectory", 0.0 if missing or failed else 1.0, "NUMERIC",
+           ((f"missing tool calls (fetched by the orchestrator): {', '.join(missing)}. " if missing else "")
+            + (f"failed calls (refetched): {', '.join(failed)}" if failed else "")) or "all required tools called")
     emp = results.get("get_employment_status") or {"applicable": False}
     return {"policy": results["get_policy"], "beneficiaries": results["get_beneficiaries"]["beneficiaries"],
             "compensation": results["get_agent_compensation"], "employment": emp, "tools_called": called}
@@ -414,6 +421,12 @@ async def critical_guard(state: ClaimState, config: RunnableConfig) -> dict:
     return {"rules": rules, "guard": {"missing": missing, "triggered": bool(missing)}}
 
 
+def _decision_for(rules: list[dict]) -> str:
+    """Company decision precedence over rule effects: REFER_SIU > DENY > PEND > PAY."""
+    level = max([{"refer_siu": 3, "deny": 2, "hold": 1}.get(r["effect"], 0) for r in rules] or [0])
+    return {3: "REFER_SIU", 2: "DENY", 1: "PEND", 0: "PAY"}[level]
+
+
 def _rule_lines(rules: list[dict]) -> str:
     return "\n".join(f"- {r['rule_id']} ({r.get('type')}): {r.get('action')} — {r.get('rationale')}" for r in rules)
 
@@ -437,11 +450,20 @@ async def adjudication(state: ClaimState, config: RunnableConfig) -> dict:
         rec = out.get("parsed")
         rec = rec.model_dump() if rec else {"decision": "PEND", "examiner_note": "Adjudication failed; review manually.",
                                             "next_actions": [], "approvals_required": []}
+        ok, open_ = evals.no_pay_with_open_block(rec["decision"], obs_claim)
+        if not ok and GUARD_ENABLED and rt.mode != "experiment":
+            # The guard ENFORCES, it does not only score: a codified critical hold/deny/SIU rule applies, so the
+            # recommendation cannot be PAY. Experiments skip this — they measure the agent, not the backstop.
+            forced = _decision_for(evals.codified_critical(obs_claim))
+            rec = {**rec, "decision": forced, "guard_override": f"agent recommended PAY; {', '.join(open_)} applies",
+                   "examiner_note": f"[Critical-rule guard: recommendation changed from PAY to {forced} because "
+                                    f"{', '.join(open_)} applies.] " + rec["examiner_note"]}
         calculation = calc.calculate(obs_claim, rules, rec["decision"])
-        obs.update(output={**rec, "calculation": calculation})
-    ok, open_ = evals.no_pay_with_open_block(rec["decision"], obs_claim)
+        obs.update(output={**rec, "calculation": calculation},
+                   level="WARNING" if rec.get("guard_override") else "DEFAULT")
     _score(rt, "adjudication", "no-pay-with-open-block", 1 if ok else 0, "BOOLEAN",
-           f"recommended PAY while {', '.join(open_)} applies" if not ok else
+           (f"agent recommended PAY while {', '.join(open_)} applies"
+            + (" — the guard changed it" if rec.get("guard_override") else "")) if not ok else
            ("open critical rules respected: " + ", ".join(open_) if open_ else "no open critical rule"))
     _score(rt, "adjudication", "decision", rec["decision"], "CATEGORICAL")
     gross = oracle.gross_benefit(obs_claim)
@@ -465,12 +487,15 @@ async def examiner_review(state: ClaimState, config: RunnableConfig) -> dict:
                             "rec_trace_id": state.get("rec_trace_id"), "rec_root_id": state.get("rec_root_id")})
     else:
         review = rt.examiner or {"action": "approve", "examiner_id": "auto"}
-    final = rec["decision"] if review.get("action") == "approve" else review.get("decision", rec["decision"])
+    final = rec["decision"] if review.get("action") == "approve" else (review.get("decision") or rec["decision"])
+    calculation = state["calculation"] if final == rec["decision"] else \
+        calc.calculate(state["observed"], state["rules"], final)  # an override changes the amounts
     with _nest(cfg), rt.langfuse.start_as_current_observation(
             as_type="span", name="examiner-review", input={"recommendation": rec["decision"]},
-            output=review, metadata={"role": "examiner_review", "examiner_id": str(review.get("examiner_id", ""))}):
+            output={**review, "final_decision": final, "calculation": calculation},
+            metadata={"role": "examiner_review", "examiner_id": str(review.get("examiner_id", ""))}):
         pass
-    return {"review": review, "final_decision": final}
+    return {"review": review, "final_decision": final, "calculation": calculation}
 
 
 async def correspondence(state: ClaimState, config: RunnableConfig) -> dict:
@@ -483,11 +508,16 @@ async def correspondence(state: ClaimState, config: RunnableConfig) -> dict:
     req = "\n".join(f"- {notices.NOTICES[r]}" for r in needed if r in notices.NOTICES) or "- none"
     calcn = state.get("calculation") or {}
     cf = state["claim_file"]
+    why_types = {"PAY": set(), "PEND": {"BLOCK", "PEND", "DOC_REQUIRED"}, "DENY": {"DENY"}, "REFER_SIU": set()}[decision]
+    review = state.get("review") or {}
+    note = state["recommendation"]["examiner_note"]
+    if review.get("note") and review.get("action") != "approve" or (review.get("note") or "").strip() not in (
+            "", "Approved as recommended."):
+        note = f"{note}\nExaminer: {review['note']}"
     facts = {"decision": decision, "claimant": cf["claimant"]["name"], "insured_policy": cf["policy_number"],
              "amount": calcn.get("gross_benefit"), "interest": calcn.get("interest_due"),
-             "what_is_needed_or_why": [r.get("action") for r in state["rules"]
-                                       if r.get("type") in ("BLOCK", "PEND", "DOC_REQUIRED", "DENY")],
-             "examiner_note": (state.get("review") or {}).get("note") or state["recommendation"]["examiner_note"]}
+             "what_is_needed_or_why": [r.get("action") for r in state["rules"] if r.get("type") in why_types],
+             "examiner_note": note}
     system, client, model, max_tokens = _prompt(rt, "claims-correspondence")
     llm = make_llm(model, max_tokens, "correspondence-llm")
     with _nest(cfg), rt.langfuse.start_as_current_observation(

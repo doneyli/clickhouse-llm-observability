@@ -72,7 +72,7 @@ VALUE = ("Claims — value & quality", "Business view of the death-claims agents
      "VERTICAL_BAR", TV, AVG, score("disclosures-present"), 4, 13, 4, 5),
     ("Cost per claim by version (USD)", "claim-cost-usd — orchestrator-side LLM calls at list price", "scores-numeric",
      "VERTICAL_BAR", TV, AVG, score("claim-cost-usd"), 8, 13, 4, 5),
-    ("Value vs spend over time", "Daily value delivered (USD, assumption)", "scores-numeric", "BAR_TIME_SERIES", [],
+    ("Value delivered over time", "Value delivered (USD, assumption) per hour — spend is the LLM spend tile", "scores-numeric", "BAR_TIME_SERIES", [],
      [{"measure": "value", "agg": "sum"}], score("value-usd"), 0, 18, 6, 5),
     ("Guard interventions over time", "Claims where the critical-rule guard added a rule the agent missed",
      "scores-boolean", "BAR_TIME_SERIES", [{"field": "booleanValue"}], COUNT, score("guard-triggered"), 6, 18, 6, 5),

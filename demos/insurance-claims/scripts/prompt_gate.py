@@ -64,10 +64,17 @@ def main() -> int:
     ap.add_argument("--warn-only", action="store_true")
     a = ap.parse_args()
     t = json.loads(Path(a.thresholds).read_text())
-    run_name = a.run_name or f"gate · {a.prompt_label} v{{version}}"
+    import time
+    run_name = a.run_name or f"gate · {a.prompt_label} v{{version}} · {time.strftime('%m-%d %H:%M:%S')}"
     result, version = run_experiment.run("rules", a.prompt_label, a.model, run_name=run_name, limit=a.limit,
                                          dataset=t["dataset"])
     got = {e.name: e.value for e in result.run_evaluations}
+    # An item whose task raised (rate limit, tool error) is DROPPED from the run and from the averages — a run
+    # that did not evaluate every claim must not pass.
+    import claims.config as _c
+    expected_n = len(_c.get_langfuse().get_dataset(t["dataset"]).items) if not a.limit else a.limit
+    got["items-evaluated"] = float(len(getattr(result, "item_results", []) or []))
+    t["hard"] = {"items-evaluated": {"min": float(expected_n)}, **t["hard"]}
     rows, failed = [], False
     print(f"\n{'metric':<32}{'value':>8}  bound      result")
     for kind in ("hard", "soft"):

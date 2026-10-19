@@ -40,9 +40,11 @@ def calculate(observed: dict, rules: list[dict], decision: str) -> dict:
     else:
         gross = oracle.gross_benefit(observed)
     interest_rule, interest = None, 0.0
-    for r in rules:
-        v = _version(r.get("rule_id", ""), r.get("version"), observed["date_of_death"])
-        if v and v["type"] == "PAY_CALC" and "rate" in v["params"]:
+    cited = [v for v in (_version(r.get("rule_id", ""), r.get("version"), observed["date_of_death"]) for r in rules) if v]
+    # A cited rule that another cited rule replaces (NY-INT-001 replaces ALL-INT-001) does not apply.
+    replaced = {s for v in cited for s in v["supersedes"]}
+    for v in cited:
+        if v["type"] == "PAY_CALC" and "rate" in v["params"] and v["rule_id"] not in replaced:
             interest_rule = f"{v['rule_id']}@v{v['version']}"
             interest = oracle.interest(observed, v, gross)
             break

@@ -99,11 +99,13 @@ function recHtml(r) {
   const missed = exp ? [...exp].filter((x) => !got.has(x)) : [];
   const rows = r.rules.map((x) => {
     const cls = x.added_by ? "added" : exp && !exp.has(x.rule_id) ? "extra" : "";
-    return `<tr class="${cls}"><td class="rid"><span class="sop-link" data-sop="${x.sop_id}">${x.rule_id}</span>${x.version ? ` <span class="muted">v${x.version}</span>` : ""}</td>
-      <td><span class="type ${x.type}">${x.type}</span></td><td>${esc(x.action)}</td><td class="small">${esc(x.rationale)}${x.added_by ? ` <b>(${x.added_by})</b>` : ""}</td></tr>`;
+    // Rule fields come from LLM output (and the adversarial set injects text into documents): escape all of them.
+    const type = esc(String(x.type || "").replace(/[^A-Z_]/g, ""));
+    return `<tr class="${cls}"><td class="rid"><span class="sop-link" data-sop="${esc(x.sop_id)}">${esc(x.rule_id)}</span>${x.version ? ` <span class="muted">v${esc(x.version)}</span>` : ""}</td>
+      <td><span class="type ${type}">${type}</span></td><td>${esc(x.action)}</td><td class="small">${esc(x.rationale)}${x.added_by ? ` <b>(${esc(x.added_by)})</b>` : ""}</td></tr>`;
   }).join("") + missed.map((m) => `<tr class="missed presenter-only" style="display:table-row"><td class="rid">${m}</td><td colspan="3" class="small"><b>missed</b> — the oracle says this rule applies</td></tr>`).join("");
   const c = r.calculation || {};
-  const guard = r.guard && r.guard.triggered ? `<div class="guard">⚠️ <b>Critical-rule guard:</b> the agent missed ${r.guard.missing.join(", ")}. The codified rule was added before adjudication, so the claim was not paid.</div>` : "";
+  const guard = r.guard && r.guard.triggered ? `<div class="guard">⚠️ <b>Critical-rule guard:</b> the agent missed ${esc(r.guard.missing.join(", "))}. The codified rule was added before adjudication${r.recommendation !== "PAY" ? " — the claim is held, not paid" : ""}.</div>` : "";
   return `<div class="rec-head" style="margin-top:12px"><span class="badge ${r.recommendation}">${r.recommendation}</span>
       ${c.gross_benefit != null ? `<span>Gross <b>${money(c.gross_benefit)}</b> · interest <b>${money(c.interest_due)}</b> <span class="muted small">${c.interest_rule || ""}</span></span>` : ""}
       <span class="links"><a href="${r.trace_url}" target="_blank" rel="noopener">Trace in Langfuse ↗</a><a href="${r.apm_url}" target="_blank" rel="noopener">Same trace in APM ↗</a></span>
@@ -118,8 +120,9 @@ function recHtml(r) {
 
 function reviewHtml(d) {
   if (d.review_result) {
-    return `<h3>Examiner decision</h3><p><span class="badge ${d.review_result.final_decision}">${d.review_result.final_decision}</span>
-      <span class="small muted" style="margin-left:8px">${d.review.action === "approve" ? "approved as recommended" : `overridden (${d.review.reason})`} · ${esc(d.review.note)}</span>
+    const fd = esc(d.review_result.final_decision);
+    return `<h3>Examiner decision</h3><p><span class="badge ${fd}">${fd}</span>
+      <span class="small muted" style="margin-left:8px">${d.review.action === "approve" ? "approved as recommended" : `overridden (${esc(d.review.reason)})`} · ${esc(d.review.note)}</span>
       <span class="links" style="margin-left:10px"><a href="${d.review_result.trace_url}" target="_blank" rel="noopener">Review trace ↗</a></span></p>
       <h3>Letter to the claimant</h3><div class="letter">${esc(d.review_result.letter)}</div>`;
   }
@@ -136,11 +139,12 @@ function reviewHtml(d) {
 
 function bindReview(id) {
   const send = async (body) => {
+    document.querySelectorAll("#approve, #override").forEach((b) => (b.disabled = true));
     $("#rev-status").innerHTML = '<span class="spinner" style="border-color:#888;border-right-color:transparent"></span> resuming the graph, drafting the letter…';
     try { await api(`/api/claims/${id}/review`, { method: "POST", body: JSON.stringify(body) }); await loadQueue(); await openClaim(id); }
-    catch (e) { $("#rev-status").textContent = e.message; }
+    catch (e) { $("#rev-status").textContent = e.message; document.querySelectorAll("#approve, #override").forEach((b) => (b.disabled = false)); }
   };
-  if ($("#approve")) $("#approve").onclick = () => send({ action: "approve", note: $("#ov-note").value || "Approved as recommended." });
+  if ($("#approve")) $("#approve").onclick = () => send({ action: "approve", note: $("#ov-note").value || "" });
   if ($("#override")) $("#override").onclick = () => send({
     action: "override", decision: $("#ov-decision").value, reason: $("#ov-reason").value, note: $("#ov-note").value,
     missed_rule_ids: $("#ov-missed").value.split(/[ ,]+/).filter(Boolean) });
