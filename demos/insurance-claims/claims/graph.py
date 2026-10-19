@@ -48,7 +48,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from opentelemetry import trace as otel_trace
 from pydantic import BaseModel, Field
 
-from claims import a2a_client, calc, claimsdb, evals, notices, oracle, prompts, sops
+from claims import a2a_client, business, calc, claimsdb, evals, notices, oracle, prompts, sops
 from claims import config as settings
 
 TRACE_NAME = "claims-orchestrator"
@@ -654,6 +654,11 @@ def record_review(trace_id: Optional[str], root_id: Optional[str], recommended: 
     lf.create_score(trace_id=trace_id, observation_id=root_id, name="examiner-override", value=1 if override else 0,
                     data_type="BOOLEAN", comment=(f"examiner changed {recommended} → {review.get('decision')}: "
                                                   f"{review.get('note', '')}" if override else "approved as recommended"))
+    action = "override" if override else "approve"
+    lf.create_score(trace_id=trace_id, observation_id=root_id, name="examiner-minutes-saved",
+                    value=business.minutes_saved(action), data_type="NUMERIC", comment=business.NOTE)
+    lf.create_score(trace_id=trace_id, observation_id=root_id, name="value-usd", value=business.value_usd(action),
+                    data_type="NUMERIC", comment=business.NOTE)
     if override:
         lf.create_score(trace_id=trace_id, observation_id=root_id, name="override-reason",
                         value=review.get("reason", "other"), data_type="CATEGORICAL",

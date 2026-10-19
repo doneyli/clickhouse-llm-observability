@@ -36,6 +36,13 @@ def simulate(claim: dict, res: dict, rng: random.Random | None = None) -> dict:
                          + (f"Missed critical rule {', '.join(crit)}. " if crit else "")
                          + (f"Missed {', '.join(missed)}. " if missed else "")
                          + (f"Not applicable: {', '.join(extra)}." if extra else "")).strip()}
+    from claims import oracle
+    money_or_critical = [r for r in missed if r in exp["critical_rule_ids"] or any(
+        v["type"] == "COMMISSION" for v in oracle.rule_versions(r))]
+    if money_or_critical:  # right decision, but a chargeback or a critical step would be lost
+        return {"action": "override", "decision": rec, "reason": "missed-rule", "missed_rule_ids": missed,
+                "examiner_id": who, "note": f"Decision stands, but the recommendation missed {', '.join(money_or_critical)}"
+                                            " — added to the action list."}
     if exp["decision"] == "PAY" and exp.get("interest_due") is not None and calc.get("interest_due") is not None \
             and abs(calc["interest_due"] - exp["interest_due"]) > evals.TOLERANCE_USD:
         return {"action": "override", "decision": "PAY", "reason": "calc-error", "missed_rule_ids": missed,
