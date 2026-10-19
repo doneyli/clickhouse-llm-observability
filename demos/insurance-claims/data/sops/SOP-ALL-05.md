@@ -22,9 +22,9 @@ Approval levels for releasing death benefits.
 
 Amounts are the gross benefit before interest.
 
-**ALL-AUTH-001 — Second approver.** A gross benefit of $500,000 or more requires a second approval by a senior examiner before payment.
+**ALL-AUTH-001 — Second approver.** A gross benefit of $500,000 or more requires a second approval by a senior examiner before payment. _(Rule version 1, effective 2024-01-01.)_
 
-**ALL-AUTH-002 — Director sign-off.** A gross benefit of $1,000,000 or more additionally requires the Claims Director's sign-off. This is in addition to ALL-AUTH-001, not instead of it.
+**ALL-AUTH-002 — Director sign-off.** A gross benefit of $1,000,000 or more additionally requires the Claims Director's sign-off. This is in addition to ALL-AUTH-001, not instead of it. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

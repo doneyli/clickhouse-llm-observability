@@ -20,7 +20,7 @@ In community property states a surviving spouse may own part of the proceeds eve
 
 ## 2. Spousal notice and hold
 
-**CP-SPOUSE-001 — Spousal interest.** If the insured was married at death and the spouse is not a beneficiary, or is named for less than half of the proceeds, send the spouse the community property notice and hold fifty percent (50%) of the proceeds for thirty (30) days for a possible spousal claim.
+**CP-SPOUSE-001 — Spousal interest.** If the insured was married at death and the spouse is not a beneficiary, or is named for less than half of the proceeds, send the spouse the community property notice and hold fifty percent (50%) of the proceeds for thirty (30) days for a possible spousal claim. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

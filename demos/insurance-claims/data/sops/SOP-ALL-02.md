@@ -20,7 +20,7 @@ Company-wide service standards for acknowledging and deciding death claims. Stat
 
 ## 1. Standard timelines
 
-**ALL-NOT-001 — Standard timelines.** Acknowledge every new death claim in writing within fifteen (15) calendar days of first notice, and decide it within thirty (30) days of receiving complete proof of loss. Where a state procedure for the claim's governing state sets its own timelines, follow the state procedure instead of this rule.
+**ALL-NOT-001 — Standard timelines.** Acknowledge every new death claim in writing within fifteen (15) calendar days of first notice, and decide it within thirty (30) days of receiving complete proof of loss. Where a state procedure for the claim's governing state sets its own timelines, follow the state procedure instead of this rule. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

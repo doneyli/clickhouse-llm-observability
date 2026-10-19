@@ -20,7 +20,7 @@ Requirements for claims governed by New Jersey law. New Jersey claims otherwise 
 
 ## 2. Required disclosures
 
-**NJ-DISC-001 — Disclosure.** Every claim letter must include the New Jersey Department of Banking and Insurance contact notice.
+**NJ-DISC-001 — Disclosure.** Every claim letter must include the New Jersey Department of Banking and Insurance contact notice. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

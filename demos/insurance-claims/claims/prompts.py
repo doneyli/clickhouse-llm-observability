@@ -97,6 +97,9 @@ Apply the company's decision policy exactly:
 3. Otherwise PEND if any applicable rule blocks payment, holds the claim, or requires a document that is missing
    (types BLOCK, PEND, DOC_REQUIRED).
 4. Otherwise PAY.
+The order matters: a denial outranks a hold — if a DENY rule applies, the decision is DENY even when other rules
+would hold the claim (for example a suicide exclusion on a contestable claim). A rule that holds ANY part of the
+proceeds (for example a 30-day hold of the spouse's potential share) is a hold: the decision is PEND.
 Routing and approval rules (second approver, director sign-off, parallel SIU review) do not change the decision;
 list them as approvals or actions.
 

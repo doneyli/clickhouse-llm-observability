@@ -1,0 +1,13 @@
+# Insurance claims demo — local APM stand-in for Dynatrace (the app exports a payload-free OTLP copy of
+# every span, same trace ids as Langfuse). Langfuse itself is Cloud, or the self-hosted Enterprise stack of
+# demos/bank-assistant (`--profile selfhosted`, :3100), selected by CLAIMS_PROFILE.
+#   docker compose up -d        → Jaeger UI http://localhost:16686, OTLP/HTTP :14318
+# If the bank demo's Jaeger already runs on these ports, skip this: both demos can share it.
+services:
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    container_name: claims-jaeger
+    ports:
+      - "16686:16686"
+      - "14318:4318"
+    restart: unless-stopped

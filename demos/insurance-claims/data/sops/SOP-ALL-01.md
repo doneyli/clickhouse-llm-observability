@@ -22,15 +22,15 @@ This procedure sets out the documents every death claim file must contain before
 
 Proof of death is the foundation of the file. Photocopies, funeral-home notices and obituaries are useful context but are never proof.
 
-**ALL-DOC-001 — Death certificate missing or uncertified.** Proof of death is a certified copy of the death certificate issued by the vital-records office of the place of death. If the file holds no death certificate, or only an uncertified copy, place the claim in pending status and ask the claimant for a certified copy. No benefit may be paid until it arrives.
+**ALL-DOC-001 — Death certificate missing or uncertified.** Proof of death is a certified copy of the death certificate issued by the vital-records office of the place of death. If the file holds no death certificate, or only an uncertified copy, place the claim in pending status and ask the claimant for a certified copy. No benefit may be paid until it arrives. _(Rule version 1, effective 2024-01-01.)_
 
 ## 3. Claimant forms
 
 Each person claiming a share of the proceeds completes their own forms.
 
-**ALL-DOC-002 — Claimant's statement missing.** If the file holds no signed Claimant's Statement (form NLA-CS-1), pend the claim and send the form; a claim cannot be decided on a telephone notice alone.
+**ALL-DOC-002 — Claimant's statement missing.** If the file holds no signed Claimant's Statement (form NLA-CS-1), pend the claim and send the form; a claim cannot be decided on a telephone notice alone. _(Rule version 1, effective 2024-01-01.)_
 
-**ALL-DOC-003 — W-9 missing.** If the file holds no signed IRS Form W-9 from the payee, hold the claim and request the form; funds may not be released without it.
+**ALL-DOC-003 — W-9 missing.** If the file holds no signed IRS Form W-9 from the payee, hold the claim and request the form; funds may not be released without it. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

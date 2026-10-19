@@ -20,7 +20,7 @@ Interest the company adds to death proceeds. A state procedure for the governing
 
 ## 1. Standard interest
 
-**ALL-INT-001 — Standard interest.** Add simple interest at 2.0% a year on the benefit from the date of death to the date of payment.
+**ALL-INT-001 — Standard interest.** Add simple interest at 2.0% a year on the benefit from the date of death to the date of payment. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

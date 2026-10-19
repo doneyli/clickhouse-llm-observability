@@ -1,0 +1,123 @@
+# Insurance claims demo — prompt quality gate in CI.
+#
+# WHAT IT DOES
+#   A Langfuse prompt automation (Prompts → Automations → GitHub Repository Dispatch, event type
+#   `claims-prompt-update`) fires on every claims-sop-rules version or label change. This workflow
+#   reads the prompt + labels from the payload, runs claims-golden-v1 against that labelled version
+#   (perfect intake; the SME-codified oracle is the ground truth) and compares the run averages with
+#   demos/insurance-claims/cicd/thresholds.json. A regression FAILS the job and blocks "Ship it".
+#
+# SETUP (once) — see demos/insurance-claims/cicd/README.md
+#   Repo secrets: CLAIMS_LANGFUSE_BASE_URL, CLAIMS_LANGFUSE_PUBLIC_KEY, CLAIMS_LANGFUSE_SECRET_KEY,
+#   ANTHROPIC_API_KEY. The Langfuse automation is a UI step (no public API).
+#
+# DEMO TIP
+#   Actions → Claims prompt gate → Run workflow → `staging` shows the gate BLOCKING the 'concise'
+#   candidate; `production` shows it passing.
+name: Claims prompt gate
+
+on:
+  repository_dispatch:
+    types: [claims-prompt-update]
+  workflow_dispatch:
+    inputs:
+      prompt_label:
+        description: claims-sop-rules label to gate
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production, conservative, candidate]
+
+concurrency:
+  group: claims-gate-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_label }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Evaluate claims-sop-rules against the quality bar
+    runs-on: ubuntu-latest
+    outputs:
+      label: ${{ steps.which.outputs.label }}
+      is_production: ${{ steps.which.outputs.is_production }}
+      skip: ${{ steps.which.outputs.skip }}
+    defaults:
+      run:
+        working-directory: demos/insurance-claims
+    env:
+      CLAIMS_PROFILE: cloud
+      APM_OTLP_ENDPOINT: "off"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide which prompt version to gate
+        id: which
+        working-directory: .
+        env:
+          MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
+        run: |
+          set -euo pipefail
+          GATED="claims-sop-rules"; DEPLOYABLE="production staging conservative candidate"; SKIP=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NAME="$GATED"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
+          else
+            NAME=$(jq -r '.client_payload.prompt.name // ""' "$GITHUB_EVENT_PATH")
+            VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
+            LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
+            LABEL=$(jq -r '(.client_payload.prompt.labels // []) | map(select(. != "latest" and . != "previous-production"))
+                           | (map(select(. == "production")) + .) | first // ""' "$GITHUB_EVENT_PATH")
+            if [ "$NAME" != "$GATED" ]; then SKIP="\`$NAME\` is not \`$GATED\`, the prompt this dataset exercises."
+            elif [ -z "$LABEL" ]; then SKIP="version $VERSION carries no deployable label (has: \`${LABELS:-none}\`)."
+            elif ! printf '%s' " $DEPLOYABLE " | grep -q " $LABEL "; then SKIP="label \`$LABEL\` is not one of: $DEPLOYABLE."
+            fi
+          fi
+          IS_PROD=false; case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"; echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"; echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          { echo "### Prompt change"; echo ""; echo "| field | value |"; echo "|---|---|"
+            echo "| prompt | \`$NAME\` |"; echo "| version | \`$VERSION\` |"; echo "| labels | \`${LABELS:-none}\` |"
+            if [ -n "$SKIP" ]; then echo ""; echo "### ⏭️ Skipped — nothing evaluated"; echo ""; echo "$SKIP"
+            else echo "| gating label | \`$LABEL\` |"; fi; echo ""; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v5
+        if: steps.which.outputs.skip == ''
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: demos/insurance-claims/requirements.txt
+
+      - name: Install
+        if: steps.which.outputs.skip == ''
+        run: pip install -r requirements.txt
+
+      - name: Write Langfuse target (from secrets)
+        if: steps.which.outputs.skip == ''
+        run: |
+          {
+            echo "LANGFUSE_BASE_URL=${{ secrets.CLAIMS_LANGFUSE_BASE_URL }}"
+            echo "LANGFUSE_PUBLIC_KEY=${{ secrets.CLAIMS_LANGFUSE_PUBLIC_KEY }}"
+            echo "LANGFUSE_SECRET_KEY=${{ secrets.CLAIMS_LANGFUSE_SECRET_KEY }}"
+          } > .env.cloud
+
+      # The rules suite needs neither the MCP server nor the A2A service: it runs the step on known claim
+      # files. Non-zero exit on any hard-threshold miss IS the gate.
+      - name: Gate — claims-golden-v1
+        if: steps.which.outputs.skip == ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python scripts/prompt_gate.py --prompt-label "${{ steps.which.outputs.label }}" \
+            --run-name "ci · ${{ steps.which.outputs.label }} v{version} · #${{ github.run_number }}"
+
+  deploy:
+    name: Ship it
+    needs: gate
+    runs-on: ubuntu-latest
+    if: needs.gate.outputs.is_production == 'true' && needs.gate.outputs.skip == ''
+    steps:
+      - name: Announce the deploy
+        run: |
+          {
+            echo "### 🚀 Deployed"
+            echo ""
+            echo "\`claims-sop-rules\` (label \`${{ needs.gate.outputs.label }}\`) passed the quality bar and carries \`production\`."
+            echo "The agents fetch the production-labelled prompt at runtime (10 s cache): nothing to redeploy. Roll back = move the label back."
+          } >> "$GITHUB_STEP_SUMMARY"

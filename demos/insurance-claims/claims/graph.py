@@ -63,7 +63,9 @@ _PRICE = {"claude-sonnet-4-6": (3.0, 15.0), "claude-sonnet-5-5": (3.0, 15.0), "c
 
 class ExtractedRule(BaseModel):
     rule_id: str = Field(description="Rule id exactly as printed in the SOP, e.g. LIFE-CONT-001")
-    version: Optional[int] = Field(default=None, description="Rule version, when the SOP states one")
+    version: Optional[int] = Field(default=None, description="The RULE version printed with the rule, or the older "
+                                   "rule version named in the revision history when that is the one in effect. "
+                                   "Never the SOP document's version.")
     sop_id: str = Field(description="SOP id, e.g. SOP-LIFE-01")
     section: str = Field(description="SOP section number")
     type: str = Field(description="BLOCK, PEND, DOC_REQUIRED, DENY, ROUTE, NOTIFY, PAY_CALC or COMMISSION")
@@ -357,7 +359,7 @@ async def sop_rules(state: ClaimState, config: RunnableConfig) -> dict:
                                 _llm_cfg(cfg, client, "sop-rules-llm"))
         _usage(rt, model, out.get("raw"))
         parsed = out.get("parsed")
-        rules = [r.model_dump() for r in parsed.rules] if parsed else []
+        rules = [_registry_fields(r.model_dump()) for r in parsed.rules] if parsed else []
         obs.update(output={"rules": rules}, level="DEFAULT" if parsed else "ERROR",
                    status_message=None if parsed else f"structured output failed: {out.get('parsing_error')}")
     cv, problems = evals.citation_validity(rules, obs_claim, retrieved_ids)
@@ -370,6 +372,18 @@ async def sop_rules(state: ClaimState, config: RunnableConfig) -> dict:
     return {"retrieved": retrieved_ids, "rules": rules,
             "citation_validity": {"score": cv, "problems": problems},
             "retrieval_coverage": {"score": rc, "missing": missing_sops}}
+
+
+def _registry_fields(r: dict) -> dict:
+    """The agent decides WHICH rules apply; a rule's type and severity come from the rule registry, so a
+    mislabelled type cannot change the decision downstream. The agent's own label is kept when it differs."""
+    v = oracle.rule_by_id(str(r.get("rule_id", "")).strip())
+    if v is None:
+        return r
+    out = {**r, "type": v["type"], "severity": v["severity"]}
+    if r.get("type") and r["type"] != v["type"]:
+        out["agent_type"] = r["type"]
+    return out
 
 
 async def critical_guard(state: ClaimState, config: RunnableConfig) -> dict:
@@ -645,3 +659,100 @@ def record_review(trace_id: Optional[str], root_id: Optional[str], recommended: 
                         value=review.get("reason", "other"), data_type="CATEGORICAL",
                         comment=("missed rules: " + ", ".join(review.get("missed_rule_ids") or [])) or None)
     settings.flush()
+
+
+# ───────────────────────────── step-level experiments ─────────────────────────────
+
+def _build_rules_step():
+    """sop-rules → adjudication, no guard: experiments measure the AGENT, not the backstop."""
+    g = StateGraph(ClaimState)
+    g.add_node("sop-rules", sop_rules)
+    g.add_node("adjudication", adjudication)
+    g.add_edge(START, "sop-rules")
+    g.add_edge("sop-rules", "adjudication")
+    g.add_edge("adjudication", END)
+    return g.compile()
+
+
+RULES_STEP = _build_rules_step()
+
+
+async def run_rules_step(claim_id: str, claim_file: dict, observed: dict, *, labels: Optional[dict] = None,
+                         model: Optional[str] = None, release: Optional[str] = None) -> dict:
+    """The rules step on a known claim file (perfect intake) — what the CI gate evaluates."""
+    lf = settings.get_langfuse()
+    labels = labels or {}
+    with propagate_attributes(trace_name="claims-rules-step", tags=["experiment", "step:sop-rules"],
+                              metadata={"claim_id": claim_id}):
+        with lf.start_as_current_observation(as_type="agent", name="claims-rules-step",
+                                             input={"claim_id": claim_id, "claim_file": claim_file},
+                                             metadata={"role": "rules_step"}) as root:
+            rt = Runtime(langfuse=lf, handler=CallbackHandler(), labels=labels, model=model, release=release,
+                         mode="experiment", trace_attrs={"trace_id": root.trace_id})
+            state = await RULES_STEP.ainvoke(
+                {"claim_id": claim_id, "claim_file": claim_file, "observed": observed},
+                {"callbacks": [rt.handler], "run_name": "claims-rules-step", "configurable": {"runtime": rt}})
+            out = {"rules": state["rules"], "decision": state["recommendation"]["decision"],
+                   "calculation": state["calculation"], "citation_validity": state["citation_validity"],
+                   "retrieval_coverage": state["retrieval_coverage"], "prompt_versions": rt.served}
+            root.update(output={k: out[k] for k in ("decision", "calculation")} |
+                        {"rules": sorted(evals.cited_ids(out["rules"]))})
+    return out
+
+
+# ───────────────────────────── examiner assistant ─────────────────────────────
+
+async def ask_assistant(claim_id: str, thread_id: Optional[str], question: str, *, examiner_id: str = "examiner",
+                        labels: Optional[dict] = None) -> dict:
+    """`examiner_question`: a tool-using assistant answers an examiner's question about one claim — a
+    human-agent interaction recorded in the claim's session."""
+    lf = settings.get_langfuse()
+    claim = claimsdb.get(claim_id)
+    snap = GRAPH.get_state({"configurable": {"thread_id": thread_id}}).values if thread_id else {}
+    with propagate_attributes(session_id=claim_id, user_id=examiner_id, trace_name=TRACE_NAME,
+                              tags=sorted(["claims", "event:examiner_question", f"line:{claim['line']}",
+                                           f"state:{claim['state']}"]), metadata={"claim_id": claim_id}):
+        with lf.start_as_current_observation(as_type="agent", name=TRACE_NAME,
+                                             input={"claim_id": claim_id, "event": "examiner_question",
+                                                    "question": question},
+                                             metadata={"role": "orchestrator"}) as root:
+            rt = Runtime(langfuse=lf, handler=CallbackHandler(), labels=labels or {},
+                         trace_attrs={"trace_id": root.trace_id, "session_id": claim_id, "user_id": examiner_id,
+                                      "trace_name": TRACE_NAME})
+
+            @tool
+            def get_claim_state() -> dict:
+                """The claim's current recommendation, the rules found (with rationale), amounts and examiner review."""
+                return {k: snap.get(k) for k in ("recommendation", "rules", "calculation", "review", "guard",
+                                                  "claim_file")} if snap else {"note": "no recommendation yet"}
+
+            @tool
+            def lookup_sop(sop_id: str) -> str:
+                """Full text of one SOP, e.g. SOP-LIFE-01."""
+                d = sops.get(sop_id)
+                return d["text"] if d else f"no SOP {sop_id}"
+
+            tools = {t.name: t for t in (get_claim_state, lookup_sop)}
+            system, client, model, max_tokens = _prompt(rt, "claims-examiner-assistant")
+            llm = make_llm(model, max_tokens).bind_tools(list(tools.values()))
+            msgs = [SystemMessage(content=system), HumanMessage(content=f"Claim {claim_id}. Examiner asks: {question}")]
+            cfg = {"callbacks": [rt.handler], "run_name": "examiner-assistant",
+                   "metadata": {"langfuse_prompt": client} if client else {}}
+            answer = ""
+            with lf.start_as_current_observation(as_type="agent", name="examiner-assistant",
+                                                 input={"question": question},
+                                                 metadata={"role": "examiner_assistant", "model": model}) as obs:
+                for _ in range(5):
+                    ai = await llm.ainvoke(msgs, cfg)
+                    msgs.append(ai)
+                    if not getattr(ai, "tool_calls", None):
+                        answer = ai.content if isinstance(ai.content, str) else "".join(
+                            b.get("text", "") for b in ai.content if isinstance(b, dict))
+                        break
+                    for tc in ai.tool_calls:
+                        out = tools[tc["name"]].invoke(tc["args"], cfg) if tc["name"] in tools else "unknown tool"
+                        msgs.append(ToolMessage(content=json.dumps(out, default=str)[:20000], tool_call_id=tc["id"]))
+                obs.update(output=answer)
+            root.update(output={"answer": answer})
+            trace_id = root.trace_id
+    return {"answer": answer, "trace_id": trace_id, "trace_url": settings.trace_url(trace_id)}

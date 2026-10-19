@@ -20,9 +20,9 @@ Commission adjustments when an individual life policy results in an early death 
 
 ## 2. Chargeback
 
-**LIFE-COMM-001 — First-year chargeback.** If death occurs within twelve (12) months of issue and first-year commission was paid, notify Agency Operations to charge back one hundred percent (100%) of the first-year commission from the agent of record.
+**LIFE-COMM-001 — First-year chargeback.** If death occurs within twelve (12) months of issue and first-year commission was paid, notify Agency Operations to charge back one hundred percent (100%) of the first-year commission from the agent of record. _(Rule version 1, effective 2024-01-01.)_
 
-**LIFE-COMM-002 — Second-year chargeback.** If death occurs in the second policy year (at least twelve but fewer than twenty-four months after issue) and first-year commission was paid, notify Agency Operations to charge back fifty percent (50%).
+**LIFE-COMM-002 — Second-year chargeback.** If death occurs in the second policy year (at least twelve but fewer than twenty-four months after issue) and first-year commission was paid, notify Agency Operations to charge back fifty percent (50%). _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

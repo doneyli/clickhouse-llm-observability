@@ -20,15 +20,15 @@ Requirements for claims governed by Illinois law. (IL here is the state of Illin
 
 ## 2. Timelines
 
-**IL-NOT-001 — Timelines.** Acknowledge an Illinois claim within fifteen (15) working days. This replaces ALL-NOT-001.
+**IL-NOT-001 — Timelines.** Acknowledge an Illinois claim within fifteen (15) working days. This replaces ALL-NOT-001. _(Rule version 1, effective 2024-01-01.)_
 
 ## 3. Interest on proceeds
 
-**IL-INT-001 — Interest.** Illinois claims carry no standard interest. If payment is made more than thirty (30) days after the company received due proof of death, add interest at 9% a year from the thirty-first (31st) day after proof to the date of payment. This replaces ALL-INT-001.
+**IL-INT-001 — Interest.** Illinois claims carry no standard interest. If payment is made more than thirty (30) days after the company received due proof of death, add interest at 9% a year from the thirty-first (31st) day after proof to the date of payment. This replaces ALL-INT-001. _(Rule version 1, effective 2024-01-01.)_
 
 ## 4. Required disclosures
 
-**IL-DISC-001 — Disclosure.** Every claim letter on an Illinois claim must include the Illinois Department of Insurance notice.
+**IL-DISC-001 — Disclosure.** Every claim letter on an Illinois claim must include the Illinois Department of Insurance notice. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

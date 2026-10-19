@@ -20,15 +20,15 @@ Requirements for claims governed by Texas law. Where this procedure sets a rule,
 
 ## 2. Timelines
 
-**TX-NOT-001 — Timelines.** Acknowledge a Texas claim and request any missing items within fifteen (15) days of notice, and accept or reject it within fifteen (15) business days of receiving the last item requested. This replaces ALL-NOT-001.
+**TX-NOT-001 — Timelines.** Acknowledge a Texas claim and request any missing items within fifteen (15) days of notice, and accept or reject it within fifteen (15) business days of receiving the last item requested. This replaces ALL-NOT-001. _(Rule version 1, effective 2024-01-01.)_
 
 ## 3. Late-payment interest
 
-**TX-INT-001 — Interest.** Texas claims carry no standard interest. If payment is made more than sixty (60) days after the company received complete proof of loss, add interest at 18% a year from the sixtieth day after proof to the date of payment. This replaces ALL-INT-001.
+**TX-INT-001 — Interest.** Texas claims carry no standard interest. If payment is made more than sixty (60) days after the company received complete proof of loss, add interest at 18% a year from the sixtieth day after proof to the date of payment. This replaces ALL-INT-001. _(Rule version 1, effective 2024-01-01.)_
 
 ## 4. Required disclosures
 
-**TX-DISC-001 — Disclosure.** Every claim letter must include the Texas Department of Insurance complaint notice and the company's toll-free number.
+**TX-DISC-001 — Disclosure.** Every claim letter must include the Texas Department of Insurance complaint notice and the company's toll-free number. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

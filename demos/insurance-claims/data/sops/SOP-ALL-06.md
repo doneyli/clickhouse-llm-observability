@@ -20,15 +20,15 @@ Who may be paid, and what to do when the named beneficiaries cannot be paid dire
 
 ## 2. Minor beneficiaries
 
-**ALL-BEN-001 — Minors.** A beneficiary who was under eighteen (18) on the date of death cannot be paid directly, and the share may not be paid to a parent merely because they are the parent. Pend that share until the file holds letters of guardianship of the minor's estate or the designation of a custodian under the Uniform Transfers to Minors Act.
+**ALL-BEN-001 — Minors.** A beneficiary who was under eighteen (18) on the date of death cannot be paid directly, and the share may not be paid to a parent merely because they are the parent. Pend that share until the file holds letters of guardianship of the minor's estate or the designation of a custodian under the Uniform Transfers to Minors Act. _(Rule version 1, effective 2024-01-01.)_
 
 ## 3. Claimant standing
 
-**ALL-BEN-002 — Standing.** When the person making the claim is not a named beneficiary, confirm their standing (for example, as executor or attorney-in-fact, with documents) before discussing claim details or accepting their instructions. Pend until standing is confirmed.
+**ALL-BEN-002 — Standing.** When the person making the claim is not a named beneficiary, confirm their standing (for example, as executor or attorney-in-fact, with documents) before discussing claim details or accepting their instructions. Pend until standing is confirmed. _(Rule version 1, effective 2024-01-01.)_
 
-**ALL-BEN-003 — Estate.** If no named beneficiary survived the insured, the proceeds are payable to the insured's estate. Require letters testamentary or letters of administration before payment.
+**ALL-BEN-003 — Estate.** If no named beneficiary survived the insured, the proceeds are payable to the insured's estate. Require letters testamentary or letters of administration before payment. _(Rule version 1, effective 2024-01-01.)_
 
-**ALL-BEN-004 — Predeceased beneficiary.** The share of a named beneficiary who died before the insured is divided among the surviving beneficiaries of the same class in proportion to their shares, unless the owner elected per stirpes distribution.
+**ALL-BEN-004 — Predeceased beneficiary.** The share of a named beneficiary who died before the insured is divided among the surviving beneficiaries of the same class in proportion to their shares, unless the owner elected per stirpes distribution. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

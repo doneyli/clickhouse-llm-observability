@@ -489,7 +489,10 @@ SOPS: list[dict] = [
               rule("LIFE-SUIC-001", "DENY", "critical", "Suicide within 24 months → premiums refunded only",
                    "**LIFE-SUIC-001 — Suicide exclusion.** If the manner of death is suicide and death occurred within "
                    "twenty-four (24) months of the issue date, the benefit is limited to a refund of the premiums "
-                   "paid. A senior examiner must approve the letter.",
+                   "paid: deny the face amount and refund the premiums. When the claim is also contestable, "
+                   "LIFE-CONT-001 still applies — route the file to the Contestable Claims Unit, whose finding can "
+                   "change the refund — but the decision is a denial, not a pending claim. A senior examiner must "
+                   "approve the letter.",
                    condition=all_(f("manner_of_death", "==", "suicide"), f("months_since_issue", "<", 24)),
                    action="Limit the benefit to a premium refund; senior examiner approval"),
               rule("LIFE-SUIC-002", "PEND", "major", "Manner of death pending → wait for amended certificate",
@@ -512,7 +515,9 @@ SOPS: list[dict] = [
               rule("WA-SUIC-001", "DENY", "critical", "WA: suicide exclusion period is 12 months",
                    "**WA-SUIC-001 — Exclusion period.** For Washington policies the suicide exclusion period is twelve "
                    "(12) months, not twenty-four. If the manner of death is suicide within twelve months of issue, "
-                   "the benefit is limited to a refund of premiums. This replaces LIFE-SUIC-001 for Washington.",
+                   "the benefit is limited to a refund of premiums: deny the face amount. LIFE-CONT-001 still applies "
+                   "to a contestable claim (route it to the Contestable Claims Unit), but the decision is a denial. "
+                   "This replaces LIFE-SUIC-001 for Washington.",
                    condition=all_(f("manner_of_death", "==", "suicide"), f("months_since_issue", "<", 12)),
                    supersedes=["LIFE-SUIC-001"], action="Limit the benefit to a premium refund"),
               rule("WA-SUIC-002", "PEND", "major", "WA: manner pending within 12 months",

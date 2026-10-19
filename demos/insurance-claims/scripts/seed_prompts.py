@@ -1,6 +1,6 @@
 """
 Seed every agent prompt in Langfuse (idempotent):
-  * v1 of each prompt with labels `production` + `previous-production`, model and limits in `config`
+  * v1 of each prompt with label `production` (previous-production is set by the first promote), model and limits in `config`
   * the candidate versions of claims-sop-rules (SPEC.md §7): v2 'concise' → `staging` (F1, the CI gate
     must block it), v3 'conservative' → `conservative` (F4)
 
@@ -44,7 +44,7 @@ def main() -> int:
             print(f"= {name} v{existing.version} has production")
         else:
             p = lf.create_prompt(name=name, prompt=spec["text"], type="text",
-                                 labels=["production", "previous-production"], config=CONFIGS[name],
+                                 labels=["production"], config=CONFIGS[name],
                                  commit_message="v1 baseline (seed_prompts.py)")
             print(f"+ {name} v{p.version} → production")
         for cand in prompts.CANDIDATES.get(name, []):

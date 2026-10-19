@@ -20,11 +20,11 @@ Screening that must clear before any payee receives funds.
 
 ## 2. Sanctions (OFAC)
 
-**ALL-SCR-001 — Sanctions match.** If the sanctions screen returns a potential or confirmed match for the insured, any beneficiary or any other payee, all payments on the claim are blocked and the file is referred to Compliance. The examiner may not tell the claimant why the payment is delayed. Only Compliance can clear the block.
+**ALL-SCR-001 — Sanctions match.** If the sanctions screen returns a potential or confirmed match for the insured, any beneficiary or any other payee, all payments on the claim are blocked and the file is referred to Compliance. The examiner may not tell the claimant why the payment is delayed. Only Compliance can clear the block. _(Rule version 1, effective 2024-01-01.)_
 
 ## 3. Death outside the United States
 
-**ALL-SCR-002 — Foreign death.** When the death occurred outside the United States, a foreign death certificate is not sufficient on its own. Pend the claim and obtain independent verification: a Consular Report of Death Abroad or a field investigation report.
+**ALL-SCR-002 — Foreign death.** When the death occurred outside the United States, a foreign death certificate is not sufficient on its own. Pend the claim and obtain independent verification: a Consular Report of Death Abroad or a field investigation report. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

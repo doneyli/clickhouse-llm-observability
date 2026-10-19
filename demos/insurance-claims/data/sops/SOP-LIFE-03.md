@@ -20,9 +20,9 @@ What the premium status of the policy on the date of death means for the claim.
 
 ## 2. Lapse and grace
 
-**LIFE-LAPSE-001 — Lapsed policy.** If the policy had lapsed — the grace period ended without payment and the policy was not reinstated — before the date of death, deny the claim and refund any unearned premium.
+**LIFE-LAPSE-001 — Lapsed policy.** If the policy had lapsed — the grace period ended without payment and the policy was not reinstated — before the date of death, deny the claim and refund any unearned premium. _(Rule version 1, effective 2024-01-01.)_
 
-**LIFE-LAPSE-002 — Grace period.** If the insured died during the grace period, the policy was in force: pay the benefit less the overdue premium.
+**LIFE-LAPSE-002 — Grace period.** If the insured died during the grace period, the policy was in force: pay the benefit less the overdue premium. _(Rule version 1, effective 2024-01-01.)_
 
 ## Revision history
 

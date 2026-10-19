@@ -54,7 +54,7 @@ def render(s: dict) -> str:
             out += [sec["intro"], ""]
         for r in sec["rules"]:
             if r["text"]:  # an older rule version lives in the revision history, not as its own paragraph
-                out += [r["text"], ""]
+                out += [f"{r['text']} _(Rule version {r['version']}, effective {r['effective_from']}.)_", ""]
     out += ["## Revision history", "", s["history"], ""]
     return "\n".join(out)
 
