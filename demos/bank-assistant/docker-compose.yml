@@ -48,6 +48,9 @@ x-langfuse-env: &langfuse-env
   LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
   LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
   LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:19090
+  # The worker (multi-modal judges) downloads media itself: inside the network MinIO is minio:9000, not
+  # the browser-facing localhost:19090. Without this the audio judges fail with "Failed to download bytes".
+  LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
   LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
   LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
   LANGFUSE_S3_BATCH_EXPORT_ENABLED: "true"
@@ -91,7 +94,6 @@ services:
     environment:
       <<: *langfuse-env
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-northwind-nextauth-secret}
-      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
       # Bootstrap: one org, one project, one owner — reproducible demo state.
       LANGFUSE_INIT_ORG_ID: northwind
       LANGFUSE_INIT_ORG_NAME: Northwind Bank
