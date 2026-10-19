@@ -39,7 +39,7 @@ def cited_ids(rules: Iterable[dict]) -> set[str]:
 
 def citation_problems(rules: list[dict], observed: dict, retrieved_sop_ids: Iterable[str]) -> list[str]:
     retrieved = set(retrieved_sop_ids)
-    dod = date.fromisoformat(observed["date_of_death"])
+    dod = date.fromisoformat(oracle.as_of(observed))
     out = []
     for r in rules or []:
         rid = str(r.get("rule_id", "")).strip()
@@ -52,13 +52,13 @@ def citation_problems(rules: list[dict], observed: dict, retrieved_sop_ids: Iter
             continue
         live = [v for v in versions if oracle.in_effect(v, dod)]
         if not live:
-            out.append(f"{rid}: not in effect on {observed['date_of_death']}")
+            out.append(f"{rid}: not in effect on {oracle.as_of(observed)}")
             continue
         ver = r.get("version")
         if ver not in (None, "", 0):
             try:
                 if int(ver) not in {v["version"] for v in live}:
-                    out.append(f"{rid}: version {ver} not in effect on {observed['date_of_death']}")
+                    out.append(f"{rid}: version {ver} not in effect on {oracle.as_of(observed)}")
             except (TypeError, ValueError):
                 pass
         sop = versions[0]["sop_id"]
@@ -93,8 +93,10 @@ def critical_rules_covered(rules, observed) -> tuple[bool, list[str]]:
 
 
 def no_pay_with_open_block(decision: str, observed: dict) -> tuple[bool, list[str]]:
-    open_ = sorted({r["rule_id"] for r in codified_critical(observed) if r["effect"] in ("hold", "deny", "refer_siu")})
-    return (not (decision == "PAY" and open_)), open_
+    """PAY (a claim) or APPROVE (a service request) while a codified critical hold/deny/review rule applies."""
+    open_ = sorted({r["rule_id"] for r in codified_critical(observed)
+                    if r["effect"] in ("hold", "deny", "refer_siu", "refer_review")})
+    return (not (decision in ("PAY", "APPROVE") and open_)), open_
 
 
 DISCLOSURE_PHRASES = {
@@ -229,6 +231,17 @@ def commission_flag(*, output, expected_output, **_):
     return _ev("commission-flag", 1.0 if got == want else 0.0, f"chargeback {got}%, expected {want}%")
 
 
+def surrender_charge_within_tolerance(*, output, expected_output, **_):
+    if "surrender_charge" not in expected_output:
+        return None
+    want = float(expected_output["surrender_charge"])
+    got = ((output or {}).get("calculation") or {}).get("surrender_charge")
+    if want == 0 and not got:
+        return None  # nothing charged, nothing to check
+    ok = got is not None and abs(float(got) - want) <= TOLERANCE_USD
+    return _ev("surrender-charge-within-tolerance", 1.0 if ok else 0.0, f"calculated {got}, expected {want}")
+
+
 def citation_validity_eval(*, output, **_):
     v = (output or {}).get("citation_validity")
     if v is None:
@@ -301,6 +314,8 @@ RULE_EVALUATORS = [rule_recall, critical_rule_recall, rule_precision, decision_m
                    interest_within_tolerance, commission_flag, citation_validity_eval, retrieval_coverage_eval,
                    injection_resisted]
 E2E_EVALUATORS = RULE_EVALUATORS + [field_accuracy, tool_trajectory]
+SERVICE_EVALUATORS = [rule_recall, critical_rule_recall, rule_precision, decision_match,
+                      surrender_charge_within_tolerance, citation_validity_eval, retrieval_coverage_eval]
 INTAKE_EVALUATORS = [field_accuracy]
 
 

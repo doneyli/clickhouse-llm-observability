@@ -28,16 +28,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from claims import a2a_client, claimsdb, config, evals, graph, prompts  # noqa: E402
+from claims import a2a_client, claimsdb, config, evals, graph, prompts, servicing  # noqa: E402
 
 DATASETS = {"rules": "claims-golden-v1", "e2e": "claims-golden-v1", "intake": "claims-intake-v1",
-            "adversarial": "claims-adversarial-v1"}
+            "adversarial": "claims-adversarial-v1", "service": "annuity-service-golden-v1"}
+# The prompt each suite's label refers to (the gated prompt).
+PROMPT = {"service": servicing.RULES_PROMPT}
 
 
-def resolve(lf, label: str):
-    _, client, cfg = prompts.get(lf, "claims-sop-rules", label)
+def resolve(lf, label: str, name: str = "claims-sop-rules"):
+    _, client, cfg = prompts.get(lf, name, label)
     if client is None:
-        raise SystemExit(f"prompt label '{label}' does not resolve to a version of claims-sop-rules — "
+        raise SystemExit(f"prompt label '{label}' does not resolve to a version of {name} — "
                          "refusing to evaluate the fallback prompt")
     return client, cfg
 
@@ -45,22 +47,28 @@ def resolve(lf, label: str):
 def run(suite: str = "rules", prompt_label: str = "production", model: str | None = None, release: str | None = None,
         run_name: str | None = None, limit: int | None = None, max_concurrency: int = 6, dataset: str | None = None):
     lf = config.get_langfuse()
-    client, pcfg = resolve(lf, prompt_label)
+    pname = PROMPT.get(suite, "claims-sop-rules")
+    client, pcfg = resolve(lf, prompt_label, pname)
     model_used = model or pcfg.get("model") or config.AGENT_MODEL
     dataset = dataset or DATASETS[suite]
-    labels = {"claims-sop-rules": prompt_label}
+    labels = {pname: prompt_label}
     rel = release or config.RELEASE
     # Run names must be unique: Langfuse APPENDS items to an existing run with the same name.
     stamp = time.strftime("%m-%d %H:%M")
-    run_name = (run_name or f"{suite} · sop-rules {prompt_label} v{{version}} · {model_used} · {rel} · {stamp}").replace(
+    run_name = (run_name or f"{suite} · {pname.replace('claims-', '')} {prompt_label} v{{version}} · {model_used} · {rel} · {stamp}").replace(
         "{version}", str(client.version))
-    print(f"{suite} on {dataset} · claims-sop-rules '{prompt_label}' → v{client.version} · {model_used} · {rel}",
+    print(f"{suite} on {dataset} · {pname} '{prompt_label}' → v{client.version} · {model_used} · {rel}",
           flush=True)
     ds = lf.get_dataset(dataset)
     items = ds.items[:limit] if limit else ds.items
 
     async def task(*, item, **_):
         inp = item.input
+        if suite == "service":
+            req = claimsdb.get_service(inp["request_id"])
+            _, observed = claimsdb.service_request_file(req)
+            return await servicing.run_service_step(inp["request_id"], inp["request_file"], observed, labels=labels,
+                                                    model=model)
         if suite == "rules":
             claim = claimsdb.get(inp["claim_id"])
             _, observed = claimsdb.ground_truth_inputs(claim)
@@ -82,12 +90,12 @@ def run(suite: str = "rules", prompt_label: str = "production", model: str | Non
                 "guard": res["guard"]}
 
     evaluators = {"rules": evals.RULE_EVALUATORS, "e2e": evals.E2E_EVALUATORS, "adversarial": evals.E2E_EVALUATORS,
-                  "intake": evals.INTAKE_EVALUATORS}[suite]
+                  "intake": evals.INTAKE_EVALUATORS, "service": evals.SERVICE_EVALUATORS}[suite]
     t0 = time.time()
     result = lf.run_experiment(
         name=f"{dataset} · {suite}", run_name=run_name, data=items, task=task, evaluators=evaluators,
         run_evaluators=[evals.averages], max_concurrency=max_concurrency,
-        description=f"suite={suite}, claims-sop-rules label={prompt_label} (v{client.version}), model={model_used}, "
+        description=f"suite={suite}, {pname} label={prompt_label} (v{client.version}), model={model_used}, "
                     f"release={rel}", metadata={"suite": suite, "prompt_label": prompt_label,
                                                 "prompt_version": str(client.version), "model": model_used,
                                                 "release": rel})

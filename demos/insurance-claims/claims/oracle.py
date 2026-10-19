@@ -26,8 +26,20 @@ from claims import catalog
 
 RULES_JSON = Path(__file__).resolve().parent.parent / "data" / "sops" / "rules.json"
 DECISIONS = ["PAY", "PEND", "DENY", "REFER_SIU"]
-_PRECEDENCE = {"refer_siu": 3, "deny": 2, "hold": 1, "none": 0}
+_PRECEDENCE = {"refer_siu": 3, "deny": 2, "refer_review": 2, "hold": 1, "none": 0}
 _DECISION_OF = {3: "REFER_SIU", 2: "DENY", 1: "PEND", 0: "PAY"}
+# Annuity servicing decisions: a supervisory/compliance review outranks a hold, which outranks processing.
+SERVICE_DECISIONS = ["APPROVE", "PEND", "REFER_REVIEW"]
+_SERVICE_DECISION_OF = {2: "REFER_REVIEW", 1: "PEND", 0: "APPROVE"}
+
+
+def is_service(case: dict) -> bool:
+    return case.get("line") == catalog.SERVICE
+
+
+def as_of(case: dict) -> str:
+    """The date rules are evaluated at: the date of death for a claim, the request date for a service request."""
+    return case.get("date_of_death") or case["request_date"]
 
 
 @lru_cache(maxsize=1)
@@ -70,8 +82,43 @@ def gross_benefit(claim: dict) -> float:
     return float(max(claim["contract_value"], claim["premiums_paid"] - claim.get("withdrawals", 0)))
 
 
+def derive_service_facts(req: dict) -> dict:
+    """Facts for an annuity service request (withdrawal, surrender, replacement)."""
+    on = _d(req["request_date"])
+    months = months_between(_d(req["issue_date"]), on)
+    year = months // 12 + 1
+    sched = [7, 6, 5, 4, 3, 2, 1]
+    pct = sched[year - 1] if year <= len(sched) else 0
+    cv = float(req["contract_value"])
+    amount = float(req.get("amount") or (cv if req["request_type"] == "surrender" else 0))
+    free = round(cv * 0.10, 2)
+    dob = _d(req["owner"]["date_of_birth"])
+    age = (on - dob).days / 365.25
+    prof = req.get("profile") or {}
+    return {
+        "line": req["line"], "state": req["state"], "request_type": req["request_type"],
+        "months_since_issue": months, "contract_year": year, "surrender_charge_pct": pct,
+        "contract_value": cv, "amount": amount, "free_amount": free, "amount_above_free": round(max(0.0, amount - free), 2),
+        "owner_age": round(age, 2), "qualified": bool(req.get("qualified")),
+        "rmd_remaining": float(req.get("rmd_remaining") or 0),
+        "withholding_form_present": bool((req.get("documents") or {}).get("withholding_form", True)),
+        "has_guaranteed_rider": bool(req.get("guaranteed_rider")),
+        "rider_ack_signed": bool((req.get("documents") or {}).get("rider_ack", False)),
+        "replacement_notice_signed": bool((req.get("documents") or {}).get("replacement_notice", False)),
+        "agent_recommended": bool(req.get("agent_recommended")),
+        "profile_complete": all(prof.get(k) not in (None, "") for k in
+                                ("annual_income", "liquid_net_worth", "risk_tolerance", "time_horizon_years",
+                                 "liquidity_needs")),
+        "horizon_shorter_than_new_period": (req["request_type"] == "replacement" and prof.get("time_horizon_years")
+                                            is not None and float(prof["time_horizon_years"])
+                                            < float(req.get("new_surrender_period_years") or 0)),
+    }
+
+
 def derive_facts(claim: dict) -> dict:
     """The fact set the rule conditions are written against."""
+    if is_service(claim):
+        return derive_service_facts(claim)
     dod = _d(claim["date_of_death"])
     docs = claim.get("documents") or {}
     cert = docs.get("death_certificate") or {}
@@ -159,7 +206,7 @@ def applicable(claim: dict, facts: Optional[dict] = None) -> list[dict]:
     contestability review does.
     """
     facts = facts or derive_facts(claim)
-    dod = _d(claim["date_of_death"])
+    dod = _d(as_of(claim))
     live = [r for r in rules() if in_scope(r, claim["line"], claim["state"]) and in_effect(r, dod)]
     superseded = {s for r in live for s in r["supersedes"]}
     return [r for r in live if r["rule_id"] not in superseded and holds(r["condition"], facts)]
@@ -188,8 +235,29 @@ def payable(claim: dict, fired: list[dict]) -> float:
     return gross_benefit(claim)
 
 
+def surrender_charge(facts: dict, fired_ids: set) -> float:
+    if "SVC-WD-001" not in fired_ids:
+        return 0.0
+    return round(facts["amount_above_free"] * facts["surrender_charge_pct"] / 100.0, 2)
+
+
+def expected_service(req: dict) -> dict:
+    facts = derive_service_facts(req)
+    fired = applicable(req, facts)
+    level = max([_PRECEDENCE[r["effect"]] for r in fired] or [0])
+    ids = {r["rule_id"] for r in fired}
+    return {"rule_ids": sorted(ids),
+            "critical_rule_ids": sorted({r["rule_id"] for r in fired if r["severity"] == "critical"}),
+            "decision": _SERVICE_DECISION_OF[min(level, 2)],
+            "letter_requirements": sorted({r["rule_id"] for r in fired if r["letter"]}),
+            "surrender_charge": surrender_charge(facts, ids), "free_amount": facts["free_amount"],
+            "interest_rule": None, "commission_chargeback_pct": 0, "gross_benefit": None, "interest_due": None}
+
+
 def expected(claim: dict) -> dict:
-    """Ground truth for one claim."""
+    """Ground truth for one claim (or annuity service request)."""
+    if is_service(claim):
+        return expected_service(claim)
     facts = derive_facts(claim)
     fired = applicable(claim, facts)
     level = max([_PRECEDENCE[r["effect"]] for r in fired] or [0])

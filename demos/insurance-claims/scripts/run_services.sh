@@ -10,12 +10,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p logs
 stop_port() { local pids; pids=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$pids" ] && kill $pids 2>/dev/null || true; }
-for p in 8767 9210 8095 8768 9211; do stop_port $p; done
+for p in 8767 9210 8095 8768 9211 8769; do stop_port $p; done
 [ "${1:-}" = "stop" ] && { echo "stopped"; exit 0; }
 sleep 1
 # Services for the self-hosted Enterprise target run as a second set (their spans export to :3200).
 CLAIMS_PROFILE=selfhosted CLAIMS_MCP_PORT=8768 nohup .venv/bin/python -m claims.mcp_server > logs/mcp-selfhosted.log 2>&1 & disown
 CLAIMS_PROFILE=selfhosted DOC_INTAKE_PORT=9211 nohup doc_intake/.venv/bin/python -m doc_intake.service > logs/doc-intake-selfhosted.log 2>&1 & disown
+# The retirement / annuities project on the self-hosted instance has its own keys, so its own MCP server (:8769).
+[ -f .env.selfhosted-annuities ] && { CLAIMS_PROFILE=selfhosted-annuities CLAIMS_MCP_PORT=8769 nohup .venv/bin/python -m claims.mcp_server > logs/mcp-annuities.log 2>&1 & disown; }
 nohup .venv/bin/python -m claims.mcp_server > logs/mcp.log 2>&1 & disown
 nohup doc_intake/.venv/bin/python -m doc_intake.service > logs/doc-intake.log 2>&1 & disown
 if [ -f portal/server.py ]; then

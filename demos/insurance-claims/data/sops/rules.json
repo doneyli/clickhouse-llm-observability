@@ -1674,6 +1674,593 @@
    "action": "Notify Agency Operations: 100% chargeback",
    "sop_id": "SOP-ANN-01",
    "section": "4"
+  },
+  {
+   "rule_id": "SVC-WD-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "Surrender charge on the amount above the free withdrawal",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "in",
+      "value": [
+       "withdrawal",
+       "surrender",
+       "replacement"
+      ]
+     },
+     {
+      "fact": "surrender_charge_pct",
+      "op": ">",
+      "value": 0
+     },
+     {
+      "fact": "amount_above_free",
+      "op": ">",
+      "value": 0
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "schedule": [
+     7,
+     6,
+     5,
+     4,
+     3,
+     2,
+     1
+    ],
+    "free_pct": 10
+   },
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Apply the surrender charge to the amount above the free withdrawal",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-WD-002",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Owner under 59\u00bd: additional tax disclosure",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "in",
+      "value": [
+       "withdrawal",
+       "surrender"
+      ]
+     },
+     {
+      "fact": "owner_age",
+      "op": "<",
+      "value": 59.5
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Include the early-distribution tax disclosure",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-WD-003",
+   "type": "DOC_REQUIRED",
+   "severity": "minor",
+   "title": "Withholding election missing",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "in",
+      "value": [
+       "withdrawal",
+       "surrender"
+      ]
+     },
+     {
+      "fact": "withholding_form_present",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Hold; request form W-4R",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-WD-004",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Surrender forfeits a guaranteed rider",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "surrender"
+     },
+     {
+      "fact": "has_guaranteed_rider",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "rider_ack_signed",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; obtain the signed rider-forfeiture acknowledgment",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-RMD-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Required minimum distribution not yet satisfied",
+   "condition": {
+    "all": [
+     {
+      "fact": "qualified",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "owner_age",
+      "op": ">=",
+      "value": 73
+     },
+     {
+      "fact": "rmd_remaining",
+      "op": ">",
+      "value": 0
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Satisfy the remaining RMD first; tell the owner",
+   "sop_id": "SOP-SVC-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-REP-001",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "Replacement notice and comparison missing",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "replacement_notice_signed",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; obtain the signed replacement notice and comparison",
+   "sop_id": "SOP-SVC-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-REP-005",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "30-day free look on a replacement",
+   "condition": {
+    "fact": "request_type",
+    "op": "==",
+    "value": "replacement"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Include the 30-day free-look notice",
+   "sop_id": "SOP-SVC-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-REP-002",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Replacement during the surrender period \u2192 principal review",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "surrender_charge_pct",
+      "op": ">",
+      "value": 0
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to a supervising principal before processing",
+   "sop_id": "SOP-SVC-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-REP-003",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Contract under 36 months old \u2192 replacement review",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 36
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to Annuity Compliance (churning review)",
+   "sop_id": "SOP-SVC-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-REP-004",
+   "type": "ROUTE",
+   "severity": "major",
+   "title": "Guaranteed rider would be lost \u2192 principal review",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "has_guaranteed_rider",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to a supervising principal (rider loss)",
+   "sop_id": "SOP-SVC-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-BI-001",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Consumer profile incomplete",
+   "condition": {
+    "all": [
+     {
+      "any": [
+       {
+        "fact": "request_type",
+        "op": "==",
+        "value": "replacement"
+       },
+       {
+        "fact": "agent_recommended",
+        "op": "true",
+        "value": null
+       }
+      ]
+     },
+     {
+      "fact": "profile_complete",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; complete the consumer profile",
+   "sop_id": "SOP-SVC-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-BI-004",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Time horizon shorter than the new surrender period",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "horizon_shorter_than_new_period",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to Annuity Compliance (liquidity mismatch)",
+   "sop_id": "SOP-SVC-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-BI-002",
+   "type": "ROUTE",
+   "severity": "major",
+   "title": "Senior consumer, agent-recommended \u2192 senior review",
+   "condition": {
+    "all": [
+     {
+      "fact": "owner_age",
+      "op": ">=",
+      "value": 75
+     },
+     {
+      "fact": "agent_recommended",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to the senior-investor review desk",
+   "sop_id": "SOP-SVC-03",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-BI-003",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Disclose the agent's compensation",
+   "condition": {
+    "fact": "agent_recommended",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Include the agent-compensation disclosure",
+   "sop_id": "SOP-SVC-03",
+   "section": "3"
+  },
+  {
+   "rule_id": "NY-SVC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "NY: written best-interest basis to the consumer",
+   "condition": {
+    "fact": "agent_recommended",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Give the consumer the written best-interest basis",
+   "sop_id": "SOP-SVC-NY-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "NY-SVC-002",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "NY: 60-day free look on a replacement",
+   "condition": {
+    "fact": "request_type",
+    "op": "==",
+    "value": "replacement"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "SVC-REP-005"
+   ],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Include the 60-day free-look notice",
+   "sop_id": "SOP-SVC-NY-01",
+   "section": "2"
   }
  ]
 }

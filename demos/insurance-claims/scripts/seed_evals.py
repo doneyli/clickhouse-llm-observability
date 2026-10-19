@@ -28,9 +28,9 @@ TRACE_NAME = "claims-orchestrator"
 JUDGE = {"provider": "anthropic", "model": config.JUDGE_MODEL}
 
 
-def role_filter(role: str) -> list[dict]:
+def role_filter(role: str, traces: tuple = (TRACE_NAME,)) -> list[dict]:
     return [
-        {"type": "stringOptions", "column": "traceName", "operator": "any of", "value": [TRACE_NAME]},
+        {"type": "stringOptions", "column": "traceName", "operator": "any of", "value": list(traces)},
         {"type": "stringOptions", "column": "environment", "operator": "any of", "value": ["production"]},
         {"type": "stringObject", "column": "metadata", "key": "role", "operator": "=", "value": role},
     ]
@@ -54,9 +54,10 @@ DOCUMENTS:
 EXTRACTION:
 {{extraction}}"""
 
-RULE_COMPLETENESS = """You are a senior claims examiner auditing the SOP rules step of a life-insurance death claim.
+RULE_COMPLETENESS = """You are a senior examiner auditing the SOP rules step of an insurance case — a life-insurance death
+claim or an in-force annuity service request (withdrawal, surrender, replacement).
 
-The agent read the SOP TEXT below and listed the rules that apply to the CLAIM FILE. Your question: did it MISS any rule?
+The agent read the SOP TEXT below and listed the rules that apply to the CASE FILE. Your question: did it MISS any rule?
 
 Go through every rule paragraph in the SOP TEXT (each starts with a bold rule id). For each one whose conditions the claim
 file facts meet, check that it is on the agent's list. Respect replacement: when a rule says it replaces another rule, only
@@ -65,7 +66,7 @@ the replacing rule should be listed. Ignore rules whose conditions are not met.
 - true: every rule that applies is on the list (extra rules do not matter for this check)
 - false: at least one applicable rule is missing
 
-CLAIM FILE:
+CASE FILE:
 {{claim_file}}
 
 SOP TEXT:
@@ -119,7 +120,8 @@ RECOMMENDATION:
 {{recommendation}}"""
 
 JUDGES = [
-    {"name": "rule-completeness", "role": "sop_rules", "sampling": 1.0, "prompt": RULE_COMPLETENESS,
+    {"name": "rule-completeness", "role": "sop_rules", "traces": (TRACE_NAME, "annuity-service"), "sampling": 1.0,
+     "prompt": RULE_COMPLETENESS,
      "dataType": "BOOLEAN",
      "mapping": [{"variable": "claim_file", "source": "input", "jsonPath": "$.claim_file"},
                  {"variable": "sops", "source": "input", "jsonPath": "$.sops"},
@@ -217,7 +219,7 @@ def main() -> int:
             else:
                 print(f"= evaluator {j['name']}")
         body = {"name": j["name"], "enabled": True, "sampling": j["sampling"],
-                "filter": role_filter(j["role"]) + j.get("extra_filter", []),
+                "filter": role_filter(j["role"], j.get("traces", (TRACE_NAME,))) + j.get("extra_filter", []),
                 "evaluatorAssignments": [{"evaluatorId": ev["id"], "variableMapping": j["mapping"]}]}
         if j["name"] in rules:
             config.api("PATCH", f"/api/public/v2/evaluation-rules/{rules[j['name']]['id']}", body)

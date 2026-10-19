@@ -57,6 +57,8 @@ def render(rows, failed, *, label, version, model, run_name, run_url) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompt-label", default="staging")
+    ap.add_argument("--suite", default="rules", choices=["rules", "service"],
+                    help="rules = claims-sop-rules on claims-golden-v1; service = annuity-service-rules")
     ap.add_argument("--model", default=None, help="override the model in the prompt config (pre-upgrade check)")
     ap.add_argument("--thresholds", default=str(ROOT / "cicd" / "thresholds.json"))
     ap.add_argument("--run-name", default=None)
@@ -64,9 +66,11 @@ def main() -> int:
     ap.add_argument("--warn-only", action="store_true")
     a = ap.parse_args()
     t = json.loads(Path(a.thresholds).read_text())
+    if a.suite != "rules":
+        t = {**t, **t["suites"][a.suite]}
     import time
     run_name = a.run_name or f"gate · {a.prompt_label} v{{version}} · {time.strftime('%m-%d %H:%M:%S')}"
-    result, version = run_experiment.run("rules", a.prompt_label, a.model, run_name=run_name, limit=a.limit,
+    result, version = run_experiment.run(a.suite, a.prompt_label, a.model, run_name=run_name, limit=a.limit,
                                          dataset=t["dataset"])
     got = {e.name: e.value for e in result.run_evaluations}
     # An item whose task raised (rate limit, tool error) is DROPPED from the run and from the averages — a run

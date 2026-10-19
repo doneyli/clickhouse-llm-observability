@@ -69,7 +69,8 @@ def main() -> int:
     judges = ["rule-completeness", "adjudication-faithfulness", "letter-quality", "instruction-resistance",
               "certificate-extraction"]
     check(all(j in evs and j in rules and rules[j].get("enabled") for j in judges), f"{len(judges)} judges + rules enabled")
-    for ds, n in [("claims-golden-v1", 92), ("claims-adversarial-v1", 12), ("claims-intake-v1", 24)]:
+    for ds, n in [("claims-golden-v1", 92), ("claims-adversarial-v1", 12), ("claims-intake-v1", 24),
+                  ("annuity-service-golden-v1", 22)]:
         try:
             got = len(config.get_langfuse().get_dataset(ds).items)
         except Exception:  # noqa: BLE001
@@ -96,6 +97,16 @@ def main() -> int:
         check(len(rows) >= minimum, f"score {name}: {len(rows)}")
     guard = [s for s in scores("guard-triggered") if s.get("value") in (1, 1.0, True)]
     check(bool(guard), f"{len(guard)} claims where the critical-rule guard fired")
+    sexp = [e["name"] for e in lfread.experiments("annuity-service-golden-v1")]
+    check(any("production v1" in n for n in sexp) and any("staging v2" in n for n in sexp),
+          f"annuity-service experiments: {len(sexp)} runs (production + staging)")
+    queues = config.api("GET", "/api/public/annotation-queues", params={"limit": 50})["data"]
+    qi = sum((config.api("GET", f"/api/public/annotation-queues/{q['id']}/items", params={"limit": 1}).get("meta") or {})
+             .get("totalItems", 0) for q in queues)
+    check(qi > 0, f"annotation queue items: {qi}")
+    svc = obs([{"type": "stringOptions", "column": "traceName", "operator": "any of", "value": ["annuity-service"]},
+               {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True}])
+    check(len(svc) >= 10, f"{len(svc)} annuity-service traces")
     hero = obs([{"type": "stringOptions", "column": "sessionId", "operator": "any of", "value": ["CLM-2026-00042"]},
                 {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True}])
     check(len(hero) >= 2, f"hero session CLM-2026-00042: {len(hero)} traces")

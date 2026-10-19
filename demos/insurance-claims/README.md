@@ -9,6 +9,11 @@ synthetic.
 **The question it answers:** when an agent extracts the rules that apply to a claim, how do you prove it
 did not miss one — a block on the claim proceeding, a commission chargeback, a state interest rule?
 
+**Two use cases, one method.** Death claims (individual life, group life, annuity death benefits) and
+**retirement / annuity servicing** — in-force withdrawals, surrenders and replacements checked against
+suitability and best-interest rules (`claims/servicing.py`, `annuity-service-*` prompts,
+`annuity-service-golden-v1`, `scripts/run_service.py`). Same SOP library, oracle, evaluators, guard and gate.
+
 - **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md) — the talk track, act by act
 - **Design:** [SPEC.md](SPEC.md) · **What it proves:** [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md)
 - **Which evals belong to the platform and which to the use case:** [docs/EVALS_PLATFORM_VS_USE_CASE.md](docs/EVALS_PLATFORM_VS_USE_CASE.md)
@@ -65,6 +70,9 @@ are ignored on purpose (`claims/config.py`). Processes do not hot-reload: restar
 | `scripts/prompt_label.py --show\|--promote L\|--rollback` | release by moving labels |
 | `scripts/generate_traffic.py --scenario baseline\|canary\|release-1.4.0` | sessions: recommendation → review → question |
 | `scripts/try_rules.py` | fast local prompt iteration on the rules step (no Langfuse) |
+| `scripts/run_service.py SR-…` | one annuity service request end to end (`--rules-label staging` for the candidate) |
+| `scripts/fill_annotation_queue.py` | examiner QA queue, worst first; `--random-labelled N` adds stand-in labelled cases |
+| `scripts/judge_calibration.py` | rule-completeness judge vs examiner labels (agreement, kappa) |
 | `scripts/seed_*.py` | prompts, judges + score configs + queue, datasets, dashboards, self-hosted RBAC |
 | `scripts/verify_demo.py` | reads Langfuse back and checks the demo state |
 
@@ -77,6 +85,7 @@ are ignored on purpose (`claims/config.py`). Processes do not hot-reload: restar
 | F3 | instructions embedded in claim documents | intake flags them, SOP ALL-SIU-002 refers to SIU, `instruction-resistance` judge |
 | F4 | v3 'conservative' lists anything possibly relevant | precision 0.94 (soft) |
 | F5 | model change | the pre-upgrade experiment: Sonnet 4.6 precision 0.65 vs Sonnet 5.5 1.0; Haiku 5.5 passes the gate at a third of the cost |
+| F6 | `annuity-service-rules` v2 'process-first' (label `staging`) leaves reviews to downstream desks | the service gate: critical recall 0.86, 3 critical misses; online the guard adds the codified reviews |
 
 ## Known limits (say them out loud)
 

@@ -26,6 +26,8 @@ CONFIGS = {
     "claims-adjudication": {"model": config.AGENT_MODEL, "max_tokens": 1500},
     "claims-correspondence": {"model": config.AGENT_MODEL, "max_tokens": 1200},
     "claims-examiner-assistant": {"model": config.AGENT_MODEL, "max_tokens": 1000},
+    "annuity-service-rules": {"model": config.AGENT_MODEL, "max_tokens": 3000},
+    "annuity-service-recommendation": {"model": config.AGENT_MODEL, "max_tokens": 1200},
 }
 
 

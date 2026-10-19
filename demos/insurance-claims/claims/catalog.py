@@ -29,7 +29,10 @@ Rule `effect` drives the decision (precedence refer_siu > deny > hold > none):
 from __future__ import annotations
 
 LIFE, GROUP, ANNUITY = "individual_life", "group_life", "annuity_death"
-ALL_LINES = [LIFE, GROUP, ANNUITY]
+ALL_LINES = [LIFE, GROUP, ANNUITY]      # the death-claims lines
+# Retirement / annuity servicing (in-force requests from a living owner): a second use case on the same pattern.
+SERVICE = "annuity_service"
+SERVICE_STATES = ["NY", "NJ", "CA", "TX", "FL"]
 STATES = ["NY", "NJ", "CA", "TX", "FL", "IL", "PA", "WA"]
 
 ALWAYS = True
@@ -674,6 +677,156 @@ SOPS: list[dict] = [
           ]},
      ],
      "history": "Version 3 moved the 10-year distribution option into ANN-DIST-001."},
+
+    # ───────────────────────── retirement / annuity servicing (in-force requests) ─────────────────────────
+    {"sop_id": "SOP-SVC-01", "title": "Annuity withdrawals and surrenders", "version": 3,
+     "effective_from": "2025-03-01", "owner": "Annuity Operations", "lines": [SERVICE], "states": ["ALL"],
+     "purpose": "Partial withdrawals and full surrenders requested by the owner of a deferred annuity.",
+     "sections": [
+         {"section": "2", "heading": "Surrender charges", "intro": "",
+          "rules": [
+              rule("SVC-WD-001", "PAY_CALC", "major", "Surrender charge on the amount above the free withdrawal",
+                   "**SVC-WD-001 — Surrender charge.** Each contract year the owner may withdraw up to ten percent "
+                   "(10%) of the contract value free of charge. On any amount above the free withdrawal amount, "
+                   "apply the surrender charge for the contract year from the schedule — 7%, 6%, 5%, 4%, 3%, 2% "
+                   "and 1% in contract years one to seven, none from year eight — and show it to the owner before "
+                   "processing. A replacement surrenders the existing contract, so the charge applies to it too.",
+                   condition=all_(f("request_type", "in", ["withdrawal", "surrender", "replacement"]),
+                                  f("surrender_charge_pct", ">", 0), f("amount_above_free", ">", 0)),
+                   params={"schedule": [7, 6, 5, 4, 3, 2, 1], "free_pct": 10},
+                   action="Apply the surrender charge to the amount above the free withdrawal"),
+              rule("SVC-WD-002", "NOTIFY", "major", "Owner under 59½: additional tax disclosure",
+                   "**SVC-WD-002 — Early distribution.** If the owner is younger than fifty-nine and a half, the "
+                   "confirmation must disclose that the taxable part of the distribution may be subject to an "
+                   "additional 10% federal tax.", letter=True,
+                   condition=all_(f("request_type", "in", ["withdrawal", "surrender"]), f("owner_age", "<", 59.5)),
+                   action="Include the early-distribution tax disclosure"),
+              rule("SVC-WD-003", "DOC_REQUIRED", "minor", "Withholding election missing",
+                   "**SVC-WD-003 — Withholding election missing.** If the file holds no withholding election (form "
+                   "W-4R) for the distribution, hold the request and ask the owner for it.",
+                   condition=all_(f("request_type", "in", ["withdrawal", "surrender"]),
+                                  f("withholding_form_present", "false")),
+                   action="Hold; request form W-4R"),
+              rule("SVC-WD-004", "PEND", "major", "Surrender forfeits a guaranteed rider",
+                   "**SVC-WD-004 — Rider forfeiture.** A full surrender (not a replacement — see SVC-REP-004) ends any "
+                   "guaranteed income or death-benefit rider. If the contract carries one and the owner has not "
+                   "signed the rider-forfeiture acknowledgment, pend the surrender until it is signed.",
+                   condition=all_(f("request_type", "==", "surrender"), f("has_guaranteed_rider", "true"),
+                                  f("rider_ack_signed", "false")),
+                   action="Pend; obtain the signed rider-forfeiture acknowledgment"),
+          ]},
+         {"section": "3", "heading": "Required minimum distributions", "intro": "",
+          "rules": [
+              rule("SVC-RMD-001", "NOTIFY", "major", "Required minimum distribution not yet satisfied",
+                   "**SVC-RMD-001 — RMD.** For a qualified contract whose owner is seventy-three or older, check the "
+                   "year's required minimum distribution. If part of it is still due, process the remaining RMD "
+                   "first and tell the owner how much of this request satisfies it.",
+                   condition=all_(f("qualified", "true"), f("owner_age", ">=", 73), f("rmd_remaining", ">", 0)),
+                   action="Satisfy the remaining RMD first; tell the owner"),
+          ]},
+     ],
+     "history": "Version 3 (March 2025) aligned the RMD age with federal law (73). Version 2 used age 72."},
+
+    {"sop_id": "SOP-SVC-02", "title": "Annuity replacements and 1035 exchanges", "version": 4,
+     "effective_from": "2025-06-01", "owner": "Annuity Compliance", "lines": [SERVICE], "states": ["ALL"],
+     "purpose": "Requests to replace an existing annuity with a new one (including tax-free exchanges). "
+                "Replacements are where best-interest failures most often happen; every one is reviewed.",
+     "sections": [
+         {"section": "2", "heading": "Disclosure", "intro": "",
+          "rules": [
+              rule("SVC-REP-001", "DOC_REQUIRED", "major", "Replacement notice and comparison missing",
+                   "**SVC-REP-001 — Replacement notice missing.** If the file holds no signed Notice Regarding "
+                   "Replacement with the side-by-side comparison of the existing and the proposed contract, pend "
+                   "the request until it does.",
+                   condition=all_(f("request_type", "==", "replacement"), f("replacement_notice_signed", "false")),
+                   action="Pend; obtain the signed replacement notice and comparison"),
+              rule("SVC-REP-005", "NOTIFY", "major", "30-day free look on a replacement",
+                   "**SVC-REP-005 — Free look.** The confirmation of a replacement must tell the owner they may "
+                   "cancel the new contract within thirty (30) days for a full refund.", letter=True,
+                   condition=f("request_type", "==", "replacement"),
+                   action="Include the 30-day free-look notice"),
+          ]},
+         {"section": "3", "heading": "Supervisory review", "intro": "",
+          "rules": [
+              rule("SVC-REP-002", "ROUTE", "critical", "Replacement during the surrender period → principal review",
+                   "**SVC-REP-002 — Surrender period.** A replacement of a contract that still carries a surrender "
+                   "charge costs the owner that charge. Route it to a supervising principal for a best-interest "
+                   "review before anything is processed.",
+                   condition=all_(f("request_type", "==", "replacement"), f("surrender_charge_pct", ">", 0)),
+                   effect="refer_review", action="Route to a supervising principal before processing"),
+              rule("SVC-REP-003", "ROUTE", "critical", "Contract under 36 months old → replacement review",
+                   "**SVC-REP-003 — Recent contract.** Replacing a contract issued less than thirty-six (36) months "
+                   "ago is a churning indicator. Route the request to Annuity Compliance for review.",
+                   condition=all_(f("request_type", "==", "replacement"), f("months_since_issue", "<", 36)),
+                   effect="refer_review", action="Route to Annuity Compliance (churning review)"),
+              rule("SVC-REP-004", "ROUTE", "major", "Guaranteed rider would be lost → principal review",
+                   "**SVC-REP-004 — Rider loss.** If the existing contract carries a guaranteed income or "
+                   "death-benefit rider that the replacement would end, route the request to a supervising "
+                   "principal for review.",
+                   condition=all_(f("request_type", "==", "replacement"), f("has_guaranteed_rider", "true")),
+                   effect="refer_review", action="Route to a supervising principal (rider loss)"),
+          ]},
+     ],
+     "history": "Version 4 (June 2025) lowered the recent-contract threshold for review from 60 to 36 months."},
+
+    {"sop_id": "SOP-SVC-03", "title": "Suitability information and best interest", "version": 2,
+     "effective_from": "2025-01-01", "owner": "Annuity Compliance", "lines": [SERVICE], "states": ["ALL"],
+     "purpose": "What the company must know about the consumer, and check, before acting on a recommended "
+                "annuity transaction.",
+     "sections": [
+         {"section": "2", "heading": "Consumer profile", "intro": "",
+          "rules": [
+              rule("SVC-BI-001", "PEND", "major", "Consumer profile incomplete",
+                   "**SVC-BI-001 — Profile incomplete.** For a replacement, or any transaction an agent recommended, "
+                   "the consumer profile must state annual income, liquid net worth, risk tolerance, time horizon "
+                   "and liquidity needs. If any is missing, pend the request and collect it.",
+                   condition=all_(any_(f("request_type", "==", "replacement"), f("agent_recommended", "true")),
+                                  f("profile_complete", "false")),
+                   action="Pend; complete the consumer profile"),
+              rule("SVC-BI-004", "ROUTE", "critical", "Time horizon shorter than the new surrender period",
+                   "**SVC-BI-004 — Liquidity mismatch.** A replacement whose new contract has a surrender period "
+                   "longer than the consumer's stated time horizon locks up money the consumer expects to need. "
+                   "Route it to Annuity Compliance for a best-interest review.",
+                   condition=all_(f("request_type", "==", "replacement"),
+                                  f("horizon_shorter_than_new_period", "true")),
+                   effect="refer_review", action="Route to Annuity Compliance (liquidity mismatch)"),
+          ]},
+         {"section": "3", "heading": "Senior consumers and compensation", "intro": "",
+          "rules": [
+              rule("SVC-BI-002", "ROUTE", "major", "Senior consumer, agent-recommended → senior review",
+                   "**SVC-BI-002 — Senior consumers.** When the owner is seventy-five or older and an agent "
+                   "recommended the transaction, route it to the senior-investor review desk before processing.",
+                   condition=all_(f("owner_age", ">=", 75), f("agent_recommended", "true")),
+                   effect="refer_review", action="Route to the senior-investor review desk"),
+              rule("SVC-BI-003", "NOTIFY", "major", "Disclose the agent's compensation",
+                   "**SVC-BI-003 — Compensation disclosure.** For an agent-recommended transaction, the confirmation "
+                   "must disclose how the agent is paid for it (commission and any non-cash compensation).",
+                   letter=True, condition=f("agent_recommended", "true"),
+                   action="Include the agent-compensation disclosure"),
+          ]},
+     ],
+     "history": "No material changes since version 2."},
+
+    {"sop_id": "SOP-SVC-NY-01", "title": "New York in-force annuity transactions", "version": 2,
+     "effective_from": "2025-01-01", "owner": "Annuity Compliance", "lines": [SERVICE], "states": ["NY"],
+     "purpose": "New York applies the best-interest standard to in-force transactions too. Where this procedure "
+                "sets a rule, it replaces the company standard.",
+     "sections": [
+         {"section": "2", "heading": "Best interest", "intro": "",
+          "rules": [
+              rule("NY-SVC-001", "NOTIFY", "major", "NY: written best-interest basis to the consumer",
+                   "**NY-SVC-001 — Best-interest basis.** For a recommended in-force transaction on a New York "
+                   "contract, give the consumer the written basis for the recommendation — why it is in their best "
+                   "interest given their profile.", letter=True, condition=f("agent_recommended", "true"),
+                   action="Give the consumer the written best-interest basis"),
+              rule("NY-SVC-002", "NOTIFY", "major", "NY: 60-day free look on a replacement",
+                   "**NY-SVC-002 — Free look.** In New York the free-look period on a replacement is sixty (60) "
+                   "days. This replaces SVC-REP-005.", letter=True,
+                   condition=f("request_type", "==", "replacement"), supersedes=["SVC-REP-005"],
+                   action="Include the 60-day free-look notice"),
+          ]},
+     ],
+     "history": "Version 2 extended the written best-interest basis to in-force transactions."},
 ]
 
 

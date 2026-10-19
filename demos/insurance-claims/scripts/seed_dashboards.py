@@ -33,6 +33,12 @@ def score(name: str) -> list[dict]:
             {"column": "tags", "operator": "none of", "value": ["experiment"], "type": "arrayOptions"}]
 
 
+def service_score(name: str) -> list[dict]:
+    return [{"column": "name", "operator": "any of", "value": [name], "type": "stringOptions"},
+            {"column": "traceName", "operator": "any of", "value": ["annuity-service"], "type": "stringOptions"},
+            {"column": "tags", "operator": "none of", "value": ["experiment"], "type": "arrayOptions"}]
+
+
 def tag(*values: str) -> list[dict]:
     return [{"column": "tags", "operator": "any of", "value": list(values), "type": "arrayOptions"}]
 
@@ -76,6 +82,13 @@ VALUE = ("Claims — value & quality", "Business view of the death-claims agents
      [{"measure": "value", "agg": "sum"}], score("value-usd"), 0, 18, 6, 5),
     ("Guard interventions over time", "Claims where the critical-rule guard added a rule the agent missed",
      "scores-boolean", "BAR_TIME_SERIES", [{"field": "booleanValue"}], COUNT, score("guard-triggered"), 6, 18, 6, 5),
+    ("Annuity service requests by decision", "Retirement / annuities: APPROVE / PEND / REFER_REVIEW",
+     "scores-categorical", "PIE", [{"field": "stringValue"}], COUNT, service_score("decision"), 0, 23, 4, 5),
+    ("Annuity servicing: critical rules covered", "Replacement in the surrender period, contract under 36 months, "
+     "horizon shorter than the new surrender period", "scores-boolean", "PIE", [{"field": "booleanValue"}], COUNT,
+     service_score("critical-rules-covered"), 4, 23, 4, 5),
+    ("Annuity servicing: rule completeness (judge)", "rule-completeness judge on service requests", "scores-boolean",
+     "PIE", [{"field": "booleanValue"}], COUNT, service_score("rule-completeness"), 8, 23, 4, 5),
 ])
 
 REPORT = ("Claims — agent report card", "Platform view: the same score names in every project make this the agent "

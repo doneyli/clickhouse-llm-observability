@@ -91,6 +91,31 @@ Presenter view on in the workbench to show the oracle next to the agent on any c
 > Land: you see a regression — and a cheaper model's real trade-off — before a claimant does.
 > Ask: *"What would your examiners label first: 30 claims for one product, or 10 for each state?"*
 
+## 3b · Same method, second lighthouse: retirement / annuities (4 min)
+
+> "Claims was one lighthouse. Retirement and annuities is the other — and it uses the same platform pieces."
+
+Langfuse → Sessions → `SR-2026-00077`: a New York owner, 76, asks to replace a 30-month-old annuity (still in
+its surrender period, with a guaranteed income rider) with a new contract that has a 7-year surrender period —
+recommended by an agent, while the owner's stated time horizon is 4 years.
+
+- Trace `annuity-service`: the same rules step and guard, with its own prompt (`annuity-service-rules`) from
+  the same repository. **REFER_REVIEW**, eight rules: three critical (replacement in the surrender period, a
+  contract under 36 months — the churning signal, a time horizon shorter than the new surrender period), the
+  senior-investor and rider-loss reviews, the surrender charge ($10,800, computed by code), the agent
+  compensation disclosure, New York's written best-interest basis and 60-day free look.
+- Datasets → `annuity-service-golden-v1` (22 withdrawals, surrenders and replacements): production v1 —
+  rule and critical recall 1.0. The `staging` candidate, "process-first: leave reviews to the review desks",
+  drops the reviews: critical recall 0.86, three critical misses → the gate blocks it
+  (`scripts/prompt_gate.py --suite service --prompt-label staging`, exit 1).
+- The contrast with Act 3: the claims candidate kept every block and leaked money — caught by recall; this
+  one drops the best-interest reviews — caught by critical recall. On the canary the guard added the three
+  critical reviews online; the senior and rider-loss reviews it does not codify were still missing.
+- Self-hosted: the same flow writes to its own project, `annuities-prod` — the annuities engineer sees it,
+  the claims team does not.
+
+> Land: one platform, one method — codified rules → answer key → gate — for every lighthouse use case.
+
 ## 4 · Global vs use-case evaluations (5 min)
 
 Evaluators page: `rule-completeness`, `adjudication-faithfulness`, `letter-quality`,
@@ -101,6 +126,13 @@ Walk the split in [docs/EVALS_PLATFORM_VS_USE_CASE.md](docs/EVALS_PLATFORM_VS_US
 checks need no business knowledge (PII, injection, tone, latency, cost); use-case checks need the
 examiner's answer key (recall, citations, amounts, notices). Dashboard **Claims — agent report card**:
 the same score names in every project.
+
+Annotation queue **Claims examiner QA — rule completeness**: worst cases first (guard fired, judge said
+incomplete, examiner overrode, canary). `scripts/judge_calibration.py` compares the completeness judge with
+the examiner labels — on the demo data it agrees only about half the time (kappa ≈ 0.15), mostly calling
+cases "complete" that missed a rule. Say it plainly: that is why the gate runs on the answer key, and why a
+judge earns a place on a dashboard only after calibration. (The queue's completed labels are stand-ins from
+the answer key, and say so in their comments; in a POC your examiners label them.)
 
 > Land: the platform team owns the harness, the claims team owns the answer key.
 
@@ -149,6 +181,8 @@ configuration. Same containers as open source; the license key turns these on.
 | 3 | `scripts/run_all_experiments.sh` (already run) · Datasets → `claims-golden-v1` → Compare |
 | 4 | `scripts/seed_evals.py` · `scripts/seed_dashboards.py` |
 | 5 | `scripts/prompt_gate.py --prompt-label staging` · `scripts/prompt_label.py --show` |
+| 3b | `scripts/run_service.py SR-2026-00077 [--rules-label staging]` · `scripts/prompt_gate.py --suite service --prompt-label staging` |
+| 4 | `scripts/fill_annotation_queue.py` · `scripts/judge_calibration.py` |
 | 6 | `scripts/bootstrap_selfhosted.sh` (already run) · `http://localhost:3200` |
 
 Fallback if live calls are slow: every act has a pre-run trace or run — `scripts/verify_demo.py --links`.

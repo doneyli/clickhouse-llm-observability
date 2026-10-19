@@ -19,7 +19,8 @@ from claims import catalog  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "data" / "sops"
 LINE_NAMES = {catalog.LIFE: "Individual life", catalog.GROUP: "Group life (employer plans)",
-              catalog.ANNUITY: "Deferred annuity death benefits"}
+              catalog.ANNUITY: "Deferred annuity death benefits",
+              catalog.SERVICE: "Deferred annuities — in-force servicing (withdrawals, surrenders, replacements)"}
 
 
 def render(s: dict) -> str:

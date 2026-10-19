@@ -92,6 +92,13 @@ def get_employment_status(policy_number: str, ctx: Context = None) -> dict:
 
 
 @mcp.tool()
+def get_service_request(request_id: str, ctx: Context = None) -> dict:
+    """Annuity administration: an in-force service request with its contract, owner, consumer profile and documents."""
+    return _run(ctx, "get_service_request", {"request_id": request_id}, "annuity-admin",
+                lambda: claimsdb.service_record(claimsdb.get_service(request_id)))
+
+
+@mcp.tool()
 def screen_parties(claim_id: str, ctx: Context = None) -> dict:
     """Sanctions (OFAC) screen of the insured and every beneficiary on the claim."""
     return _run(ctx, "screen_parties", {"claim_id": claim_id}, "compliance-screening",

@@ -322,6 +322,56 @@ def assemble(header: dict, policy: dict, bens: list[dict], comp: dict, emp: dict
     return claim_file, observed
 
 
+# ───────────────────────────── annuity service requests ─────────────────────────────
+
+@lru_cache(maxsize=1)
+def load_service() -> dict[str, dict]:
+    p = CLAIMS_DIR / "service.json"
+    return {r["request_id"]: r for r in json.loads(p.read_text())} if p.exists() else {}
+
+
+def get_service(request_id: str) -> dict:
+    reqs = load_service()
+    if request_id not in reqs:
+        raise KeyError(f"service request {request_id} not found")
+    return reqs[request_id]
+
+
+def service_record(r: dict) -> dict:
+    """What the annuity administration system returns for a request (MCP get_service_request)."""
+    return {k: v for k, v in r.items() if k not in ("expected", "candidate_sops", "scenario", "tags")}
+
+
+def service_request_file(r: dict) -> tuple[dict, dict]:
+    """(request_file_for_the_agent, observed) — the observed request is the system-of-record record itself:
+    servicing has no document intake step."""
+    f = oracle.derive_service_facts(r)
+    rf = {
+        "request_id": r["request_id"], "product_line": r["line"], "governing_state": r["state"],
+        "request_type": r["request_type"], "request_date": r["request_date"], "received_via": r["received_via"],
+        "contract": {"number": r["contract_number"], "product": r["product"], "issue_date": r["issue_date"],
+                     "months_since_issue": f["months_since_issue"], "contract_year": f["contract_year"],
+                     "current_surrender_charge_pct": f["surrender_charge_pct"], "contract_value": r["contract_value"],
+                     "qualified": r["qualified"], "guaranteed_rider": r.get("guaranteed_rider") or "none"},
+        "amount_requested": f["amount"], "free_withdrawal_amount": f["free_amount"],
+        "owner": {"name": r["owner"]["name"], "age_years": f["owner_age"]},
+        "agent_recommended": r["agent_recommended"], "agent": r.get("agent"),
+        "consumer_profile": {k: (r.get("profile") or {}).get(k) for k in
+                             ("annual_income", "liquid_net_worth", "risk_tolerance", "time_horizon_years",
+                              "liquidity_needs")},
+        "required_minimum_distribution": {"remaining_this_year": r.get("rmd_remaining", 0)} if r["qualified"] else
+        "not applicable (non-qualified)",
+        "documents_received": {"withholding_election_w4r": "received" if f["withholding_form_present"] else "missing",
+                               "rider_forfeiture_acknowledgment": "signed" if f["rider_ack_signed"] else "not on file",
+                               "replacement_notice_and_comparison": "signed" if f["replacement_notice_signed"]
+                               else "not on file"},
+    }
+    if r["request_type"] == "replacement":
+        rf["proposed_contract"] = {"product": r.get("new_product"),
+                                   "surrender_period_years": r.get("new_surrender_period_years")}
+    return rf, r
+
+
 def ground_truth_inputs(c: dict) -> tuple[dict, dict]:
     """assemble() fed with a perfect intake — the input of the step-level SOP-rules experiment."""
     return assemble(claim_header(c), policy_record(c), beneficiaries(c), compensation(c), employment(c),

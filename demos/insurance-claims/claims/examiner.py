@@ -19,7 +19,7 @@ EXAMINERS = ["examiner.jlopez", "examiner.mchen", "examiner.rpatel", "examiner.o
 
 
 def simulate(claim: dict, res: dict, rng: random.Random | None = None) -> dict:
-    rng = rng or random.Random(claim["claim_id"])
+    rng = rng or random.Random(claim.get("claim_id") or claim.get("request_id"))
     exp = claim["expected"]
     got_rules = set(res.get("rules") or [])
     missed = sorted(set(exp["rule_ids"]) - got_rules)

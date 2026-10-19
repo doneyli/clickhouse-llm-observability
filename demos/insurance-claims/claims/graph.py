@@ -126,6 +126,8 @@ class Runtime:
     intake_override: Optional[dict] = None   # step-level experiments: a perfect intake
     usage: list = field(default_factory=list)
     obs: dict = field(default_factory=dict)  # role → observation id
+    rules_prompt: str = "claims-sop-rules"   # the servicing graph reuses the rules step with its own prompt
+    case_label: str = "CLAIM FILE"
     served: dict = field(default_factory=dict)  # prompt name → version
 
 
@@ -164,7 +166,8 @@ def make_llm(model: str, max_tokens: int = 2000, name: Optional[str] = None):
 def _prompt(rt: Runtime, name: str):
     text, client, cfg = prompts.get(rt.langfuse, name, rt.labels.get(name))
     rt.served[name] = getattr(client, "version", "fallback")
-    model = rt.model if (rt.model and name in ("claims-sop-rules", "claims-adjudication")) else cfg.get("model")
+    model = rt.model if (rt.model and name in ("claims-sop-rules", "claims-adjudication", "annuity-service-rules",
+                                                "annuity-service-recommendation")) else cfg.get("model")
     return text, client, model or settings.AGENT_MODEL, int(cfg.get("max_tokens", 2000))
 
 
@@ -355,13 +358,13 @@ async def sop_rules(state: ClaimState, config: RunnableConfig) -> dict:
                  metadata={"retrieved": len(docs), "release_bug_active": sops.buggy(rt.release)})
     retrieved_ids = [d["sop_id"] for d in docs]
     sop_text = "\n\n".join(f"===== {d['sop_id']} (version {d['version']}) =====\n{d['text']}" for d in docs)
-    system, client, model, max_tokens = _prompt(rt, "claims-sop-rules")
+    system, client, model, max_tokens = _prompt(rt, rt.rules_prompt)
     llm = make_llm(model, max_tokens, "sop-rules-llm").with_structured_output(RuleExtraction, method="json_schema", include_raw=True)
-    user = f"CLAIM FILE:\n{json.dumps(cf, indent=1)}\n\nRETRIEVED SOPs:\n{sop_text}"
+    user = f"{rt.case_label}:\n{json.dumps(cf, indent=1)}\n\nRETRIEVED SOPs:\n{sop_text}"
     with _nest(cfg), rt.langfuse.start_as_current_observation(
             as_type="agent", name="sop-rules", input={"claim_file": cf, "sops": sop_text},
             metadata={"role": "sop_rules", "model": model, "retrieved_sops": ",".join(retrieved_ids),
-                      "prompt_version": str(rt.served.get("claims-sop-rules"))}) as obs:
+                      "prompt_version": str(rt.served.get(rt.rules_prompt))}) as obs:
         rt.obs["sop_rules"] = obs.id
         out = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=user)],
                                 _llm_cfg(cfg, client, "sop-rules-llm"))
@@ -409,7 +412,7 @@ async def critical_guard(state: ClaimState, config: RunnableConfig) -> dict:
         rt.obs["guard"] = g.id
         if missing and GUARD_ENABLED:
             for rid in missing:
-                v = oracle.rule_by_id(rid, state["observed"]["date_of_death"])
+                v = oracle.rule_by_id(rid, oracle.as_of(state["observed"]))
                 rules.append({"rule_id": rid, "version": v["version"], "sop_id": v["sop_id"], "section": v["section"],
                               "type": v["type"], "action": v["action"], "added_by": "critical-rule-guard",
                               "rationale": "Added by the critical-rule guard: codified conditions are met."})
@@ -488,8 +491,9 @@ async def examiner_review(state: ClaimState, config: RunnableConfig) -> dict:
     else:
         review = rt.examiner or {"action": "approve", "examiner_id": "auto"}
     final = rec["decision"] if review.get("action") == "approve" else (review.get("decision") or rec["decision"])
+    recalc = calc.calculate_service if oracle.is_service(state["observed"]) else calc.calculate
     calculation = state["calculation"] if final == rec["decision"] else \
-        calc.calculate(state["observed"], state["rules"], final)  # an override changes the amounts
+        recalc(state["observed"], state["rules"], final)  # an override changes the amounts
     with _nest(cfg), rt.langfuse.start_as_current_observation(
             as_type="span", name="examiner-review", input={"recommendation": rec["decision"]},
             output={**review, "final_decision": final, "calculation": calculation},

@@ -24,6 +24,7 @@ from langfuse.media import LangfuseMedia  # noqa: E402
 from claims import claimsdb, config  # noqa: E402
 
 GOLDEN, ADVERSARIAL, INTAKE = "claims-golden-v1", "claims-adversarial-v1", "claims-intake-v1"
+SERVICE = "annuity-service-golden-v1"
 
 
 def item_for(c: dict) -> tuple[dict, dict, dict]:
@@ -53,6 +54,20 @@ def main() -> int:
             lf.create_dataset_item(dataset_name=name, id=f"{name}-{c['claim_id']}", input=inp,
                                    expected_output=exp, metadata=meta)
         print(f"✓ {name}: {len(items)} items")
+
+    # Retirement / annuities: in-force service requests (same oracle, same evaluators).
+    lf.create_dataset(name=SERVICE, description="Annuity service requests (withdrawals, surrenders, replacements) "
+                                                "with SME-codified expected outcomes. Gate dataset for "
+                                                "annuity-service-rules.", metadata={"demo": "insurance-claims",
+                                                                                     "use_case": "annuities"})
+    svc = list(claimsdb.load_service().values())
+    for r in svc:
+        rf, _ = claimsdb.service_request_file(r)
+        lf.create_dataset_item(dataset_name=SERVICE, id=f"{SERVICE}-{r['request_id']}",
+                               input={"request_id": r["request_id"], "request_file": rf}, expected_output=r["expected"],
+                               metadata={"scenario": r["scenario"], "request_type": r["request_type"],
+                                         "state": r["state"], "tags": r.get("tags") or []})
+    print(f"✓ {SERVICE}: {len(svc)} items")
 
     # Multi-modal: the scanned documents themselves, as media on the dataset item.
     lf.create_dataset(name=INTAKE, description="Scanned claim documents (images) with the field values drawn on "

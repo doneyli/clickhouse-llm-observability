@@ -30,4 +30,6 @@ tenant or infrastructure). Acts refer to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | | Retention | 90 days on claims-prod | Live | Act 6 |
 | | Client-side PII masking | SSN, DOB, bank, card, phone, email before export | Live | claims/masking.py |
 | | Server-side ingestion masking, SCIM, SSO | configuration | Config | docs/INTEGRATIONS.md |
+| Second use case | Retirement / annuity servicing on the same platform | withdrawals, surrenders, replacements vs suitability / best-interest SOPs; own prompts, dataset (22), gate; own self-hosted project `annuities-prod` | Live | Act 3b · claims/servicing.py |
+| Evaluation | Judge calibration against examiners | annotation queue worst-first; agreement and kappa | Live (stand-in labels) | Act 4 · scripts/judge_calibration.py |
 | Value | Value and quality dashboards | value vs spend (labelled assumptions), decisions, override reasons, quality by release · prompt version | Live | Act 6 · scripts/seed_dashboards.py |

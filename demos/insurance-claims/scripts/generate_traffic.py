@@ -7,6 +7,8 @@ sometimes an examiner question. One claim = one session with 2–3 traces.
   --scenario canary     a 10% canary of the 'concise' candidate (claims-sop-rules label staging)
   --scenario release-1.4.0   NY/CA/TX/FL/IL claims on the release with the retriever bug (F2)
   --scenario adversarial     the 12 adversarial claims only
+  --scenario service         the 22 annuity service requests (retirement / annuities)
+  --scenario service-canary  replacements on the 'process-first' annuity-service-rules candidate (label staging)
   --limit N  --concurrency N
 
     .venv/bin/python scripts/generate_traffic.py --scenario baseline
@@ -22,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from claims import claimsdb, config, graph  # noqa: E402
+from claims import claimsdb, config, graph, servicing  # noqa: E402
 from claims.examiner import simulate  # noqa: E402
 
 QUESTIONS = ["Why is this claim pending, and what exactly do I need to request?",
@@ -47,7 +49,38 @@ async def one(c: dict, sem, *, labels: dict, release, tags: list, ask: bool) -> 
             return {"claim_id": c["claim_id"], "ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
+async def one_service(r: dict, sem, *, labels: dict, tags: list) -> dict:
+    async with sem:
+        try:
+            rec = await servicing.run_service(r["request_id"], mode="workbench", labels=labels, tags=tags)
+            review = simulate(r, rec)
+            await servicing.resume_service(r["request_id"], rec["thread_id"], review, labels=labels)
+            return {"claim_id": r["request_id"], "ok": True, "override": review["action"] != "approve",
+                    "guard": (rec.get("guard") or {}).get("triggered")}
+        except Exception as exc:  # noqa: BLE001
+            return {"claim_id": r["request_id"], "ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
+
+
 async def main_async(a) -> int:
+    if a.scenario.startswith("service"):
+        reqs = list(claimsdb.load_service().values())
+        labels, tags = {}, [f"traffic:{a.scenario}"]
+        if a.scenario == "service-canary":
+            reqs = [r for r in reqs if r["request_type"] == "replacement"]
+            labels = {servicing.RULES_PROMPT: "staging"}
+            tags.append("canary")
+        if a.limit:
+            reqs = reqs[:a.limit]
+        sem = asyncio.Semaphore(a.concurrency)
+        res = await asyncio.gather(*[one_service(r, sem, labels=labels, tags=tags) for r in reqs])
+        config.flush()
+        ok = [r for r in res if r["ok"]]
+        print(f"{a.scenario}: {len(ok)}/{len(res)} requests · overrides {sum(r['override'] for r in ok)} · "
+              f"guard triggered {sum(bool(r['guard']) for r in ok)}")
+        for r in res:
+            if not r["ok"]:
+                print("  ERROR", r["claim_id"], r["error"])
+        return 0 if ok else 1
     claims = list(claimsdb.load().values())
     labels, release, tags = {}, None, [f"traffic:{a.scenario}"]
     if a.scenario == "baseline":
@@ -81,7 +114,7 @@ async def main_async(a) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario", default="baseline", choices=["baseline", "canary", "release-1.4.0", "adversarial"])
+    ap.add_argument("--scenario", default="baseline", choices=["baseline", "canary", "release-1.4.0", "adversarial", "service", "service-canary"])
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--concurrency", type=int, default=6)
     return asyncio.run(main_async(ap.parse_args()))

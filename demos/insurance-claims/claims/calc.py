@@ -22,6 +22,16 @@ def _version(rule_id: str, version, dod: str):
     return oracle.rule_by_id(rule_id, dod)
 
 
+def calculate_service(observed: dict, rules: list[dict], decision: str) -> dict:
+    """Annuity service request: surrender charge on the amount above the free withdrawal, when cited."""
+    f = oracle.derive_service_facts(observed)
+    ids = {r.get("rule_id") for r in rules}
+    charge = oracle.surrender_charge(f, ids)
+    return {"surrender_charge": charge, "free_amount": f["free_amount"], "amount": f["amount"],
+            "net_before_tax": round(f["amount"] - charge, 2) if decision == "APPROVE" else None,
+            "surrender_charge_pct": f["surrender_charge_pct"]}
+
+
 def calculate(observed: dict, rules: list[dict], decision: str) -> dict:
     """{gross_benefit, interest_due, interest_rule} from the rules the agent extracted."""
     if decision != "PAY":
