@@ -357,13 +357,13 @@
 
   /* ── Customers / channel / label ─────────────────────────────────────── */
   const initials = (n) => n.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
-  const avatarColor = { "C-1001": "#0e8c83", "C-1002": "#13315c", "C-1003": "#6b4fa0", "C-1004": "#9a6b12" };
+  const avatarColor = { "C-1001": "var(--blue-700)", "C-1002": "var(--neutral-900)", "C-1003": "var(--coral-700)", "C-1004": "var(--neutral-700)" };
   const cust = (id) => S.customers.find((c) => c.id === id) || { id, name: id, segment: "", products: "" };
 
   function renderCustomers() {
     $("#customerList").innerHTML = S.customers.map((c) => `
       <button class="customer" role="radio" aria-checked="${c.id === S.customer}" data-id="${esc(c.id)}">
-        <span class="avatar" style="background:${avatarColor[c.id] || "#1d4170"}">${esc(initials(c.name))}</span>
+        <span class="avatar" style="background:${avatarColor[c.id] || "var(--neutral-700)"}">${esc(initials(c.name))}</span>
         <span>
           <span class="row1"><span class="nm">${esc(c.name)}</span><span class="seg-pill ${c.segment.toLowerCase()}">${esc(c.segment)}</span></span>
           <span class="meta">${esc(c.id)} · ${esc(t("side.since", { y: c.since }))}<br>${esc(t(`cust.${c.id}.products`, null, c.products))}</span>
@@ -688,7 +688,7 @@
     const res = V.last; if (!res) return;
     const out = $("#voiceResult");
     if (res.error && !res.answer) {
-      out.innerHTML = `${voiceSteps("fail")}<div class="turn"><div class="who caller">${icon("alert")}</div><div><div class="lbl">${esc(t("voice.failed"))}</div><div class="txt" style="border-color:#f0b9bc;background:#fffafa">${esc(res.error)}</div></div></div>`;
+      out.innerHTML = `${voiceSteps("fail")}<div class="turn"><div class="who caller">${icon("alert")}</div><div><div class="lbl">${esc(t("voice.failed"))}</div><div class="txt" style="border-color:var(--coral-100);background:var(--coral-50)">${esc(res.error)}</div></div></div>`;
       return;
     }
     const vb = [];

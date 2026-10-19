@@ -437,7 +437,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
                            "version": version, "environment": environment}
             handler = CallbackHandler()
             run_cfg = {"callbacks": [handler], "recursion_limit": 14,
-                       "run_name": "northwind-langgraph", "metadata": {"langfuse_session_id": session_id}}
+                       "run_name": "northwind-orchestration", "metadata": {"langfuse_session_id": session_id}}
             llm = make_llm(model)
 
             async def _invoke(session):

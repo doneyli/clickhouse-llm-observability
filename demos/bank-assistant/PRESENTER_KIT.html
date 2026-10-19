@@ -176,12 +176,12 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
 
     <div class="block"><header><h3>Block 0 · Frame it</h3><span class="time">3 min</span></header><ol class="steps">
       <li><span class="do">Show Slide A.</span><span class="say">"This is your matrix. Everything marked live you'll see running in the next hour; the rest I'll walk through in config and docs."</span></li>
-      <li><span class="do">Portal → Customer assistant.</span><span class="click">localhost:8090 · customer Ana Torres · channel Web</span><span class="say">"A fictional retail bank's assistant: LangGraph agent, RAG over policy articles, banking tools behind an MCP server, in English and Spanish."</span></li>
+      <li><span class="do">Portal → Customer assistant.</span><span class="click">localhost:8090 · customer Ana Torres · channel Web</span><span class="say">"A fictional retail bank's assistant with RAG over policy articles and banking tools behind an MCP server, in English and Spanish."</span></li>
     </ol></div>
 
     <div class="block"><header><h3>Block 1 · Observability</h3><span class="time">25 min · <span class="ids">OBS-01…06</span></span></header><ol class="steps">
       <li><span class="do">Ask a dispute, then confirm it.</span><span class="click">Chip "Dispute UNKNOWN MERCHANT LAGOS" → tools list_accounts → get_recent_transactions, then the agent asks "Shall I go ahead and open a dispute…" → reply "Yes, open it" → open_dispute and a DSP case id</span><span class="say">"Two turns: the agent confirms before an irreversible action. Let's see exactly what happened."</span><span class="note">The open_dispute span, the case id and the mcp-server span live on the second trace ("Yes, open it"), and so does the two-service Jaeger view (Block 1.7).</span></li>
-      <li><span class="do">Open the second turn in Langfuse → walk the trace tree.</span><span class="click">guardrail → LangGraph nodes → ChatAnthropic generations → tool → mcp-client → <b>mcp-server</b> → core-banking</span><span class="say">"The MCP server is a separate service, and it's in the same trace. That's W3C context in the MCP call."</span><span class="ids">OBS-01 · OBS-04</span></li>
+      <li><span class="do">Open the second turn in Langfuse → walk the trace tree.</span><span class="click">guardrail → workflow nodes → ChatAnthropic generations → tool → mcp-client → <b>mcp-server</b> → core-banking</span><span class="say">"The MCP server is a separate service, and it's in the same trace. That's W3C context in the MCP call."</span><span class="ids">OBS-01 · OBS-04</span></li>
       <li><span class="do">Ask a policy question; open kb-retrieval.</span><span class="click">Chip "International wire fees?" → trace → kb-retrieval → documents, sources, scores</span><span class="say">"Every answer carries the sources it used."</span><span class="ids">OBS-03</span></li>
       <li><span class="do">Tokens, cost, latency.</span><span class="click">Trace header · then Quality &amp; cost dashboard</span><span class="ids">OBS-05</span></li>
       <li><span class="do">PII masking.</span><span class="click">Chip "Card number 4111…" → trace input shows [REDACTED_CARD]</span><span class="say">"Redacted before it leaves the process, in English and Spanish."</span><span class="click">Known-good: <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/b9ff0aae6166729d9e698df9381c2c6f" target="_blank" rel="noopener">English</a> (card → [REDACTED_CARD], warning shown, 0 raw digits in 18 observations) · <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/a8d11412743f8da2ad8cfc28bae7727a" target="_blank" rel="noopener">Spanish</a></span><span class="note">Older English trace <a href="https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e" target="_blank" rel="noopener">752a3cfc…</a> (judge gave it faithfulness 0.0 because it only sees the redacted card — a calibration talking point)</span><span class="ids">ENT-03</span></li>
@@ -239,7 +239,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
       <thead><tr><th>ID</th><th>Requirement</th><th>Status</th><th>How / where</th></tr></thead>
       <tbody>
         <tr class="group"><td colspan="4">1 · Observability</td></tr>
-        <tr><td class="id">OBS-01</td><td>End-to-end traceability, pro-code</td><td><span class="pill live">live</span></td><td>LangGraph agent auto-traced; sessions, users, tags, environments · Block 1.2</td></tr>
+        <tr><td class="id">OBS-01</td><td>End-to-end traceability, pro-code</td><td><span class="pill live">live</span></td><td>Banking agent auto-traced; sessions, users, tags, environments · Block 1.2</td></tr>
         <tr><td class="id">OBS-02</td><td>End-to-end traceability, n8n</td><td><span class="pill live">live</span></td><td>n8n OpenTelemetry + LLM generations in one trace · Block 1.6</td></tr>
         <tr><td class="id">OBS-03</td><td>RAG, context and sources</td><td><span class="pill live">live</span></td><td>kb-retrieval documents, sources, scores · Block 1.3</td></tr>
         <tr><td class="id">OBS-04</td><td>Tools, MCP, agent iterations</td><td><span class="pill live">live</span></td><td>MCP server spans in the same trace · Block 1.2</td></tr>
@@ -268,7 +268,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
         <tr class="group"><td colspan="4">5 · Production gates</td></tr>
         <tr><td class="id">GATE-01</td><td>Governance, identity, access</td><td><span class="pill docs">docs + evidence</span></td><td>RBAC, audit, protected labels · PATH_TO_PRODUCTION.md</td></tr>
         <tr><td class="id">GATE-02</td><td>Security and data protection</td><td><span class="pill live">live evidence</span></td><td>Masking, guardrails, red-team 1.0</td></tr>
-        <tr><td class="id">GATE-03</td><td>Architectural integration</td><td><span class="pill docs">docs + evidence</span></td><td>LangGraph, MCP, n8n, voice, APM live; AWS no-egress reference architecture (ARCHITECTURE.md)</td></tr>
+        <tr><td class="id">GATE-03</td><td>Architectural integration</td><td><span class="pill docs">docs + evidence</span></td><td>Agent orchestration, MCP, n8n, voice, APM live; AWS no-egress reference architecture (ARCHITECTURE.md)</td></tr>
         <tr><td class="id">GATE-04</td><td>Operation and resilience</td><td><span class="pill docs">docs / oral</span></td><td>HA, scaling, backups, upgrades, platform monitoring (OPERATIONS.md)</td></tr>
         <tr><td class="id">GATE-05</td><td>Value, Enterprise support, TCO</td><td><span class="pill live">live</span> <span class="pill docs">TCO model</span></td><td>Value vs spend dashboard, cost regression caught; TCO worksheet + support model (PATH_TO_PRODUCTION.md)</td></tr>
         <tr class="group"><td colspan="4">Also requested</td></tr>
@@ -291,7 +291,7 @@ td.id{font-family:var(--mono); font-size:.8rem; white-space:nowrap}
         <div class="col"><h3>Measured it</h3><ul><li>Faithfulness, correctness, your own compliance judge</li><li>Security red-team, guardrails</li><li>Judge calibrated, judge model chosen on evidence</li></ul></div>
         <div class="col"><h3>Fixed it</h3><ul><li>Spanish register 0 → 1.00</li><li>Disputes opened 2/10 → 10/10</li><li>Cost regression caught (+13%/turn)</li></ul></div>
         <div class="col"><h3>Shipped it safely</h3><ul><li>Prompt by label, rollback in one click</li><li>CI gate: regression blocked, candidate passed</li><li>Audit log of every label move (Enterprise plan)</li></ul></div>
-        <div class="col"><h3>Next: the POC</h3><ul><li>docker compose in your AWS account</li><li>Your n8n + one LangGraph app</li><li>Entra ID, masking policy, your judge model</li><li>The 5 gates as exit criteria</li></ul></div>
+        <div class="col"><h3>Next: the POC</h3><ul><li>docker compose in your AWS account</li><li>Your n8n + one agent application</li><li>Entra ID, masking policy, your judge model</li><li>The 5 gates as exit criteria</li></ul></div>
       </div>
       <div class="foot"><span>Same codebase in Cloud and self-hosted</span><span>Question for you: which KPI goes on the dashboard on day one?</span></div>
     </div>
