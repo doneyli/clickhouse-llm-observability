@@ -80,10 +80,11 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 - Caption: "The trace is the judge's evidence"
 - VO: "Each rule says what to score and how often. This one targets the assistant's answer in production, maps the customer's message and the answer into the rubric, and scores every turn. The faithfulness judge also reads the context the model actually saw. That's why we trace: the trace is the evidence the judge reads."
 
-**S07 · Two rules, one evaluator** — 20 s · Evaluators → `manipulation-resistance` (both rules)
-- Highlight: rule 1 (tags `risk:*`, 100%) and rule 2 (`manipulation-resistance-sampled`, 20%).
+**S07 · One sampled rule** — 20 s · Evaluators → `manipulation-resistance-sampled` rule
+- Capture: the disabled `manipulation-resistance` rule is still listed (it judged every blocked turn); keep it out of frame, or show it greyed out as disabled.
+- Highlight: sampling 20% and the filter `tags none of risk:prompt_injection, risk:cross_customer_access, risk:social_engineering`.
 - Caption: "Sampling sets judge cost"
-- VO: "The security judge runs twice: on every turn the guardrail flagged as an attack, and on a twenty percent sample of everything else, so an attack the rules missed still gets judged. Sampling is how you set judge cost, one evaluator at a time."
+- VO: "The security judge runs on a twenty percent sample of the turns the guardrail let through, so an attack the rules missed still gets judged. Turns the guardrail blocked get no judge at all: the answer is a fixed refusal, and the guardrail score already says so. Sampling is how you set judge cost, one evaluator at a time."
 
 **S08 · Three layers** — 12 s · slide
 - Content: three stacked bands, deterministic (every turn, free) · LLM judges (targeted, sampled) · humans (calibrate).
@@ -92,15 +93,15 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 ### Act 2 · Grade the grader (142 s)
 
 **S09 · Calibration dataset** — 16 s · `LF/datasets/cmuz2y1p3053yad0e2hpk0mb6` (items tab)
-- Highlight: the expected-output column (1.0 / 0.5 / 0.0) on three rows, one per category.
-- Caption: "Verdicts known by construction"
-- VO: "Before you trust a judge, test it. This dataset holds sixteen answers whose correct verdict is known by construction: faithful, a minor slip, or a seeded material error such as a wrong fee."
+- Highlight: the expected-output column (1.0 / 0.5 / 0.0) on three synthetic rows, one per category, then one `metadata.source = production` row with its source-trace link. The dataset has 43 items: 16 synthetic, 27 production.
+- Caption: "Known verdicts + real reviewer labels"
+- VO: "Before you trust a judge, test it. Sixteen answers have a verdict known by construction: faithful, a minor slip, or a seeded material error such as a wrong fee. Twenty-seven more are real production answers a reviewer labelled."
 
-**S10 · Judge-model bake-off** — 25 s · compare view of runs `e0bfa69a…` (sonnet-4-6 · v2), `3cc6bce7…` (haiku), `62bb3fd9-a074…` (gpt-4.1-mini), `c486cb45…` (sonnet-5-5)
-- Capture: select exactly these four (the names repeat; one same-named gpt-4.1-mini run scored 0.0). If the compare view does not show run averages clearly, capture the runs list with its score columns instead.
+**S10 · Judge-model bake-off** — 25 s · compare view of runs `8e806919…` (sonnet-4-6 · v2 · 43 items), `3cc6bce7…` (haiku), `62bb3fd9-a074…` (gpt-4.1-mini), `c486cb45…` (sonnet-5-5)
+- Capture: select exactly these four (the names repeat; one same-named gpt-4.1-mini run scored 0.0). Do not use `e0bfa69a…`: a later 43-item run was appended to it, so it mixes both. For the sonnet-4-6 row, read `judge-accuracy-synthetic` (1.00) from `8e806919…`; the other three ran on the 15 synthetic items only. If the compare view does not show run averages clearly, capture the runs list with its score columns instead.
 - Highlight: the accuracy column 1.00 / 0.87 / 0.80 / 0.73.
 - Caption: "Top row: rubric v2 · others: rubric v1"
-- VO: "Run every candidate judge model on it. The live judge gets all sixteen right. Haiku scores eighty-seven percent, but gets only sixty percent of the minor slips right. The newest model scores seventy-three. They all catch the material errors and differ on nuance, and the newest model is not automatically the best judge for this rubric."
+- VO: "Run every candidate judge model on it. The live judge gets all sixteen synthetic answers right. Haiku scores eighty-seven percent, but gets only sixty percent of the minor slips right. The newest model scores seventy-three. They all catch the material errors and differ on nuance, and the newest model is not automatically the best judge for this rubric."
 
 **S11 · Why rubric v2** — 14 s · `LF/traces/bff8d9603c5fec585bdf387db0f40193` → Scores
 - Highlight: `faithfulness` 0.5 and the reasoning that names the invented navigation steps.
@@ -130,7 +131,7 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 **S16 · Read the disagreement** — 25 s · `LF/traces/aeb2ce3d57fb6ba3071b44044dca59bb`
 - Capture: two stills. S16a, the root output (*"I already have that information from my previous search!"*); S16b, Scores, `faithfulness` 0 with reasoning *"no retrieval or tool evidence in the context"* next to `sme-faithfulness` 1.
 - Caption: "The judge only saw this turn"
-- VO: "Read the disagreements. Here the judge says there's no evidence in the context, but this is a follow-up turn. The facts came from the previous turn's search, which the judge never saw. That's a bug in the evaluator's mapping, not in the agent, and only a human comparison could find it."
+- VO: "Read the disagreements. Here the judge says there's no evidence in the context, but this is a follow-up turn. The facts came from the previous turn's search, which the judge never saw. That's a bug in the evaluator's mapping, not in the agent, and only a human comparison could find it. On the twenty-seven reviewer-labelled answers in the calibration set, the same judge scores eighty-one percent, against a hundred on the synthetic ones."
 
 ### Act 3 · Is the new prompt better? (80 s)
 

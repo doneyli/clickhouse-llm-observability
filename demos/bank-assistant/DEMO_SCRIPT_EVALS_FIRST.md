@@ -97,10 +97,13 @@ the evidence."
      articles and tool results the model actually saw. *This is why we trace: the
      trace is the evidence the judge reads.*
    - **sampling:** 100%.
-5. `manipulation-resistance` has **two rules on one evaluator**: 100% of
-   turns the guardrail tagged as an attack, plus a **20% sample** of everything
-   else. That way an attack the rules missed still gets judged, and no turn is
-   scored twice. Sampling sets judge cost separately for each evaluator.
+5. `manipulation-resistance` runs as one rule, `manipulation-resistance-sampled`:
+   a **20% sample** of the turns the guardrail let through, so an attack the
+   rules missed still gets judged. Turns the guardrail blocked get no judge at
+   all, from any rule: their answer is the fixed refusal, and `guardrail-blocked`
+   already is the verdict. A disabled `manipulation-resistance` rule is still
+   listed; it used to judge every blocked turn and always scored the refusal
+   1.0. Sampling sets judge cost separately for each evaluator.
 
 **Land.** Every answer gets three layers of evaluation: free deterministic
 checks on every turn, targeted LLM judges with sampling you control, and human
@@ -118,10 +121,13 @@ your CRO looks at, it has to agree with your experts. If it doesn't, you're
 automating someone's guess."
 
 **Show.**
-1. **Datasets → `judge-calibration/faithfulness`**: 16 answers whose correct
-   verdict is **known by construction**: faithful (1.0), a minor slip (0.5),
-   or a seeded material error such as a wrong fee or deadline (0.0). The judge
-   prompt is versioned in Prompt Management (`judge-calibration/faithfulness`).
+1. **Datasets → `judge-calibration/faithfulness`**: 43 items, two kinds
+   (`metadata.source`). 16 **synthetic** answers whose correct verdict is
+   **known by construction**: faithful (1.0), a minor slip (0.5), or a seeded
+   material error such as a wrong fee or deadline (0.0). And 27 **production**
+   answers a reviewer labelled in the SME queue, copied with exactly what the
+   live judge saw and linked to their source traces. The judge prompt is
+   versioned in Prompt Management (`judge-calibration/faithfulness`).
 2. Select one run per candidate judge model → **Compare**. The evaluator is a
    Boolean `faithfulness-judge-output-correct`. Every rubric-v1 model has
    three runs with the same name (one `gpt-4.1-mini` run scored 0.0), so open
@@ -129,7 +135,7 @@ automating someone's guess."
 
    | judge model | accuracy | run |
    |---|---|---|
-   | claude-sonnet-4-6 (the live judge), rubric v2 | **1.00** (16 items) | [`e0bfa69a`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/e0bfa69a-c8c4-4739-bfa2-b05fbd151a35) |
+   | claude-sonnet-4-6 (the live judge), rubric v2 | **1.00** on the 16 synthetic items · 0.81 on the 27 production items · 0.88 overall | [`8e806919`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/8e806919-ad3b-4fca-8d1a-2b812b7612a8) |
    | claude-haiku-4-5, rubric v1 | 0.87 (15) | [`3cc6bce7`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/3cc6bce7-df72-4cd6-9e3f-bf24958fa314) |
    | gpt-4.1-mini, rubric v1 | 0.80 (15) | [`62bb3fd9`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/62bb3fd9-a074-4ecf-8326-f9c637dfcddf) |
    | claude-sonnet-5-5, rubric v1 | 0.73 (15) | [`c486cb45`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/datasets/cmuz2y1p3053yad0e2hpk0mb6/runs/c486cb45-9025-4955-a60c-7196a7df63fb) |
@@ -137,9 +143,14 @@ automating someone's guess."
    Every candidate catches the material errors. They differ on nuance: Haiku's
    0.87 hides 60% on minor slips. The newest model is not automatically the
    best judge for *this* rubric.
-   **Candour:** the top row is rubric v2 on 16 items and the others are rubric
-   v1 on 15. It is not like for like until the others are re-run
-   (`scripts/judge_calibration_experiment.py`).
+   **Candour:** the top row is rubric v2 on the 43-item set and the others are
+   rubric v1 on the 15 synthetic items of the time. It is not like for like
+   until the others are re-run (`scripts/judge_calibration_experiment.py`).
+   Don't open run `e0bfa69a` (the earlier 16-item rubric-v2 run): a later
+   43-item run was appended to it under the same name, so it mixes both.
+   The synthetic items show the judge catches planted errors; the production
+   slice shows where it disagrees with a reviewer — 5 misses in 27, including
+   the two follow-up turns in step 5 below.
 3. Why there is a rubric v2: [`bff8d960…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/bff8d9603c5fec585bdf387db0f40193)
    (*"¿Cómo desactivo la protección de sobregiro?"*) scores **0.5** on v2
    because the answer invents navigation steps that are not in KB-302. The same
@@ -166,7 +177,9 @@ automating someone's guess."
    send it today?"*). The assistant answered *"I already have that information
    from my previous search!"* and the judge could only see **this** turn's
    context. That's a defect in the evaluator's variable mapping, not in the
-   agent, and only a human comparison could reveal it.
+   agent, and only a human comparison could reveal it. Both answers are now
+   items in `judge-calibration/faithfulness`, and the judge still misses them
+   there: they predate the fix that appends the last turns to the context.
 
 **Land.** Calibrate the judge against people before you let the judge calibrate
 the product. Use kappa, not percent agreement, and read every disagreement.
@@ -364,7 +377,7 @@ analytics, architecture?"
 |---|---|---|
 | "Can the judge be wrong in the other direction?" | the compliance judge flagged showing the last four card digits as a P2 violation; fixed the judge (evaluator v2), not the agent | DEMO_SCRIPT Issue 1 |
 | "What about cost?" | release 1.6.0 retrieves 8 articles, +13% cost per turn, quality flat; one retriever observation explains it | [docs/arcs/cost-regression.md](docs/arcs/cost-regression.md) |
-| "Does the judge see customer PII?" | no: masking happens before export, so the judge grades `[REDACTED_CARD]`, and that can lower `faithfulness` | DEMO_SCRIPT Act 1.3 |
+| "Does the judge see customer PII?" | no: masking happens before export, so the judge grades the masked text. The mask keeps the last four digits (`[REDACTED_CARD ****1111]`), so the judge can check "your card ending 1111": [`22363dc5…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22363dc535017e38d0325b484d479c40) scores `faithfulness` 1.0. Before that change it saw `[REDACTED_CARD]` and scored the same claim 0.0 ([`752a3cfc…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e)) | DEMO_SCRIPT Act 1.3 |
 | "Prompt injection?" | red-team dataset `northwind-redteam-v1`, `refused-safely`; rules guardrail + sampled judge | DEMO_SCRIPT Act 2.2 |
 | "How do we ship and roll back?" | move the `production` label; live in ~10 s; protected label + audit log | DEMO_SCRIPT Act 5.4 (check label state first) |
 
@@ -384,5 +397,5 @@ analytics, architecture?"
 | Run-level averages the gate reads | `northwind/evals.py:197` `averages` | one number per metric per run |
 | Experiment runner | `scripts/run_experiment.py:71` `ds.run_experiment(...)` | runs the full agent (RAG + MCP tools) on every item |
 | Gate logic: hard fails, soft warns, exit 1 | `scripts/prompt_gate.py:70`, thresholds in `cicd/thresholds.json` | the "no" is automatic |
-| Judge calibration experiment | `scripts/judge_calibration_experiment.py:158` `correct`, `:164` `accuracy` | per-category accuracy, not one blended number |
+| Judge calibration experiment | `scripts/judge_calibration_experiment.py:227` `correct`, `:233` `accuracy` | accuracy per category and per source (synthetic vs production), not one blended number |
 | Judge vs human agreement (kappa, pass ≥ 0.75) | `scripts/judge_calibration.py` | the numbers in Act 2 step 4 |

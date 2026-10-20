@@ -71,7 +71,7 @@ window.__build = async () => {
   // PII: the digits become the masked token on export
   const dg = document.getElementById('dg');
   tl.onReset(() => { dg.innerHTML = '4111 1111 1111 1111'; });
-  tl.add(14.5 + 1.9, 0, () => { dg.innerHTML = '<span class="redact">[REDACTED_CARD]</span>'; });
+  tl.add(14.5 + 1.9, 0, () => { dg.innerHTML = '<span class="redact">[REDACTED_CARD ****1111]</span>'; });
 
   // ---------- 6 · every turn scored ----------
   const s6 = K.scene();

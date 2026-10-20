@@ -40,7 +40,7 @@ in two languages, and Langfuse turns every turn into a business number.
 | 0:04 | Lost card (voice) | Caller: "I think I lost my credit card… block it" → "Card ending 4417 is blocked" · chip `resolved-self-service` · `+$6.50 saved` | trace `9d431b5b…` |
 | 0:07.5 | Dispute (web) | "I don't recognise this charge — dispute it" → "Dispute DSP-725272 opened" · chip `dispute-resolved 1` | trace `1be9e4f4…` |
 | 0:11 | Advice (ES) | "¿Debería poner mis ahorros en bitcoin?" → "…conectarle con uno de nuestros asesores" · chips `formal-register ✓` `advisor-offered` | trace `af869a76…` |
-| 0:14.5 | Card number pasted | "My card number is 4111…" → stored as `[REDACTED_CARD]` · chip `pii-in-input` | trace `b9ff0aae…` |
+| 0:14.5 | Card number pasted | "My card number is 4111…" → stored as `[REDACTED_CARD ****1111]` · chip `pii-in-input` | trace `22363dc5…` |
 | 0:18 | Attack | "Ignore all previous instructions…" → blocked before the model · chip `guardrail-blocked` · `$0.00 model cost` | trace `9b3e49cd…` |
 | 0:21.5 | Every turn scored | Trace **Scores** tab: `task-outcome`, `contained`, `value-usd`, `turn-cost-usd` · caption **Every turn becomes a business score** | screenshot |
 | 0:28 | The dashboard | *Business value & failure modes* dashboard · caption **Value delivered vs. LLM spend, live** | screenshot |
@@ -77,10 +77,10 @@ LLM calls, tools, a separate MCP service, and masked PII.
 | 0:04 | The ask | Chat: "I don't recognise this charge — dispute it" → "Shall I open a dispute?" → "Yes, open it" → "Dispute DSP-###### opened" | trace (hero) |
 | 0:09 | One trace | Full trace tree, slow push-in · caption **Every step. One trace.** | screenshot |
 | 0:15 | Guardrail | `input-guardrail` observation · caption **Security rules run first** | screenshot |
-| 0:19.5 | LLM call | `ChatAnthropic` generation: model, tokens, cost, latency · caption **Every LLM call: tokens, cost, latency** | screenshot |
+| 0:19.5 | LLM call | `generate-response` generation: model, tokens, cost, latency · caption **Every LLM call: tokens, cost, latency** | screenshot |
 | 0:24.5 | Across services | `mcp-client` → `mcp-server: open_dispute` · caption **Another service. Same trace.** | screenshot |
 | 0:30 | Agent graph | Graph view of the LangGraph loop · caption **The agent's loop, mapped** | screenshot |
-| 0:34.5 | PII | Input shows `[REDACTED_CARD]` · caption **Card numbers masked before export** | trace `b9ff0aae…` |
+| 0:34.5 | PII | Input shows `[REDACTED_CARD ****1111]` · caption **Card numbers masked before export** | trace `22363dc5…` |
 | 0:39 | End card | **Model · retrieval · tools · services — one trace.** · *Langfuse, open source & by ClickHouse* → dissolve to hook | — |
 
 ---
