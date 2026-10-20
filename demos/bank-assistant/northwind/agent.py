@@ -47,6 +47,10 @@ from opentelemetry import trace as otel_trace
 from northwind import business, config, knowledge, lang, masking, prompts
 
 TRACE_NAME = "northwind-assistant"
+# Every model call in the agent loop, whatever the provider. LangChain would name it after
+# the client class (ChatAnthropic / ChatOpenAI), so a model comparison would split filters,
+# dashboards and evaluator targets in two. The model itself is the generation's `model`.
+GENERATION_NAME = "generate-response"
 
 # Release knobs. The defaults are the CURRENT release (1.6.1); earlier releases are
 # reproduced for the story arcs with env overrides (see DEMO_SCRIPT "Story arc"):
@@ -331,7 +335,7 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
 
 def _graph(langfuse, llm, tools, system_text: str, customer_id: str, check: dict, outcome: dict,
            language: str = "en"):
-    llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(tools).with_config(run_name=GENERATION_NAME)
 
     async def input_guardrail(state: State, config: RunnableConfig) -> dict:
         with _nest(config), langfuse.start_as_current_observation(

@@ -93,6 +93,21 @@ class Redacts(unittest.TestCase):
         masked, _ = scrub("número de cuenta 0012345678")
         self.assertEqual(masked, "número de cuenta [REDACTED_ACCOUNT]")
 
+    def test_card_keeps_only_its_last_four_digits(self):
+        # The assistant names cards by their last four ("your card ending 1111"); the
+        # judge grades that claim against this masked text, so the four must survive.
+        for text, expected in [
+                ("My card number is 4111 1111 1111 1111, block it",
+                 "My card number is [REDACTED_CARD ****1111], block it"),
+                ("card 4111-1111-1111-1111", "card [REDACTED_CARD ****1111]"),
+                ("Amex 3782 822463 10005", "Amex [REDACTED_CARD ****0005]"),
+                (escaped("tarjeta 4111111111111111"), escaped("tarjeta [REDACTED_CARD ****1111]"))]:
+            with self.subTest(text=text):
+                masked, found = scrub(text)
+                self.assertEqual(masked, expected)
+                self.assertEqual(found, {"card"})
+                self.assertEqual(scrub(masked), (masked, set()))  # idempotent: export may scrub twice
+
 
 class Preserves(unittest.TestCase):
     def test_banking_data_survives_unchanged(self):

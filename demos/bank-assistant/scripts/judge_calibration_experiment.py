@@ -3,21 +3,31 @@
 Follows the judge-calibration recipe:
   * dataset  `judge-calibration/faithfulness` — what the judge sees in production
     (customer message, retrieved context, answer) with the EXPECTED VERDICT in the
-    judge's own vocabulary (1.0 / 0.5 / 0.0). Labels are known BY CONSTRUCTION:
-    faithful answers copied from the policy text (1.0), answers with a minor
-    imprecision (0.5), and answers with a seeded material error — a wrong fee,
-    deadline or limit (0.0). Complement with SME labels from the annotation queue.
+    judge's own vocabulary (1.0 / 0.5 / 0.0). Two sources, told apart by
+    `metadata.source`:
+      synthetic   labels known BY CONSTRUCTION: faithful answers copied from the
+                  policy text (1.0), answers with a minor imprecision (0.5), and
+                  answers with a seeded material error — a wrong fee, deadline or
+                  limit (0.0). Easy on purpose: they cover every verdict.
+      production  every production answer with an `sme-faithfulness` label from the
+                  SME annotation queue, with exactly the judge's own inputs (the
+                  observation's input, `metadata.context` and output) and linked to
+                  its source trace and observation. These carry the real failure
+                  modes, which the synthetic set does not: a judge can be perfect on
+                  planted errors and still miss what SMEs flag in production.
+    `metadata.label_source` records who labelled a production item: ANNOTATION
+    (a person, in the queue) or API (a script; stand-in labels until SMEs review).
   * prompt   `judge-calibration/faithfulness` — the same prompt as the live
     evaluator (scripts/seed_evals.py), versioned in Prompt Management
   * one experiment run per candidate judge model; Boolean evaluator
-    `faithfulness-judge-output-correct` (exact match), run-level accuracy overall
-    and per expected verdict. ~85% overall is about human-level — but only if
-    every category is acceptable.
+    `faithfulness-judge-output-correct` (exact match), run-level accuracy overall,
+    per expected verdict and per source. ~85% overall is about human-level — but
+    only if every category, and the production slice, is acceptable.
 
 Compare the runs in Datasets → judge-calibration/faithfulness: accuracy, cost and
 latency per candidate = the evidence for choosing the bank-approved judge model.
 
-Run: .venv/bin/python scripts/judge_calibration_experiment.py [--models m1 m2 ...]
+Run: .venv/bin/python scripts/judge_calibration_experiment.py [--models m1 m2 ...] [--synthetic-only]
 """
 import argparse
 import json
@@ -35,6 +45,7 @@ from seed_evals import FAITHFULNESS  # noqa: E402
 
 DATASET = "judge-calibration/faithfulness"
 PROMPT = "judge-calibration/faithfulness"
+SME_SCORE = "sme-faithfulness"  # the SME queue's label on the same observation the judge scores
 CANDIDATES = ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-sonnet-5-5", "gpt-4.1-mini"]
 JSON_SUFFIX = '\n\nReply with JSON only: {"score": <1.0|0.5|0.0>, "reason": "<one sentence>"}'
 
@@ -101,17 +112,75 @@ ITEMS = [
 ]
 
 
-def seed(lf):
+def _scores(name: str):
+    cursor = None
+    while True:
+        d = config.api("GET", "/api/public/v3/scores", params={
+            "name": name, "limit": 100, "fields": "core,subject", **({"cursor": cursor} if cursor else {})})
+        yield from d.get("data") or []
+        cursor = (d.get("meta") or {}).get("cursor") or (d.get("meta") or {}).get("nextCursor")
+        if not cursor or not d.get("data"):
+            return
+
+
+def sme_labels() -> dict:
+    """{observation id: (verdict, trace id, label source)} from `sme-faithfulness` scores.
+    A person's annotation outranks a scripted label on the same answer."""
+    out: dict = {}
+    for s in _scores(SME_SCORE):
+        subj = s.get("subject") or {}
+        oid = (subj.get("id") if subj.get("kind") in ("observation", "OBSERVATION") else None) \
+            or s.get("observationId")
+        tid = subj.get("traceId") or s.get("traceId")
+        if not (oid and tid and isinstance(s.get("value"), (int, float))):
+            continue
+        if out.get(oid, (None, None, None))[2] == "ANNOTATION" and s.get("source") != "ANNOTATION":
+            continue
+        out[oid] = (label(s["value"]), tid, s.get("source") or "unknown")
+    return out
+
+
+def production_items(labels: dict) -> list:
+    """The labelled observations with what the live judge maps: input, metadata.context, output."""
+    items = []
+    for oid, (verdict, tid, source) in labels.items():
+        obs = config.api("GET", "/api/public/v2/observations",
+                         params={"traceId": tid, "fields": "core,io,metadata", "limit": 100})["data"]
+        o = next((x for x in obs if x["id"] == oid), None)
+        context = ((o or {}).get("metadata") or {}).get("context")
+        if not o or not context or o.get("output") in (None, ""):
+            print(f"  skip {oid}: observation, context or answer missing (trace {tid})")
+            continue
+        text = lambda v: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)  # noqa: E731
+        items.append({"id": f"jc-faithfulness-sme-{oid}", "trace_id": tid, "observation_id": oid,
+                      "input": {"query": text(o.get("input")), "context": text(context),
+                                "generation": text(o.get("output"))},
+                      "verdict": verdict, "label_source": source})
+    return items
+
+
+def seed(lf, production: bool = True):
     try:
         lf.get_dataset(DATASET)
     except Exception:  # noqa: BLE001
         lf.create_dataset(name=DATASET, description="Labelled examples for the faithfulness judge "
-                          "(labels known by construction; extend with SME labels)",
+                          "(synthetic labels known by construction + SME-labelled production answers)",
                           metadata={"judge": "faithfulness", "labels": ["1.0", "0.5", "0.0"]})
-    for iid, q, c, a, label, defect in ITEMS:
+    for iid, q, c, a, label_, defect in ITEMS:
         lf.create_dataset_item(dataset_name=DATASET, id=f"jc-faithfulness-{iid}",
-                               input={"query": q, "context": c, "generation": a},
-                               expected_output=label, metadata={"category": label, "defect": defect})
+                               input={"query": q, "context": c, "generation": a}, expected_output=label_,
+                               metadata={"category": label_, "defect": defect, "source": "synthetic"})
+    if production:
+        prod = production_items(sme_labels())
+        for it in prod:
+            lf.create_dataset_item(dataset_name=DATASET, id=it["id"], input=it["input"],
+                                   expected_output=it["verdict"],
+                                   source_trace_id=it["trace_id"], source_observation_id=it["observation_id"],
+                                   metadata={"category": it["verdict"], "source": "production",
+                                             "label_source": it["label_source"],
+                                             "defect": f"production answer, SME verdict {it['verdict']}"})
+        print(f"Production items from {SME_SCORE}: {len(prod)} "
+              f"({', '.join(f'{v}={sum(i['verdict'] == v for i in prod)}' for v in ('1.0', '0.5', '0.0'))})")
     text = FAITHFULNESS + JSON_SUFFIX
     try:
         current = lf.get_prompt(PROMPT, label="production", cache_ttl_seconds=0)
@@ -162,23 +231,28 @@ def correct(*, output, expected_output, **_):
 
 
 def accuracy(*, item_results, **_):
-    out, cats = [], {}
+    """Overall, per expected verdict (judge-accuracy-1.0 …) and per source
+    (judge-accuracy-synthetic / judge-accuracy-production)."""
+    out, groups = [], {}
     for r in item_results:
-        ok = bool(r.output) and label(r.output.get("verdict")) == label(r.item.expected_output)
-        cats.setdefault(label(r.item.expected_output), []).append(1.0 if ok else 0.0)
-    allv = [v for vs in cats.values() for v in vs]
-    out.append(Evaluation(name="judge-accuracy", value=round(sum(allv) / len(allv), 3), comment=f"n={len(allv)}"))
-    for cat, vs in sorted(cats.items()):
-        out.append(Evaluation(name=f"judge-accuracy-{cat}", value=round(sum(vs) / len(vs), 3), comment=f"n={len(vs)}"))
+        ok = 1.0 if bool(r.output) and label(r.output.get("verdict")) == label(r.item.expected_output) else 0.0
+        source = (r.item.metadata or {}).get("source") or "synthetic"
+        for key in ("all", label(r.item.expected_output), source):
+            groups.setdefault(key, []).append(ok)
+    for key, vs in sorted(groups.items(), key=lambda kv: kv[0] != "all"):
+        name = "judge-accuracy" if key == "all" else f"judge-accuracy-{key}"
+        out.append(Evaluation(name=name, value=round(sum(vs) / len(vs), 3), comment=f"n={len(vs)}"))
     return out
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="*", default=CANDIDATES)
+    ap.add_argument("--synthetic-only", action="store_true",
+                    help=f"do not (re)import the {SME_SCORE}-labelled production answers")
     a = ap.parse_args()
     lf = config.get_langfuse()
-    prompt = seed(lf)
+    prompt = seed(lf, production=not a.synthetic_only)
     config.flush()
     ds = lf.get_dataset(DATASET)
     print(f"Dataset {DATASET}: {len(ds.items)} items · prompt {PROMPT} v{prompt.version}\n")
@@ -192,18 +266,26 @@ def main():
                 g.update(output=raw, usage_details=usage)
             return {"verdict": normalise(raw), "raw": raw, "latency_s": round(time.perf_counter() - t, 2)}
 
-        res = ds.run_experiment(name="faithfulness judge calibration", run_name=f"judge · {model} · prompt v{prompt.version}",
+        # Unique per run: re-using a run name APPENDS this run's items to the older run.
+        stamp = time.strftime("%Y-%m-%d %H:%M")
+        res = ds.run_experiment(name="faithfulness judge calibration",
+                                run_name=f"judge · {model} · prompt v{prompt.version} · {len(ds.items)} items · {stamp}",
                                 description=f"faithfulness judge prompt v{prompt.version} on {model}",
                                 task=task, evaluators=[correct], run_evaluators=[accuracy], max_concurrency=5,
                                 metadata={"judge_model": model, "prompt_version": prompt.version})
         scores = {e.name: e.value for e in res.run_evaluations}
-        wrong = [(r.item.metadata.get("defect"), label(r.item.expected_output), r.output.get("verdict"))
+        def reason(raw):
+            m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"', raw or "")
+            return m.group(1)[:160] if m else ""
+        wrong = [(f"{r.item.metadata.get('defect')} — judge: {reason(r.output.get('raw'))}",
+                  label(r.item.expected_output), r.output.get("verdict"), r.item.source_trace_id)
                  for r in res.item_results if r.output and label(r.output.get("verdict")) != label(r.item.expected_output)]
         print(f"{model:<20} accuracy={scores.get('judge-accuracy')}  "
               f"[1.0]={scores.get('judge-accuracy-1.0')} [0.5]={scores.get('judge-accuracy-0.5')} "
-              f"[0.0]={scores.get('judge-accuracy-0.0')}")
-        for d, exp, got in wrong:
-            print(f"    miss: expected {exp} got {got} — {d}")
+              f"[0.0]={scores.get('judge-accuracy-0.0')}  synthetic={scores.get('judge-accuracy-synthetic')} "
+              f"production={scores.get('judge-accuracy-production')}")
+        for d, exp, got, tid in wrong:
+            print(f"    miss: expected {exp} got {got} — {d}" + (f" · {config.trace_url(tid)}" if tid else ""))
         if getattr(res, "dataset_run_url", None):
             print(f"    {res.dataset_run_url}")
     config.flush()

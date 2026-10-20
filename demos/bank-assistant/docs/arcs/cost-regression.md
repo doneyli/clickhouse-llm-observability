@@ -41,7 +41,8 @@ baseline, and it does.
      0.056, KB-102 *Disputing a card transaction* 0.053, KB-302 *Overdraft
      protection* 0.036, KB-104 *Using your card abroad* 0.034, KB-401 *Personal
      loans* 0.030, KB-101 *Lost or stolen cards* 0.000.
-  3. Click the second `ChatAnthropic` generation (the call after the retrieval):
+  3. Click the second `ChatAnthropic` generation (the call after the retrieval; traces recorded
+     after 2026-10-18 name it `generate-response`):
      **2,221 input tokens**, USD 0.0097. On the
      [1.6.1 twin](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/56635bee11886506736f5f63b43eed18?observation=6252a29a61fccb58)
      the same question retrieves only KB-202 and KB-301, and the same generation

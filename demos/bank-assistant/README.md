@@ -1,137 +1,224 @@
-# Northwind Bank assistant — Langfuse for a regulated bank
+# Northwind Bank Assistant
 
-A reusable, customer-agnostic demo of Langfuse for a large retail bank: a
-LangGraph customer assistant (RAG with sources, banking tools behind an MCP
-server, guardrails, PII masking, a voice channel) plus an n8n low-code
-workflow, instrumented end to end, with online and offline evaluation, judge
-calibration, prompt management with a CI quality gate, APM (Dynatrace)
-correlation, and a self-hosted Enterprise instance for governance features.
+Built and instrumented with Langfuse, this banking assistant uses retrieval,
+MCP tools, and guardrails. Inspect conversations, evaluate answers, compare
+prompts, and test release candidates. The portal supports chat and voice in
+English and Spanish; an n8n workflow demonstrates complaint triage.
 
-Northwind Bank is fictional; all data is synthetic.
+Northwind Bank is fictional. All customer data and policies are synthetic.
+This demo has its own environment and services; use the setup below.
 
-- **Present it:** [PRESENTER_KIT.html](PRESENTER_KIT.html) — opening/closing slides, a timed run sheet and the requirements matrix (open in a browser); [DEMO_SCRIPT.md](DEMO_SCRIPT.md) — the full talk track with labs
-- **What it proves, by capability ID:** [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md)
-- **Requirements and validation status, with evidence links:** [REQUIREMENTS_TRACKER.md](REQUIREMENTS_TRACKER.md)
-- **Architecture and deployment models:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Security, SSO, RBAC, audit, retention, export:** [docs/ENTERPRISE_SECURITY.md](docs/ENTERPRISE_SECURITY.md)
-- **Operating self-hosted Langfuse:** [docs/OPERATIONS.md](docs/OPERATIONS.md)
-- **Production gates, TCO, adoption playbook:** [docs/PATH_TO_PRODUCTION.md](docs/PATH_TO_PRODUCTION.md)
-- **APM / Dynatrace correlation:** [docs/DYNATRACE.md](docs/DYNATRACE.md)
-- **Low-code (n8n):** [n8n/README.md](n8n/README.md)
+## Start Here
 
-## What runs where
+| Task | Guide |
+|---|---|
+| Run the assistant | [Quick start](#quick-start) |
+| Present the 2-hour workshop | [Demo script](DEMO_SCRIPT.md), [attendee labs](LABS.md), [presenter kit](PRESENTER_KIT.html) (open locally in a browser) |
+| Check coverage and evidence | [Capability matrix](CAPABILITY_MATRIX.md), [requirements tracker](REQUIREMENTS_TRACKER.md) |
 
-```
- Northwind portal :8090 ──► LangGraph agent ──► MCP core-banking server :8765
-   (chat, voice,              │   (guardrails, RAG,      (separate process,
-    presenter console)        │    prompt by label)       joins the same trace)
-                              │
-            one OpenTelemetry TracerProvider
-             ├─► Langfuse (AI spans, PII-masked)      Cloud project or self-hosted :3100
-             └─► APM (payload-free copy, same ids)    Jaeger :16686 = Dynatrace stand-in
- n8n :5678 ── complaint-triage workflow ──► Langfuse
-```
+## Prerequisites
 
-The demo runs against a **Langfuse Cloud** project. `docker-compose.yml` runs
-n8n and Jaeger locally; `--profile selfhosted` (or `./scripts/up.sh --selfhosted`)
-adds a full self-hosted Langfuse v4 Enterprise stack on :3100 — the starting
-point for a self-hosted POC. The Python app runs from `.venv`.
+- Git and [uv](https://docs.astral.sh/uv/getting-started/installation/) for Python 3.12.
+- Docker with Compose, plus `curl`, `openssl`, and `lsof`.
+- An Anthropic API key for the assistant and judges.
+- A Langfuse Cloud project with project API keys, or the local stack below.
+- Optional: an OpenAI API key for voice, model comparison, and judge-model comparison.
+- Optional: a Langfuse Enterprise license for local governance demonstrations.
 
-## Targets
+Model calls, traffic generation, and evaluations consume API credits.
 
-| Profile | Langfuse | Selected by |
-|---|---|---|
-| `cloud` (default when `.env.cloud` exists) | Langfuse Cloud project | `.env.cloud` (project keys) |
-| `selfhosted` | http://localhost:3100 (EE license) | `NORTHWIND_PROFILE=selfhosted` |
+## Quick Start
 
-Shell-exported `LANGFUSE_*` variables are ignored on purpose (`northwind/config.py`).
-
-## Set up from scratch
+Run all commands from `demos/bank-assistant`. From the repository root:
 
 ```bash
-uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -r requirements.txt
-cp .env.example .env            # set ENCRYPTION_KEY; model keys may come from the repo-root .env
-.venv/bin/python -m unittest discover -s tests -t .   # guardrail, masking and business-classifier tests
-./scripts/up.sh                 # n8n + Jaeger (add --selfhosted for local Langfuse EE)
-# Cloud: put project keys in .env.cloud (LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY)
+cd demos/bank-assistant
+```
+
+### 1. Install and Configure
+
+On first setup:
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install -p .venv/bin/python -r requirements.txt
+cp .env.example .env
+openssl rand -hex 32
+```
+
+Put the generated value in `.env` as `ENCRYPTION_KEY`. Set `ANTHROPIC_API_KEY`;
+add `OPENAI_API_KEY` for optional features. Model keys can also come from the
+repository-root `.env`. Keep existing environment files when repeating setup.
+
+### 2. Choose a Langfuse Target
+
+Choose one target before running the seed scripts.
+
+**Cloud:** add `NORTHWIND_PROFILE=cloud` to `.env`. Create `.env.cloud` with your
+project's URL and keys:
+
+```dotenv
+LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
+LANGFUSE_PUBLIC_KEY=<project-public-key>
+LANGFUSE_SECRET_KEY=<project-secret-key>
+```
+
+Use the URL for your project's region. Start the local n8n and Jaeger services:
+
+```bash
+./scripts/up.sh
+```
+
+**Self-hosted:** add `NORTHWIND_PROFILE=selfhosted` to `.env`. Keep the local
+Langfuse URL and demo keys from `.env.example`, then run:
+
+```bash
+./scripts/up.sh --selfhosted
+curl -fsS http://localhost:3100/api/public/health
+curl -fsS http://localhost:3100/api/public/ready
+```
+
+Both checks must succeed. Log in at [localhost:3100](http://localhost:3100) with
+`admin@northwind.example` / `northwind-demo-1` unless you changed the template values.
+For Enterprise features, set `LANGFUSE_EE_LICENSE_KEY` in the repository-root `.env`
+before startup. Without a license, the local stack runs as OSS.
+
+Python scripts read Langfuse credentials from these files; exported `LANGFUSE_*`
+keys are ignored. An exported `NORTHWIND_PROFILE` overrides the file setting.
+Without an explicit profile, `.env.cloud` selects Cloud when present; otherwise
+the target is self-hosted.
+
+### 3. Seed Prompts and Start the Portal
+
+```bash
 .venv/bin/python scripts/seed_prompts.py
+./scripts/run_portal.sh
+.venv/bin/python portal/preflight.py
+```
+
+The launcher starts the portal and core-banking MCP server. Pre-flight must end
+with `READY`; review warnings for features you plan to show. Dataset and OpenAI
+warnings are expected before optional setup.
+
+### 4. Verify a Conversation
+
+1. Open [localhost:8090](http://localhost:8090).
+2. In **Customer assistant**, ask: "What is the late payment fee on the Classic card?"
+3. Use **Open in Langfuse** on the reply. Allow a few seconds for ingestion.
+4. Confirm the trace contains the customer input, answer, retrieval, guardrails,
+   and model usage. Send a follow-up to check that both turns share a session.
+
+## Prepare Evaluations
+
+After the quick start:
+
+```bash
 .venv/bin/python scripts/seed_evals.py
 .venv/bin/python scripts/seed_datasets.py
 .venv/bin/python scripts/seed_dashboard.py
 .venv/bin/python scripts/seed_business_dashboard.py
-./scripts/run_portal.sh         # portal + MCP server → http://localhost:8090
 .venv/bin/python scripts/generate_traffic.py --scenario all
-.venv/bin/python scripts/fill_annotation_queue.py 20
-./scripts/run_all_experiments.sh --fresh   # prompt A/B (EN+ES), model comparison, gates, red-team
-./scripts/setup_n8n.sh          # n8n workflow (see n8n/README.md)
-.venv/bin/python scripts/make_voice_samples.py   # synthetic caller audio (already committed)
 ```
 
-## Scripts
+Check **Evaluators**, **Datasets**, and both Northwind dashboards in Langfuse.
+Managed judge scores arrive asynchronously.
 
-| Script | What it does | IDs |
+The three judge rules skip turns the input guardrail blocked. Those answers are
+the fixed refusal text, so the deterministic `guardrail-blocked` score is the
+verdict and a judge call would grade a constant. `faithfulness` and
+`banking-compliance` run on every other production turn;
+`manipulation-resistance-sampled` judges 20% of them, to catch attacks the rules
+missed. Re-running `seed_evals.py` disables the retired `manipulation-resistance`
+rule, which judged every blocked turn; its past scores stay.
+
+Once scores are visible, run:
+
+```bash
+.venv/bin/python scripts/fill_annotation_queue.py 20
+```
+
+The count sets the desired pending backlog. Re-running preserves completed
+reviews and human scores. Thumbs-down answers and the lowest judge scores are
+queued first, however old they are. If there are too few unqueued answers, the
+command exits non-zero; generate fresh traffic and rerun.
+
+Label and complete 8-10 answers in **SME review**, then run
+`.venv/bin/python scripts/judge_calibration.py` to compare judge and human scores.
+Leave at least one item pending for live annotation. Refill after rehearsals;
+`scripts/verify_demo.py` fails readiness when there are no pending items.
+
+`scripts/judge_calibration_experiment.py` then copies every SME-labelled answer
+into `judge-calibration/faithfulness`, with the judge's exact inputs and a link
+to the source trace, next to the 16 synthetic items. It reports accuracy per
+source. The synthetic items have obvious planted errors, so a judge can score
+100% on them and still miss what SMEs flag in production.
+
+## Optional Workflows
+
+| Workflow | Command or guide |
+|---|---|
+| Prompt comparison (EN + ES), model comparison, and red-team experiments | `./scripts/run_all_experiments.sh` (requires OpenAI for model comparison; inspect both experiment logs in `logs/` for failures) |
+| Judge-rubric calibration experiment | `.venv/bin/python scripts/judge_calibration_experiment.py` |
+| Voice calls | `.venv/bin/python scripts/run_voice_calls.py --lang en --verify` (requires OpenAI; use `--lang es` for Spanish) |
+| Complaint triage | [n8n setup and verification](n8n/README.md) |
+| Prompt gate and GitHub Actions | [CI instructions](cicd/README.md) |
+| Local Enterprise roles and audit activity | `mkdir -p logs`, then `./scripts/bootstrap_selfhosted.sh` after local Enterprise startup |
+| Dispute-resolution regression | [Disputes walkthrough](docs/arcs/disputes.md) |
+| Cost regression | [Cost walkthrough](docs/arcs/cost-regression.md) |
+
+`run_all_experiments.sh --fresh` deletes existing experiment traces and scores
+on the English, Spanish, and red-team datasets. The Enterprise bootstrap moves
+prompt labels to generate audit activity. Voice samples are already committed.
+
+For the full workshop, complete voice, n8n, calibration, and experiment setup,
+then run `.venv/bin/python scripts/verify_demo.py`. It checks seeded resources,
+recent channel traces, scores, and data hygiene; `READY` requires all mandatory
+checks to pass. See [presenter preparation](DEMO_SCRIPT.md#presenter-preparation)
+for label state and rehearsal.
+
+## Services and Troubleshooting
+
+| Service | Default URL | Notes |
 |---|---|---|
-| `scripts/generate_traffic.py` | multi-turn sessions, PII, red-team; `--environment`, `--sample-rate`, `--prompt-label` | OBS-01..05, EVA-04 |
-| `scripts/run_voice_calls.py` | synthetic calls through the voice channel (audio in the trace) | OBS-01 multi-modal |
-| `scripts/run_n8n_samples.py` | complaints through the n8n workflow | OBS-02 |
-| `scripts/seed_evals.py` | judge LLM connection, score configs, 3 managed judges + rules, SME queue | EVA-01, 03, 04, 06 |
-| `scripts/fill_annotation_queue.py` | worst-first SME sample | EVA-06 |
-| `scripts/judge_calibration.py [--bakeoff]` | judge vs SME agreement; judge-model bake-off | EVA-06 |
-| `scripts/seed_dashboard.py` | quality, risk and cost dashboard as code | EVA-07, OBS-05 |
-| `scripts/seed_business_dashboard.py` | business value & failure-mode dashboard (value vs spend, containment, outcomes, each issue by prompt version) | GATE-05, EVA-07 |
-| `scripts/generate_traffic.py --scenario business [--prompt-label staging]` | the four business issues, on production or as a canary | story arc |
-| `scripts/generate_traffic.py --scenario disputes` + env `NORTHWIND_RELEASE`/`NORTHWIND_TX_DEFAULT_DAYS` | Issue 5, disputes leak (see `docs/arcs/disputes.md`) | story arc |
-| `scripts/run_cost_arc.sh [traffic\|experiments\|verify]` | Issue 6, cost regression by release (see `docs/arcs/cost-regression.md`) | story arc |
-| `scripts/seed_datasets.py` | golden Q&A with expected outputs; red-team set | EXP-01 |
-| `scripts/run_experiment.py` | prompt A/B (`--prompt-label`), model comparison (`--model`) | EXP-02, EXP-03, EVA-05 |
-| `scripts/prompt_gate.py` | CI gate: exit 1 on regression | EXP-06 |
-| `scripts/prompt_label.py` | promote / roll back by moving labels; `--set-previous N` repairs the rollback target; exits 1 when nothing changed (a roll back with `previous-production` on the production version is refused) | EXP-04, EXP-05 |
-| `scripts/bootstrap_selfhosted.sh` | optional: same demo state on a local self-hosted EE instance | — |
+| Portal | [localhost:8090](http://localhost:8090) | Chat, voice, presenter console |
+| Core-banking MCP | `http://localhost:8765/mcp` | Started by the portal launcher |
+| Langfuse | Cloud URL or [localhost:3100](http://localhost:3100) | Selected by the profile |
+| Jaeger | [localhost:16686](http://localhost:16686) | Local infrastructure observability |
+| n8n | [localhost:5678](http://localhost:5678) | Credentials in `.env` after n8n setup |
 
-## Reading data back (Langfuse v4 APIs)
+| Symptom | Check or fix |
+|---|---|
+| `.env.cloud` missing | Create it for Cloud, or select `selfhosted` in `.env`. |
+| Langfuse authentication fails | Check profile, regional URL, and project key pair; rerun pre-flight. |
+| Portal or MCP fails to start | Run `./scripts/run_portal.sh --status`; inspect `logs/portal.log` and `logs/mcp.log`. |
+| Wrong target after changing profiles | Restart the portal and MCP; see [portal instructions](portal/README.md#restart-banking-state). |
+| Voice or model comparison fails | Set `OPENAI_API_KEY` and confirm model access. |
+| n8n webhook is missing | Rerun `./scripts/setup_n8n.sh`; see the [n8n guide](n8n/README.md). |
 
-The v3 read endpoints stop working on Langfuse Cloud on **2026-11-16**, and the
-`selfhosted` profile (a v4 server) already answers them with 404. The project's v4
-Migration Assistant lists every call to them, including one-off scripts. For ad-hoc
-reads use `config.api(...)` (`northwind/config.py`) with the replacements below. Each
-one was checked against this demo's Cloud project.
+Stop the portal with `./scripts/run_portal.sh --stop` (MCP stays running).
+Stop this demo's containers with `docker compose --profile selfhosted stop`.
 
-| Instead of | Use | Notes |
-|---|---|---|
-| `GET /traces/{id}` | `GET /v2/observations?traceId=<id>` | The root observation (`isRootObservation: true`) holds the turn's input/output. Add `fields=core,basic,io,metadata`. |
-| `GET /traces?name=…` / `?tags=…` | `GET /v2/observations` with `filter` on `traceName` / `tags` plus `isRootObservation = true` | One row per trace. |
-| `GET /observations/{id}` | `GET /v2/observations` with `filter` on `id` | Returns its `traceId`, e.g. for an annotation-queue item. |
-| `GET /sessions/{id}` | `GET /v2/observations?sessionId=<id>&isRootObservation=true` | One row per turn. |
-| `GET /scores`, `GET /v2/scores` | `GET /v3/scores` with `fields=core,subject` | The target is in `subject` (`kind`, `id`, `traceId`). `observationId` needs `traceId` too (400 otherwise). |
-| `GET /datasets/{name}/runs[/{run}]` | `GET /v2/datasets/{name}` (for its `id`) → `GET /experiments?datasetId=…&name=…` → `GET /experiment-items?experimentId=…&fields=core,io,scores` | Both experiment endpoints **require** `fromStartTime`. Run names are not unique. |
-| `DELETE /datasets/{name}/runs/{run}` | experiment items → `DELETE /traces` with `{"traceIds": [...]}` (≤ 1,000 per call) | Also deletes their observations and scores; see `scripts/run_all_experiments.sh --fresh`. |
-| `GET /metrics` | `GET /v2/metrics?query=…` | e.g. `{"view": "observations", "metrics": [{"measure": "count", "aggregation": "count"}], "filters": [{"column": "isRootObservation", "type": "boolean", "operator": "=", "value": true}], …}` counts traces. |
+## Reference
 
-Traps on `GET /v2/observations`:
+| Topic | Guide |
+|---|---|
+| Portal controls and API | [Portal README](portal/README.md) |
+| Data model and deployment architecture | [Architecture](docs/ARCHITECTURE.md) |
+| Langfuse v4 reads, filters, and pagination | [API reference](docs/API_REFERENCE.md) |
+| SSO, RBAC, audit, retention, and export | [Enterprise security](docs/ENTERPRISE_SECURITY.md) |
+| Capacity, availability, backups, and upgrades | [Operations](docs/OPERATIONS.md) |
+| Production gates, cost, and adoption | [Path to production](docs/PATH_TO_PRODUCTION.md) |
+| Infrastructure observability | [APM integration example](docs/DYNATRACE.md) |
+| Java instrumentation | [Spring AI](docs/SPRING_AI.md) |
 
-- **Unknown query parameters are silently ignored.** `traceName=` and `tags=` are not
-  query parameters: a made-up value still returns rows, so a check built on them always
-  passes. Put them in `filter`, a JSON list of
-  `{"type", "column", "operator", "value"}` conditions.
-- **`filter` overrides every query-parameter filter.** Put the time range in it too
-  (`{"type": "datetime", "column": "startTime", "operator": ">=", "value": …}`).
-- **Fields are opt-in.** The default is `core,basic`; `name` is in `basic`, and `io`,
-  `metadata`, `usage` and `trace_context` must be requested.
-- **Paging uses `meta.cursor`, not `page`.**
+## Limits
 
-Worked examples: `scripts/verify_demo.py` (filters, experiments), `scripts/run_cost_arc.sh`
-(`verify` reads observations, v3 scores and experiment items), `scripts/run_all_experiments.sh`.
-Endpoint-by-endpoint guide: [deprecated API migration](https://langfuse.com/faq/all/deprecated-api-migration).
-
-## Known limits (say them out loud)
-
-- Regex masking does not catch names or street addresses (needs NER in the hook).
-- Langfuse has no native n8n tracing integration; see `n8n/README.md` for the pattern used.
-- Langfuse ships no prompt-injection judge template; the demo uses runtime
-  guardrail rules + a custom judge. Production would put LLM Guard, Lakera,
-  NeMo or Bedrock Guardrails in the guardrail step.
-- 16 golden items is a demo-sized dataset: small deltas between runs are noise.
-- A number the customer repeats later without its keyword within ~20 characters is not
-  redacted; the output guardrail re-scrubs the answer with the same anchors.
-- The rules guardrail blocks 7 of 8 red-team probes after the social-engineering rule
-  (6 of 8 before it); the remainder relies on the model's refusal and the sampled judge.
+- Regex masking misses names, addresses, and identifiers without a nearby keyword.
+  Card numbers keep their last four digits (`[REDACTED_CARD ****1111]`), so the
+  judges can check "your card ending 1111". The n8n workflow has separate
+  [masking limits](n8n/README.md#pii-masking).
+- Runtime guardrails and judges do not cover every attack. Review the red-team results.
+- Golden datasets are small (16 English-set items, 10 Spanish-set items); small score
+  differences do not establish a reliable improvement.
+- Banking state is held in MCP memory. Restart it before rehearsing actions that
+  depend on unblocked cards or unopened disputes.

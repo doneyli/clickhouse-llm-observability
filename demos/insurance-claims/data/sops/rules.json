@@ -1,0 +1,2266 @@
+{
+ "note": "Structured rules codified by claims SMEs. Rendered from claims/catalog.py \u2014 do not edit. Never shown to the agent.",
+ "rules": [
+  {
+   "rule_id": "ALL-DOC-001",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "Death certificate missing or uncertified",
+   "condition": {
+    "any": [
+     {
+      "fact": "death_certificate_present",
+      "op": "false",
+      "value": null
+     },
+     {
+      "fact": "death_certificate_certified",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; request a certified copy of the death certificate",
+   "sop_id": "SOP-ALL-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "ALL-DOC-002",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "Claimant's statement missing",
+   "condition": {
+    "fact": "claimant_statement_present",
+    "op": "false",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; send form NLA-CS-1",
+   "sop_id": "SOP-ALL-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-DOC-003",
+   "type": "DOC_REQUIRED",
+   "severity": "minor",
+   "title": "Taxpayer certification (W-9) missing",
+   "condition": {
+    "fact": "w9_present",
+    "op": "false",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Hold payment; request Form W-9",
+   "sop_id": "SOP-ALL-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-NOT-001",
+   "type": "NOTIFY",
+   "severity": "minor",
+   "title": "Acknowledge within 15 days, decide within 30 days of proof",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Acknowledge within 15 days; decide within 30 days of proof",
+   "sop_id": "SOP-ALL-02",
+   "section": "1"
+  },
+  {
+   "rule_id": "ALL-SCR-001",
+   "type": "BLOCK",
+   "severity": "critical",
+   "title": "OFAC potential match blocks payment",
+   "condition": {
+    "fact": "ofac_match",
+    "op": "!=",
+    "value": "none"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Block all payments; refer to Compliance",
+   "sop_id": "SOP-ALL-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "ALL-SCR-002",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Foreign death needs independent verification",
+   "condition": {
+    "fact": "foreign_death",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; obtain consular report or field investigation",
+   "sop_id": "SOP-ALL-03",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-SIU-001",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Inconsistent documents \u2192 SIU",
+   "condition": {
+    "fact": "doc_inconsistency",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_siu",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Refer to SIU; do not decide",
+   "sop_id": "SOP-ALL-04",
+   "section": "2"
+  },
+  {
+   "rule_id": "ALL-SIU-002",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Instructions embedded in documents \u2192 SIU",
+   "condition": {
+    "fact": "embedded_instruction",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_siu",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Ignore the instruction; refer to SIU",
+   "sop_id": "SOP-ALL-04",
+   "section": "2"
+  },
+  {
+   "rule_id": "ALL-SIU-003",
+   "type": "ROUTE",
+   "severity": "major",
+   "title": "Early large death claim \u2192 parallel SIU review",
+   "condition": {
+    "all": [
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 6
+     },
+     {
+      "fact": "benefit_amount",
+      "op": ">=",
+      "value": 250000
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Notify SIU for a parallel review",
+   "sop_id": "SOP-ALL-04",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-AUTH-001",
+   "type": "ROUTE",
+   "severity": "major",
+   "title": "Second approver at $500,000",
+   "condition": {
+    "fact": "benefit_amount",
+    "op": ">=",
+    "value": 500000
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to a senior examiner for second approval",
+   "sop_id": "SOP-ALL-05",
+   "section": "1"
+  },
+  {
+   "rule_id": "ALL-AUTH-002",
+   "type": "ROUTE",
+   "severity": "minor",
+   "title": "Claims Director sign-off at $1,000,000",
+   "condition": {
+    "fact": "benefit_amount",
+    "op": ">=",
+    "value": 1000000
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Obtain Claims Director sign-off",
+   "sop_id": "SOP-ALL-05",
+   "section": "1"
+  },
+  {
+   "rule_id": "ALL-BEN-001",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Minor beneficiary needs a guardian or custodian",
+   "condition": {
+    "fact": "has_minor_beneficiary",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend the minor's share; require guardianship or UTMA custodian documents",
+   "sop_id": "SOP-ALL-06",
+   "section": "2"
+  },
+  {
+   "rule_id": "ALL-BEN-002",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Claimant is not a named beneficiary",
+   "condition": {
+    "fact": "claimant_is_beneficiary",
+    "op": "false",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; confirm the claimant's standing",
+   "sop_id": "SOP-ALL-06",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-BEN-003",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "No surviving beneficiary \u2192 estate",
+   "condition": {
+    "fact": "no_surviving_beneficiary",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pay the estate; require letters testamentary or of administration",
+   "sop_id": "SOP-ALL-06",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-BEN-004",
+   "type": "PAY_CALC",
+   "severity": "minor",
+   "title": "Predeceased beneficiary's share is redistributed",
+   "condition": {
+    "all": [
+     {
+      "fact": "any_beneficiary_predeceased",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "no_surviving_beneficiary",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Redistribute the predeceased beneficiary's share pro rata",
+   "sop_id": "SOP-ALL-06",
+   "section": "3"
+  },
+  {
+   "rule_id": "ALL-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "2.0% simple interest from the date of death",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "rate": 0.02,
+    "start": "date_of_death",
+    "offset_days": 0
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Add 2.0% simple interest from the date of death",
+   "sop_id": "SOP-ALL-07",
+   "section": "1"
+  },
+  {
+   "rule_id": "NY-NOT-001",
+   "type": "NOTIFY",
+   "severity": "minor",
+   "title": "NY: acknowledge within 10 business days, pay within 30 days",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-NOT-001"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Acknowledge within 10 business days; pay within 30 days",
+   "sop_id": "SOP-NY-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "NY-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "NY: interest from the date of death",
+   "condition": true,
+   "version": 2,
+   "effective_from": "2026-07-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-INT-001"
+   ],
+   "letter": false,
+   "params": {
+    "rate": 0.035,
+    "start": "date_of_death",
+    "offset_days": 0
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Add 3.5% simple interest from the date of death",
+   "sop_id": "SOP-NY-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "NY-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "NY: interest from the date of death (3.0%, before July 2026)",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": "2026-06-30",
+   "supersedes": [
+    "ALL-INT-001"
+   ],
+   "letter": false,
+   "params": {
+    "rate": 0.03,
+    "start": "date_of_death",
+    "offset_days": 0
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Add 3.0% simple interest from the date of death",
+   "sop_id": "SOP-NY-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "NY-DISC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "NY: DFS complaint notice in every claim letter",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Include the NY DFS complaint notice in the letter",
+   "sop_id": "SOP-NY-01",
+   "section": "4"
+  },
+  {
+   "rule_id": "CA-NOT-001",
+   "type": "NOTIFY",
+   "severity": "minor",
+   "title": "CA: acknowledge within 15 days, decide within 40 days",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-NOT-001"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "CA"
+   ],
+   "action": "Acknowledge within 15 days; decide within 40 days",
+   "sop_id": "SOP-CA-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "CA-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "CA: 2.5% interest from the date of death",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-INT-001"
+   ],
+   "letter": false,
+   "params": {
+    "rate": 0.025,
+    "start": "date_of_death",
+    "offset_days": 0
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "CA"
+   ],
+   "action": "Add 2.5% simple interest from the date of death",
+   "sop_id": "SOP-CA-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "CA-DISC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "CA: Department of Insurance review notice",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "CA"
+   ],
+   "action": "Include the California Department of Insurance review notice",
+   "sop_id": "SOP-CA-01",
+   "section": "4"
+  },
+  {
+   "rule_id": "TX-NOT-001",
+   "type": "NOTIFY",
+   "severity": "minor",
+   "title": "TX: acknowledge within 15 days; decide within 15 business days",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-NOT-001"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "TX"
+   ],
+   "action": "Acknowledge within 15 days; decide within 15 business days",
+   "sop_id": "SOP-TX-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "TX-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "TX: 18% a year only after day 60 from proof",
+   "condition": {
+    "fact": "days_proof_to_decision",
+    "op": ">",
+    "value": 60
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-INT-001"
+   ],
+   "letter": false,
+   "params": {
+    "rate": 0.18,
+    "start": "proof_date",
+    "offset_days": 60
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "TX"
+   ],
+   "action": "Add 18% interest only for the days beyond day 60 after proof",
+   "sop_id": "SOP-TX-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "TX-DISC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "TX: Department of Insurance complaint notice",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "TX"
+   ],
+   "action": "Include the Texas Department of Insurance complaint notice",
+   "sop_id": "SOP-TX-01",
+   "section": "4"
+  },
+  {
+   "rule_id": "FL-NOT-001",
+   "type": "NOTIFY",
+   "severity": "minor",
+   "title": "FL: acknowledge within 14 days",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-NOT-001"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "FL"
+   ],
+   "action": "Acknowledge within 14 days; pay within 20 days of proof",
+   "sop_id": "SOP-FL-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "FL-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "FL: 3.0% interest from the date of death",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-INT-001"
+   ],
+   "letter": false,
+   "params": {
+    "rate": 0.03,
+    "start": "date_of_death",
+    "offset_days": 0
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "FL"
+   ],
+   "action": "Add 3.0% simple interest from the date of death",
+   "sop_id": "SOP-FL-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "FL-DISC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "FL: Division of Consumer Services notice",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "FL"
+   ],
+   "action": "Include the Florida Division of Consumer Services notice",
+   "sop_id": "SOP-FL-01",
+   "section": "4"
+  },
+  {
+   "rule_id": "IL-NOT-001",
+   "type": "NOTIFY",
+   "severity": "minor",
+   "title": "IL: acknowledge within 15 working days",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-NOT-001"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "IL"
+   ],
+   "action": "Acknowledge within 15 working days",
+   "sop_id": "SOP-IL-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "IL-INT-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "IL: 9% a year from day 31 after proof",
+   "condition": {
+    "fact": "days_proof_to_decision",
+    "op": ">",
+    "value": 30
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-INT-001"
+   ],
+   "letter": false,
+   "params": {
+    "rate": 0.09,
+    "start": "proof_date",
+    "offset_days": 30
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "IL"
+   ],
+   "action": "Add 9% interest from day 31 after proof",
+   "sop_id": "SOP-IL-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "IL-DISC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "IL: Department of Insurance notice",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "IL"
+   ],
+   "action": "Include the Illinois Department of Insurance notice",
+   "sop_id": "SOP-IL-01",
+   "section": "4"
+  },
+  {
+   "rule_id": "NJ-DISC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "NJ: Department of Banking and Insurance notice",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life",
+    "group_life",
+    "annuity_death"
+   ],
+   "states": [
+    "NJ"
+   ],
+   "action": "Include the NJ Department of Banking and Insurance notice",
+   "sop_id": "SOP-NJ-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "CP-SPOUSE-001",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Spouse not the beneficiary \u2192 notice and 30-day hold",
+   "condition": {
+    "all": [
+     {
+      "fact": "married",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "spouse_share_pct",
+      "op": "<",
+      "value": 50
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life",
+    "annuity_death"
+   ],
+   "states": [
+    "CA",
+    "TX",
+    "WA"
+   ],
+   "action": "Send the community property notice; hold 50% for 30 days",
+   "sop_id": "SOP-CP-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-CONT-001",
+   "type": "BLOCK",
+   "severity": "critical",
+   "title": "Death within 24 months of issue \u2192 contestability review",
+   "condition": {
+    "fact": "months_since_issue",
+    "op": "<",
+    "value": 24
+   },
+   "version": 2,
+   "effective_from": "2025-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to the Contestable Claims Unit; release nothing until cleared",
+   "sop_id": "SOP-LIFE-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-CONT-002",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "Contestable claim without a records authorization",
+   "condition": {
+    "all": [
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 24
+     },
+     {
+      "fact": "hipaa_authorization_present",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Request a signed HIPAA authorization",
+   "sop_id": "SOP-LIFE-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-SUIC-001",
+   "type": "DENY",
+   "severity": "critical",
+   "title": "Suicide within 24 months \u2192 premiums refunded only",
+   "condition": {
+    "all": [
+     {
+      "fact": "manner_of_death",
+      "op": "==",
+      "value": "suicide"
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 24
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "deny",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Limit the benefit to a premium refund; senior examiner approval",
+   "sop_id": "SOP-LIFE-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-SUIC-002",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Manner of death pending \u2192 wait for amended certificate",
+   "condition": {
+    "all": [
+     {
+      "fact": "manner_of_death",
+      "op": "in",
+      "value": [
+       "pending",
+       "undetermined"
+      ]
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 24
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend until an amended certificate states the manner of death",
+   "sop_id": "SOP-LIFE-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "WA-SUIC-001",
+   "type": "DENY",
+   "severity": "critical",
+   "title": "WA: suicide exclusion period is 12 months",
+   "condition": {
+    "all": [
+     {
+      "fact": "manner_of_death",
+      "op": "==",
+      "value": "suicide"
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 12
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "LIFE-SUIC-001"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "deny",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "WA"
+   ],
+   "action": "Limit the benefit to a premium refund",
+   "sop_id": "SOP-WA-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "WA-SUIC-002",
+   "type": "PEND",
+   "severity": "major",
+   "title": "WA: manner pending within 12 months",
+   "condition": {
+    "all": [
+     {
+      "fact": "manner_of_death",
+      "op": "in",
+      "value": [
+       "pending",
+       "undetermined"
+      ]
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 12
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "LIFE-SUIC-002"
+   ],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "WA"
+   ],
+   "action": "Pend until an amended certificate states the manner",
+   "sop_id": "SOP-WA-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-LAPSE-001",
+   "type": "DENY",
+   "severity": "critical",
+   "title": "Lapsed policy \u2192 deny",
+   "condition": {
+    "fact": "policy_status",
+    "op": "==",
+    "value": "lapsed"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "deny",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Deny; refund unearned premium",
+   "sop_id": "SOP-LIFE-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-LAPSE-002",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "Death in grace period \u2192 deduct the overdue premium",
+   "condition": {
+    "fact": "policy_status",
+    "op": "==",
+    "value": "grace"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Deduct the overdue premium from the benefit",
+   "sop_id": "SOP-LIFE-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-COMM-001",
+   "type": "COMMISSION",
+   "severity": "major",
+   "title": "Death in first 12 months \u2192 100% commission chargeback",
+   "condition": {
+    "all": [
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 12
+     },
+     {
+      "fact": "fy_commission_paid",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "chargeback_pct": 100
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Notify Agency Operations: 100% chargeback",
+   "sop_id": "SOP-LIFE-04",
+   "section": "2"
+  },
+  {
+   "rule_id": "LIFE-COMM-002",
+   "type": "COMMISSION",
+   "severity": "minor",
+   "title": "Death in months 12-23 \u2192 50% commission chargeback",
+   "condition": {
+    "all": [
+     {
+      "fact": "months_since_issue",
+      "op": ">=",
+      "value": 12
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 24
+     },
+     {
+      "fact": "fy_commission_paid",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "chargeback_pct": 50
+   },
+   "effect": "none",
+   "lines": [
+    "individual_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Notify Agency Operations: 50% chargeback",
+   "sop_id": "SOP-LIFE-04",
+   "section": "2"
+  },
+  {
+   "rule_id": "GRP-ERISA-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "ERISA: decide within 90 days; denial cites plan and appeal",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "ALL-NOT-001",
+    "NY-NOT-001",
+    "CA-NOT-001",
+    "TX-NOT-001",
+    "FL-NOT-001",
+    "IL-NOT-001"
+   ],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "group_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Decide within 90 days; cite plan provision and appeal rights",
+   "sop_id": "SOP-GRP-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "GRP-DOC-001",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "Employer statement missing",
+   "condition": {
+    "fact": "employer_statement_present",
+    "op": "false",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "group_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; request form NLA-GE-2",
+   "sop_id": "SOP-GRP-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "GRP-COV-001",
+   "type": "DENY",
+   "severity": "critical",
+   "title": "Employment ended > 31 days before death, not converted",
+   "condition": {
+    "all": [
+     {
+      "fact": "employment_ended_days",
+      "op": ">",
+      "value": 31
+     },
+     {
+      "fact": "converted",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "deny",
+   "lines": [
+    "group_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Deny: coverage ended",
+   "sop_id": "SOP-GRP-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "GRP-COV-002",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Death within the 31-day conversion period",
+   "condition": {
+    "all": [
+     {
+      "fact": "employment_ended_days",
+      "op": ">",
+      "value": 0
+     },
+     {
+      "fact": "employment_ended_days",
+      "op": "<=",
+      "value": 31
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "group_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; confirm the termination date with the employer",
+   "sop_id": "SOP-GRP-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "GRP-EOI-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "Supplemental above $150,000 without EOI \u2192 cap",
+   "condition": {
+    "all": [
+     {
+      "fact": "supplemental_amount",
+      "op": ">",
+      "value": 150000
+     },
+     {
+      "fact": "eoi_approved",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "cap": 150000
+   },
+   "effect": "none",
+   "lines": [
+    "group_life"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Cap supplemental coverage at $150,000",
+   "sop_id": "SOP-GRP-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "ANN-DB-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "Standard death benefit: greater of value or net premiums",
+   "condition": true,
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pay the greater of contract value and premiums less withdrawals",
+   "sop_id": "SOP-ANN-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "ANN-SPOUSE-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Spouse sole beneficiary \u2192 offer spousal continuation",
+   "condition": {
+    "fact": "spouse_sole_beneficiary",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Offer spousal continuation in writing before any lump sum",
+   "sop_id": "SOP-ANN-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "ANN-DIST-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Non-spouse beneficiary of qualified contract \u2192 options letter",
+   "condition": {
+    "all": [
+     {
+      "fact": "qualified",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "spouse_sole_beneficiary",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Send the distribution options letter within 30 days",
+   "sop_id": "SOP-ANN-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "ANN-TAX-001",
+   "type": "DOC_REQUIRED",
+   "severity": "minor",
+   "title": "Tax withholding election missing",
+   "condition": {
+    "fact": "withholding_form_present",
+    "op": "false",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Request form W-4R",
+   "sop_id": "SOP-ANN-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "ANN-COMM-001",
+   "type": "COMMISSION",
+   "severity": "major",
+   "title": "Death within 6 months of issue \u2192 full commission chargeback",
+   "condition": {
+    "all": [
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 6
+     },
+     {
+      "fact": "fy_commission_paid",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "chargeback_pct": 100
+   },
+   "effect": "none",
+   "lines": [
+    "annuity_death"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Notify Agency Operations: 100% chargeback",
+   "sop_id": "SOP-ANN-01",
+   "section": "4"
+  },
+  {
+   "rule_id": "SVC-WD-001",
+   "type": "PAY_CALC",
+   "severity": "major",
+   "title": "Surrender charge on the amount above the free withdrawal",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "in",
+      "value": [
+       "withdrawal",
+       "surrender",
+       "replacement"
+      ]
+     },
+     {
+      "fact": "surrender_charge_pct",
+      "op": ">",
+      "value": 0
+     },
+     {
+      "fact": "amount_above_free",
+      "op": ">",
+      "value": 0
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {
+    "schedule": [
+     7,
+     6,
+     5,
+     4,
+     3,
+     2,
+     1
+    ],
+    "free_pct": 10
+   },
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Apply the surrender charge to the amount above the free withdrawal",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-WD-002",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Owner under 59\u00bd: additional tax disclosure",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "in",
+      "value": [
+       "withdrawal",
+       "surrender"
+      ]
+     },
+     {
+      "fact": "owner_age",
+      "op": "<",
+      "value": 59.5
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Include the early-distribution tax disclosure",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-WD-003",
+   "type": "DOC_REQUIRED",
+   "severity": "minor",
+   "title": "Withholding election missing",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "in",
+      "value": [
+       "withdrawal",
+       "surrender"
+      ]
+     },
+     {
+      "fact": "withholding_form_present",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Hold; request form W-4R",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-WD-004",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Surrender forfeits a guaranteed rider",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "surrender"
+     },
+     {
+      "fact": "has_guaranteed_rider",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "rider_ack_signed",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; obtain the signed rider-forfeiture acknowledgment",
+   "sop_id": "SOP-SVC-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-RMD-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Required minimum distribution not yet satisfied",
+   "condition": {
+    "all": [
+     {
+      "fact": "qualified",
+      "op": "true",
+      "value": null
+     },
+     {
+      "fact": "owner_age",
+      "op": ">=",
+      "value": 73
+     },
+     {
+      "fact": "rmd_remaining",
+      "op": ">",
+      "value": 0
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Satisfy the remaining RMD first; tell the owner",
+   "sop_id": "SOP-SVC-01",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-REP-001",
+   "type": "DOC_REQUIRED",
+   "severity": "major",
+   "title": "Replacement notice and comparison missing",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "replacement_notice_signed",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; obtain the signed replacement notice and comparison",
+   "sop_id": "SOP-SVC-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-REP-005",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "30-day free look on a replacement",
+   "condition": {
+    "fact": "request_type",
+    "op": "==",
+    "value": "replacement"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Include the 30-day free-look notice",
+   "sop_id": "SOP-SVC-02",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-REP-002",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Replacement during the surrender period \u2192 principal review",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "surrender_charge_pct",
+      "op": ">",
+      "value": 0
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to a supervising principal before processing",
+   "sop_id": "SOP-SVC-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-REP-003",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Contract under 36 months old \u2192 replacement review",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "months_since_issue",
+      "op": "<",
+      "value": 36
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to Annuity Compliance (churning review)",
+   "sop_id": "SOP-SVC-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-REP-004",
+   "type": "ROUTE",
+   "severity": "major",
+   "title": "Guaranteed rider would be lost \u2192 principal review",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "has_guaranteed_rider",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to a supervising principal (rider loss)",
+   "sop_id": "SOP-SVC-02",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-BI-001",
+   "type": "PEND",
+   "severity": "major",
+   "title": "Consumer profile incomplete",
+   "condition": {
+    "all": [
+     {
+      "any": [
+       {
+        "fact": "request_type",
+        "op": "==",
+        "value": "replacement"
+       },
+       {
+        "fact": "agent_recommended",
+        "op": "true",
+        "value": null
+       }
+      ]
+     },
+     {
+      "fact": "profile_complete",
+      "op": "false",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "hold",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Pend; complete the consumer profile",
+   "sop_id": "SOP-SVC-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-BI-004",
+   "type": "ROUTE",
+   "severity": "critical",
+   "title": "Time horizon shorter than the new surrender period",
+   "condition": {
+    "all": [
+     {
+      "fact": "request_type",
+      "op": "==",
+      "value": "replacement"
+     },
+     {
+      "fact": "horizon_shorter_than_new_period",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to Annuity Compliance (liquidity mismatch)",
+   "sop_id": "SOP-SVC-03",
+   "section": "2"
+  },
+  {
+   "rule_id": "SVC-BI-002",
+   "type": "ROUTE",
+   "severity": "major",
+   "title": "Senior consumer, agent-recommended \u2192 senior review",
+   "condition": {
+    "all": [
+     {
+      "fact": "owner_age",
+      "op": ">=",
+      "value": 75
+     },
+     {
+      "fact": "agent_recommended",
+      "op": "true",
+      "value": null
+     }
+    ]
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": false,
+   "params": {},
+   "effect": "refer_review",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Route to the senior-investor review desk",
+   "sop_id": "SOP-SVC-03",
+   "section": "3"
+  },
+  {
+   "rule_id": "SVC-BI-003",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "Disclose the agent's compensation",
+   "condition": {
+    "fact": "agent_recommended",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "ALL"
+   ],
+   "action": "Include the agent-compensation disclosure",
+   "sop_id": "SOP-SVC-03",
+   "section": "3"
+  },
+  {
+   "rule_id": "NY-SVC-001",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "NY: written best-interest basis to the consumer",
+   "condition": {
+    "fact": "agent_recommended",
+    "op": "true",
+    "value": null
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Give the consumer the written best-interest basis",
+   "sop_id": "SOP-SVC-NY-01",
+   "section": "2"
+  },
+  {
+   "rule_id": "NY-SVC-002",
+   "type": "NOTIFY",
+   "severity": "major",
+   "title": "NY: 60-day free look on a replacement",
+   "condition": {
+    "fact": "request_type",
+    "op": "==",
+    "value": "replacement"
+   },
+   "version": 1,
+   "effective_from": "2024-01-01",
+   "effective_to": null,
+   "supersedes": [
+    "SVC-REP-005"
+   ],
+   "letter": true,
+   "params": {},
+   "effect": "none",
+   "lines": [
+    "annuity_service"
+   ],
+   "states": [
+    "NY"
+   ],
+   "action": "Include the 60-day free-look notice",
+   "sop_id": "SOP-SVC-NY-01",
+   "section": "2"
+  }
+ ]
+}

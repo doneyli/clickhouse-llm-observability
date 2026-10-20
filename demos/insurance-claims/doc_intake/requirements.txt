@@ -1,0 +1,8 @@
+# Doc-intake service — a Strands agent behind A2A, in its OWN venv.
+# strands-agents[a2a] pins a2a-sdk<0.4 (and its own fastapi/starlette floors), so it
+# stays out of the LangGraph app's environment. Python 3.12.
+strands-agents[a2a,anthropic,otel]>=1.61,<2.0
+langfuse>=4.17,<5.0
+opentelemetry-sdk>=1.30
+opentelemetry-exporter-otlp-proto-http>=1.30
+python-dotenv>=1.0

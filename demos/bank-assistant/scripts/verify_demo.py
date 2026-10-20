@@ -3,7 +3,7 @@
 Checks the Langfuse project through the public API (prompts, datasets, runs,
 evaluators, rules, recent judge executions, score configs, annotation queue,
 dashboard, traces per channel) plus the local services (MCP server, portal,
-APM stand-in, n8n). Exit 1 if any REQUIRED check fails.
+infrastructure observability, n8n). Exit 1 if any REQUIRED check fails.
 
 It also checks demo HYGIENE — the state a presenter inherits from earlier rehearsals:
 prompt labels (rollback target, untitled versions, text drift vs northwind/prompts.py),
@@ -38,6 +38,20 @@ def check(ok: bool, name: str, detail: str = "", required: bool = True):
     print(f"[{tag}] {name}{' — ' + detail if detail else ''}", flush=True)
     if not ok:
         (FAIL if required else WARN).append(name)
+
+
+def check_annotation_queue(items):
+    """A presentation needs both calibration labels and work for a live reviewer."""
+    n_items = len(items)
+    n_pending = sum(i.get("status") == "PENDING" for i in items)
+    n_done = sum(i.get("status") == "COMPLETED" for i in items)
+    check(n_items >= 10, "SME annotation queue", f"{n_items} items")
+    check(n_pending > 0, "SME queue pending human review",
+          f"{n_pending} pending / {n_done} completed / {n_items} total"
+          + ("" if n_pending else " — run scripts/fill_annotation_queue.py 20 before Act 2.4"))
+    check(n_done >= 8, "SME queue labelled (human labels for the judge-calibration act)",
+          f"{n_done} completed / {n_items} total" + ("" if n_done >= 8 else " — label 8–10 before Act 2.4"),
+          required=False)
 
 
 def get(path, _timeout=30, **params):
@@ -249,10 +263,17 @@ def main():
     # ── evaluators + rules ──
     rules = cursor_all("/api/public/v2/evaluation-rules")
     by = {r["name"]: r for r in rules}
-    for name in ["faithfulness", "banking-compliance", "manipulation-resistance"]:
+    for name in ["faithfulness", "banking-compliance", "manipulation-resistance-sampled"]:
         r = by.get(name)
         check(bool(r) and r.get("enabled") is True, f"rule {name} enabled",
               f"sampling={r.get('sampling') if r else None}")
+        blocked_skipped = any(f.get("column") == "tags" and f.get("operator") == "none of"
+                              for f in (r or {}).get("filter") or [])
+        check(blocked_skipped, f"  rule {name} skips blocked turns",
+              "" if blocked_skipped else "re-run scripts/seed_evals.py", required=False)
+    retired = by.get("manipulation-resistance")
+    check(not (retired and retired.get("enabled")), "retired rule manipulation-resistance disabled",
+          "" if not (retired and retired.get("enabled")) else "re-run scripts/seed_evals.py", required=False)
     check(len(get("/api/public/score-configs", limit=50)["data"]) >= 4, "score configs registered")
 
     # ── recent scores: are judges executing? ──
@@ -276,12 +297,7 @@ def main():
     qs = get("/api/public/annotation-queues", limit=50)["data"]
     q = next((x for x in qs if x["name"].startswith("SME review")), None)
     q_items = page_all(f"/api/public/annotation-queues/{q['id']}/items") if q else []
-    n_items = len(q_items)
-    check(n_items >= 10, "SME annotation queue", f"{n_items} items")
-    n_done = sum(1 for i in q_items if i.get("status") == "COMPLETED")
-    check(n_done >= 8, "SME queue labelled (human labels for the judge-calibration act)",
-          f"{n_done} completed / {n_items} total" + ("" if n_done >= 8 else " — label 8–10 before Act 2.4"),
-          required=False)
+    check_annotation_queue(q_items)
 
     # ── dashboard ──
     try:
@@ -369,7 +385,7 @@ def main():
 
     # ── local services ──
     for name, url, req in [("portal", "http://localhost:8090/", True), ("MCP server", "http://localhost:8765/mcp", True),
-                           ("APM stand-in (Jaeger)", "http://localhost:16686/", True), ("n8n", "http://localhost:5678/", True)]:
+                           ("Infrastructure observability (Jaeger)", "http://localhost:16686/", True), ("n8n", "http://localhost:5678/", True)]:
         try:
             code = httpx.get(url, timeout=5).status_code
             check(code < 500 or name == "MCP server", f"{name} up", f"HTTP {code}", required=req)

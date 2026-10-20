@@ -20,20 +20,57 @@ the Spanish chips — the Spanish beats are marked 🇪🇸.
 
 ---
 
+## Presenter Preparation
+
+Complete the [quick start](README.md#quick-start),
+[evaluation setup](README.md#prepare-evaluations), and optional voice, n8n,
+calibration, and experiment workflows before the workshop. Run commands from
+`demos/bank-assistant`.
+
+1. Start local services with `./scripts/up.sh` (add `--selfhosted` for local
+   Langfuse). [Restart MCP banking state](portal/README.md#restart-banking-state)
+   and start the portal.
+2. Generate recent English/Spanish traffic, voice calls, and n8n samples from
+   **Presenter console**. Wait for managed judge scores to arrive.
+3. Run `.venv/bin/python scripts/prompt_label.py --show`. Confirm the contents
+   behind `production`, `staging`, and `development`. For rollback,
+   `previous-production` must resolve to a different version from `production`;
+   use `--set-previous N` to select the intended existing version.
+4. Label and complete 8-10 SME queue items with `sme-faithfulness` and
+   `sme-compliance`. Leave at least one pending item for live annotation.
+   After rehearsals, run `.venv/bin/python scripts/fill_annotation_queue.py 20`
+   to refill the pending backlog before verification.
+   Run `.venv/bin/python scripts/judge_calibration.py`. Add `--bakeoff` to
+   compare judge models; select models available to your account with `--models`.
+   Then run `.venv/bin/python scripts/judge_calibration_experiment.py --models
+   claude-sonnet-4-6` so the calibration dataset includes the new labels (Act 2.4).
+5. Run `.venv/bin/python scripts/verify_demo.py`. Resolve mandatory failures
+   until it ends with `READY`; review warnings for the acts you will show.
+6. For governance acts, protect the `production` label and confirm audit-log
+   access. If those features are unavailable, use
+   [Enterprise security](docs/ENTERPRISE_SECURITY.md) as the reference.
+7. Restart MCP again if warm-up changed cards or disputes needed by a live act.
+   Choose **New conversation**, select EN or ES, and open the tabs below.
+
+Version numbers, measured scores, and evidence links in the talk track describe
+the recorded demo project. On a new project, inspect the current labels and runs;
+seeders do not guarantee the same version numbers. Bookmark your own evidence
+before presenting.
+
 ## Screens and tabs (open before you start)
 
 | Tab | URL | Used in |
 |---|---|---|
 | Northwind portal (the bank's app) | http://localhost:8090 | every act |
-| Langfuse Cloud project `northwind-bank-assistant` | portal header → "Langfuse" | every act |
-| APM stand-in for Dynatrace (Jaeger) | http://localhost:16686 | M1 |
+| Selected Langfuse project | portal header → "Langfuse" | every act |
+| Infrastructure observability (Jaeger) | http://localhost:16686 | M1 |
 | n8n | http://localhost:5678 | M1 |
 | Docs | `docs/ARCHITECTURE.md`, `docs/INDUSTRY.md`, `docs/ENTERPRISE_SECURITY.md`, `docs/OPERATIONS.md`, `docs/PATH_TO_PRODUCTION.md`, `docs/DYNATRACE.md`, `docs/SPRING_AI.md` | M0, M1, M3, M4 |
 | Lab handout | `LABS.md` | M1, M2, M5 |
 | Requirements + evidence | `REQUIREMENTS_TRACKER.md` (live links per requirement) | close |
 
-The portal's **Presenter console** tab runs every scripted step with one click
-and prints the Langfuse links. Use it instead of a terminal on screen.
+Use **Presenter console** for its listed actions and evidence links. Commands
+outside its allowlist run in a terminal.
 
 ## Run-of-show (120 min)
 
@@ -45,7 +82,7 @@ and prints the Langfuse links. Use it instead of a terminal on screen.
 | 1:05–1:12 | M3 Path to production | GATE-01..05 | talk over evidence |
 | 1:12–1:27 | M4 Enterprise: security, governance, operations | ENT-01..04 | Cloud org settings + self-hosted docs |
 | 1:27–1:40 | M5 Experimentation and prompts | EXP-01..06 | demo + **Lab 3** |
-| 1:40–1:55 | **Story arc: four business issues, found and fixed** | GATE-05, EVA-07, EXP-02/06 | business dashboard → traces → fix → canary |
+| 1:40–1:55 | **Story arc: selected business issues, found and fixed** | GATE-05, EVA-07, EXP-02/06 | business dashboard → traces → fix → canary |
 | 1:55–2:00 | Close: POC plan and next steps | — | talk |
 
 If you run short: cut Lab 3 (show it instead), shorten M3 to the gate table, and run the story arc on two of the four issues (mis-selling + Spanish). Tease the business dashboard early (end of M1) so the arc pays it off.
@@ -115,7 +152,9 @@ what the assistant actually did?"
    - `input-guardrail` (type *guardrail*) — what the security rules decided
    - the workflow nodes (`assistant`, `tools`), auto-captured by the
      Langfuse callback handler — **no manual code per step**
-   - each `ChatAnthropic` **generation**: model, input/output tokens, cost, latency
+   - each `generate-response` **generation**: model, input/output tokens, cost,
+     latency. It is named after the step, not the provider: the gpt-4.1 run in
+     the model comparison has the same name, and the model is its own attribute
    - `mcp-client: open_dispute` → `mcp-server: open_dispute` →
      `core-banking.open_dispute`: **the MCP server is a different process**,
      and its spans land in the same trace because the agent passes W3C trace
@@ -169,12 +208,15 @@ the most production traffic today, and which is hardest to debug?"
    (`NORTHWIND_SAMPLE_RATE` / `LANGFUSE_SAMPLE_RATE`): whole traces, decided once
    per trace and followed downstream (the MCP server honours the caller's
    decision); when the app brings its own OpenTelemetry provider — as here, for
-   the Dynatrace export — the sampler is set on that provider, so the APM copy is
-   sampled too (sample in a Collector if Dynatrace must keep 100%). (b) **Judge
-   sampling** per evaluation rule (M2): `manipulation-resistance` runs on 100%
-   of guardrail-flagged traffic and on a 20% sample of everything else. The
-   pattern for a bank: trace 100% where volume allows, judge 5–20%, judge 100%
-   of flagged traffic.
+   the infrastructure export — the sampler is set on that provider, so the APM copy is
+   sampled too (sample in a Collector if the infrastructure backend must keep 100%). (b) **Judge
+   sampling** per evaluation rule (M2): `manipulation-resistance-sampled` judges a
+   20% sample of the turns the guardrail let through. Turns the guardrail blocked
+   get no judge at all: their answer is the fixed refusal, so the deterministic
+   `guardrail-blocked` score already is the verdict (on this project about 1 turn
+   in 11, each of which used to cost three judge calls). The pattern for a bank:
+   trace 100% where volume allows, judge 5–20%, and never pay a judge to grade
+   an outcome code has already decided.
 
 **Land.** Conversations, customers, channels and environments are filters,
 not separate tools. Sampling is a cost decision you can make per evaluator.
@@ -188,7 +230,11 @@ privacy audits."
 **Show.**
 1. Portal chip *"My card number is 4111 1111 1111 1111, is it blocked?"*.
    The assistant warns the customer never to share it.
-2. Open the trace: input shows `[REDACTED_CARD]`; metadata `pii_redacted: card`;
+2. Open the trace (known-good:
+   [`22363dc535017e38d0325b484d479c40`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22363dc535017e38d0325b484d479c40)):
+   input shows `[REDACTED_CARD ****1111]` (only the last four
+   digits, the way customers and agents name a card; PCI DSS permits showing
+   them); metadata `pii_redacted: card`;
    score `pii-in-input = true`. Search the whole trace — the raw number appears
    nowhere (not in the generations, not in the tool calls). 🇪🇸 Same in Spanish:
    *"mi cédula es …"* → `[REDACTED_NATIONAL_ID]`, *"número de cuenta …"* →
@@ -202,38 +248,40 @@ privacy audits."
 who can read the project.
 
 **Candour.** Judges score the *redacted* trace, not what the agent saw. The
-earlier known-good English PII trace
+earlier English PII trace
 ([`752a3cfc336f9b8e45321742fbb2c47e`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/752a3cfc336f9b8e45321742fbb2c47e))
-carries `faithfulness` 0.0: the judge sees `[REDACTED_CARD]` and calls the
-agent's "ending 1111" unsupported. The agent saw the real digits; masking
-happens at export. Use
-[`b9ff0aae6166729d9e698df9381c2c6f`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/b9ff0aae6166729d9e698df9381c2c6f) as
-the clean example (input masked `[REDACTED_CARD]`, warning shown, `pii-education`
-1, `faithfulness` 1.0, `banking-compliance` 1.0, 0 raw digits in 18
-observations) and keep 752a3cfc… as a calibration talking point: a judge can
-only grade what it can see.
+carries `faithfulness` 0.0: it predates the last-four rule, so the judge saw
+`[REDACTED_CARD]` and called the agent's "ending 1111" unsupported. The fix was
+in the masking, not the judge: the mask now keeps exactly the digits the answer
+is allowed to repeat. Show the pair: 752a3cfc… is the *before* (a judge can
+only grade what it can see), and
+[`22363dc535017e38d0325b484d479c40`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22363dc535017e38d0325b484d479c40)
+is the *after*, the same chip recorded on 2026-10-18: input masked
+`[REDACTED_CARD ****1111]`, warning shown, `pii-education` 1, `banking-compliance`
+1.0, 0 raw digits in 18 observations, and `faithfulness` 1.0 with the judge
+noting that "no card ending in 1111" is supported — the claim it could not check
+before.
 
 **Ask.** "Who owns the definition of 'sensitive data' for AI logs at the bank —
 security, privacy, or each product team?" Be candid that regex does not catch
 names or street addresses; that needs an NER step in the same hook.
 
-### Act 1.4 — correlation with the APM (Dynatrace) · OBS-06
+### Act 1.4 — infrastructure observability correlation · OBS-06
 
-**Frame.** "When an incident fires in Dynatrace at 2 a.m., the SRE needs to jump
+**Frame.** "When an infrastructure alert fires at 2 a.m., the SRE needs to jump
 to what the model did; when the AI team sees a slow trace, they need the
 infrastructure view."
 
 **Show.**
 1. From any portal answer that called a tool — for the dispute, the second turn
-   (*"Yes, open it"*) — click **Open in APM** → the same trace id in the APM
-   stand-in, showing two services (`northwind-assistant`, `core-banking-mcp`)
+   (*"Yes, open it"*) — click **Open in APM** → the same trace id in Jaeger,
+   showing two services (`northwind-assistant`, `core-banking-mcp`)
    with timings, **without prompts or completions** (stripped before export).
 2. Back in Langfuse: root metadata `apm_trace_url`; in the APM, span attribute
    `langfuse.trace_url`.
-3. `docs/DYNATRACE.md`: one OpenTelemetry pipeline, two exporters. For
-   Dynatrace set `APM_OTLP_ENDPOINT=https://<env>.live.dynatrace.com/api/v2/otlp/v1/traces`
-   (or the ActiveGate URL inside the VPC) and an `Api-Token` with
-   `openTelemetryTrace.ingest`.
+3. One OpenTelemetry pipeline, two exporters. Configure `APM_OTLP_ENDPOINT`,
+   `APM_OTLP_HEADERS`, and `APM_UI_TRACE_URL` for the infrastructure backend.
+   See [the integration reference](docs/DYNATRACE.md) for a vendor-specific example.
 
 **Land.** The trace id is the join key. Operational telemetry goes to the APM,
 AI payloads go to Langfuse, and customer text never reaches the APM.
@@ -299,7 +347,7 @@ room) answer three questions:
 
 ---
 
-## M2 · Evaluation (25 min)
+## M2 · Evaluation (20 min)
 
 ### Act 2.1 — online evaluation on live traffic · EVA-01, EVA-03, EVA-04
 
@@ -308,18 +356,20 @@ internal libraries. What if every production answer were graded the minute it
 happened, with the score next to the trace?"
 
 **Show.**
-1. **Evaluators** (LLM-as-a-Judge) → three judges, all on the root observation
-   of production traffic:
+1. **Evaluators** (LLM-as-a-Judge) → three judges, all on the assistant's own
+   observation of production traffic, and none on a turn the input guardrail
+   blocked (that answer is the fixed refusal; `guardrail-blocked` is the verdict):
    - `faithfulness` (EVA-01) — every claim supported by the retrieved articles
      and tool results (mapped from `metadata.context`)
    - `banking-compliance` (EVA-03, the bank's own evaluator) — conduct policy
      P1–P5: no personalised investment advice, never ask for credentials, no
      pressure selling, no promises, investments ≠ insured deposits
-   - `manipulation-resistance` — two rules on one evaluator: 100% of traffic the
-     guardrail tagged `risk:prompt_injection` / `risk:cross_customer_access` /
-     `risk:social_engineering`,
-     plus a **20% sample** of all other turns (so an attack the rules missed is
-     still judged; no observation is scored twice)
+   - `manipulation-resistance` — rule `manipulation-resistance-sampled`: a
+     **20% sample** of the turns the guardrail let through, so an attack the
+     rules missed is still judged. Turns tagged `risk:prompt_injection` /
+     `risk:cross_customer_access` / `risk:social_engineering` were blocked and
+     are not judged. A disabled rule `manipulation-resistance` is still listed:
+     it used to judge every blocked turn and always scored the refusal 1.0
    Open a rule: filter, **sampling**, variable mapping, judge model.
 2. Open a trace → Scores tab: judge scores **with reasoning**, next to the
    deterministic scores the app writes on every turn (`security-risk`,
@@ -401,15 +451,19 @@ needs to agree with your experts — and you need a rule for which judge model
 is approved."
 
 **Show.**
-1. **Annotation queues** → *SME review — assistant answers*: 30 production
-   answers, including the lowest judge scores. Label one live with `sme-faithfulness`,
-   `sme-compliance` and `sme-failure-mode`.
+1. **Annotation queues** → *SME review — assistant answers*: production answers,
+   worst first — customer thumbs-down and the lowest judge scores, however old,
+   then a random sample. Open a **pending** item and label it live with
+   `sme-faithfulness`, `sme-compliance` and `sme-failure-mode`, then complete it.
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.
 3. **Calibrate the judge and choose the judge model.** Datasets →
-   `judge-calibration/faithfulness`: 16 answers whose correct verdict is
-   **known by construction** — faithful (1.0), a minor imprecision (0.5), or a
-   seeded material error such as a wrong fee or deadline (0.0). The judge prompt
+   `judge-calibration/faithfulness`, two kinds of item (`metadata.source`):
+   16 **synthetic** answers whose correct verdict is **known by construction** —
+   faithful (1.0), a minor imprecision (0.5), or a seeded material error such as
+   a wrong fee or deadline (0.0) — and every **production** answer with an
+   `sme-faithfulness` label, copied with exactly what the live judge saw and
+   linked to its source trace (27 when last run). The judge prompt
    is versioned in Prompt Management (`judge-calibration/faithfulness`, identical
    to the live evaluator). One experiment run per candidate judge model, with a
    Boolean `faithfulness-judge-output-correct` evaluator. Compare the runs
@@ -427,13 +481,34 @@ is approved."
    measured on **rubric v1 with 15 items**. Re-running them (command below) is
    what makes the table comparable.
 
+   Then the slide that matters: the same live judge with the production items
+   added (run `judge · claude-sonnet-4-6 · prompt v2 · 43 items`, 2026-10-18).
+   Overall **0.88**; synthetic **1.00**; production **0.81** (22 of 27). The five
+   misses are all production answers, and the judge reasoning in the run
+   explains each:
+
+   | miss | what happened |
+   |---|---|
+   | 2 × judge 0.0, SME 1.0 | follow-up turns ("And what's the cut-off time…?", "What's the maximum loan-to-value?"): the facts came from an earlier turn, and the context mapped to the judge held only this turn's evidence. An evaluator-input defect, not a judge-prompt one: the agent now appends the last turns to `metadata.context`, and these traces predate that |
+   | 1 × judge 0.5, SME 1.0 | the answer ties credit card 4417 to a charge on the checking account; the judge calls that unsupported, the label let it pass |
+   | 1 × judge 0.5, SME 1.0 | the judge applies the "procedures are claims" rule to "directly within the app", which KB-702 does not say |
+   | 1 × judge 1.0, SME 0.5 | a mortgage answer whose facts all appear in KB-402: the label looks debatable, revisit it before blaming the judge |
+
+   The lesson: synthetic items prove the judge catches planted errors; only
+   production labels show where judge and reviewer disagree, and some
+   disagreements are label problems. Most production labels in this project are
+   scripted stand-ins (`metadata.label_source` = `API`) until an SME reviews
+   them; items labelled in the queue show `ANNOTATION`.
+
    Every candidate catches material errors; they differ on nuance. ~85% overall
    is about human-level agreement — but only if every category is acceptable
    (Haiku's 0.87 hides 60% on minor slips). The newest model is not
    automatically the best judge for *this* prompt: recalibrate whenever the
    judge model or prompt changes. A handful of items per category is a demo — a real
    calibration set needs 50–100 SME-labelled items.
-   Re-run: `.venv/bin/python scripts/judge_calibration_experiment.py`.
+   Re-run: `.venv/bin/python scripts/judge_calibration_experiment.py` (it
+   re-imports the current SME labels; `--synthetic-only` skips them). Each run
+   gets a unique name, so a re-run never appends to an older run.
    With SME labels in the queue, `scripts/judge_calibration.py --bakeoff`
    compares the same candidates against **human** labels.
 4. Selection criteria for the bank-approved judge (in order): agreement with the
@@ -463,7 +538,7 @@ UI experiment. Compare where it fires.
 
 ---
 
-## M3 · Path to production (10 min) · GATE-01..05
+## M3 · Path to production (7 min) · GATE-01..05
 
 Talk over `docs/PATH_TO_PRODUCTION.md`, pointing back at what the room has
 already seen:
@@ -486,7 +561,7 @@ names with a registered score config) and the onboarding checklist for a new tea
 
 ---
 
-## M4 · Enterprise: security, governance, operations (20 min) · ENT-01..04
+## M4 · Enterprise: security, governance, operations (15 min) · ENT-01..04
 
 Everything below is live in the Cloud project and organization, except the
 self-hosted operations, which are walked through in the docs. The bank will
@@ -527,7 +602,7 @@ maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
    (`/api/public/health`, `/api/public/ready`, worker `:3030/api/health`),
    HA (3 ClickHouse replicas + 3 Keeper, managed Postgres/Redis), scaling
    workers on queue depth, backups, semver upgrades, and sending Langfuse's own
-   telemetry to Dynatrace.
+   telemetry to the infrastructure observability backend.
 
 **Raise proactively (trust builders):**
 - With an Enterprise license key a self-hosted instance sends usage telemetry
@@ -540,7 +615,7 @@ maps to on their own deployment (`docs/ENTERPRISE_SECURITY.md`).
 
 ---
 
-## M5 · Experimentation and prompts (15 min) · EXP-01..06
+## M5 · Experimentation and prompts (13 min) · EXP-01..06
 
 ### Act 5.1 — prompt management with dynamic consumption · EXP-04
 
@@ -851,37 +926,3 @@ of the POC — containment, cost per contact, complaints, or conduct risk?"
   science, analytics, architecture?"
 
 ---
-
-## Presenter prep (morning of, ~20 min)
-
-1. `./scripts/up.sh` (n8n + APM stand-in), then restart the MCP server for a
-   clean banking state and start the portal:
-   `kill $(lsof -tiTCP:8765 -sTCP:LISTEN); ./scripts/run_portal.sh`.
-   **Do not skip the restart.** The banking state lives in the MCP server's
-   memory; on 2026-10-08 it was skipped and the running server was already
-   dirty (Ana's card •••4417 blocked), so any block-card step would not behave
-   as scripted.
-2. `.venv/bin/python scripts/verify_demo.py` → must end with **READY** (prompts,
-   datasets, runs, judge rules + fresh judge scores, queue, dashboard, traces per
-   channel, local services).
-3. Warm-up traffic so the last-hour views are populated: Presenter console →
-   *Generate production traffic*, *Spanish traffic*, *Run voice calls*, *Run n8n
-   complaint workflow* (~5 min in total; they can run back to back).
-4. In the Cloud UI: protect the `production` prompt label (Project settings →
-   protected prompt labels) and open Settings → Audit logs to confirm it shows
-   the prompt label moves (a promote + rollback ran overnight). If Audit logs are
-   not visible on this org, present ENT-02 from `docs/ENTERPRISE_SECURITY.md`.
-5. `scripts/prompt_label.py --show`: production = the version you will present
-   (currently **v4**), staging = **v5**, development = **v3**, baseline = **v1**.
-   `previous-production` must show on **v1**, not next to `production` on v4
-   (otherwise a standalone Roll back is a no-op; fix it with
-   `scripts/prompt_label.py --set-previous 1`, or in the UI),
-   and there must be **no untitled v6** (a truncated version with only the
-   `latest` label: delete it in the UI, Prompts → `northwind-assistant-system`;
-   there is no API for a per-version delete).
-   Click **New conversation**; pick EN or ES for the room.
-6. **Required (10 min):** label 8–10 items in the SME queue (`sme-faithfulness`,
-   `sme-compliance`). Without human labels, Scores → Analytics (judge vs human)
-   is empty. Then run `.venv/bin/python scripts/judge_calibration.py --bakeoff`
-   once to have the human-label agreement numbers ready.
-7. Open the tabs in the table at the top.

@@ -251,7 +251,7 @@ The local stack (`../docker-compose.yml`, project `northwind`) mirrors the produ
 | `SALT`, `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`, DB passwords in `.env` | Demo values | Generated, stored in Secrets Manager, rotated. `ENCRYPTION_KEY` = 64 hex chars (`openssl rand -hex 32`) |
 | `TELEMETRY_ENABLED=false` | Intended as "no call-home" | **Has no effect with an EE license**, which always reports aggregated telemetry. Handle it in the egress decision |
 | `AUTH_AZURE_AD_*` (commented out) | Off | Enabled (see [ENTERPRISE_SECURITY.md](ENTERPRISE_SECURITY.md)). Note the linking variable is `AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING` |
-| `jaeger` 2.22.0 (UI :16686, OTLP :14318) | APM stand-in | Dynatrace via an ActiveGate in the VPC (see [DYNATRACE.md](DYNATRACE.md)) |
+| `jaeger` 2.22.0 (UI :16686, OTLP :14318) | Local infrastructure observability | Example: Dynatrace via an ActiveGate in the VPC (see [DYNATRACE.md](DYNATRACE.md)) |
 | `n8n` (`latest`) | Low-code workflows, diagnostics off | The bank's n8n deployment with a **pinned** version. Langfuse has no native n8n tracing ([n8n](https://langfuse.com/integrations/no-code/n8n)): trace the instrumented services n8n calls, and use the Langfuse n8n prompt node |
 | Northwind app (`../northwind/`), run locally | Local Python, keys from `.env` | Container on EKS. Keys from Secrets Manager. One shared TracerProvider exporting to Langfuse and Dynatrace (`../northwind/config.py`) |
 | MCP server (`../northwind/mcp_server.py`, `localhost:8765`) | Streamable HTTP, in-memory data | Internal service behind mTLS / service mesh. Authorization enforced server-side. Trace context passed in MCP `_meta` |

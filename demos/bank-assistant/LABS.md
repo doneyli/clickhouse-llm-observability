@@ -1,26 +1,39 @@
 # Guided labs
 
-Three short labs for attendees, placed inside the workshop (see DEMO_SCRIPT.md).
-They work in two modes:
+Three attendee labs for the [workshop](DEMO_SCRIPT.md). Use one of two modes:
 
 - **Viewer mode** — attendees are invited as **Viewer** to the demo project and
   explore in the Langfuse UI (Labs 1, and the read-only parts of 2–3).
 - **Driver mode** — the presenter drives; the room calls the clicks.
 
-Each lab works in English or Spanish: the portal has an EN | ES toggle, and the
-Spanish golden dataset `northwind-golden-qa-es-v1` mirrors the English one.
+The portal supports English and Spanish. The dedicated Spanish dataset is
+`northwind-golden-qa-es-v1`.
+
+## Before the Labs
+
+The presenter completes [setup and evaluations](README.md#prepare-evaluations)
+and confirms project access for attendees.
+
+| Lab | Required preparation | Completion |
+|---|---|---|
+| 1 | Recent core, security, and optional voice traffic | Identify the retrieval source, cost driver, and guardrail decision. |
+| 2 | LLM connection and rights to create evaluators | Create a complaint-escalation judge and inspect its reasoning. |
+| 3 | English/Spanish prompt experiments | Compare prompt changes and experiment scores. |
+
+Use the time range that contains the prepared traffic. Commands run from
+`demos/bank-assistant`.
 
 ---
 
 ## Lab 1 — Find the failure (8 min) · OBS-01, OBS-03, OBS-04, OBS-05
 
-Viewer mode works for this lab. Set the time range to **last 1 hour**.
+Viewer mode works for this lab. Use **last 1 hour** after generating fresh traffic.
 
 1. **Sessions** (or Traces filtered by tag `channel:whatsapp`) → find a WhatsApp
    conversation about an overdraft fee. Which help-center article did the
    assistant use? *(Open a turn → `kb-retrieval` → output documents → `KB-302`.)*
 2. **Traces**, sort by cost. What drove the most expensive turn — the number of
-   tool iterations, or the context size? *(Count `ChatAnthropic` generations;
+   tool iterations, or the context size? *(Count `generate-response` generations;
    compare input tokens.)*
 3. Filter tags `risk:prompt_injection`. Open a blocked turn: what did the
    `input-guardrail` decide, and did the model ever see the message?
@@ -53,8 +66,10 @@ the room writes the rubric.
 
 ## Lab 3 — Prompt experiment in the UI (5 min, optional) · EXP-02, EXP-04
 
-1. **Prompts → `northwind-assistant-system`** → compare v1 (`production`) with
-   v4 (`staging`): what changed? *(Citations, investment rule, formal Spanish.)*
+1. **Prompts → `northwind-assistant-system`** → compare the versions currently
+   labelled `production` and `staging`: what changed? *(Citations, investment
+   rule, formal Spanish.)* If both labels resolve to the same version, choose
+   the recorded baseline and candidate instead.
 2. **Datasets → `northwind-golden-qa-es-v1` → runs** → compare `production` vs
    `staging`: which metric moved? *(`formal-register`.)*
 3. **Datasets → `northwind-golden-qa-es-v1` → Start experiment** (UI) → pick a
@@ -68,9 +83,11 @@ the room writes the rubric.
 
 ## For attendees who want to try it on their own project
 
+Use your own project's `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and
+`LANGFUSE_BASE_URL` environment variables for this standalone example.
+
 ```python
-# pip install "langfuse>=4.13" langchain-anthropic langgraph
-import os
+# pip install "langfuse>=4.13.1,<5.0"
 from langfuse import get_client, observe, propagate_attributes
 
 langfuse = get_client()        # reads LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL
@@ -78,11 +95,11 @@ langfuse = get_client()        # reads LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
 @observe(as_type="agent", name="my-assistant")
 def answer(question: str) -> str:
     with propagate_attributes(user_id="C-1001", session_id="demo-1", tags=["channel:web"]):
-        return f"echo: {question}"     # call your LangGraph app here
+        return f"echo: {question}"     # call your agent application here
 
 answer("¿Cuánto cuesta una transferencia internacional?")
 langfuse.flush()
 ```
 
-LangGraph/LangChain: pass `langfuse.langchain.CallbackHandler()` in the run
-config — see `northwind/agent.py`.
+For callback-based tracing, import `CallbackHandler` from `langfuse.langchain`
+and pass it in the run configuration; see [agent.py](northwind/agent.py).

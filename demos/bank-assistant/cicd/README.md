@@ -1,50 +1,69 @@
-# Prompt quality gate in CI (EXP-06)
+# Prompt Quality Gate
 
-`scripts/prompt_gate.py` runs a golden dataset against a **labelled** prompt
-version and compares the run-level averages with `thresholds.json`:
+The gate evaluates a labelled `northwind-assistant-system` prompt against
+the English and Spanish golden datasets. It compares run averages with
+[thresholds.json](thresholds.json):
 
-- **hard** thresholds (deterministic metrics: must-include facts, source recall,
-  language match, no unsolicited upsell, formal Spanish register) fail the build;
-- **soft** thresholds (LLM-judge averages such as correctness) only warn —
-  re-running an unchanged prompt moves a judge average by a few points.
+- **Hard thresholds:** deterministic checks; a failed or missing metric exits 1.
+- **Soft thresholds:** LLM-judge averages; a failed or missing metric warns.
+- **Unresolved label:** aborts rather than evaluating the fallback prompt.
+- **Report-only mode:** `--warn-only` returns 0 even when hard checks fail.
 
-A missing metric counts as a failure. A label that does not resolve to a real
-prompt version aborts the run (otherwise the app's fallback prompt would be
-graded and reported as the candidate).
+Dataset-specific thresholds extend the defaults; the Spanish set adds formal
+register and requires perfect language matching.
 
-Per-dataset thresholds live under `per_dataset` (the Spanish golden set adds
-`avg-formal-register` and requires `avg-language-match = 1.0`).
+## Run Locally
 
-## Wiring (live)
-
-```
-Langfuse: save a version / move a label
-  └─► Automation "GitHub Repository Dispatch" (event northwind-prompt-update)
-        └─► .github/workflows/northwind-prompt-gate.yml
-              1. Decide: read prompt name, version, labels from the payload.
-                 Skip (with the reason in the job summary) if it is another prompt,
-                 an unlabelled version, or a label the gate can't resolve.
-              2. Gate EN + ES golden sets on that label (unique run name per CI run).
-                 Job summary: verdict + metric table + link to the Langfuse run.
-              3. "Ship it" runs only if it passed AND the version carries `production`.
-```
-
-Setup: repo secrets `NORTHWIND_LANGFUSE_BASE_URL`, `NORTHWIND_LANGFUSE_PUBLIC_KEY`,
-`NORTHWIND_LANGFUSE_SECRET_KEY`, `ANTHROPIC_API_KEY`; Langfuse project → Prompts →
-Automations → Create Automation → events *Created* + *Updated*, optional filter
-`northwind-assistant-system` → action **GitHub Repository Dispatch** (URL
-`https://api.github.com/repos/<owner>/<repo>/dispatches`, event type
-`northwind-prompt-update`, a GitHub token with Actions + Contents read/write on the
-repo). There is no public API for automations — it is a UI step.
-
-Manual: Actions → *Northwind prompt gate* → Run workflow → `development`
-(blocked) or `staging` (passes). Langfuse also provides `langfuse/experiment-action`;
-this demo keeps its own gate script so hard vs soft thresholds stay explicit.
-
-## Local
+Complete the [quick start](../README.md#quick-start) and
+[evaluation setup](../README.md#prepare-evaluations). MCP must be running.
+Run commands from `demos/bank-assistant`, not `cicd/`.
 
 ```bash
-.venv/bin/python scripts/prompt_gate.py --prompt-label development                                   # exit 1
-.venv/bin/python scripts/prompt_gate.py --prompt-label development --dataset northwind-golden-qa-es-v1 # exit 1
-.venv/bin/python scripts/prompt_gate.py --prompt-label staging --warn-only                           # report only
+.venv/bin/python scripts/prompt_gate.py --prompt-label staging
+.venv/bin/python scripts/prompt_gate.py --prompt-label staging \
+  --dataset northwind-golden-qa-es-v1
 ```
+
+Both gates must exit 0 before promoting the candidate. To demonstrate a
+regression, substitute `development`; the seeded growth prompt is intended
+to fail. Each run consumes model tokens and prints a Langfuse evidence link.
+
+## Set Up GitHub Actions
+
+Use [northwind-prompt-gate.yml](../../../.github/workflows/northwind-prompt-gate.yml)
+in your repository.
+
+1. Add repository secrets: `NORTHWIND_LANGFUSE_BASE_URL`,
+   `NORTHWIND_LANGFUSE_PUBLIC_KEY`, `NORTHWIND_LANGFUSE_SECRET_KEY`,
+   and `ANTHROPIC_API_KEY`. They must point to the same project you seeded.
+2. In Langfuse, open **Prompts > Automations > Create Automation**.
+3. Select prompt **Created** and **Updated** events. Filter to
+   `northwind-assistant-system`.
+4. Choose **GitHub Repository Dispatch**. Set the URL to
+   `https://api.github.com/repos/<owner>/<repo>/dispatches` and event type
+   `northwind-prompt-update`. A fine-grained GitHub token needs repository
+   **Contents: write** permission for this endpoint
+   ([GitHub requirements](https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event)).
+5. In GitHub, open **Actions > Northwind prompt gate > Run workflow**.
+   Run `development`, then `staging`. Check the verdict, metric table,
+   and Langfuse link in each job summary.
+
+Automation setup is a Langfuse UI step. The workflow also supports manual runs.
+
+## Workflow Behavior
+
+```text
+Prompt change -> Repository dispatch -> Select label
+  -> English gate -> Spanish gate -> "Ship it" summary (production only)
+```
+
+The workflow skips other prompts, unlabelled versions, and unsupported labels.
+A skipped run makes no quality claim. A failed gate prevents the dependent
+**Ship it** job; that job only writes a summary and does not move prompt labels.
+
+The assistant reads the `production` label at runtime with a 10-second cache.
+Moving that label changes the served prompt before a dispatched CI run finishes.
+For a release check, evaluate `staging` first, then promote it after both gates
+pass. Enforcing this sequence requires label protection and a controlled
+promotion process; the demonstration workflow alone does not prevent a direct
+`production` label change.

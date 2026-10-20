@@ -3,7 +3,7 @@
 **What this covers:** how the demo puts the same W3C trace id in Langfuse and in an APM, the Dynatrace endpoints and tokens to use (including the no-egress ActiveGate option), the collector alternative and its trap, monitoring Langfuse itself, and alerting and cross-linking.
 **Capability IDs:** OBS-06 (APM correlation); supports OBS-04 (cross-process MCP traces), ENT-03 (no customer text to the APM), GATE-03, GATE-04.
 
-Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](https://docs.dynatrace.com/docs/ingest-from/opentelemetry/getting-started/otlp-export) and [Events API v2](https://docs.dynatrace.com/docs/dynatrace-api/environment-api/events-v2/post-event) pages. Locally, **Jaeger stands in for Dynatrace** (`../docker-compose.yml`, UI `http://localhost:16686`, OTLP `http://localhost:14318/v1/traces`).
+Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](https://docs.dynatrace.com/docs/ingest-from/opentelemetry/getting-started/otlp-export) and [Events API v2](https://docs.dynatrace.com/docs/dynatrace-api/environment-api/events-v2/post-event) pages. **Jaeger provides local infrastructure observability** (`../docker-compose.yml`, UI `http://localhost:16686`, OTLP `http://localhost:14318/v1/traces`). This guide documents Dynatrace as a production integration example.
 
 ## 1. Division of labour
 
@@ -16,7 +16,7 @@ Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](ht
 ## 2. How the demo does it: one TracerProvider, two processors
 
 ```
-            app process (LangGraph agent, MCP client, our spans)
+            app process (banking agent, MCP client, our spans)
                               |
                  TracerProvider  (one W3C trace id per turn)
                  /                                   \
@@ -24,7 +24,7 @@ Checked on 2026-10-07 against the Langfuse docs and Dynatrace's [OTLP export](ht
    AI spans, PII-masked via mask_otel_spans    ALL spans, prompt/completion
    (SDK-side root and app-root handling)       attributes STRIPPED + langfuse.trace_url
                  |                                    |
-             Langfuse                         Dynatrace (local demo: Jaeger)
+             Langfuse                         APM (local: Jaeger)
 ```
 
 The implementation is in `../northwind/config.py`:
@@ -47,11 +47,12 @@ The implementation is in `../northwind/config.py`:
 | Auth header | `Authorization: Api-Token <token>`, a classic access token with scope **`openTelemetryTrace.ingest`** (a platform token uses `Authorization: Bearer <token>` with `openpipeline:traces:ingest`) |
 | Protocol | **OTLP over HTTP with binary protobuf only.** No gRPC, no JSON. `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` |
 
-Demo variables (`../.env.example`) and their Dynatrace values:
+Set these variables in the demo's `.env`, replacing the host, environment ID,
+and token placeholders:
 
-```bash
+```dotenv
 APM_OTLP_ENDPOINT=https://<activegate-host>:9999/e/<env-id>/api/v2/otlp/v1/traces   # full path: passed verbatim to OTLPSpanExporter
-APM_OTLP_HEADERS=Authorization=Api-Token <token with openTelemetryTrace.ingest>
+APM_OTLP_HEADERS="Authorization=Api-Token <token with openTelemetryTrace.ingest>"
 APM_UI_TRACE_URL=https://<env-id>.apps.dynatrace.com/ui/apps/dynatrace.distributedtracing/explorer?traceId={trace_id}
 ```
 
@@ -150,7 +151,10 @@ Map `ALERT` to `CUSTOM_ALERT`, which typically opens a Dynatrace problem; confir
 
 ## 9. Verify locally (5 minutes)
 
-1. `../scripts/up.sh`, then run one assistant turn. The result returns `trace_id`, `trace_url` and `apm_url`.
+Complete the [quick start](../README.md#quick-start). Run commands from
+`demos/bank-assistant`.
+
+1. Run `./scripts/up.sh`, then send one assistant message in the portal. The result returns `trace_id`, `trace_url` and `apm_url`.
 2. Open `apm_url` (Jaeger) and check the same trace id, the agent and MCP server services, and **no** prompt or completion attributes on any span.
 3. Open `trace_url` (Langfuse) and check the same trace id, masked PII, and `apm_trace_url` in the metadata.
-4. To switch to Dynatrace, change the three `APM_*` variables. No code changes.
+4. To switch to Dynatrace, change the three `APM_*` variables, then restart both portal and MCP so they reload configuration.
