@@ -22,7 +22,11 @@ This demo has its own environment and services; use the setup below.
 - Docker with Compose, plus `curl`, `openssl`, and `lsof`.
 - An Anthropic API key for the assistant and judges.
 - A Langfuse Cloud project with project API keys, or the local stack below.
-- Optional: an OpenAI API key for voice, model comparison, and judge-model comparison.
+- Optional: an OpenAI API key for voice, model comparison, judge-model comparison, and
+  decision-model evaluators on `gpt-6-luna`.
+- Optional: a TypeSafe, OpenRouter, or Vercel AI Gateway key for decision-model
+  evaluators on TypeSafe Jev ("Jev as a judge").
+
 - Optional: a Langfuse Enterprise license for local governance demonstrations.
 
 Model calls, traffic generation, and evaluations consume API credits.
@@ -114,11 +118,23 @@ After the quick start:
 
 ```bash
 .venv/bin/python scripts/seed_evals.py
+.venv/bin/python scripts/seed_decision_evals.py
 .venv/bin/python scripts/seed_datasets.py
 .venv/bin/python scripts/seed_dashboard.py
 .venv/bin/python scripts/seed_business_dashboard.py
 .venv/bin/python scripts/generate_traffic.py --scenario all
 ```
+
+`seed_decision_evals.py` adds two decision-model evaluators ("Jev as a judge"),
+`customer-signals` and `conduct-screen`. Together they put 13 typed scores on
+every production turn: hand-off, correction, frustration, complaint,
+vulnerability, scam risk, intent, and conduct rules P1–P5. Each evaluator is
+one call, priced by input tokens only. The evaluators need a TypeSafe LLM
+connection, added once in the Langfuse UI; without one, the script stops with
+instructions. `--provider openai` runs the same questions on OpenAI's
+`gpt-6-luna` through the OpenAI connection, and `--dry-run --test 5` previews
+both evaluators on live turns without writing anything. See
+[Decision-model evaluators](docs/DECISION_MODELS.md).
 
 Check **Evaluators**, **Datasets**, and both Northwind dashboards in Langfuse.
 Managed judge scores arrive asynchronously.
@@ -159,6 +175,7 @@ source. The synthetic items have obvious planted errors, so a judge can score
 |---|---|
 | Prompt comparison (EN + ES), model comparison, and red-team experiments | `./scripts/run_all_experiments.sh` (requires OpenAI for model comparison; inspect both experiment logs in `logs/` for failures) |
 | Judge-rubric calibration experiment | `.venv/bin/python scripts/judge_calibration_experiment.py` |
+| Decision-model act / review / ignore bands, per language | `.venv/bin/python scripts/decision_review_band.py --hours 24` (`--queue 5` sends the most uncertain conduct turns to SME review) |
 | Voice calls | `.venv/bin/python scripts/run_voice_calls.py --lang en --verify` (requires OpenAI; use `--lang es` for Spanish) |
 | Complaint triage | [n8n setup and verification](n8n/README.md) |
 | Prompt gate and GitHub Actions | [CI instructions](cicd/README.md) |
@@ -207,6 +224,7 @@ Stop this demo's containers with `docker compose --profile selfhosted stop`.
 | Langfuse v4 reads, filters, and pagination | [API reference](docs/API_REFERENCE.md) |
 | SSO, RBAC, audit, retention, and export | [Enterprise security](docs/ENTERPRISE_SECURITY.md) |
 | Capacity, availability, backups, and upgrades | [Operations](docs/OPERATIONS.md) |
+| Decision-model evaluators ("Jev as a judge"): when to use them, cost, calibration, no-egress options | [Decision models](docs/DECISION_MODELS.md) |
 | Production gates, cost, and adoption | [Path to production](docs/PATH_TO_PRODUCTION.md) |
 | Infrastructure observability | [APM integration example](docs/DYNATRACE.md) |
 | Java instrumentation | [Spring AI](docs/SPRING_AI.md) |
@@ -218,6 +236,9 @@ Stop this demo's containers with `docker compose --profile selfhosted stop`.
   judges can check "your card ending 1111". The n8n workflow has separate
   [masking limits](n8n/README.md#pii-masking).
 - Runtime guardrails and judges do not cover every attack. Review the red-team results.
+- Decision-model evaluators give no rationale and read literally. Jev 1.13 is less
+  accurate on Spanish text. Their thresholds are starting points until SME labels
+  calibrate them per language.
 - Golden datasets are small (16 English-set items, 10 Spanish-set items); small score
   differences do not establish a reliable improvement.
 - Banking state is held in MCP memory. Restart it before rehearsing actions that

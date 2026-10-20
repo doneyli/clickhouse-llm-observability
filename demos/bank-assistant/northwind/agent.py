@@ -12,7 +12,9 @@ Northwind Bank retail assistant — a LangGraph agent instrumented with Langfuse
 What lands in Langfuse for ONE customer turn (one trace):
   * root `agent` observation `northwind-assistant` — input = customer message,
     output = answer, metadata.context = every piece of evidence the model saw
-    (what LLM-as-a-judge evaluators grade against)            OBS-01, EVA-01
+    (what LLM-as-a-judge evaluators grade against)            OBS-01, EVA-01;
+    metadata.conversation_history + tools_used (what the decision-model
+    evaluators read, see decision_evals.py)                   EVA-04
   * LangGraph nodes, LLM generations (tokens, cost, latency), tool calls —
     auto-captured by the Langfuse LangChain CallbackHandler        OBS-01, OBS-05
   * `retriever` observation with document ids, sources, scores      OBS-03
@@ -44,7 +46,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from opentelemetry import trace as otel_trace
 
-from northwind import business, config, knowledge, lang, masking, prompts
+from northwind import business, config, decision_evals, knowledge, lang, masking, prompts
 
 TRACE_NAME = "northwind-assistant"
 # Every model call in the agent loop, whatever the provider. LangChain would name it after
@@ -481,6 +483,11 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
                 context += "\n\n[earlier in this conversation]\n" + prior
             root.update(output=answer, metadata={
                 "context": context,
+                # The earlier turns alone, for the decision-model evaluators
+                # (northwind/decision_evals.py): `context` would bury them under the
+                # retrieved articles, and a decision model loses accuracy on state
+                # it does not need.
+                "conversation_history": prior or decision_evals.NO_HISTORY,
                 "tools_used": ",".join(used) or "none", "cited_sources": ",".join(cited) or "none",
                 "retrieved_sources": ",".join(retrieved) or "none",
                 "prompt_version": str(getattr(lf_prompt, "version", "fallback")),
