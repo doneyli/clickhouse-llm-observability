@@ -1,11 +1,12 @@
 # Evals-first walkthrough video — storyboard
 
 A narrated screenshot walkthrough of
-[DEMO_SCRIPT_EVALS_FIRST.md](../DEMO_SCRIPT_EVALS_FIRST.md), about **9–10
-minutes**. It follows the live demo's five acts, but leaves out the **Ask**
-beats (they are for a live room) and keeps the **Land** lines as the narration
-that closes each act. Every scene below lists what to capture, what to
-highlight, the caption, and the voice-over.
+[DEMO_SCRIPT_EVALS_FIRST.md](../DEMO_SCRIPT_EVALS_FIRST.md), about **10–11
+minutes**. It follows the live demo's acts, including the Act 2.5
+decision-model beat, but leaves out the **Ask** beats (they are for a live
+room) and keeps the **Land** lines as the narration that closes each act. Every
+scene below lists what to capture, what to highlight, the caption, and the
+voice-over.
 
 Northwind Bank is fictional and all data is synthetic. Ids and numbers were
 re-read from the Cloud project `northwind-bank-assistant` on 2026-10-18.
@@ -139,6 +140,35 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 - Caption: "The judge only saw this turn"
 - VO: "Read the disagreements. Here the judge says there's no evidence in the context, but this is a follow-up turn. The facts came from the previous turn's search, which the judge never saw. That was a bug in the evaluator's input, not in the agent, and only a human comparison could find it. It's fixed now: the agent passes the last turns to the judge."
 
+### Act 2.5 · Every turn, every rule, one call (93 s)
+
+Scene ids D1–D4 leave the S-numbers unchanged. The decision-model scores were
+re-read on 2026-10-20. Both evaluators run on OpenAI's `gpt-6-luna`, because the
+project has no TypeSafe connection for Jev yet. Background:
+[DECISION_MODELS.md](DECISION_MODELS.md).
+
+**D1 · The price of a yes** — 22 s · slide
+- Content: "13 yes/no signals · 1M turns a month" / "as LLM judges ≈ $35,000" / "as 2 decision-model calls ≈ $330".
+- Caption: "Every turn, every rule, one call"
+- VO: "Most of what a bank wants to know about each conversation is a yes or a no: a request for a person, a complaint, a scam in progress. Thirteen such signals as LLM judges would cost about thirty-five thousand dollars a month at a million turns. As decision models, about three hundred and thirty."
+
+**D2 · One flag per rule** — 22 s · `LF` → Evaluators → `conduct-screen` → test panel on the root observation of trace `77f9c9ff2d45e2ff9b761bccd0b67bee`
+- Capture: D2a, the evaluator: type **Decision model** and its six questions; D2b, the test result (fallback: the trace's Scores tab).
+- Highlight: D2a, the type and the question names; D2b, `conduct-unsolicited-upsell` (the live rule scored this trace 0.86), the other five at 0, and the cost estimate.
+- Caption: "One call, six rules, a probability each"
+- VO: "A decision model doesn't write text: it answers typed questions, each with a probability. This one asks six, one per conduct rule, in a single call. On an old-prompt answer that offers an upgrade, the upsell rule fires and the other five stay near zero, for a fiftieth of a cent."
+
+**D3 · A conversation signal** — 22 s · `LF/traces/22e6b8f41999ef8f77a7853855bff925` → Scores
+- Capture: D3a, the turn's input (*"Además me llamó alguien del banco…"*); D3b, the Scores tab.
+- Highlight: D3b, `signal-scam-risk` 1, `signal-vulnerability` 1 and `guardrail-blocked` 0; a smaller box on `customer-intent` = `fraud-report` next to the app's `intent` = `other`.
+- Caption: "Vulnerable, and being scammed"
+- VO: "Two turns in Spanish. I lost my job and can't pay my card. Then: someone from the bank called and told me to move my savings to a safe account. Scam risk: one. Vulnerability: one, read from the earlier turn. No guardrail fires: the assistant isn't under attack, the customer is."
+
+**D4 · Act, review, ignore** — 27 s · slide
+- Content: three bands, "≥ 0.7 · act: complaint case, fraud team, vulnerable-customer desk" / "0.3–0.7 · a person reviews → SME queue" / "< 0.3 · ignore"; footer "No rationale · Jev 1.13 is weaker in Spanish → one threshold per language".
+- Caption: "A probability buys a third path"
+- VO: "Every flag is a probability, so it gets three paths: act above point seven, a person between point three and point seven, ignore below. Two limits: there's no rationale, so the LLM judge still writes the reason. And Jev one point one three is weaker in Spanish, so each language gets its own threshold. Decision models are how you look at every conversation, not a sample."
+
 ### Act 3 · Is the new prompt better? (80 s)
 
 **S17 · The golden set is the spec** — 15 s · `LF/datasets/cmuz1xuy1050yad0es71jynk1` → one item
@@ -217,14 +247,14 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 - Content: repo path `demos/bank-assistant` · "Northwind Bank is fictional; all data is synthetic."
 - No VO.
 
-**Running time:** about 568 s planned (≈ 9 min 30 s) before VO padding.
+**Running time:** about 661 s planned (≈ 11 min) before VO padding.
 
 ---
 
 ## Build steps
 
-1. **Slides:** render S00, S01, S08, S15, S21, S24, S30, S31, S32 as HTML at
-   1920×1080 → `slides/Sxx.png`.
+1. **Slides:** render S00, S01, S08, S15, D1, D4, S21, S24, S30, S31, S32 as
+   HTML at 1920×1080 → `slides/Sxx.png` (`slides/Dx.png`).
 2. **Screens:** for each remaining scene, navigate, wait for the data to load, take
    the still → `shots/Sxx[a|b].png`. Record the highlight box (x, y, w, h in
    capture pixels) and any zoom crop in `shots.json`. Check every number on
