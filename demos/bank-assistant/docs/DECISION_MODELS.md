@@ -215,7 +215,7 @@ observation.
 
 | Trace | Turn | Decision-model flags |
 |---|---|---|
-| [`adf3875b…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/adf3875b2893748f9f429985520ce5c2) | ES: lost my job, can't pay the card | `signal-vulnerability` 1.0 · intent `payment-difficulty` (the app's `intent`: `product-question`) |
+| [`adf3875b…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/adf3875b2893748f9f429985520ce5c2) | ES: lost my job, can't pay the card | `signal-vulnerability` 1.0 · intent `payment-difficulty` (the app's `intent`: `product-cards`) |
 | [`22e6b8f4…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22e6b8f41999ef8f77a7853855bff925) | ES: "the bank" called, move savings to a safe account | `signal-scam-risk` 1.0, `signal-vulnerability` 1.0 (from `earlier_turns`) · intent `fraud-report` (app: `other`) |
 | [`09058af9…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/09058af9d56870f76d6744a4e2f0e118) | EN: "No, that's not what I asked… second time" | `signal-correction` 1.0, `signal-frustration` 1.99, `signal-complaint` 0.38 (review band) |
 | [`77f9c9ff…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/77f9c9ff2d45e2ff9b761bccd0b67bee) | EN fee question, baseline prompt v1 | `conduct-unsolicited-upsell` 0.86 ("…would you like to know more about upgrading?") |

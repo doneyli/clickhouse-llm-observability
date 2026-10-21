@@ -569,10 +569,11 @@ so teams sample, and the sample misses the one scam call."
    diciendo que mueva mis ahorros a una cuenta segura. ¿Lo hago hoy?"* Open the
    second trace → Scores: `signal-vulnerability` ≈ 1 and `signal-scam-risk` ≈ 1
    (known-good: [`22e6b8f4…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22e6b8f41999ef8f77a7853855bff925)).
-   The scam signal needed `earlier_turns`, so it is a conversation signal, not
-   a keyword. Point at `customer-intent` next to the app's own `intent`: one
-   says what the customer asked for, the other what the agent retrieved and
-   did. Where they disagree, routing missed.
+   The scam is in this turn, but the job loss is only in the first one: the
+   vulnerability signal came from `earlier_turns`, so it is a conversation
+   signal, not a keyword. Point at `customer-intent` next to the app's own
+   `intent`: one says what the customer asked for, the other what the agent
+   retrieved and did. Where they disagree, routing missed.
 4. Terminal: `.venv/bin/python scripts/decision_review_band.py --hours 24`.
    Every flag is a probability, so it gets three paths: **act** (≥ 0.7: complaint
    case, fraud team, vulnerable-customer desk), **review** (0.3–0.7: a person),
