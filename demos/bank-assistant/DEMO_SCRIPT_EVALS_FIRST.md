@@ -399,16 +399,16 @@ analytics, architecture?"
 
 | What | Where | Why it matters |
 |---|---|---|
-| Deterministic scores on every turn (safety, language, register, citations) | `northwind/agent.py:528` `_score_turn` | free, instant, the backbone of the gate |
-| Business-outcome scores (`task-outcome`, `contained`, `value-usd`, `failure-mode`) | `northwind/agent.py:560` `_score_business` | ties quality to what the sponsor measures |
-| `dispute-resolved` outcome score | `northwind/agent.py:583` `_score_dispute` | the score that caught what the judges missed (Act 5) |
-| Judge targeting: root observation, production only, minus blocked turns | `scripts/seed_evals.py:39` `ROOT_FILTER`, `:50` `ANSWERED_FILTER` | experiment traces and fixed refusals never burn judge tokens |
-| Retired rules are disabled, never deleted | `scripts/seed_evals.py:53` `RETIRED_RULES` | the rule history stays auditable |
-| Managed judges as code: variable mapping, faithfulness rubric v2, 20% sampled safety net | `scripts/seed_evals.py:55` `MAPPING`, `:61` `FAITHFULNESS`, `:112` `JUDGES` | judges are versioned and reviewable like any code |
-| Offline evaluators | `northwind/evals.py:43` `must_include`, `:83` `formal_register`, `:92` `no_unsolicited_upsell`, `:132` `dispute_opened`, `:173` `correctness` | plain Python functions; the same ones run in CI |
-| Run-level averages the gate reads | `northwind/evals.py:197` `averages` | one number per metric per run |
+| Deterministic scores on every turn (safety, language, register, citations) | `northwind/agent.py:526` `_score_turn` | free, instant, the backbone of the gate |
+| Business-outcome scores (`task-outcome`, `contained`, `value-usd`, `failure-mode`) | `northwind/agent.py:558` `_score_business` | ties quality to what the sponsor measures |
+| `dispute-resolved` outcome score | `northwind/agent.py:581` `_score_dispute` | the score that caught what the judges missed (Act 5) |
+| Judge targeting: root observation, production only, minus blocked turns | `scripts/seed_evals.py:42` `ROOT_FILTER`, `:53` `ANSWERED_FILTER` | experiment traces and fixed refusals never burn judge tokens |
+| Retired rules are disabled, never deleted | `scripts/seed_evals.py:56` `RETIRED_RULES` | the rule history stays auditable |
+| Managed judges as code: variable mapping, faithfulness rubric v2, 20% sampled safety net | `scripts/seed_evals.py:63` `MAPPING`, `:69` `FAITHFULNESS`, `:105` `JUDGES` | judges are versioned and reviewable like any code |
+| Offline evaluators | `northwind/evals.py:44` `must_include`, `:84` `formal_register`, `:93` `no_unsolicited_upsell`, `:133` `dispute_opened`, `:188` `correctness` | plain Python functions; the same ones run in CI |
+| Run-level averages the gate reads | `northwind/evals.py:215` `averages` | one number per metric per run |
 | Experiment runner | `scripts/run_experiment.py:71` `ds.run_experiment(...)` | runs the full agent (RAG + MCP tools) on every item |
-| Gate logic: hard fails, soft warns, exit 1 | `scripts/prompt_gate.py:70`, thresholds in `cicd/thresholds.json` | the "no" is automatic |
-| Calibration set: synthetic + production items | `scripts/judge_calibration_experiment.py:143` `production_items`, `:162` `seed` | production labels, with exactly what the judge saw |
-| Calibration scoring | `scripts/judge_calibration_experiment.py:227` `correct`, `:233` `accuracy` | accuracy per source and category, not one blended number |
+| Gate logic: hard fails, soft warns, exit 1 | `scripts/prompt_gate.py:69`, thresholds in `cicd/thresholds.json` | the "no" is automatic |
+| Calibration set: synthetic + production items | `scripts/judge_calibration_experiment.py:144` `production_items`, `:163` `seed` | production labels, with exactly what the judge saw |
+| Calibration scoring | `scripts/judge_calibration_experiment.py:243` `correct`, `:249` `accuracy` | accuracy per source and category, not one blended number |
 | Judge vs human agreement (kappa, pass ≥ 0.75) | `scripts/judge_calibration.py` | the numbers in Act 2 step 5 |
