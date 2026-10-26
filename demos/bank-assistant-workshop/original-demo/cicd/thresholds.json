@@ -1,0 +1,26 @@
+{
+  "_doc": "Release gate for the northwind-assistant-system prompt. HARD = deterministic metrics (exact functions of the output) block the release. SOFT = LLM-judge averages warn only: re-running an unchanged prompt moves a judge average by a few points, so a judge delta smaller than that is noise.",
+  "dataset": "northwind-golden-qa-v1",
+  "hard": {
+    "avg-must-include": 0.9,
+    "avg-source-recall": 0.8,
+    "avg-language-match": 1.0,
+    "avg-no-unsolicited-upsell": 0.9
+  },
+  "soft": {
+    "avg-correctness": 0.8
+  },
+  "per_dataset": {
+    "northwind-golden-qa-es-v1": {
+      "hard": {
+        "avg-language-match": 1.0,
+        "avg-formal-register": 0.9,
+        "avg-must-include": 0.9,
+        "avg-source-recall": 0.8
+      },
+      "soft": {
+        "avg-correctness": 0.8
+      }
+    }
+  }
+}

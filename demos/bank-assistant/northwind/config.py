@@ -152,6 +152,16 @@ def _payload_free_exporter(inner):
 _provider = None
 _langfuse = None
 
+# LangGraph routing functions (conditional edges): a one-word branch decision with no
+# children, two to four per turn. Dropped from the Langfuse export only, so the tree
+# shows the agent's steps; the APM copy keeps every span.
+_ROUTING_SPANS = frozenset({"route_after_guardrail", "tools_condition"})
+
+
+def _export_to_langfuse(span) -> bool:
+    from langfuse.span_filter import is_default_export_span
+    return is_default_export_span(span) and span.name not in _ROUTING_SPANS
+
 
 def tracer_provider(service_name: str = "northwind-assistant"):
     """The process-wide provider. APM processor attached first, Langfuse second."""
@@ -205,6 +215,7 @@ def get_langfuse(service_name: str = "northwind-assistant"):
         release=RELEASE,
         sample_rate=SAMPLE_RATE,
         tracer_provider=provider,
+        should_export_span=_export_to_langfuse,
         **({"mask_otel_spans": masking.mask_otel_spans} if masking.enabled() else {}),
     )
     return _langfuse
