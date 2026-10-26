@@ -26,7 +26,7 @@ for a screenshot walkthrough video is in
 | 0:00–2:00 | Open: define "good" before you look at a trace | quality = five questions, each one an evaluator | slide |
 | 2:00–8:00 | 1 · Every answer gets graded | deterministic checks + LLM judges + humans on live traffic | portal → trace Scores tab → Evaluators |
 | 8:00–12:00 | 2 · Grade the grader | a judge is a model; calibrate it on production labels before you trust it | `judge-calibration/faithfulness` runs, SME queue |
-| 12:00–15:00 | 2.5 · Every turn, every rule, one call | decision models: typed yes/no signals on every turn at about 1% of a judge's cost, routed by probability | `conduct-screen` test panel → 🇪🇸 trace Scores |
+| 12:00–15:00 | 2.5 · Every turn, every rule, one call | decision models: typed yes/no signals on every turn, P1–P5 for under 1% of what the policy judges cost, routed by probability | `conduct-screen` test panel → 🇪🇸 trace Scores |
 | 15:00–18:30 | 3 · Is the new prompt better? | golden datasets + experiments; decide on deterministic metrics | dataset compare view (EN + ES) |
 | 18:30–22:30 | 4 · Let the gate say no | the judge would have shipped a regression; hard checks blocked it | GitHub Actions run + `cicd/thresholds.json` |
 | 22:30–27:30 | 5 · Production teaches the dataset | evaluate outcomes; a production failure becomes a regression test | business dashboard → trace → disputes dataset |
@@ -35,7 +35,8 @@ for a screenshot walkthrough video is in
 Two steps are live: the chat turn in Act 1, and one decision-model test call in
 Act 2.5 (about a second, writes no score). Everything else opens recorded runs
 whose numbers were re-read from the Cloud project on 2026-10-18 (Act 2.5 on
-2026-10-20). That keeps the 30 minutes predictable.
+2026-10-20; the policy-judge figures on 2026-10-26). That keeps the 30 minutes
+predictable.
 
 **Running long?** In Act 2, give the judge-model table in one line ("the newest
 model scored lowest") and keep the synthetic-vs-production and judge-vs-human
@@ -56,7 +57,7 @@ from a bank's assistant mean? Five questions, and every one becomes a score."
 | The bank asks | Evaluator in this demo | Kind |
 |---|---|---|
 | Is it true, given what the assistant was shown? | `faithfulness` (offline: `correctness`, `must-include`, `source-recall`) | LLM judge + deterministic |
-| Is it allowed under our conduct policy? | `banking-compliance` (rules P1–P5), `conduct-screen` (one flag per rule), `no-unsolicited-upsell` | LLM judge + decision model + deterministic |
+| Is it allowed under our conduct policy? | `banking-compliance-p1` … `-p5` (one judge per rule; `banking-compliance` derived), `conduct-screen` (one flag per rule), `no-unsolicited-upsell` | LLM judges + decision model + deterministic |
 | Is it safe? | `guardrail-blocked`, `security-risk`, `pii-in-input`, `manipulation-resistance` | deterministic + LLM judge |
 | Is it in the customer's language and our register? | `language-match`, `formal-register` (Spanish *usted*) | deterministic |
 | Did the customer get what they came for? | `task-outcome`, `contained`, `dispute-resolved`, `value-usd` | deterministic (business outcome) |
@@ -85,24 +86,29 @@ the evidence."
    `declined-advice`, `advisor-offered`, `failure-mode`, `value-usd`,
    `turn-cost-usd`, `turn-latency-s`. These scores cost nothing and run on
    every turn.
-3. Refresh after a few seconds (the judge took a median of 6 s and p90 9 s on
-   this project) → `banking-compliance` and `faithfulness` arrive **with
-   reasoning**. Read the compliance reasoning aloud: it names the policy rules
-   it checked.
-   *Fallback if the judge is slow:* the same question, already scored:
-   [`b31717e3…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/b31717e318b6bbea090b177effd841cb)
-   (compliance 1.0, faithfulness 1.0, advisor offered).
-4. **Evaluators** (LLM-as-a-Judge) → three judges. The two decision-model
-   evaluators on the same page come in Act 2.5. Open the
-   `banking-compliance` rule:
+3. Refresh after a few seconds (all verdicts were in about 6 s after the turn on
+   this project) → `faithfulness` and five conduct-policy judges arrive **with
+   reasoning**, one judge per rule (`banking-compliance-p1-investment-advice` …
+   `-p5-deposit-insurance`), each `pass`, `fail` or `unknown`. The portal
+   derives the `banking-compliance` headline from them (1 = all five pass), with
+   `-status` and `-coverage` next to it. Read the P1 explanation aloud: it is
+   the rule this question tests.
+   *Fallback if the judges are slow:* the same question, already scored:
+   [`b2421eff…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/b2421eff4fbc8578827619de4574f891)
+   (five `pass`, `banking-compliance` 1.0 `compliant`, `faithfulness` 1.0).
+4. **Evaluators** (LLM-as-a-Judge) → seven judges: `faithfulness`, the five
+   policy judges and `manipulation-resistance`. The single compliance judge
+   they replaced stays listed, its rule disabled, so its history stays
+   auditable. The two decision-model evaluators on the same page come in
+   Act 2.5. Open the `banking-compliance-p1-investment-advice` rule:
    - **target:** the assistant's root observation (`northwind-assistant`),
      environment `production`, **minus the turns the guardrail blocked**
      (tags `risk:prompt_injection`, `risk:cross_customer_access`,
      `risk:social_engineering`). Experiment traces never burn judge tokens.
-   - **variable mapping:** `{{query}}` ← input, `{{generation}}` ← output.
-     For `faithfulness`, `{{context}}` ← `metadata.context`, which holds the
-     articles and tool results the model actually saw. *This is why we trace: the
-     trace is the evidence the judge reads.*
+   - **variable mapping:** `{{query}}` ← input, `{{generation}}` ← output,
+     `{{context}}` ← `metadata.context`, which holds the articles and tool
+     results the model actually saw. *This is why we trace: the trace is the
+     evidence the judge reads.*
    - **sampling:** 100%.
 5. Two cost decisions sit in these rules:
    - **Don't judge what you already decided.** A blocked turn always gets the
@@ -204,13 +210,15 @@ labels a week could they give?"
 
 ## Act 2.5 · Every turn, every rule, one call (3 min) — decision models
 
-**Frame.** "The judge you just calibrated costs about $0.004 and two seconds per
-answer. That's the right price for faithfulness. But most of what a bank wants
-to know about every conversation is a yes or a no. Did the customer ask for a
-person? Is this a complaint we must log? Is someone talking them into moving
-their savings? Thirteen signals like that, as LLM judges, would cost about
-$35,000 a month at a million turns. So teams sample, and the sample misses the
-one scam call. As two decision-model calls, the same signals cost about $330."
+**Frame.** "The judge you just calibrated costs about $0.004 per answer, and
+conduct takes five of them, one per policy. That's about two cents a turn, or
+$19,000 a month at a million turns. It's the right price where you need a
+reason. But most of what a bank wants to know about every conversation is a
+yes or a no. Did the customer ask for a person? Is this a complaint we must
+log? Is someone talking them into moving their savings? Pay a judge for each
+of those and teams sample, and the sample misses the one scam call. Two
+decision-model calls answer thirteen such questions, the five conduct rules
+included, for about $330 a month."
 
 **Show.**
 1. **Evaluators** → `conduct-screen`, type **Decision model**. It writes no
@@ -224,9 +232,11 @@ one scam call. As two decision-model calls, the same signals cost about $330."
    ([`77f9c9ff…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/77f9c9ff2d45e2ff9b761bccd0b67bee)).
    `conduct-unsolicited-upsell` fires (the live rule scored this trace
    **0.86**) and the other five stay at 0. It costs about $0.0002 and takes
-   about a second. On the same trace, `banking-compliance` wrote **0.5** and
-   "P3 violation" for 15–18× the price. That's the trade: one flag per rule
-   with a probability, cheap enough for every turn, or one score with a reason.
+   about a second. The five policy judges score the same rules in five calls,
+   each with a written reason: about $0.019 and 6 s a turn, roughly **120×**
+   `conduct-screen`. (This trace predates them; the single judge they replaced
+   gave it 0.5, "P3 violation".) That's the trade: one flag per rule with a
+   probability, cheap enough for every turn, or one reason per rule.
 2. 🇪🇸 A two-turn conversation: *"Perdí mi trabajo y no puedo pagar la tarjeta
    este mes."*, then *"Además me llamó alguien del banco diciendo que mueva mis
    ahorros a una cuenta segura. ¿Lo hago hoy?"* Open the second turn →
@@ -253,8 +263,8 @@ one scam call. As two decision-model calls, the same signals cost about $330."
    sends the most uncertain conduct turns to the SME queue from Act 2, so the
    decision model decides where the expert's hour goes.
 
-**Candour.** A decision model gives **no rationale**, so the LLM judge still
-writes the reason an auditor reads. Jev 1.13 is also **weaker in Spanish**: an
+**Candour.** A decision model gives **no rationale**, so the policy judges
+still write the reason an auditor reads. Jev 1.13 is also **weaker in Spanish**: an
 independent study measured 3–6 points lower accuracy, and over-confidence. So
 the instructions stay in English, and each language gets its own threshold from
 SME labels.
@@ -441,9 +451,10 @@ analytics, architecture?"
    n8n nor the APM stand-in. If you haven't run `./scripts/up.sh`, their checks
    (and the `n8n-complaint-triage` trace check) are the failures you can ignore.
 4. The judge rules on the project come from this version of
-   `scripts/seed_evals.py`: judges skip blocked turns, and the 100%-on-attacks
+   `scripts/seed_evals.py`: judges skip blocked turns, the five policy judges
+   replace the single `banking-compliance` rule, and the 100%-on-attacks
    `manipulation-resistance` rule is disabled. An older `seed_evals.py` would
-   re-enable it, so don't run one against the project.
+   re-enable the retired rules, so don't run one against the project.
 5. The decision-model evaluators `customer-signals` and `conduct-screen` and
    their rules come from `scripts/seed_decision_evals.py` (see
    [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md#set-up)). Run the
@@ -455,7 +466,7 @@ analytics, architecture?"
    v5, development = v3, baseline + previous-production = v1. This cut moves no
    labels.
 8. Rehearse the bitcoin chip once and look at its Scores tab before the room does.
-9. Open the tabs: portal · trace fallback `b31717e3…` · Evaluators · calibration
+9. Open the tabs: portal · trace fallback `b2421eff…` · Evaluators · calibration
    dataset · SME queue · `conduct-screen` evaluator · traces `77f9c9ff…`,
    `22e6b8f4…`, `09058af9…` · golden EN + ES compare · GitHub run 37786226009 ·
    business dashboard · disputes hero trace · disputes dataset compare.
@@ -484,6 +495,7 @@ analytics, architecture?"
 | Judge targeting: root observation, production only, minus blocked turns | `scripts/seed_evals.py:42` `ROOT_FILTER`, `:53` `ANSWERED_FILTER` | experiment traces and fixed refusals never burn judge tokens |
 | Retired rules are disabled, never deleted | `scripts/seed_evals.py:56` `RETIRED_RULES` | the rule history stays auditable |
 | Managed judges as code: variable mapping, faithfulness rubric v2, 20% sampled safety net | `scripts/seed_evals.py:63` `MAPPING`, `:69` `FAITHFULNESS`, `:105` `JUDGES` | judges are versioned and reviewable like any code |
+| Conduct policy judges and the derived headline | `northwind/compliance.py:62` `POLICIES`, `:148` `aggregate`; `scripts/sync_compliance.py` | one reason per rule; a missing verdict never counts as a pass |
 | Offline evaluators | `northwind/evals.py:44` `must_include`, `:84` `formal_register`, `:93` `no_unsolicited_upsell`, `:133` `dispute_opened`, `:188` `correctness` | plain Python functions; the same ones run in CI |
 | Run-level averages the gate reads | `northwind/evals.py:215` `averages` | one number per metric per run |
 | Experiment runner | `scripts/run_experiment.py:71` `ds.run_experiment(...)` | runs the full agent (RAG + MCP tools) on every item |

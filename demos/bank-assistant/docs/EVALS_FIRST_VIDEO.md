@@ -59,21 +59,21 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 - Caption: "A live production turn"
 - VO: "A customer asks the assistant whether to put their savings in bitcoin. The assistant declines to give investment advice and offers to book a licensed advisor. That answer is now being graded."
 
-**S03 · Deterministic scores** — 20 s · trace from S02 → Scores tab (fallback `LF/traces/b31717e318b6bbea090b177effd841cb`)
+**S03 · Deterministic scores** — 20 s · trace from S02 → Scores tab (fallback `LF/traces/b2421eff4fbc8578827619de4574f891`)
 - Capture: Open in Langfuse → Scores tab, before the judges land, if possible.
 - Highlight: box the app-written scores (`security-risk`, `guardrail-blocked`, `pii-in-input`, `language-match`, `intent`, `task-outcome`, `advisor-offered`, `turn-cost-usd`).
 - Caption: "Free checks, every turn"
 - VO: "Open the trace and go straight to the scores. The app has already written its deterministic checks: security risk, the guardrail's decision, PII, language, the customer's intent, the outcome, cost and latency. They cost nothing and run on every turn."
 
 **S04 · Judge scores with reasoning** — 15 s · same trace, after refresh
-- Highlight: zoom on `banking-compliance` = 1 and its reasoning ("Compliant. … declines to recommend Bitcoin …"); smaller box on `faithfulness`.
+- Highlight: zoom on the five policy verdicts (`banking-compliance-p1` … `-p5` = `pass`) and the P1 explanation ("…declined to recommend Bitcoin…"); smaller boxes on the derived `banking-compliance` = 1 and on `faithfulness`.
 - Caption: "LLM judges, with reasoning"
-- VO: "Seconds later the LLM judges arrive: faithfulness, and the bank's own compliance judge, which scores the answer against conduct rules P1 to P5 and explains why."
+- VO: "Seconds later the LLM judges arrive: faithfulness, and five compliance judges, one per conduct rule, each explaining its verdict. Together they set the compliance headline."
 
 **S05 · Evaluators list** — 10 s · `LF` → Evaluators (LLM-as-a-Judge)
-- Highlight: the three judges `faithfulness`, `banking-compliance`, `manipulation-resistance`.
-- Caption: "Three judges, defined as code"
-- VO: "Three judges are defined in the project, as code, and they run on production traffic automatically."
+- Highlight: the seven active judges: `faithfulness`, `banking-compliance-p1` … `-p5`, `manipulation-resistance`.
+- Caption: "Seven judges, defined as code"
+- VO: "Seven judges are defined in the project, as code, and they run on production traffic automatically."
 
 **S06 · A rule: target, mapping, sampling** — 25 s · Evaluators → `faithfulness` rule
 - Capture: open the rule detail so that the filter, variable mapping and sampling are all visible (two stills if they don't fit: S06a filter + sampling, S06b mapping).
@@ -140,17 +140,17 @@ Base URL `LF` = `https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f
 - Caption: "The judge only saw this turn"
 - VO: "Read the disagreements. Here the judge says there's no evidence in the context, but this is a follow-up turn. The facts came from the previous turn's search, which the judge never saw. That was a bug in the evaluator's input, not in the agent, and only a human comparison could find it. It's fixed now: the agent passes the last turns to the judge."
 
-### Act 2.5 · Every turn, every rule, one call (93 s)
+### Act 2.5 · Every turn, every rule, one call (97 s)
 
 Scene ids D1–D4 leave the S-numbers unchanged. The decision-model scores were
 re-read on 2026-10-20. Both evaluators run on OpenAI's `gpt-6-luna`, because the
 project has no TypeSafe connection for Jev yet. Background:
 [DECISION_MODELS.md](DECISION_MODELS.md).
 
-**D1 · The price of a yes** — 22 s · slide
-- Content: "13 yes/no signals · 1M turns a month" / "as LLM judges ≈ $35,000" / "as 2 decision-model calls ≈ $330".
+**D1 · The price of a yes** — 26 s · slide
+- Content: "at 1M turns a month" / "P1–P5 as 5 policy judges ≈ $19,000" / "13 yes/no questions as 2 decision-model calls ≈ $330".
 - Caption: "Every turn, every rule, one call"
-- VO: "Most of what a bank wants to know about each conversation is a yes or a no: a request for a person, a complaint, a scam in progress. Thirteen such signals as LLM judges would cost about thirty-five thousand dollars a month at a million turns. As decision models, about three hundred and thirty."
+- VO: "Conduct alone takes five judge calls per turn, one per policy: about nineteen thousand dollars a month at a million turns. But most of what a bank wants to know is a yes or a no: a request for a person, a complaint, a scam in progress. Two decision-model calls answer all of it, conduct included, for about three hundred and thirty."
 
 **D2 · One flag per rule** — 22 s · `LF` → Evaluators → `conduct-screen` → test panel on the root observation of trace `77f9c9ff2d45e2ff9b761bccd0b67bee`
 - Capture: D2a, the evaluator: type **Decision model** and its six questions; D2b, the test result (fallback: the trace's Scores tab).
@@ -247,7 +247,7 @@ project has no TypeSafe connection for Jev yet. Background:
 - Content: repo path `demos/bank-assistant` · "Northwind Bank is fictional; all data is synthetic."
 - No VO.
 
-**Running time:** about 661 s planned (≈ 11 min) before VO padding.
+**Running time:** about 665 s planned (≈ 11 min) before VO padding.
 
 ---
 
