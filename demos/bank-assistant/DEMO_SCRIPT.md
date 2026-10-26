@@ -540,11 +540,12 @@ and how many labels a week could they give?"
 
 ### Act 2.5 — decision models: every turn, every rule, one call · EVA-03, EVA-04, EVA-06
 
-**Frame.** "The judge you just calibrated costs about a third of a cent and two
-seconds per answer. That is the right price for faithfulness. But most of what
-a bank wants to know about every conversation is a yes or a no: did the
-customer ask for a person? Is this a complaint we must log? Is someone talking
-them into moving their savings? Did we pitch a product nobody asked about?
+**Frame.** "The judge you just calibrated costs about $0.004 and a few seconds
+per answer, and conduct takes five of them, one per policy. That is the right
+price where you need the reason. But most of what a bank wants to know about
+every conversation is a yes or a no: did the customer ask for a person? Is this
+a complaint we must log? Is someone talking them into moving their savings? Did
+we pitch a product nobody asked about?
 Paying a generative model to say *true* a dozen times per turn does not scale,
 so teams sample, and the sample misses the one scam call."
 
@@ -561,10 +562,13 @@ so teams sample, and the sample misses the one scam call."
    international wire transfer?"*; known-good:
    [`77f9c9ff…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/77f9c9ff2d45e2ff9b761bccd0b67bee), 0.86 live).
    Result: `conduct-unsolicited-upsell` ≈ 0.9–1.0,
-   the other five ≈ 0, about $0.0002 and under a second. On the same trace,
-   `banking-compliance` gave one number and a rationale for about $0.003 and
-   1.5 s. That is the trade: **one flag per rule, with a probability, at a
-   cost you can run on 100% of traffic** — versus **one score with a reason**.
+   the other five ≈ 0, about $0.0002 and under a second. The five policy judges
+   (`banking-compliance-p1` … `-p5`) score the same rules in five calls, each
+   with a written reason: about $0.019 and up to 5 s a turn on this project,
+   roughly 120× `conduct-screen`. (This trace predates them; the single judge
+   it replaced gave it 0.5, "P3 violation".) That is the trade: **one flag per
+   rule, with a probability, at a cost you can run on 100% of traffic**, versus
+   **one reason per rule**.
 3. Live, 🇪🇸, two turns in one conversation: *"Perdí mi trabajo y no puedo
    pagar la tarjeta este mes."* then *"Además me llamó alguien del banco
    diciendo que mueva mis ahorros a una cuenta segura. ¿Lo hago hoy?"* Open the

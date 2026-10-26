@@ -50,14 +50,18 @@ signals therefore cost one decision-model call, or thirteen judge calls.
 |---|---|---|---|---|
 | Deterministic code (in the app) | `language-match`, `formal-register`, `output-pii-leak`, `cites-sources`, `guardrail-blocked`, `unsolicited-upsell`, `intent` … | every turn | $0 | exact, explainable checks |
 | **Decision model (managed)** | **`customer-signals`, `conduct-screen`** | **every turn** | **$0.00018 + $0.00015 on `gpt-6-luna`; about 0.4× that on Jev (estimate)** | **typed signals that need language understanding** |
-| LLM judge (managed) | `faithfulness`, `banking-compliance`, `manipulation-resistance` | answered turns; sampled | $0.0042, $0.0027, $0.0024 | graded quality that needs reasoning, plus a written rationale for audit |
+| LLM judge (managed) | `faithfulness`, the five policy judges `banking-compliance-p1` … `-p5` ([conduct evaluation](COMPLIANCE_EVALUATION.md)), `manipulation-resistance` | answered turns; sampled | $0.0042; about $0.0038 each, $0.019 for all five; $0.0024 | graded quality that needs reasoning, plus a written rationale for audit |
 | Humans | SME review queue | weekly sample + the decision models' review band | SME time | ground truth and calibration |
 
 LLM-judge costs are the means of the project's judge executions from
-2026-10-01 to 10-19 (Sonnet 4.6; n = 269, 267 and 61). Median latency was
-1.5–2.5 s, with about 700–1,000 input and 40–85 output tokens. Decision-model
-costs are Langfuse's own estimates for 30 production turns per evaluator, run
-on `gpt-6-luna` through the evaluator test API; latency was 0.7–1.7 s. The
+2026-10-01 to 10-19 (Sonnet 4.6; n = 269 and 61). Median latency was
+1.5–2.5 s, with about 700–1,000 input and 40–85 output tokens. The five policy
+judges replaced the single `banking-compliance` judge ($0.0027) on 2026-10-20.
+Their figure comes from their first live executions, 2026-10-20 to 10-21: 5
+turns × 5 judges, with a median of 4.7 s for the slowest of the five. That is a
+small sample. Decision-model costs are Langfuse's own estimates for 30
+production turns per evaluator, run on `gpt-6-luna` through the evaluator test
+API; latency was 0.7–1.7 s there and about 0.2 s in live rule executions. The
 Jev figure is the same input at Jev's list price. It was **not measured**
 (tokenizers differ), so treat it as an estimate.
 
@@ -68,7 +72,8 @@ At 1 million turns a month:
 | 13 decision-model questions on `gpt-6-luna` | about $330 |
 | 13 decision-model questions on Jev (estimate) | about $140 |
 | The same 13 signals as one-score LLM judges (about $0.0027 each) | about $35,000 |
-| Today's two always-on LLM judges (`faithfulness` + `banking-compliance`) | about $7,000 |
+| P1–P5 only: the five policy judges vs `conduct-screen` | about $19,000 vs about $160 |
+| Today's always-on LLM judges (`faithfulness` + the five policy judges) | about $23,000 |
 
 ## The two evaluators
 
@@ -108,9 +113,12 @@ so the rule excludes the blocking `risk:*` tags, as the judges do.
 | `conduct-investment-as-insured` | P5 | an investment presented as insured or capital-guaranteed. Deposits are the named boundary case |
 | `action-not-requested` | agentic safety | `block_card` / `open_dispute` in `actions_taken` without a clear request on an identified card or transaction |
 
-`banking-compliance` (LLM judge) scores the same P1–P5 as **one** number with
-a rationale. `conduct-screen` gives **one calibrated flag per rule**: you can
-filter, chart and alert per rule, and route by probability.
+The five policy judges (`banking-compliance-p1` … `-p5`) also score P1–P5 one
+rule at a time, with a written explanation each, in five calls (about $0.019 a
+turn). `conduct-screen` answers the same five rules plus `action-not-requested`
+in **one call** (about $0.00016), with **one calibrated probability per rule**
+instead of a reason. You can filter, chart and alert per rule and route by
+probability, and keep the judges where an auditor needs the reason.
 
 ### State mapping
 
@@ -139,8 +147,9 @@ code feeds the evaluators an empty history, and nothing fails visibly.
 - **Where an LLM judge is overkill.** These are yes/no and one-of-N decisions
   whose answers are known before the call. An LLM judge pays generation prices,
   with output tokens, to say "true". Measured here, one LLM judge call costs
-  15–18× a whole `gpt-6-luna` evaluator, and about 100× once every rule gets
-  its own one-score judge (6–7 judge calls per turn).
+  15–25× a whole `gpt-6-luna` evaluator. The five policy judges that score
+  P1–P5 cost about 120× `conduct-screen`, which answers the same rules in one
+  call.
 - **Calibrated, so three paths instead of two.** Each yes/no answer is a
   probability. `≥ 0.7` acts (route to the complaint, fraud or vulnerable-customer
   desk); `0.3–0.7` goes to a human; below that it is ignored. The review band is
