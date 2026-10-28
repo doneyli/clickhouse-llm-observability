@@ -23,14 +23,14 @@ import argparse
 import json
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent import photo_contract as C  # noqa: E402
 from agent.config import (  # noqa: E402
-    get_langfuse, langfuse_api, verify_project, LANGFUSE_HOST, AGENT_MODEL,
+    get_langfuse, verify_project, LANGFUSE_HOST, AGENT_MODEL,
+    find_experiment, list_experiment_items, list_observations, observation_io,
 )
 
 _results = []
@@ -164,12 +164,13 @@ def p3_trajectory(ds):
         return out
     time.sleep(14)
 
-    st, body = langfuse_api(
-        "GET", f"/api/public/v2/observations?traceId={trace_id}&limit=100")
-    if st != 200:
-        check(False, "observations readable", f"HTTP {st}")
+    # `io` so the root's input/output arrive with the list — the per-observation
+    # read that used to fetch them is deprecated alongside GET /traces/{id}.
+    try:
+        obs = list_observations(trace_id, fields="core,basic,io")
+    except RuntimeError as exc:
+        check(False, "observations readable", str(exc)[:110])
         return out
-    obs = body.get("data", [])
     names = {o["name"] for o in obs}
     info(f"{len(obs)} observations: {sorted(names)}")
 
@@ -202,14 +203,15 @@ def p3_trajectory(ds):
           f"{len(propagated)}/{len(obs)}")
 
     if roots:
-        st, root = langfuse_api("GET", f"/api/public/observations/{roots[0]['id']}")
-        if st == 200:
-            ri, ro = root.get("input"), root.get("output")
-            check(bool(ri) and bool(ro),
-                  "root span carries judge-facing input AND output")
-            check(isinstance(ro, dict) and "claims" in (ro or {}),
-                  "root output is the audit summary, not raw graph state",
-                  str(ro)[:80])
+        # v2 returns input/output as raw JSON strings, so parse before asserting
+        # on the shape — `ro` is a dict only after observation_io().
+        ri = observation_io(roots[0], "input")
+        ro = observation_io(roots[0], "output")
+        check(bool(ri) and bool(ro),
+              "root span carries judge-facing input AND output")
+        check(isinstance(ro, dict) and "claims" in (ro or {}),
+              "root output is the audit summary, not raw graph state",
+              str(ro)[:80])
     return out
 
 
@@ -264,19 +266,15 @@ def p4_experiment(ds, limit):
           "run-level means emitted, none None-valued", str(run_names)[:110])
 
     time.sleep(12)
-    st, body = langfuse_api(
-        "GET",
-        f"/api/public/datasets/{urllib.parse.quote(C.DATASET_NAME, safe='')}"
-        f"/runs/{urllib.parse.quote(run_name, safe='')}")
-    if st != 200:
-        check(False, "dataset run readable by pinned run_name", f"HTTP {st}")
+    experiment = find_experiment(C.DATASET_NAME, run_name)
+    if experiment is None:
+        check(False, "experiment readable by pinned run_name",
+              "GET /api/public/experiments returned no run of that name")
         return
-    landed = set()
-    for ri in body.get("datasetRunItems", []):
-        if ri.get("traceId"):
-            s2, tr = langfuse_api("GET", f"/api/public/traces/{ri['traceId']}")
-            if s2 == 200:
-                landed |= {s["name"] for s in tr.get("scores", [])}
+    # `fields=scores` (the default) returns each item's scores inline, so this no
+    # longer fetches every run item's trace just to collect them.
+    landed = {s["name"] for item in list_experiment_items(experiment["id"])
+              for s in (item.get("scores") or [])}
     info(f"scores landed server-side: {sorted(landed)}")
     check(bool(landed & set(C.VISION_SCORE_NAMES)),
           "vision scores queryable server-side", str(sorted(landed))[:110])
