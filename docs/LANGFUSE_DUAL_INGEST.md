@@ -95,9 +95,12 @@ already running keep their data and can still be found, so nothing has to be mig
 Each demo keeps its existing profile setting and gains a third value:
 `REAL_ESTATE_PROFILE`, `NORTHWIND_PROFILE` or `CLAIMS_PROFILE` = `cloud` | `selfhosted` | `dual`.
 
-- **Default:** `dual` when both the Cloud file and `.env.selfhosted` exist, otherwise whichever one
-  exists. Creating `.env.selfhosted` is the opt-in. CI runners never have one, so the prompt gates
-  stay Cloud-only.
+- **Default:** `dual` when both the Cloud file and `.env.selfhosted` exist, `cloud` when only the Cloud
+  file does, otherwise `selfhosted`. With neither file, the demo's own `.env` holds the target, as it
+  did before. Creating `.env.selfhosted` is the opt-in. CI runners never have one, so the prompt
+  gates stay Cloud-only.
+- Any other profile name selects its own overlay file as a single target. One example is claims'
+  `selfhosted-annuities` profile, which uses `.env.selfhosted-annuities`.
 - `selfhosted` makes the local instance the primary. Prompts, datasets and experiments are then read
   from it, with full fidelity including media.
 - real-estate's `LANGFUSE_MIRROR_*` is still read, as a deprecated alias for the mirror target.
@@ -183,9 +186,29 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
 - `demos/_shared/langfuse_dual.py`: mirror processor, `GuardedExporter`, score mirroring, bounded flush
 - `scripts/langfuse_local.py` (`status`, `up`, `provision`) and `infra/langfuse-local/docker-compose.yml`
 - each demo's `config.py`: profile with `dual`, `.env.selfhosted`, mirror attached when the profile
-  is `dual`. Real-estate's `record_score` and mirror code go away.
+  is `dual`. Real-estate's own mirror code is replaced, and its `record_score` is now a plain
+  `create_score` call.
 - unit tests: circuit-breaker transitions, an open circuit drops without I/O, score payload mapping,
   profile resolution
+
+**Phase 1 status (2026-10-27): built and verified**
+- Unit tests (`demos/_shared/tests`): 18 pass under the real-estate (SDK 4.14), bank (4.17) and
+  claims (4.18) venvs. They cover the circuit breaker, a dead mirror, a hung mirror, PII masking on
+  the copy, score ids, sampling and profiles. The demos' own suites still pass: claims 17, bank 121.
+- `langfuse_local.py status` skipped the v3 root stack and chose the claims instance (:3200, v4.70.1).
+  `provision all` created the real-estate and bank orgs and projects there and kept claims' working
+  keys. Running it a second time changed nothing. `up` started the shared stack from scratch, and it
+  became healthy and could be provisioned.
+- Live dual ingest, one synthetic trace per demo: Cloud and the local instance showed the same trace
+  id, the same observations, the email address masked on both, and the same score id.
+- Local instance unreachable from the start: one warning line, the Cloud trace complete, and the
+  process took 2.06 s against 2.01 s Cloud-only.
+- Local instance stopped mid-run (a proxy in front of :3200 was killed, then restarted): Cloud got
+  all 4 turns. The local instance got turns 1 and 3, missing the 2 sent during the outage. Turn plus
+  flush took 1.2 s during the outage against 1.6 s before it. Mirroring resumed on its own after the
+  30 s cool-down.
+- Not yet checked: a full agent turn per demo with LLM calls and the cross-process MCP and A2A spans
+  in dual mode.
 
 **Phase 2: demo parity on the shared instance**
 - a media manager for the mirror (images and audio show up locally with full fidelity)

@@ -131,6 +131,20 @@ class MirrorExporterTest(unittest.TestCase):
         self.assertEqual(headers["x-langfuse-ingestion-version"], "4")
         self.assertEqual(headers["Content-Type"], "application/x-protobuf")
 
+    def test_a_hung_mirror_costs_at_most_the_deadline(self):
+        import socket
+
+        hung = socket.socket()  # accepts the connection, never answers
+        hung.bind(("127.0.0.1", 0))
+        hung.listen(8)
+        self.addCleanup(hung.close)
+        target = dual.Target(f"http://127.0.0.1:{hung.getsockname()[1]}", "pk", "sk")
+        exporter = dual.MirrorExporter(target, self.breaker, timeout_s=0.5)
+        started = time.monotonic()
+        self.assertEqual(exporter.export([self.span]), SpanExportResult.FAILURE)
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(self.breaker.down_reason, "ReadTimeout")
+
     def test_closed_exporter_never_sends(self):
         http = FakeHttp(200)
         exporter = self.exporter(http)
@@ -197,13 +211,25 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(self.resolve(None), "dual")
         self.assertEqual(self.resolve("", selfhosted=False), "cloud")
         self.assertEqual(self.resolve(None, cloud=False), "selfhosted")
+        self.assertEqual(self.resolve(None, cloud=False, selfhosted=False), "selfhosted")
 
     def test_explicit_values_are_validated(self):
         self.assertEqual(self.resolve("Cloud"), "cloud")
+        self.assertEqual(self.resolve("selfhosted", selfhosted=False), "selfhosted")  # base .env target
         with self.assertRaises(SystemExit):
             self.resolve("dual", selfhosted=False)
         with self.assertRaises(SystemExit):
+            self.resolve("dual", cloud=False)
+        with self.assertRaises(SystemExit):
             self.resolve("both")
+
+    def test_other_profiles_need_their_own_overlay(self):
+        resolve = lambda name, exists: dual.resolve_profile(  # noqa: E731
+            name, has_cloud=True, has_selfhosted=True, knob="X", demo="x",
+            overlay_exists=lambda n: exists)
+        self.assertEqual(resolve("selfhosted-annuities", True), "selfhosted-annuities")
+        with self.assertRaises(SystemExit):
+            resolve("selfhosted-annuities", False)
 
 
 class Collector(BaseHTTPRequestHandler):

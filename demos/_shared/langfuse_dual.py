@@ -86,21 +86,28 @@ class Target:
 
 
 def resolve_profile(requested: Optional[str], *, has_cloud: bool, has_selfhosted: bool,
-                    knob: str, demo: str) -> str:
+                    knob: str, demo: str,
+                    overlay_exists: Callable[[str], bool] = lambda name: False) -> str:
     """`cloud` | `selfhosted` | `dual`. Unset → dual when both targets are configured.
 
     Creating .env.selfhosted (scripts/langfuse_local.py provision) is the opt-in to dual;
-    CI runners never have one, so they stay Cloud-only.
+    CI runners never have one, so they stay Cloud-only. With neither file the default stays
+    `selfhosted`, as before: the demo's own .env then holds the target. Any other name is
+    accepted as a single-target profile when `overlay_exists(name)` (claims'
+    `selfhosted-annuities`).
     """
     profile = (requested or "").strip().lower()
     if not profile:
         if has_cloud and has_selfhosted:
             return "dual"
-        return "selfhosted" if has_selfhosted and not has_cloud else "cloud"
+        return "cloud" if has_cloud else "selfhosted"
     if profile not in PROFILES:
-        raise SystemExit(f"{knob}={requested}: expected one of {', '.join(PROFILES)}")
-    if profile in ("selfhosted", "dual") and not has_selfhosted:
-        raise SystemExit(f"{knob}={profile} but .env.selfhosted is missing — run: {PROVISION_HINT} {demo}")
+        if overlay_exists(profile):
+            return profile
+        raise SystemExit(f"{knob}={requested}: expected one of {', '.join(PROFILES)} "
+                         f"(or a profile with its own .env.{profile})")
+    if profile == "dual" and not has_selfhosted:
+        raise SystemExit(f"{knob}=dual but .env.selfhosted is missing — run: {PROVISION_HINT} {demo}")
     if profile == "dual" and not has_cloud:
         raise SystemExit(f"{knob}=dual but the Cloud target (.env.cloud) is missing")
     return profile

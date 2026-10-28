@@ -56,6 +56,14 @@ docker compose --profile apm up -d                         # Jaeger (skip if the
 .venv/bin/python scripts/verify_demo.py                    # readiness check
 ```
 
+**Cloud, self-hosted, or both.** `CLAIMS_PROFILE=cloud` uses `.env.cloud`; `selfhosted` uses
+`.env.selfhosted`; `dual` (the default once both exist) keeps Cloud as the primary and also sends every
+span and score to the local instance, with the same ids and the same PII masking. A stopped local instance
+never affects Cloud ingest: one warning, then the copy resumes when it is back. The local target is the ONE
+Langfuse shared by all the standalone demos — `python scripts/langfuse_local.py provision insurance-claims`
+(from the repo root) reuses a healthy local Langfuse v4 instance or starts the shared one, and writes
+`.env.selfhosted`. See [docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
+
 Model keys come from this demo's `.env` or the repo-root `.env`. Shell-exported `LANGFUSE_*` variables
 are ignored on purpose (`claims/config.py`). Processes do not hot-reload: restart with
 `./scripts/run_services.sh` after a code change.

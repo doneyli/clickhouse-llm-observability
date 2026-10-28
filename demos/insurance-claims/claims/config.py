@@ -29,6 +29,7 @@ from __future__ import annotations
 import base64
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -38,13 +39,24 @@ DEMO_DIR = Path(__file__).resolve().parent.parent
 _ENV = {k: v for k, v in dotenv_values(DEMO_DIR / ".env").items() if v is not None} \
     if (DEMO_DIR / ".env").exists() else {}
 
-# Target profile: `cloud` (default when .env.cloud exists) or `selfhosted` (.env.selfhosted,
-# the local Enterprise instance). The overlay holds that target's Langfuse URL and keys.
-PROFILE = (os.environ.get("CLAIMS_PROFILE") or _ENV.get("CLAIMS_PROFILE")
-           or ("cloud" if (DEMO_DIR / ".env.cloud").exists() else "selfhosted"))
-_overlay = DEMO_DIR / f".env.{PROFILE}"
+# Cloud + self-hosted dual ingest, shared with the other standalone demos (demos/_shared).
+sys.path.insert(0, str(DEMO_DIR.parent / "_shared"))
+import langfuse_dual  # noqa: E402
+
+# Target profile: `cloud` (.env.cloud), `selfhosted` (.env.selfhosted — the shared local instance,
+# written by `python scripts/langfuse_local.py provision insurance-claims`), or `dual`: Cloud is the
+# primary and every span and score is mirrored, best-effort, to the local instance. Unset → dual when
+# both files exist. Any other name selects its own overlay (e.g. selfhosted-annuities).
+PROFILE = langfuse_dual.resolve_profile(
+    os.environ.get("CLAIMS_PROFILE") or _ENV.get("CLAIMS_PROFILE"),
+    has_cloud=(DEMO_DIR / ".env.cloud").exists(), has_selfhosted=(DEMO_DIR / ".env.selfhosted").exists(),
+    knob="CLAIMS_PROFILE", demo="insurance-claims",
+    overlay_exists=lambda name: (DEMO_DIR / f".env.{name}").exists())
+_overlay = DEMO_DIR / f".env.{'cloud' if PROFILE == 'dual' else PROFILE}"
 if _overlay.exists():
     _ENV.update({k: v for k, v in dotenv_values(_overlay).items() if v})
+MIRROR = (langfuse_dual.Target.from_env_file(DEMO_DIR / ".env.selfhosted", label="self-hosted")
+          if PROFILE == "dual" else None)
 
 
 def _main_checkout_env() -> dict:
@@ -158,7 +170,19 @@ def _payload_free_exporter(inner):
 
 _provider = None
 _langfuse = None
+_mirror: Optional["langfuse_dual.Mirror"] = None
 SKIPPED_SCOPES = ("com.anthropic.sdk",)
+
+
+def _should_export(span) -> bool:
+    """Recent Anthropic SDKs emit their own GenAI spans (scope com.anthropic.sdk.python). The LangChain
+    callback already records each call as a generation (with the prompt link), so exporting both would
+    count every LLM call — and its cost — twice. The APM copy keeps them."""
+    from langfuse.span_filter import is_default_export_span
+
+    return is_default_export_span(span) and not (
+        span.instrumentation_scope is not None
+        and span.instrumentation_scope.name.startswith(SKIPPED_SCOPES))
 
 
 def apm_enabled() -> bool:
@@ -197,24 +221,18 @@ def tracer_provider(service_name: str = "claims-orchestrator"):
 
 
 def get_langfuse(service_name: str = "claims-orchestrator"):
-    """Langfuse client bound to the shared provider, with masking + sampling."""
-    global _langfuse
+    """Langfuse client bound to the shared provider, with masking + sampling (+ the dual-mode mirror)."""
+    global _langfuse, _mirror
     if _langfuse is not None:
         return _langfuse
     from langfuse import Langfuse
 
     from claims import masking
 
-    from langfuse.span_filter import is_default_export_span
-
     provider = tracer_provider(service_name)
+    mask = masking.mask_otel_spans if masking.enabled() else None
     _langfuse = Langfuse(
-        # Recent Anthropic SDKs emit their own GenAI spans (scope com.anthropic.sdk.python). The LangChain
-        # callback already records each call as a generation (with the prompt link), so exporting both would
-        # count every LLM call — and its cost — twice. The APM copy keeps them.
-        should_export_span=lambda span: is_default_export_span(span) and not (
-            span.instrumentation_scope is not None
-            and span.instrumentation_scope.name.startswith(SKIPPED_SCOPES)),
+        should_export_span=_should_export,
         public_key=LANGFUSE_PUBLIC_KEY,
         secret_key=LANGFUSE_SECRET_KEY,
         base_url=LANGFUSE_BASE_URL,
@@ -222,17 +240,24 @@ def get_langfuse(service_name: str = "claims-orchestrator"):
         release=RELEASE,
         sample_rate=SAMPLE_RATE,
         tracer_provider=provider,
-        **({"mask_otel_spans": masking.mask_otel_spans} if masking.enabled() else {}),
+        **({"mask_otel_spans": mask} if mask else {}),
     )
+    if MIRROR is not None:
+        # Same filter, same PII mask, same ids — and a stopped local instance never slows Cloud down.
+        _mirror = langfuse_dual.attach(
+            _langfuse, MIRROR, primary_public_key=LANGFUSE_PUBLIC_KEY, provider=provider,
+            should_export_span=_should_export, mask_otel_spans=mask, environment=ENVIRONMENT)
     return _langfuse
 
 
 def flush() -> None:
-    """Flush BOTH exporters. Langfuse's flush alone misses the APM processor."""
+    """Flush every exporter. Langfuse's flush alone misses the APM and mirror processors."""
     if _langfuse is not None:
         _langfuse.flush()
     if _provider is not None:
         _provider.force_flush()
+    if _mirror is not None:
+        _mirror.flush()  # bounded: a dead local instance costs at most a few seconds
 
 
 # Cross-process context = W3C `traceparent` AND W3C `baggage`. In Langfuse v4 every
@@ -279,6 +304,11 @@ def project_id() -> str:
 
 def trace_url(trace_id: str) -> str:
     return f"{LANGFUSE_BASE_URL}/project/{project_id()}/traces/{trace_id}"
+
+
+def mirror_trace_url(trace_id: str) -> Optional[str]:
+    """The same trace on the local self-hosted instance (dual mode), else None."""
+    return MIRROR.trace_url(trace_id) if MIRROR is not None else None
 
 
 def session_url(session_id: str) -> str:

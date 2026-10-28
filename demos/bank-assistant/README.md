@@ -85,10 +85,30 @@ Both checks must succeed. Log in at [localhost:3100](http://localhost:3100) with
 For Enterprise features, set `LANGFUSE_EE_LICENSE_KEY` in the repository-root `.env`
 before startup. Without a license, the local stack runs as OSS.
 
+**Shared local instance (preferred over the stack above):** instead of this demo's
+own Langfuse containers, use the ONE local Langfuse shared by all the standalone demos.
+From the repository root:
+
+```bash
+python scripts/langfuse_local.py provision bank-assistant
+```
+
+It reuses a healthy local Langfuse v4 instance (or starts the shared one on :3300) and
+writes `.env.selfhosted` with this demo's `Northwind Bank` org, `retail-assistant` project
+and keys. `NORTHWIND_PROFILE=selfhosted` then targets it.
+
+**Both at once — `NORTHWIND_PROFILE=dual`:** Cloud stays the primary (prompts, datasets,
+experiments are read from it) and every span and score is also sent to the local instance
+with the same trace, observation and score ids and the same PII masking. If the local
+instance is down or stops mid-run, the demo prints one warning and Cloud ingest carries
+on untouched; the copy resumes when the instance is back. Seed the local project with the
+same scripts under `NORTHWIND_PROFILE=selfhosted` to get its prompts and judges too. See
+[docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
+
 Python scripts read Langfuse credentials from these files; exported `LANGFUSE_*`
 keys are ignored. An exported `NORTHWIND_PROFILE` overrides the file setting.
-Without an explicit profile, `.env.cloud` selects Cloud when present; otherwise
-the target is self-hosted.
+Without an explicit profile: `dual` when both `.env.cloud` and `.env.selfhosted`
+exist, `cloud` when only `.env.cloud` does, otherwise self-hosted.
 
 ### 3. Seed Prompts and Start the Portal
 
