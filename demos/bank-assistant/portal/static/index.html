@@ -8,7 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=12">
+  <!-- ClickUI design tokens (vendored verbatim) must load before app.css -->
+  <link rel="stylesheet" href="/static/clickui-tokens.css?v=1">
+  <link rel="stylesheet" href="/static/app.css?v=13">
 </head>
 <body>
   <!-- inline icon sprite -->
@@ -110,6 +112,7 @@
             </div>
             <div class="spacer"></div>
             <span class="badge badge-ok" title="Every turn is traced in Langfuse" data-i18n-title="chat.tracedTitle"><svg><use href="#i-lock"/></svg><span data-i18n="chat.traced">Traced · PII-masked</span></span>
+            <img class="lf-wordmark" src="/static/brand/langfuse-by-clickhouse.svg" width="2255" height="600" alt="Langfuse by ClickHouse">
             <button class="btn btn-sm" id="newConv"><svg><use href="#i-plus"/></svg><span data-i18n="chat.new">New conversation</span></button>
           </div>
           <div class="transcript" id="transcript"></div>
@@ -161,7 +164,13 @@
         <div class="stat-cell"><div class="k" data-i18n="pres.prompt">Production prompt</div><div class="v" id="stPrompt">—</div><div class="s" id="stPromptName">&nbsp;</div></div>
         <div class="stat-cell"><div class="k" data-i18n="pres.label">Served label</div><div class="v" id="stLabel">—</div><div class="s" data-i18n="pres.labelSub">portal default</div></div>
         <div class="stat-cell"><div class="k" data-i18n="pres.model">Agent model</div><div class="v" id="stModel">—</div><div class="s" id="stProfile">&nbsp;</div></div>
-        <div class="stat-links" id="stLinks"></div>
+        <div class="stat-aside">
+          <div class="lf-credit">
+            <span class="k" data-i18n="pres.observability">Observability</span>
+            <img class="lf-wordmark" src="/static/brand/langfuse-by-clickhouse.svg" width="2255" height="600" alt="Langfuse by ClickHouse">
+          </div>
+          <div class="stat-links" id="stLinks"></div>
+        </div>
       </div>
       <div class="presenter-layout">
         <div class="acts" id="acts"></div>
@@ -182,6 +191,6 @@
   </main>
 
   <div class="toast" id="toast"></div>
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>

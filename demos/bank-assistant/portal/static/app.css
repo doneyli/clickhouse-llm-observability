@@ -1,8 +1,24 @@
-/* Northwind Bank — presenter portal. Fictional bank, Langfuse brand palette.
-   Brand colors come from the supplied Langfuse color icon and light wordmark.
-   Bright brand colors are accents; darker variants support readable text
-   and white labels on filled controls and chat bubbles. */
+/* Northwind Bank — presenter portal.
+   Northwind Bank is a fictional bank: its name, its mark and its typeface are
+   its own. Langfuse / ClickHouse branding marks only the observability layer.
+
+   Palette provenance
+   • Langfuse brand hexes — blue #4E9CFF, coral #FF5D5F, charcoal #1B1917 — are
+     taken from the official Langfuse brand assets (the wordmark vendored in
+     static/brand/). They are the accent layer: brand marks, focus rings, the
+     dark navigation surface. #4E9CFF measures 2.8:1 on white, so it is never
+     body text on a light surface — text and filled buttons use the darkened
+     --blue-700 / --blue-800 instead.
+   • Neutrals, surfaces, strokes and the success / warning / danger pairs come
+     from ClickUI's published token sheet, vendored verbatim as
+     static/clickui-tokens.css and linked before this file. The mapping block
+     below re-points this sheet's local names at those --click-* tokens, so the
+     rest of the file is unchanged.
+   • Type stays Northwind's own (Plus Jakarta Sans / JetBrains Mono) rather than
+     ClickUI's Inter / Inconsolata — the fictional bank's product chrome should
+     not read as ClickHouse's own UI. */
 :root {
+  /* ── Langfuse brand accents (official brand assets) ─────── */
   --brand-blue: #4e9cff;
   --brand-coral: #ff5d5f;
   --brand-charcoal: #1b1917;
@@ -13,7 +29,7 @@
   --neutral-800: #302d29;
   --neutral-700: #45413d;
   --neutral-100: #edecea;
-  --blue-700: #1f65bb;
+  --blue-700: #1f65bb;   /* brand blue darkened — 5.8:1 on white */
   --blue-800: #194f91;
   --blue-600: #3d8ced;
   --blue-500: var(--brand-blue);
@@ -22,21 +38,28 @@
   --coral-700: #b92d38;
   --coral-100: #ffd6d7;
   --coral-50: #fff0f0;
-  --red-600: var(--coral-700);
-  --red-50: var(--coral-50);
-  --amber-700: #8a5a00;
-  --amber-50: #fff4dc;
-  --green-600: #126b40;
-  --green-50: #e7f6ee;
 
-  --bg: #f5f4f2;
-  --surface: #ffffff;
-  --surface-2: #faf9f7;
-  --border: #e4e1dd;
-  --border-strong: #cec9c3;
-  --text: var(--brand-charcoal);
-  --text-2: #4b4743;
-  --muted: #5f5a55;
+  /* ── ClickUI tokens → local names (see clickui-tokens.css) ─
+     ClickUI's light theme has one muted surface, so --bg and --surface-2
+     resolve to the same grey; white cards and the strokes separate them. */
+  --bg: var(--click-global-color-background-muted);                         /* #f6f7fa */
+  --surface: var(--click-global-color-background-default);                  /* #ffffff */
+  --surface-2: var(--click-card-primary-color-background-hover);            /* #f6f7fa */
+  --border: var(--click-global-color-stroke-default);                       /* #e6e7e9 */
+  --border-strong: var(--click-button-basic-color-secondary-stroke-active); /* #cccfd3 */
+  --text: var(--click-global-color-text-default);                           /* #161517 */
+  --text-2: var(--click-alert-color-text-neutral);                          /* #53575f — 7.2:1 on white */
+  --muted: var(--click-global-color-text-muted);                            /* #696e79 — 5.1:1 on white */
+  /* Feedback: ClickUI's alert tints, with its own danger / warning ink on top.
+     ClickUI's success ink (#008a0b) is 4.3:1 on its own tint, so success uses
+     that hue darkened to clear 4.5:1 — the same move --blue-700 makes. */
+  --green-50: var(--click-alert-color-background-success);
+  --green-600: #006208;                                                     /* 7.3:1 on the success tint */
+  --amber-50: var(--click-alert-color-background-warning);
+  --amber-700: var(--click-alert-color-text-warning);                       /* #a33c00 — 5.9:1 on its tint */
+  --red-50: var(--click-alert-color-background-danger);
+  --red-600: var(--click-alert-color-text-danger);                          /* #c10000 — 5.5:1 on its tint */
+
   --primary: var(--blue-700);
   --primary-hover: var(--blue-800);
   --on-primary: #ffffff;
@@ -329,7 +352,8 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
 .stat-cell .v { font-size: 16px; font-weight: 700; color: var(--neutral-900); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
 .stat-cell .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat-cell .v .ver { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 7px; background: var(--blue-50); color: var(--blue-700); border: 1px solid var(--blue-100); font-size: 14px; }
-.stat-links { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 6px; align-content: center; justify-content: flex-end; max-width: 360px; }
+.stat-aside { padding: 12px 16px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 9px; max-width: 360px; }
+.stat-links { display: flex; flex-wrap: wrap; gap: 6px; align-content: center; justify-content: flex-end; }
 .presenter-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(420px, 46%); gap: 20px; align-items: start; }
 .acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .act { padding: 12px 14px 11px; display: flex; flex-direction: column; gap: 5px; transition: border-color .12s, box-shadow .12s; }
@@ -387,7 +411,8 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
   .presenter-layout { grid-template-columns: 1fr; }
   .console { position: static; height: 520px; }
   .status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .stat-links { grid-column: 1 / -1; justify-content: flex-start; max-width: none; border-top: 1px solid var(--border); }
+  .stat-aside { grid-column: 1 / -1; align-items: stretch; max-width: none; border-top: 1px solid var(--border); }
+  .stat-aside .lf-credit, .stat-aside .stat-links { justify-content: flex-start; }
 }
 @media (max-width: 980px) {
   .assistant-layout, .voice-layout { grid-template-columns: 1fr; }
@@ -399,6 +424,15 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
   .chat { height: 72vh; }
   .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ── Langfuse credit (observability layer, not Northwind's mark) ──
+   static/brand/langfuse-by-clickhouse.svg is the official wordmark for light
+   surfaces; it is 2255×600, so it is always constrained by height. */
+.lf-wordmark { width: auto; display: block; flex-shrink: 0; }
+.chat-head .lf-wordmark { height: 24px; }
+.lf-credit { display: flex; align-items: center; gap: 10px; }
+.lf-credit .k { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lf-credit .lf-wordmark { height: 28px; }
 
 /* ── Language toggle (EN | ES) + language badges ─────────── */
 .lang-toggle {

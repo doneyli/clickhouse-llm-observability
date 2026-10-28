@@ -95,14 +95,42 @@ visible yet, wait a few seconds and refresh Langfuse.
 - [server.py](server.py): FastAPI routes, sessions, and presenter actions.
 - [preflight.py](preflight.py): readiness checks.
 - [static/app.js](static/app.js): UI behavior and the `I18N` dictionary.
-- [static/app.css](static/app.css): styles and design tokens.
+- [static/clickui-tokens.css](static/clickui-tokens.css): vendored ClickUI tokens.
+- [static/app.css](static/app.css): styles, and the token mapping in `:root`.
+- [static/brand/](static/brand): Langfuse brand assets.
 
 ### Visual Style
 
-The portal uses the supplied Langfuse brand palette: blue `#4E9CFF` and coral
-`#FF5D5F` for brand accents, and charcoal `#1B1917` for navigation and body text.
-Tokens live in `static/app.css`; primary buttons and user messages use deeper
-blue `#1F65BB` with white text (5.77:1 contrast), with `#194F91` for button hover.
-Chat and voice responses use 16px medium-weight text with extra line spacing.
-Darker secondary labels, links, and status text stay readable on light surfaces,
-and success/warning indicators retain their semantic colors.
+Two palettes, layered:
+
+| Layer | Source | Used for |
+|---|---|---|
+| Langfuse brand | official brand assets | blue `#4E9CFF`, coral `#FF5D5F`, charcoal `#1B1917` — brand marks, focus rings, the dark navigation surface and console |
+| ClickUI tokens | `static/clickui-tokens.css` | neutrals, surfaces, strokes, and the success / warning / danger pairs |
+
+`static/clickui-tokens.css` is a curated subset of `@clickhouse/click-ui`'s own
+`src/theme/styles/tokens-light.css` and `tokens-dark.css`, copied verbatim. The
+portal is zero-build (plain HTML, CSS and JS served by `StaticFiles`), so it
+cannot import the React package the ClickUI README installs; it styles against
+the published token values instead. **To refresh:** re-copy the matching
+declarations from those two files in `ClickHouse/click-ui@main` — do not
+hand-edit the values. The sheet must stay linked *before* `app.css` in
+[static/index.html](static/index.html), because `:root` in `app.css` maps the
+`--click-*` tokens onto the local names (`--bg`, `--surface`, `--border`,
+`--text`, `--muted`, …) that the rest of the sheet uses. Only the light theme is
+active; the sheet's dark block is gated on `data-cui-theme="dark"`, which the
+portal never sets.
+
+Langfuse blue measures 2.8:1 on white, so it is an accent only — never text on a
+light surface. Text and filled buttons use the darkened `#1F65BB` (5.8:1 on
+white, and white on it) with `#194F91` for hover. The feedback inks clear 4.5:1
+on their own tints; ClickUI's success ink is 4.3:1 on its tint, so success uses
+that hue darkened. Chat and voice responses use 16px medium-weight text with
+extra line spacing.
+
+Type is Northwind's own — Plus Jakarta Sans and JetBrains Mono, not ClickUI's
+Inter and Inconsolata — so the fictional bank's product chrome does not read as
+ClickHouse's own UI. For the same reason Northwind keeps its name, mark and
+favicon in the header; the "Langfuse by ClickHouse" wordmark appears only where
+the portal credits observability: beside the chat's **Traced · PII-masked**
+badge and in the presenter console's status strip.
