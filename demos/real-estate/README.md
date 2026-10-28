@@ -446,6 +446,32 @@ Key design choices:
   trace carries a `fault:<name>` tag and a `fault` metadata field, so you can
   filter to a failure mode live and prove the bad traces are seeded.
 
+### ClickUI tokens & Langfuse brand assets
+
+The portal is styled against **ClickHouse's own design tokens**, vendored as
+`webapp/static/clickui-tokens.css` — a verbatim copy of the token sheets
+`@clickhouse/click-ui` publishes (`src/theme/styles/tokens-light.css` and
+`tokens-dark.css` on `ClickHouse/click-ui@main`), with a provenance header. The
+portal is deliberately zero-build (one `index.html`, no npm, no bundler), so it
+cannot `npm install @clickhouse/click-ui` — that ships a *React* component
+library and would add a build step to a demo whose selling point is `./run_portal.sh`.
+Copying the published tokens gets the same visual language with no toolchain.
+
+`<html data-cui-theme="dark">` selects the sheet's dark block; the portal's local
+variables (`--bg`, `--panel`, `--text`, …) are plain aliases onto `--click-*`
+tokens, so the rest of the stylesheet is untouched and there is no hand-kept
+second copy of the palette.
+
+**To refresh:** re-copy those two files' declarations from `ClickHouse/click-ui@main`
+into `webapp/static/clickui-tokens.css`, keeping the header. Do not hand-edit the
+values; only the alias block in `index.html` is ours to maintain.
+
+Langfuse brand assets live in `webapp/static/langfuse/`: the
+`langfuse-by-clickhouse-white.svg` wordmark (white variant, because this portal
+is dark) credits the observability layer in the footer, and `langfuse-icon.svg`
+is the favicon. The Property Concierge brand in the header is the demo's
+*fictional* company and keeps its own identity.
+
 ---
 
 ## Files
@@ -479,6 +505,8 @@ scripts/
 cicd/             the CI quality gate: thresholds.json (the bar) + setup guide
 webapp/           server.py (FastAPI) + static/index.html (portal UI)
                   PORTAL_PROMPT_LABEL=<label> serves a non-production prompt
+                  static/clickui-tokens.css   vendored ClickUI design tokens
+                  static/langfuse/            Langfuse wordmark + favicon
 run_demo.sh       prep all data      run_portal.sh   launch the app
 AI_ENGINEERING_LOOP.md  the loop, mapped to this demo
 DEMO_SCRIPT.md    presenter runbook
