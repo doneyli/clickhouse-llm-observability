@@ -6,6 +6,9 @@ One local self-hosted Langfuse for every standalone demo — find it, start it, 
     python scripts/langfuse_local.py up                     # reuse a healthy v4 instance, else start the shared one
     python scripts/langfuse_local.py provision real-estate  # org + project + key → demos/real-estate/.env.selfhosted
 
+Demo seeders (Enterprise RBAC users, extra projects, more keys) import it too:
+`connect(<demo>/.env.selfhosted)` gives the project, its org and the instance's Postgres.
+
 Finding an instance: running containers of the `langfuse/langfuse` web image, their published port,
 and `/api/public/health`. Usable = healthy and v4+ (the demos read `/v2/observations` and the
 experiments API, which a v3 server 404s). Preference: --url / LANGFUSE_LOCAL_URL, then the shared
@@ -61,7 +64,7 @@ class Demo:
 DEMOS = {
     "real-estate": Demo("real-estate-demo", "Real Estate Demo", "real-estate", "real-estate"),
     "bank-assistant": Demo("northwind", "Northwind Bank", "retail-assistant", "retail-assistant"),
-    "insurance-claims": Demo("northwind-life", "Northwind Life and Annuity", "claims-prod", "claims-prod"),
+    "insurance-claims": Demo("northwind-life", "Northwind Life & Annuity", "claims-prod", "claims-prod"),
 }
 
 
@@ -100,9 +103,13 @@ def run(args: list, check: bool = True, **kw) -> str:
     return subprocess.run(args, capture_output=True, text=True, check=check, **kw).stdout.strip()
 
 
-def http_json(method: str, url: str, *, auth: Optional[tuple] = None, timeout: float = 5.0):
+def http_json(method: str, url: str, *, auth: Optional[tuple] = None, body: Optional[dict] = None,
+              timeout: float = 5.0):
     """(status, parsed body) — (0, {}) when unreachable."""
-    req = urllib.request.Request(url, method=method)
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, method=method, data=data)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     if auth:
         req.add_header("Authorization", "Basic " + base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode())
     try:
@@ -287,6 +294,18 @@ class Postgres:
                     "-d", self.db, "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", sql])
 
 
+def mint_key(pg: Postgres, salt: str, project_id: str, prefix: str, note: str) -> tuple:
+    """A project API key stored the way Langfuse stores it → (public_key, secret_key)."""
+    public_key = f"pk-lf-{prefix}-{secrets.token_hex(6)}"
+    secret_key = f"sk-lf-{prefix}-{secrets.token_hex(16)}"
+    fast_hash = hashlib.sha256((secret_key + hashlib.sha256(salt.encode()).hexdigest()).encode()).hexdigest()
+    pg.query(f"insert into api_keys (id, note, public_key, hashed_secret_key, display_secret_key, project_id, "
+             f"fast_hashed_secret_key, scope) values ({sql_str(str(uuid.uuid4()))}, {sql_str(note)}, "
+             f"{sql_str(public_key)}, {sql_str(secrets.token_hex(24))}, {sql_str('sk-lf-...' + secret_key[-4:])}, "
+             f"{sql_str(project_id)}, {sql_str(fast_hash)}, 'PROJECT')")
+    return public_key, secret_key
+
+
 def keys_work(url: str, public_key: str, secret_key: str, project_id: str) -> bool:
     status, body = http_json("GET", f"{url}/api/public/projects", auth=(public_key, secret_key))
     return status == 200 and any(p.get("id") == project_id for p in body.get("data", []))
@@ -337,14 +356,7 @@ def provision(demo_name: str, demo_dir: Path, prefer_url: Optional[str]) -> int:
     if granted:
         print(f"+ {len(granted.splitlines())} existing owner(s) added to {demo.org_name}")
 
-    public_key = f"pk-lf-{demo_name}-{secrets.token_hex(6)}"
-    secret_key = f"sk-lf-{demo_name}-{secrets.token_hex(16)}"
-    fast_hash = hashlib.sha256((secret_key + hashlib.sha256(salt.encode()).hexdigest()).encode()).hexdigest()
-    pg.query(f"insert into api_keys (id, note, public_key, hashed_secret_key, display_secret_key, project_id, "
-             f"fast_hashed_secret_key, scope) values ({sql_str(str(uuid.uuid4()))}, "
-             f"{sql_str(f'{demo_name} demo (scripts/langfuse_local.py)')}, {sql_str(public_key)}, "
-             f"{sql_str(secrets.token_hex(24))}, {sql_str('sk-lf-...' + secret_key[-4:])}, {sql_str(project_id)}, "
-             f"{sql_str(fast_hash)}, 'PROJECT')")
+    public_key, secret_key = mint_key(pg, salt, project_id, demo_name, f"{demo_name} demo (scripts/langfuse_local.py)")
     if not keys_work(instance.url, public_key, secret_key, project_id):
         raise SystemExit(f"minted a key for {project_id} but {instance.url} rejects it")
 
@@ -359,6 +371,80 @@ def provision(demo_name: str, demo_dir: Path, prefer_url: Optional[str]) -> int:
     print(f"+ API key for {project_id} → {shown(out)} (verified)")
     print(f"  UI: {instance.url}/project/{project_id}")
     return 0
+
+
+# ── for demo seeders ──────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class Project:
+    """A demo's provisioned project on the running instance its .env.selfhosted points at."""
+
+    url: str
+    project_id: str
+    org_id: str
+    instance: Instance
+    pg: Postgres
+
+    @property
+    def salt(self) -> str:
+        return self.instance.env.get("SALT", "")
+
+    def add_project(self, project_id: str, name: str) -> bool:
+        """Another project in the demo's org (e.g. one per environment or team). True if new."""
+        owner = self.pg.query(f"select org_id from projects where id = {sql_str(project_id)}")
+        if owner and owner != self.org_id:
+            raise SystemExit(f"project id {project_id} already belongs to org {owner} on {self.url}")
+        if owner:
+            return False
+        self.pg.query(f"insert into projects (id, org_id, name) values ({sql_str(project_id)}, "
+                      f"{sql_str(self.org_id)}, {sql_str(name)})")
+        return True
+
+    def add_user(self, email: str, name: str, password: str, org_role: str,
+                 project_roles: Optional[dict] = None) -> bool:
+        """A test user: signed up through the instance's own endpoint, then given an org role and
+        optional project-level roles — the rows Settings → Members writes. False if sign-up failed."""
+        http_json("POST", f"{self.url}/api/auth/signup", body={"name": name, "email": email, "password": password},
+                  timeout=20)
+        user_id = self.pg.query(f"select id from users where email = {sql_str(email)}")
+        if not user_id:
+            return False
+        membership = self.pg.query(
+            f"insert into organization_memberships (id, org_id, user_id, role) values (gen_random_uuid()::text, "
+            f"{sql_str(self.org_id)}, {sql_str(user_id)}, {sql_str(org_role)}) on conflict (org_id, user_id) "
+            f"do update set role = excluded.role returning id")
+        for project_id, role in (project_roles or {}).items():
+            self.pg.query(
+                f"insert into project_memberships (project_id, user_id, org_membership_id, role) values "
+                f"({sql_str(project_id)}, {sql_str(user_id)}, {sql_str(membership)}, {sql_str(role)}) "
+                f"on conflict (project_id, user_id) do update set role = excluded.role")
+        return True
+
+    def protect_label(self, label: str, project_id: Optional[str] = None) -> None:
+        """Only ADMIN/OWNER may move a protected prompt label (Enterprise)."""
+        self.pg.query(f"insert into prompt_protected_labels (id, project_id, label) values (gen_random_uuid()::text, "
+                      f"{sql_str(project_id or self.project_id)}, {sql_str(label)}) on conflict do nothing")
+
+    def members(self) -> str:
+        return self.pg.query(f"select u.email || ' · ' || m.role from organization_memberships m join users u "
+                             f"on u.id = m.user_id where m.org_id = {sql_str(self.org_id)} order by 1")
+
+
+def connect(env_file: Path) -> Project:
+    """The project a demo's .env.selfhosted names, with its org and the instance's Postgres."""
+    env = read_env(Path(env_file))
+    url, project_id = env.get("LANGFUSE_BASE_URL", "").rstrip("/"), env.get("LANGFUSE_PROJECT_ID", "")
+    if not (url and project_id):
+        raise SystemExit(f"{shown(Path(env_file))} is missing or incomplete — run: "
+                         f"python scripts/langfuse_local.py provision <demo>")
+    instance = choose(discover(), url)
+    if instance is None:
+        raise SystemExit(f"no healthy Langfuse v{MIN_MAJOR}+ answers at {url} — run: python scripts/langfuse_local.py up")
+    pg = Postgres(instance)
+    org_id = pg.query(f"select org_id from projects where id = {sql_str(project_id)}")
+    if not org_id:
+        raise SystemExit(f"project {project_id} does not exist on {url} — re-run provision")
+    return Project(url, project_id, org_id, instance, pg)
 
 
 # ── commands ──────────────────────────────────────────────────────────────────────────────────

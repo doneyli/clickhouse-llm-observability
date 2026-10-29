@@ -71,8 +71,9 @@ Webhook -> Trace context -> Get prompt -> Mask PII
 | n8n native OpenTelemetry | Workflow and node timings, status, errors, and execution metadata | `N8N_OTEL_*` settings written to `.env` by setup |
 | Workflow reporting nodes | Root `n8n-complaint-triage`, masking guardrail, and two generations with model usage | **Build Langfuse trace** creates OTLP/JSON; **Send trace to Langfuse** posts it after the response |
 
-Both exporters use the selected bank-demo Langfuse target. Setup converts
-`localhost:3100` to `langfuse-web:3000` for container access in self-hosted mode.
+Both exporters use the profile's primary Langfuse target: Cloud for `cloud` and `dual`
+(n8n sends to one endpoint, so the local copy has no n8n traces), the shared local instance
+for `selfhosted`. Setup rewrites `localhost` to `host.docker.internal` for container access.
 The official `@langfuse/n8n-nodes-langfuse` node handles prompt retrieval.
 
 The root records customer and session IDs, `channel:n8n` and

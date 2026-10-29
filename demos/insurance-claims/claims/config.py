@@ -45,7 +45,7 @@ import langfuse_dual  # noqa: E402
 
 # Target profile: `cloud` (.env.cloud), `selfhosted` (.env.selfhosted — the shared local instance,
 # written by `python scripts/langfuse_local.py provision insurance-claims`), or `dual`: Cloud is the
-# primary and every span and score is mirrored, best-effort, to the local instance. Unset → dual when
+# primary and every span, score and media item is mirrored, best-effort, to the local instance. Unset → dual when
 # both files exist. Any other name selects its own overlay (e.g. selfhosted-annuities).
 PROFILE = langfuse_dual.resolve_profile(
     os.environ.get("CLAIMS_PROFILE") or _ENV.get("CLAIMS_PROFILE"),
@@ -92,7 +92,10 @@ for _k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL",
         os.environ.pop(_k, None)
 os.environ.pop("LANGFUSE_HOST", None)
 
-LANGFUSE_BASE_URL = (env("LANGFUSE_BASE_URL") or "http://localhost:3100").rstrip("/")
+if not env("LANGFUSE_BASE_URL"):
+    raise SystemExit(f"CLAIMS_PROFILE={PROFILE}: no Langfuse target — run `{langfuse_dual.PROVISION_HINT} "
+                     "insurance-claims` from the repository root (or create .env.cloud)")
+LANGFUSE_BASE_URL = env("LANGFUSE_BASE_URL").rstrip("/")
 LANGFUSE_PUBLIC_KEY = env("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = env("LANGFUSE_SECRET_KEY")
 PROJECT_ID = env("LANGFUSE_PROJECT_ID", "")

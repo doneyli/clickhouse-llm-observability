@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -43,10 +44,10 @@ sys.path.insert(0, str(DEMO_DIR.parent / "_shared"))
 import langfuse_dual  # noqa: E402
 
 # Target profile. `cloud` overlays .env.cloud — Langfuse Cloud keys — on top of .env.
-# `selfhosted` overlays .env.selfhosted, the shared local instance written by
-# `python scripts/langfuse_local.py provision bank-assistant` (without that file, .env itself
-# holds the self-hosted target, as before). `dual`: Cloud is the primary and every span and
-# score is mirrored, best-effort, to the local instance. Unset → dual when both files exist.
+# `selfhosted` overlays .env.selfhosted, the ONE local Langfuse shared by the standalone demos,
+# written by `python scripts/langfuse_local.py provision bank-assistant` (without that file, .env
+# itself must hold the target). `dual`: Cloud is the primary and every span, score and media
+# item is mirrored, best-effort, to the local instance. Unset → dual when both files exist.
 PROFILE = langfuse_dual.resolve_profile(
     os.environ.get("NORTHWIND_PROFILE") or _ENV.get("NORTHWIND_PROFILE"),
     has_cloud=(DEMO_DIR / ".env.cloud").exists(), has_selfhosted=(DEMO_DIR / ".env.selfhosted").exists(),
@@ -95,7 +96,10 @@ for _k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL",
 for _k in ("LANGFUSE_HOST",):
     os.environ.pop(_k, None)
 
-LANGFUSE_BASE_URL = env("LANGFUSE_BASE_URL", "http://localhost:3100").rstrip("/")
+if not env("LANGFUSE_BASE_URL"):
+    raise SystemExit(f"NORTHWIND_PROFILE={PROFILE}: no Langfuse target — run `{langfuse_dual.PROVISION_HINT} "
+                     "bank-assistant` from the repository root (or create .env.cloud)")
+LANGFUSE_BASE_URL = env("LANGFUSE_BASE_URL").rstrip("/")
 LANGFUSE_PUBLIC_KEY = env("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = env("LANGFUSE_SECRET_KEY")
 PROJECT_ID = env("LANGFUSE_PROJECT_ID", "retail-assistant")
@@ -309,6 +313,12 @@ def apm_url(trace_id: str) -> str:
 def basic_auth() -> str:
     return "Basic " + base64.b64encode(
         f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()).decode()
+
+
+def container_url(url: str) -> str:
+    """`url` as a container on this machine (n8n) reaches it: a local Langfuse runs in another
+    compose project, so localhost there means the host (docker-compose.yml maps the name)."""
+    return re.sub(r"^(https?://)(localhost|127\.0\.0\.1)(?=[:/]|$)", r"\1host.docker.internal", url)
 
 
 def api(method: str, path: str, body=None, timeout: int = 30, params: Optional[dict] = None):

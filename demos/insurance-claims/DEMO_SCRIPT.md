@@ -6,8 +6,8 @@ Run `scripts/verify_demo.py --links` before the meeting: it checks the state and
 every beat below.
 
 **Before you start:** `./scripts/run_services.sh` (MCP, A2A, workbench), Jaeger up, workbench open on
-`CLM-2026-00042`, Langfuse open on the project (Cloud) and on `http://localhost:3200` (self-hosted
-Enterprise) in a second tab. Presenter view off in the workbench until Act 3.
+`CLM-2026-00042`, Langfuse open on the project (Cloud) and on the local self-hosted Enterprise instance
+(the URL in `.env.selfhosted`) in a second tab. Presenter view off in the workbench until Act 3.
 
 ---
 
@@ -163,7 +163,7 @@ Dashboard **Claims — value & quality**: claims processed, LLM spend, examiner 
 assumptions — replace with your baselines), decisions, override reasons, quality by release · prompt
 version.
 
-Self-hosted Enterprise (`:3200`): Settings → Members (project-level roles: claims, annuities, model risk),
+Self-hosted Enterprise (local instance): Settings → Members (project-level roles: claims, annuities, model risk),
 Audit logs (the promotion and the rollback), Data retention (90 days), ingestion masking and SCIM as
 configuration. Same containers as open source; the license key turns these on.
 
@@ -183,6 +183,6 @@ configuration. Same containers as open source; the license key turns these on.
 | 5 | `scripts/prompt_gate.py --prompt-label staging` · `scripts/prompt_label.py --show` |
 | 3b | `scripts/run_service.py SR-2026-00077 [--rules-label staging]` · `scripts/prompt_gate.py --suite service --prompt-label staging` |
 | 4 | `scripts/fill_annotation_queue.py` · `scripts/judge_calibration.py` |
-| 6 | `scripts/bootstrap_selfhosted.sh` (already run) · `http://localhost:3200` |
+| 6 | `scripts/bootstrap_selfhosted.sh` (already run) · the URL in `.env.selfhosted` |
 
 Fallback if live calls are slow: every act has a pre-run trace or run — `scripts/verify_demo.py --links`.
