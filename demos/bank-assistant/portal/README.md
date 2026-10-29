@@ -101,12 +101,22 @@ visible yet, wait a few seconds and refresh Langfuse.
 
 ### Visual Style
 
-Two palettes, layered:
+Three palettes, layered:
 
 | Layer | Source | Used for |
 |---|---|---|
-| Langfuse brand | official brand assets | blue `#4E9CFF`, coral `#FF5D5F`, charcoal `#1B1917` — brand marks, focus rings, the dark navigation surface and console |
+| Northwind's mark | this portal | gold `#D9A441` compass star, pierced `#2B2112` centre — the fictional bank's own hues, in `#i-logo` and `favicon.svg` |
+| Langfuse brand | official brand assets | blue `#4E9CFF`, coral `#FF5D5F`, charcoal `#1B1917` — focus rings, the environment pill, run states, the dark navigation surface and the console's links out to Langfuse |
 | ClickUI tokens | `static/clickui-tokens.css` | neutrals, surfaces, strokes, and the success / warning / danger pairs |
+
+Northwind's mark is deliberately in a hue family of its own. A fictional bank
+wearing Langfuse's exact brand blue and coral reads as though Langfuse were its
+logo — the gold sits 113 ΔE76 from `#4E9CFF`, so the two cannot be confused. It
+clears WCAG 1.4.11's 3:1 graphic minimum on both plates it sits on: 6.1:1 on the
+header chip (`--neutral-800`) and 7.8:1 on the avatar (`--neutral-900`), with the
+pierced centre at 7.0:1 against the gold around it. The favicon repeats the mark
+as literal hexes because a favicon cannot read the page's custom properties —
+keep the two in sync.
 
 `static/clickui-tokens.css` is a curated subset of `@clickhouse/click-ui`'s own
 `src/theme/styles/tokens-light.css` and `tokens-dark.css`, copied verbatim. The
@@ -121,7 +131,7 @@ hand-edit the values. The sheet must stay linked *before* `app.css` in
 active; the sheet's dark block is gated on `data-cui-theme="dark"`, which the
 portal never sets.
 
-Langfuse blue measures 2.8:1 on white, so it is an accent only — never text on a
+Langfuse blue measures 2.79:1 on white, so it is an accent only — never text on a
 light surface. Text and filled buttons use the darkened `#1F65BB` (5.8:1 on
 white, and white on it) with `#194F91` for hover. The feedback inks clear 4.5:1
 on their own tints; ClickUI's success ink is 4.3:1 on its tint, so success uses

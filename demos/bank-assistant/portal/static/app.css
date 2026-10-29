@@ -3,12 +3,17 @@
    its own. Langfuse / ClickHouse branding marks only the observability layer.
 
    Palette provenance
+   • Northwind's own mark — the compass star in #i-logo and favicon.svg — is
+     gold --northwind-gold with a pierced --northwind-ink centre. The fictional
+     bank gets its own hues precisely so its logo cannot be mistaken for
+     Langfuse's: the gold is 113 ΔE76 away from Langfuse blue.
    • Langfuse brand hexes — blue #4E9CFF, coral #FF5D5F, charcoal #1B1917 — are
      taken from the official Langfuse brand assets (the wordmark vendored in
-     static/brand/). They are the accent layer: brand marks, focus rings, the
-     dark navigation surface. #4E9CFF measures 2.8:1 on white, so it is never
-     body text on a light surface — text and filled buttons use the darkened
-     --blue-700 / --blue-800 instead.
+     static/brand/). They are the system / observability accent: focus rings,
+     the environment pill, run states, and the console's links out to Langfuse.
+     They do NOT paint Northwind's mark. #4E9CFF measures 2.79:1 on white, so it
+     is never body text on a light surface — text and filled buttons use the
+     darkened --blue-700 / --blue-800 instead.
    • Neutrals, surfaces, strokes and the success / warning / danger pairs come
      from ClickUI's published token sheet, vendored verbatim as
      static/clickui-tokens.css and linked before this file. The mapping block
@@ -18,7 +23,15 @@
      ClickUI's Inter / Inconsolata — the fictional bank's product chrome should
      not read as ClickHouse's own UI. */
 :root {
-  /* ── Langfuse brand accents (official brand assets) ─────── */
+  /* ── Northwind Bank's own mark ───────────────────────────
+     The compass star reads as a bank crest and shares no hue with Langfuse.
+     Contrast is measured against the two dark plates the mark sits on: the
+     header chip (--neutral-800 #302d29) and the avatar (--neutral-900 #1b1917).
+     WCAG 1.4.11 wants 3:1 for a graphic; both clear it comfortably. */
+  --northwind-gold: #d9a441;  /* 6.1:1 on the chip, 7.8:1 on the avatar plate */
+  --northwind-ink: #2b2112;   /* pierced centre — 7.0:1 against the gold it sits on */
+
+  /* ── Langfuse accents, for the observability layer only ─── */
   --brand-blue: #4e9cff;
   --brand-coral: #ff5d5f;
   --brand-charcoal: #1b1917;
