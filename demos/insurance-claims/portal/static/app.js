@@ -140,7 +140,7 @@ function reviewHtml(d) {
 function bindReview(id) {
   const send = async (body) => {
     document.querySelectorAll("#approve, #override").forEach((b) => (b.disabled = true));
-    $("#rev-status").innerHTML = '<span class="spinner" style="border-color:#888;border-right-color:transparent"></span> resuming the graph, drafting the letter…';
+    $("#rev-status").innerHTML = '<span class="spinner on-light"></span> resuming the graph, drafting the letter…';
     try { await api(`/api/claims/${id}/review`, { method: "POST", body: JSON.stringify(body) }); await loadQueue(); await openClaim(id); }
     catch (e) { $("#rev-status").textContent = e.message; document.querySelectorAll("#approve, #override").forEach((b) => (b.disabled = false)); }
   };
