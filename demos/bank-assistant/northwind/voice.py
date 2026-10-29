@@ -315,6 +315,7 @@ async def run_voice_turn(audio: bytes, filename: str = "call.wav", *, customer_i
     return {"transcript": transcript, "answer": turn["answer"],
             "reply_audio_b64": base64.b64encode(reply_audio).decode(), "reply_mime": reply_mime,
             "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
+            "mirror_trace_url": config.mirror_trace_url(trace_id),
             "apm_url": config.apm_url(trace_id), "session_id": session_id,
             "agent_trace_nested": nested, "tools_used": turn.get("tools_used") or [],
             "blocked": turn.get("blocked", False), "risks": turn.get("risks") or [],

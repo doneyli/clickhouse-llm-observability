@@ -318,6 +318,11 @@ def session_url(session_id: str) -> str:
     return f"{LANGFUSE_BASE_URL}/project/{project_id()}/sessions/{session_id}"
 
 
+def mirror_session_url(session_id: str) -> Optional[str]:
+    """The same session on the local self-hosted instance (dual mode), else None."""
+    return f"{MIRROR.base_url}/project/{MIRROR.project_id}/sessions/{session_id}" if MIRROR is not None else None
+
+
 def apm_url(trace_id: str) -> str:
     return APM_UI_TRACE_URL.format(trace_id=trace_id)
 

@@ -513,6 +513,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
     if error is not None:
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
+            "mirror_trace_url": config.mirror_trace_url(trace_id),
             "apm_url": config.apm_url(trace_id), "sources": cited, "retrieved": retrieved,
             "tools_used": used, "blocked": check["blocked"], "risks": check["risks"],
             "prompt_version": getattr(lf_prompt, "version", None), "model": model, "business": biz,

@@ -128,6 +128,14 @@ _mirror: Optional["langfuse_dual.Mirror"] = None
 _langfuse_lock = threading.Lock()
 
 
+def mirror_trace_url(trace_id: str) -> Optional[str]:
+    """The same trace on the local self-hosted copy (dual mode), else None.
+
+    The legacy LANGFUSE_MIRROR_* alias has no project id, so it gets no link.
+    """
+    return MIRROR.trace_url(trace_id) if MIRROR is not None and MIRROR.project_id else None
+
+
 def flush_langfuse(lf=None) -> None:
     """Flush the primary client AND the mirror (if attached).
 

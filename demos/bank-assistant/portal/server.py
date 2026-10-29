@@ -471,14 +471,18 @@ async def info(refresh: bool = False):
     pid = await asyncio.to_thread(_project_id_sync)
     prompt = await _prompt_version(force=refresh)
     base = config.LANGFUSE_BASE_URL
+    mirror = config.MIRROR  # dual mode: the local copy of every trace
+    mirror_url = f"{mirror.base_url}/project/{mirror.project_id}" if mirror else None
     return {
         "environment": config.ENVIRONMENT,
         "profile": config.PROFILE,
         "langfuse_base_url": base,
-        "langfuse_target": "Langfuse Cloud" if "cloud.langfuse.com" in base else
-                           ("Self-hosted Langfuse" if "localhost" in base or "127.0.0.1" in base else base),
+        "langfuse_target": ("Langfuse Cloud" if "cloud.langfuse.com" in base else
+                            ("Self-hosted Langfuse" if "localhost" in base or "127.0.0.1" in base else base))
+                           + (" + self-hosted copy" if mirror else ""),
         "project_id": pid,
         "project_url": f"{base}/project/{pid}" if pid else base,
+        "mirror_project_url": mirror_url,
         "prompt_name": PROMPT_NAME,
         "prompt_label": PROMPT_LABEL,
         "production_prompt": prompt,
@@ -486,6 +490,7 @@ async def info(refresh: bool = False):
         "release": config.RELEASE,
         "links": [
             {"label": "Langfuse project", "url": f"{base}/project/{pid}" if pid else base},
+            *([{"label": "Langfuse project (self-hosted copy)", "url": mirror_url}] if mirror_url else []),
             {"label": "Jaeger (APM)", "url": "http://localhost:16686"},
             {"label": "n8n", "url": "http://localhost:5678"},
         ],
