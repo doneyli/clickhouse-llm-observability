@@ -1,0 +1,22 @@
+# Northwind Life & Annuity claims demo — LangGraph app venv (Python 3.12).
+# The Strands doc-intake service has its own venv: doc_intake/requirements.txt.
+langfuse>=4.17,<5.0
+# Orchestrator and core agents + MCP tools
+langgraph>=1.0,<2.0
+langchain>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langchain-anthropic>=1.0,<2.0
+langchain-openai>=1.0,<2.0
+langchain-mcp-adapters>=0.1
+mcp>=1.12
+anthropic>=0.60
+openai>=1.99
+# One OTel pipeline, two exporters (Langfuse + APM)
+opentelemetry-sdk>=1.30
+opentelemetry-exporter-otlp-proto-http>=1.30
+# Portal, A2A client, data generation
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
+python-dotenv>=1.0
+pillow>=10.0

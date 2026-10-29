@@ -1,0 +1,68 @@
+{
+  "_doc": "Release gate for the claims-sop-rules prompt (and any model change in its config). HARD metrics are deterministic functions of the output against the SME-codified oracle; a miss blocks the release. SOFT metrics warn. 'max' entries are upper bounds. Thresholds sit below the production baseline (see cicd/README.md) so run-to-run noise does not fail a good prompt.",
+  "dataset": "claims-golden-v1",
+  "hard": {
+    "avg-critical-rule-recall": {
+      "min": 1.0
+    },
+    "critical-misses": {
+      "max": 0
+    },
+    "avg-rule-recall": {
+      "min": 0.93
+    },
+    "avg-commission-flag": {
+      "min": 0.95
+    },
+    "avg-citation-validity": {
+      "min": 0.97
+    },
+    "avg-benefit-within-tolerance": {
+      "min": 0.95
+    },
+    "avg-interest-within-tolerance": {
+      "min": 0.9
+    }
+  },
+  "soft": {
+    "avg-rule-precision": {
+      "min": 0.9
+    },
+    "avg-decision-match": {
+      "min": 0.9
+    },
+    "avg-retrieval-coverage": {
+      "min": 1.0
+    }
+  },
+  "suites": {
+    "service": {
+      "dataset": "annuity-service-golden-v1",
+      "hard": {
+        "avg-critical-rule-recall": {
+          "min": 1.0
+        },
+        "critical-misses": {
+          "max": 0
+        },
+        "avg-rule-recall": {
+          "min": 0.93
+        },
+        "avg-citation-validity": {
+          "min": 0.97
+        },
+        "avg-surrender-charge-within-tolerance": {
+          "min": 0.95
+        }
+      },
+      "soft": {
+        "avg-rule-precision": {
+          "min": 0.9
+        },
+        "avg-decision-match": {
+          "min": 0.9
+        }
+      }
+    }
+  }
+}

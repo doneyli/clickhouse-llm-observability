@@ -44,6 +44,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from northwind import agent, config  # noqa: E402
+from northwind.compliance_sync import sync_recent  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 VOICE_DIR = DEMO_DIR / "data" / "voice"
@@ -121,6 +122,9 @@ _act("exp_prompt", "5", "Experiment: prompt A/B (production vs staging)", "scrip
 _act("exp_model", "6", "Experiment: model comparison", "scripts/run_experiment.py", ["--model", "gpt-4.1"],
      "Same dataset, same prompt, a different model.",
      "Cost, latency and judge scores per model in the run comparison.")
+_act("compliance_compare", "12", "Compliance: single vs five policy judges", "scripts/compare_compliance.py", [],
+     "Original and matched single judges vs five policy judges, on the same frozen answers.",
+     "Langfuse dataset banking-compliance-comparison-v1: compare three runs, inspect policy verdicts, tokens and latency.")
 _act("gate", "7", "CI quality gate on development prompt", "scripts/prompt_gate.py",
      ["--prompt-label", "development"],
      "The check a pull request runs before a prompt can ship.",
@@ -398,6 +402,18 @@ def _voice_samples() -> list[dict]:
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
+async def _sync_compliance():
+    # Managed judges are asynchronous. Keep their headline in Langfuse current
+    # without adding calls to the customer's response path. Can be disabled if
+    # scripts/sync_compliance.py --watch runs as a separate worker.
+    while True:
+        await asyncio.sleep(30)
+        try:
+            await asyncio.to_thread(sync_recent, config.api)
+        except Exception as exc:  # retry after transient ingestion/API failures
+            print(f"Compliance aggregation failed ({type(exc).__name__}); retrying", file=sys.stderr, flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Build the ONE tracer provider + Langfuse client before anything can race
@@ -412,7 +428,17 @@ async def lifespan(app: FastAPI):
             pass
     _bg(asyncio.to_thread(_warm))
     _bg(_prompt_version(force=True))
+    compliance_task = None
+    if (os.environ.get("NORTHWIND_COMPLIANCE_SYNC", "1") != "0"
+            and config.LANGFUSE_PUBLIC_KEY and config.LANGFUSE_SECRET_KEY):
+        compliance_task = asyncio.create_task(_sync_compliance())
     yield
+    if compliance_task:
+        compliance_task.cancel()
+        try:
+            await compliance_task
+        except asyncio.CancelledError:
+            pass
     if _job and _job.running and _job.proc:
         try:
             _job.proc.terminate()

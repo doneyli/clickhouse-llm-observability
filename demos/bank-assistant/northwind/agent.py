@@ -440,8 +440,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
             trace_attrs = {"session_id": session_id, "user_id": customer_id, "trace_name": trace_name,
                            "version": version, "environment": environment}
             handler = CallbackHandler()
-            run_cfg = {"callbacks": [handler], "recursion_limit": 14,
-                       "run_name": "northwind-orchestration", "metadata": {"langfuse_session_id": session_id}}
+            run_cfg = {"callbacks": [handler], "recursion_limit": 14, "run_name": "northwind-orchestration"}
             llm = make_llm(model)
 
             async def _invoke(session):
@@ -484,8 +483,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
                 "tools_used": ",".join(used) or "none", "cited_sources": ",".join(cited) or "none",
                 "retrieved_sources": ",".join(retrieved) or "none",
                 "prompt_version": str(getattr(lf_prompt, "version", "fallback")),
-                "apm_trace_url": config.apm_url(trace_id),
-                "latency_ms": str(round(_now_ms() - t0))})
+                "apm_trace_url": config.apm_url(trace_id)})
             obs_id = root.id
 
     _score_turn(langfuse, trace_id, obs_id, check, outcome, used, cited, retrieved, language, answer,

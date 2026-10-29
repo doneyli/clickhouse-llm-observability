@@ -12,6 +12,7 @@ if ! lsof -i :8766 -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 $PY scripts/seed_prompts.py
 $PY scripts/seed_evals.py
+$PY scripts/seed_compliance_dashboard.py
 $PY scripts/seed_datasets.py
 $PY scripts/seed_selfhosted_rbac.py
 $PY scripts/generate_traffic.py --scenario all --n 14

@@ -452,8 +452,9 @@ is approved."
 
 **Show.**
 1. **Annotation queues** → *SME review — assistant answers*: production answers,
-   worst first — customer thumbs-down and the lowest judge scores, however old,
-   then a random sample. Open a **pending** item and label it live with
+   worst first from the last 24 hours — customer thumbs-down, the lowest judge
+   scores and P1-P5 violations, then a random sample. Open a **pending** item
+   and label it live with
    `sme-faithfulness`, `sme-compliance` and `sme-failure-mode`, then complete it.
 2. **Scores → Analytics**: `faithfulness` (judge) vs `sme-faithfulness`
    (human) on the same observations — agreement, Cohen's kappa, confusion matrix.

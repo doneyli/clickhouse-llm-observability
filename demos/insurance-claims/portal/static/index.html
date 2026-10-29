@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claims Workbench</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3a5f'/><path d='M9 22V10l7 7 7-7v12' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">N</span><div><b>Northwind Life &amp; Annuity</b><small>Death-claims workbench · synthetic demo data</small></div></div>
+  <div class="top-right">
+    <label class="presenter"><input type="checkbox" id="presenter"> Presenter view</label>
+    <a id="lf-link" target="_blank" rel="noopener">Langfuse ↗</a>
+  </div>
+</header>
+<main>
+  <aside class="queue">
+    <div class="queue-head"><h2>Claim queue</h2>
+      <select id="filter"><option value="all">All claims</option><option value="hero">Featured</option><option value="golden">Standard</option><option value="adversarial">Flagged / adversarial</option></select>
+    </div>
+    <input id="search" placeholder="Search id, scenario, state…">
+    <ul id="claims"></ul>
+  </aside>
+  <section id="detail" class="detail"><div class="empty">Select a claim from the queue.</div></section>
+</main>
+<div id="modal" class="modal hidden"><div class="modal-body"><button class="close" id="modal-close">×</button><div id="modal-content"></div></div></div>
+<script src="app.js"></script>
+</body>
+</html>

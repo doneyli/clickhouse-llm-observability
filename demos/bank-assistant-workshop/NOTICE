@@ -1,0 +1,14 @@
+Bank Assistant Workshop, prepared 2026-10-11.
+
+Banking code and the complete original-demo/ snapshot are copied from
+https://github.com/doneyli/clickhouse-llm-observability
+revision 6af4e7b0d7f87f888860e57f71614af207be62ac, Apache-2.0 (LICENSE).
+The src/northwind/ adaptations carry modification notices.
+
+The workshop's module structure is inspired by the official Langfuse workshop,
+https://github.com/langfuse/langfuse-workshop
+revision fe01d263dd1dcda268f5e461e637394d9ec87676.
+Learner and instructor text in this package is newly authored. No official
+screenshots, slide assets, or TypeScript implementation are redistributed.
+The original demo snapshot is reference material; its historical project links
+and validation claims do not validate this workshop copy.

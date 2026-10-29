@@ -14,6 +14,7 @@ re-running an unchanged prompt moves a judge average by a few points.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -170,22 +171,39 @@ ASSISTANT ANSWER: {answer}
 Reply with JSON only: {{"score": <0|0.5|1>, "reason": "<one sentence>"}}"""
 
 
-def correctness(*, input, output, expected_output, **_):
+_clients: dict = {}
+
+
+def _judge_client():
+    """One async Anthropic client per event loop: an experiment run gets its own loop,
+    and an httpx pool must not outlive the loop it was opened on."""
+    loop = asyncio.get_running_loop()
+    client = _clients.get(id(loop))
+    if client is None:
+        import anthropic
+        client = _clients[id(loop)] = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
+    return client
+
+
+async def correctness(*, input, output, expected_output, **_):
+    """Async, so items are judged concurrently (a sync evaluator blocks the experiment's
+    event loop). Traced as a generation, so the judge's tokens and cost are on the run."""
     if not expected_output:
         return []
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=config.JUDGE_MODEL, max_tokens=200,
-        messages=[{"role": "user", "content": _CORRECTNESS_PROMPT.format(
-            question=(input or {}).get("question"), expected=expected_output, answer=_answer(output))}])
-    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    prompt = _CORRECTNESS_PROMPT.format(
+        question=(input or {}).get("question"), expected=expected_output, answer=_answer(output))
+    with config.get_langfuse().start_as_current_observation(
+            as_type="generation", name="correctness-judge", model=config.JUDGE_MODEL, input=prompt) as g:
+        msg = await _judge_client().messages.create(
+            model=config.JUDGE_MODEL, max_tokens=200, messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        g.update(output=text, usage_details={"input": msg.usage.input_tokens, "output": msg.usage.output_tokens})
     try:
         data = json.loads(re.search(r"\{.*\}", text, re.S).group(0))
         return Evaluation(name="correctness", value=float(data["score"]), comment=data.get("reason"))
-    except Exception:  # noqa: BLE001
-        return Evaluation(name="correctness", value=0.0, comment=f"unparseable judge output: {text[:120]}")
+    except Exception:  # noqa: BLE001 — a reply we cannot read is not a wrong answer: no score
+        print(f"correctness: unparseable judge output, no score: {text[:120]!r}")
+        return []
 
 
 GOLDEN_EVALUATORS = [correctness, must_include, source_recall, cites_expected_source, language_match,

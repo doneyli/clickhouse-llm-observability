@@ -30,6 +30,7 @@ latency per candidate = the evidence for choosing the bank-approved judge model.
 Run: .venv/bin/python scripts/judge_calibration_experiment.py [--models m1 m2 ...] [--synthetic-only]
 """
 import argparse
+import asyncio
 import json
 import re
 import sys
@@ -203,14 +204,29 @@ def normalise(text: str) -> str:
     return "1.0" if v >= 0.75 else ("0.5" if v >= 0.25 else "0.0")
 
 
-def call(model: str, prompt: str):
+_clients: dict = {}
+
+
+def _client(kind: str):
+    """One async client per provider and event loop (each experiment run has its own loop)."""
+    key = (kind, id(asyncio.get_running_loop()))
+    if key not in _clients:
+        if kind == "openai":
+            import openai
+            _clients[key] = openai.AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        else:
+            import anthropic
+            _clients[key] = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
+    return _clients[key]
+
+
+async def call(model: str, prompt: str):
+    """Async, so max_concurrency is real: a blocking call here would judge one item at a time."""
     if model.startswith("gpt"):
-        import openai
-        r = openai.OpenAI(api_key=config.OPENAI_API_KEY).chat.completions.create(
+        r = await _client("openai").chat.completions.create(
             model=model, max_tokens=500, messages=[{"role": "user", "content": prompt}])
         return r.choices[0].message.content, {"input": r.usage.prompt_tokens, "output": r.usage.completion_tokens}
-    import anthropic
-    r = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY).messages.create(
+    r = await _client("anthropic").messages.create(
         model=model, max_tokens=500, messages=[{"role": "user", "content": prompt}])
     return ("".join(b.text for b in r.content if getattr(b, "type", "") == "text"),
             {"input": r.usage.input_tokens, "output": r.usage.output_tokens})
@@ -257,12 +273,12 @@ def main():
     ds = lf.get_dataset(DATASET)
     print(f"Dataset {DATASET}: {len(ds.items)} items · prompt {PROMPT} v{prompt.version}\n")
     for model in a.models:
-        def task(*, item, **_):
+        async def task(*, item, **_):
             text = prompt.compile(**item.input)
             t = time.perf_counter()
             with lf.start_as_current_observation(as_type="generation", name="faithfulness-judge", model=model,
                                                  input=text, prompt=prompt) as g:
-                raw, usage = call(model, text)
+                raw, usage = await call(model, text)
                 g.update(output=raw, usage_details=usage)
             return {"verdict": normalise(raw), "raw": raw, "latency_s": round(time.perf_counter() - t, 2)}
 

@@ -1,0 +1,201 @@
+# Insurance claims demo — local infrastructure.
+#
+#   docker compose --profile selfhosted up -d   → self-hosted Langfuse v4 ENTERPRISE on :3200
+#                                                 (org "Northwind Life & Annuity", project claims-prod;
+#                                                 scripts/bootstrap_selfhosted.sh adds the rest)
+#   docker compose --profile apm up -d           → Jaeger (Dynatrace stand-in) on :16686 / OTLP :14318
+#                                                 skip it if the bank demo's Jaeger already runs there
+#
+# The self-hosted services are the official Langfuse v4 compose file (as adapted in
+# demos/bank-assistant/docker-compose.yml), with ports moved off the defaults so it coexists with the
+# repo's root stack and the bank demo. Demo-only secrets in .env (see .env.example). The Enterprise
+# license key is read at runtime from the repo-root .env by scripts/bootstrap_selfhosted.sh.
+
+name: claims
+
+x-langfuse-env: &langfuse-env
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3200}
+  DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+  SALT: ${SALT:-claims-demo-salt}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env (openssl rand -hex 32)}
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_EE_LICENSE_KEY: ${LANGFUSE_EE_LICENSE_KEY:-}
+  LANGFUSE_LOG_LEVEL: ${LANGFUSE_LOG_LEVEL:-info}
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:19290
+  # The worker (multi-modal judges) downloads media itself: inside the network MinIO is minio:9000, not
+  # the browser-facing localhost:19290. Without this the image judge fails with "Failed to download bytes".
+  LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "true"
+  LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+  LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+  LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+  LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: http://localhost:19290
+  LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${REDIS_AUTH:-myredissecret}
+  # Judges and the playground call model providers from inside the platform.
+  # In the bank this is a VPC endpoint (Bedrock) or an internal gateway.
+  LANGFUSE_EVALUATOR_MEDIA_TRANSPORT: ${LANGFUSE_EVALUATOR_MEDIA_TRANSPORT:-}
+
+services:
+  langfuse-worker:
+    profiles: [selfhosted]
+    image: docker.langfuse.com/langfuse/langfuse-worker:${LANGFUSE_VERSION:-4.53.0}
+    restart: always
+    depends_on: &langfuse-depends-on
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    environment:
+      <<: *langfuse-env
+    ports:
+      - 127.0.0.1:13230:3030
+
+  langfuse-web:
+    profiles: [selfhosted]
+    image: docker.langfuse.com/langfuse/langfuse:${LANGFUSE_VERSION:-4.53.0}
+    restart: always
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3200:3000
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-claims-nextauth-secret}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://minio:9000
+      # Bootstrap: one org, one project, one owner — reproducible demo state.
+      LANGFUSE_INIT_ORG_ID: northwind-life
+      LANGFUSE_INIT_ORG_NAME: Northwind Life & Annuity
+      LANGFUSE_INIT_PROJECT_ID: claims-prod
+      LANGFUSE_INIT_PROJECT_NAME: claims-prod
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${SELFHOSTED_PUBLIC_KEY:-pk-lf-claims-prod}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${SELFHOSTED_SECRET_KEY:-sk-lf-claims-prod}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-platform.admin@northwind-life.example}
+      LANGFUSE_INIT_USER_NAME: Platform Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?set LANGFUSE_INIT_USER_PASSWORD in .env}
+      # SSO (ENT-01). Uncomment with a real Entra ID app registration; see
+      # docs/ENTERPRISE_SECURITY.md.
+      # AUTH_AZURE_AD_CLIENT_ID: ${AUTH_AZURE_AD_CLIENT_ID:-}
+      # AUTH_AZURE_AD_CLIENT_SECRET: ${AUTH_AZURE_AD_CLIENT_SECRET:-}
+      # AUTH_AZURE_AD_TENANT_ID: ${AUTH_AZURE_AD_TENANT_ID:-}
+      # AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING: "true"
+      # AUTH_DOMAINS_WITH_SSO_ENFORCEMENT: northwind-life.example
+      # AUTH_DISABLE_USERNAME_PASSWORD: "true"
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:3000/api/public/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  clickhouse:
+    profiles: [selfhosted]
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    restart: always
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    ports:
+      - 127.0.0.1:18223:8123
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio:
+    profiles: [selfhosted]
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+    ports:
+      - 19290:9000
+      - 127.0.0.1:19291:9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  redis:
+    profiles: [selfhosted]
+    image: docker.io/redis:7
+    restart: always
+    command: --requirepass ${REDIS_AUTH:-myredissecret} --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_AUTH:-myredissecret}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  postgres:
+    profiles: [selfhosted]
+    image: docker.io/postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - 127.0.0.1:15532:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  jaeger:
+    profiles: [apm]
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "16686:16686"
+      - "127.0.0.1:14318:4318"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  clickhouse_logs:
+  minio_data:
+  redis_data:

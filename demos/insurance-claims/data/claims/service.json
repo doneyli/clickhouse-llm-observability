@@ -1,0 +1,1309 @@
+[
+ {
+  "request_id": "SR-2026-00077",
+  "scenario": "hero: NY senior replacement \u2014 surrender period, 30-month-old contract, rider loss, horizon shorter than the new surrender period",
+  "tags": [
+   "hero"
+  ],
+  "line": "annuity_service",
+  "state": "NY",
+  "request_type": "replacement",
+  "request_date": "2026-10-08",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620000",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2024-04-07",
+  "contract_value": 240000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": "GLWB income rider",
+  "amount": 240000.0,
+  "owner": {
+   "name": "Eleanor Langley",
+   "date_of_birth": "1950-05-04"
+  },
+  "agent_recommended": true,
+  "agent": "M. Goldberg (agent 40388)",
+  "profile": {
+   "annual_income": 42000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 4,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "NY-SVC-001",
+    "NY-SVC-002",
+    "SVC-BI-002",
+    "SVC-BI-003",
+    "SVC-BI-004",
+    "SVC-REP-002",
+    "SVC-REP-003",
+    "SVC-REP-004",
+    "SVC-WD-001"
+   ],
+   "critical_rule_ids": [
+    "SVC-BI-004",
+    "SVC-REP-002",
+    "SVC-REP-003"
+   ],
+   "decision": "REFER_REVIEW",
+   "letter_requirements": [
+    "NY-SVC-001",
+    "NY-SVC-002",
+    "SVC-BI-003"
+   ],
+   "surrender_charge": 10800.0,
+   "free_amount": 24000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03",
+   "SOP-SVC-NY-01"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00101",
+  "scenario": "withdrawal within the free amount",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NJ",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-01",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620041",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2023-04-30",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 12000.0,
+  "owner": {
+   "name": "Rosalind Merriweather",
+   "date_of_birth": "1960-06-02"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 150000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00102",
+  "scenario": "withdrawal above the free amount in year 2 (6%)",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "TX",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-17",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620082",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2025-06-16",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 40000.0,
+  "owner": {
+   "name": "Eleanor Radcliffe",
+   "date_of_birth": "1963-09-10"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 120000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-001"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [],
+   "surrender_charge": 1320.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00103",
+  "scenario": "under 59\u00bd, above the free amount in year 5",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "FL",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-22",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620123",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2022-07-21",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 30000.0,
+  "owner": {
+   "name": "Constance Merriweather",
+   "date_of_birth": "1971-08-08"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 65000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-001",
+    "SVC-WD-002"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [
+    "SVC-WD-002"
+   ],
+   "surrender_charge": 360.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00104",
+  "scenario": "under 59\u00bd, within the free amount",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "CA",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-01",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620164",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2020-10-31",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 9000.0,
+  "owner": {
+   "name": "Beatrice Draper",
+   "date_of_birth": "1968-11-01"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 150000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-002"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [
+    "SVC-WD-002"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00105",
+  "scenario": "qualified, age 74, RMD still due",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NY",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-09",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620205",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2016-09-08",
+  "contract_value": 180000.0,
+  "qualified": true,
+  "rmd_remaining": 8200.0,
+  "guaranteed_rider": null,
+  "amount": 10000.0,
+  "owner": {
+   "name": "Theodore Langley",
+   "date_of_birth": "1952-05-06"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 120000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-RMD-001"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03",
+   "SOP-SVC-NY-01"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00106",
+  "scenario": "qualified, age 79, RMD due, agent-recommended (senior review)",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NJ",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-20",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620246",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2017-07-19",
+  "contract_value": 180000.0,
+  "qualified": true,
+  "rmd_remaining": 6400.0,
+  "guaranteed_rider": null,
+  "amount": 15000.0,
+  "owner": {
+   "name": "Bernard Kendrick",
+   "date_of_birth": "1947-09-02"
+  },
+  "agent_recommended": true,
+  "agent": "A. Ferreira (agent 40112)",
+  "profile": {
+   "annual_income": 65000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-002",
+    "SVC-BI-003",
+    "SVC-RMD-001"
+   ],
+   "critical_rule_ids": [],
+   "decision": "REFER_REVIEW",
+   "letter_requirements": [
+    "SVC-BI-003"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00107",
+  "scenario": "withholding election missing",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "TX",
+  "request_type": "withdrawal",
+  "request_date": "2026-10-04",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620287",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2018-10-03",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 8000.0,
+  "owner": {
+   "name": "Miriam Kendrick",
+   "date_of_birth": "1958-09-21"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 65000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 10,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": false,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-003"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00108",
+  "scenario": "surrender forfeits a rider, no acknowledgment",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "FL",
+  "request_type": "surrender",
+  "request_date": "2026-10-02",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620328",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2018-06-01",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": "GLWB income rider",
+  "amount": 180000.0,
+  "owner": {
+   "name": "Miriam Ingram",
+   "date_of_birth": "1955-09-29"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-004"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00109",
+  "scenario": "surrender in year 3 (5%)",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "CA",
+  "request_type": "surrender",
+  "request_date": "2026-10-10",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620369",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2024-07-09",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Lyle Kendrick",
+   "date_of_birth": "1958-03-29"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-001"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [],
+   "surrender_charge": 8100.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00110",
+  "scenario": "surrender after the charge period, rider acknowledged",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NY",
+  "request_type": "surrender",
+  "request_date": "2026-10-06",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620410",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2016-05-05",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": "return-of-premium death benefit",
+  "amount": 180000.0,
+  "owner": {
+   "name": "Wallace Ormsby",
+   "date_of_birth": "1956-09-21"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 65000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": true,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03",
+   "SOP-SVC-NY-01"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00111",
+  "scenario": "clean replacement after the surrender period",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NJ",
+  "request_type": "replacement",
+  "request_date": "2026-09-14",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620451",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2018-05-13",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Eleanor Langley",
+   "date_of_birth": "1962-08-26"
+  },
+  "agent_recommended": true,
+  "agent": "M. Goldberg (agent 40388)",
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 10,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-003",
+    "SVC-REP-005"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [
+    "SVC-BI-003",
+    "SVC-REP-005"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00112",
+  "scenario": "replacement of a 20-month-old contract in its surrender period",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "TX",
+  "request_type": "replacement",
+  "request_date": "2026-09-08",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620492",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2025-01-07",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Orville Kendrick",
+   "date_of_birth": "1965-08-30"
+  },
+  "agent_recommended": true,
+  "agent": "M. Goldberg (agent 40388)",
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 150000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 8,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-003",
+    "SVC-REP-002",
+    "SVC-REP-003",
+    "SVC-REP-005",
+    "SVC-WD-001"
+   ],
+   "critical_rule_ids": [
+    "SVC-REP-002",
+    "SVC-REP-003"
+   ],
+   "decision": "REFER_REVIEW",
+   "letter_requirements": [
+    "SVC-BI-003",
+    "SVC-REP-005"
+   ],
+   "surrender_charge": 9720.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00113",
+  "scenario": "replacement: notice missing and profile incomplete",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "FL",
+  "request_type": "replacement",
+  "request_date": "2026-09-13",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620533",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2018-09-12",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Clarence Langley",
+   "date_of_birth": "1957-09-07"
+  },
+  "agent_recommended": true,
+  "agent": "T. Nwosu (agent 41027)",
+  "profile": {
+   "annual_income": 120000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 9,
+   "liquidity_needs": null
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": false
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-001",
+    "SVC-BI-003",
+    "SVC-REP-001",
+    "SVC-REP-005"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [
+    "SVC-BI-003",
+    "SVC-REP-005"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00114",
+  "scenario": "owner-initiated replacement into a 10-year surrender period with a 3-year horizon",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "CA",
+  "request_type": "replacement",
+  "request_date": "2026-09-04",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620574",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2018-01-03",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Bernard Northcott",
+   "date_of_birth": "1960-09-03"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 3,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "new_product": "Competitor Premier Index 10 (fixed indexed annuity)",
+  "new_surrender_period_years": 10,
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-004",
+    "SVC-REP-005"
+   ],
+   "critical_rule_ids": [
+    "SVC-BI-004"
+   ],
+   "decision": "REFER_REVIEW",
+   "letter_requirements": [
+    "SVC-REP-005"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00115",
+  "scenario": "clean NY replacement (60-day free look, written best-interest basis)",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NY",
+  "request_type": "replacement",
+  "request_date": "2026-10-01",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620615",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2017-02-28",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Edith Radcliffe",
+   "date_of_birth": "1964-09-26"
+  },
+  "agent_recommended": true,
+  "agent": "J. Park (agent 40951)",
+  "profile": {
+   "annual_income": 42000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 12,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "NY-SVC-001",
+    "NY-SVC-002",
+    "SVC-BI-003"
+   ],
+   "critical_rule_ids": [],
+   "decision": "APPROVE",
+   "letter_requirements": [
+    "NY-SVC-001",
+    "NY-SVC-002",
+    "SVC-BI-003"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03",
+   "SOP-SVC-NY-01"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00116",
+  "scenario": "agent-recommended withdrawal, profile incomplete",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NJ",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-18",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620656",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2021-09-17",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 11000.0,
+  "owner": {
+   "name": "Clarence Kendrick",
+   "date_of_birth": "1956-09-12"
+  },
+  "agent_recommended": true,
+  "agent": "T. Nwosu (agent 41027)",
+  "profile": {
+   "annual_income": 120000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": null,
+   "liquidity_needs": null
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-001",
+    "SVC-BI-003"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [
+    "SVC-BI-003"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00117",
+  "scenario": "senior replacement that ends a guaranteed rider",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "TX",
+  "request_type": "replacement",
+  "request_date": "2026-10-09",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620697",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2019-04-08",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": "GLWB income rider",
+  "amount": 180000.0,
+  "owner": {
+   "name": "Lorraine Kendrick",
+   "date_of_birth": "1949-10-05"
+  },
+  "agent_recommended": true,
+  "agent": "M. Goldberg (agent 40388)",
+  "profile": {
+   "annual_income": 42000,
+   "liquid_net_worth": 60000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 9,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-002",
+    "SVC-BI-003",
+    "SVC-REP-004",
+    "SVC-REP-005"
+   ],
+   "critical_rule_ids": [],
+   "decision": "REFER_REVIEW",
+   "letter_requirements": [
+    "SVC-BI-003",
+    "SVC-REP-005"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00118",
+  "scenario": "agent-recommended withdrawal for an 80-year-old (senior review)",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "CA",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-09",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620738",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2020-01-08",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 10000.0,
+  "owner": {
+   "name": "Constance Draper",
+   "date_of_birth": "1946-06-20"
+  },
+  "agent_recommended": true,
+  "agent": "A. Ferreira (agent 40112)",
+  "profile": {
+   "annual_income": 65000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-002",
+    "SVC-BI-003"
+   ],
+   "critical_rule_ids": [],
+   "decision": "REFER_REVIEW",
+   "letter_requirements": [
+    "SVC-BI-003"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00119",
+  "scenario": "age 52, above the free amount in year 3, withholding election missing",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NY",
+  "request_type": "withdrawal",
+  "request_date": "2026-09-19",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620779",
+  "product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "issue_date": "2024-07-18",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 45000.0,
+  "owner": {
+   "name": "Phyllis Jessop",
+   "date_of_birth": "1974-09-17"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 42000,
+   "liquid_net_worth": 400000,
+   "risk_tolerance": "conservative",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": false,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-001",
+    "SVC-WD-002",
+    "SVC-WD-003"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [
+    "SVC-WD-002"
+   ],
+   "surrender_charge": 1350.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03",
+   "SOP-SVC-NY-01"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00120",
+  "scenario": "surrender in year 6 that forfeits a rider, no acknowledgment",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "TX",
+  "request_type": "surrender",
+  "request_date": "2026-09-27",
+  "received_via": "owner portal",
+  "contract_number": "NLA-A-620820",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2021-07-26",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": "GLWB income rider",
+  "amount": 180000.0,
+  "owner": {
+   "name": "Orville Jessop",
+   "date_of_birth": "1954-09-11"
+  },
+  "agent_recommended": false,
+  "agent": null,
+  "profile": {
+   "annual_income": 42000,
+   "liquid_net_worth": 150000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 10,
+   "liquidity_needs": "low"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": true
+  },
+  "expected": {
+   "rule_ids": [
+    "SVC-WD-001",
+    "SVC-WD-004"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [],
+   "surrender_charge": 3240.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ },
+ {
+  "request_id": "SR-2026-00121",
+  "scenario": "replacement notice missing",
+  "tags": [],
+  "line": "annuity_service",
+  "state": "NJ",
+  "request_type": "replacement",
+  "request_date": "2026-09-11",
+  "received_via": "agent",
+  "contract_number": "NLA-A-620861",
+  "product": "Northwind Income Builder (variable annuity)",
+  "issue_date": "2017-09-10",
+  "contract_value": 180000.0,
+  "qualified": false,
+  "rmd_remaining": 0.0,
+  "guaranteed_rider": null,
+  "amount": 180000.0,
+  "owner": {
+   "name": "Phyllis Fairbanks",
+   "date_of_birth": "1959-09-03"
+  },
+  "agent_recommended": true,
+  "agent": "M. Goldberg (agent 40388)",
+  "profile": {
+   "annual_income": 88000,
+   "liquid_net_worth": 150000,
+   "risk_tolerance": "moderate",
+   "time_horizon_years": 10,
+   "liquidity_needs": "moderate"
+  },
+  "documents": {
+   "withholding_form": true,
+   "rider_ack": false,
+   "replacement_notice": false
+  },
+  "new_product": "Northwind Secure Growth 7 (fixed indexed annuity)",
+  "new_surrender_period_years": 7,
+  "expected": {
+   "rule_ids": [
+    "SVC-BI-003",
+    "SVC-REP-001",
+    "SVC-REP-005"
+   ],
+   "critical_rule_ids": [],
+   "decision": "PEND",
+   "letter_requirements": [
+    "SVC-BI-003",
+    "SVC-REP-005"
+   ],
+   "surrender_charge": 0.0,
+   "free_amount": 18000.0,
+   "interest_rule": null,
+   "commission_chargeback_pct": 0,
+   "gross_benefit": null,
+   "interest_due": null
+  },
+  "candidate_sops": [
+   "SOP-SVC-01",
+   "SOP-SVC-02",
+   "SOP-SVC-03"
+  ]
+ }
+]

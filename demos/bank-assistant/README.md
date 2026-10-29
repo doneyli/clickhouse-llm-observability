@@ -13,6 +13,7 @@ This demo has its own environment and services; use the setup below.
 | Task | Guide |
 |---|---|
 | Run the assistant | [Quick start](#quick-start) |
+| Conduct compliance and single-vs-split judges | [Policy evaluation and comparison](docs/COMPLIANCE_EVALUATION.md) |
 | Present the 2-hour workshop | [Demo script](DEMO_SCRIPT.md), [attendee labs](LABS.md), [presenter kit](PRESENTER_KIT.html) (open locally in a browser) |
 | Present a 30-minute evals-first demo | [Evals-first script](DEMO_SCRIPT_EVALS_FIRST.md), [walkthrough video storyboard](docs/EVALS_FIRST_VIDEO.md) |
 | Check coverage and evidence | [Capability matrix](CAPABILITY_MATRIX.md), [requirements tracker](REQUIREMENTS_TRACKER.md) |
@@ -118,19 +119,24 @@ After the quick start:
 .venv/bin/python scripts/seed_datasets.py
 .venv/bin/python scripts/seed_dashboard.py
 .venv/bin/python scripts/seed_business_dashboard.py
+.venv/bin/python scripts/seed_compliance_dashboard.py
 .venv/bin/python scripts/generate_traffic.py --scenario all
 ```
 
-Check **Evaluators**, **Datasets**, and both Northwind dashboards in Langfuse.
+Check **Evaluators**, **Datasets**, and the Northwind dashboards in Langfuse.
+Conduct compliance uses five policy judges and a derived overall status/score,
+with explicit coverage and unresolved checks. See the [conduct evaluation guide](docs/COMPLIANCE_EVALUATION.md).
 Managed judge scores arrive asynchronously.
 
-The three judge rules skip turns the input guardrail blocked. Those answers are
-the fixed refusal text, so the deterministic `guardrail-blocked` score is the
-verdict and a judge call would grade a constant. `faithfulness` and
-`banking-compliance` run on every other production turn;
-`manipulation-resistance-sampled` judges 20% of them, to catch attacks the rules
-missed. Re-running `seed_evals.py` disables the retired `manipulation-resistance`
-rule, which judged every blocked turn; its past scores stay.
+No judge rule runs on a turn the input guardrail blocked. Those answers are the
+fixed refusal text, so the deterministic `guardrail-blocked` score is the verdict
+and a judge call would grade a constant; such turns get no derived compliance
+score either. `faithfulness` and the five policy judges run on every other
+production turn; `manipulation-resistance-sampled` judges 20% of them, to catch
+attacks the rules missed. Re-running `seed_evals.py` disables two retired rules,
+keeping their past scores: `manipulation-resistance`, which judged every blocked
+turn, and the original single `banking-compliance` judge, once all five policy
+judges are active.
 
 Once scores are visible, run:
 
@@ -139,9 +145,10 @@ Once scores are visible, run:
 ```
 
 The count sets the desired pending backlog. Re-running preserves completed
-reviews and human scores. Thumbs-down answers and the lowest judge scores are
-queued first, however old they are. If there are too few unqueued answers, the
-command exits non-zero; generate fresh traffic and rerun.
+reviews and human scores. Candidates are the last 24 hours of production
+answers: thumbs-down answers, the lowest judge scores and P1-P5 violations or
+unknowns are queued first, however deep in the listing. If there are too few
+unqueued answers, the command exits non-zero; generate fresh traffic and rerun.
 
 Label and complete 8-10 answers in **SME review**, then run
 `.venv/bin/python scripts/judge_calibration.py` to compare judge and human scores.
@@ -159,6 +166,7 @@ source. The synthetic items have obvious planted errors, so a judge can score
 | Workflow | Command or guide |
 |---|---|
 | Prompt comparison (EN + ES), model comparison, and red-team experiments | `./scripts/run_all_experiments.sh` (requires OpenAI for model comparison; inspect both experiment logs in `logs/` for failures) |
+| Conduct judge comparison: original single, matched single, five policy judges | `.venv/bin/python scripts/compare_compliance.py` (or `--preview` without keys) |
 | Judge-rubric calibration experiment | `.venv/bin/python scripts/judge_calibration_experiment.py` |
 | Voice calls | `.venv/bin/python scripts/run_voice_calls.py --lang en --verify` (requires OpenAI; use `--lang es` for Spanish) |
 | Complaint triage | [n8n setup and verification](n8n/README.md) |
@@ -204,6 +212,7 @@ Stop this demo's containers with `docker compose --profile selfhosted stop`.
 | Topic | Guide |
 |---|---|
 | Portal controls and API | [Portal README](portal/README.md) |
+| Conduct score aggregation, dashboard and comparison walkthrough | [Conduct evaluation](docs/COMPLIANCE_EVALUATION.md) |
 | Data model and deployment architecture | [Architecture](docs/ARCHITECTURE.md) |
 | Langfuse v4 reads, filters, and pagination | [API reference](docs/API_REFERENCE.md) |
 | SSO, RBAC, audit, retention, and export | [Enterprise security](docs/ENTERPRISE_SECURITY.md) |

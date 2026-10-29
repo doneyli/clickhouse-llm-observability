@@ -64,7 +64,6 @@ def main():
     print(f"Quality gate · prompt label '{a.prompt_label}' · {a.model} · dataset {t['dataset']}\n", flush=True)
     result = run_experiment.run(t["dataset"], a.prompt_label, a.model, run_name=run_name)
     got = {e.name: e.value for e in result.run_evaluations}
-    version = (getattr(result, "metadata", None) or {}).get("prompt_version") if hasattr(result, "metadata") else None
     rows, failed = [], False
     print(f"\n{'metric':<28}{'value':>8}{'threshold':>11}   result")
     for kind in ("hard", "soft"):

@@ -33,7 +33,9 @@ on:
 # A burst of label moves (one UI action fires two events) would queue several
 # full eval runs — each costs real LLM tokens. Keep only the newest per prompt.
 concurrency:
-  group: northwind-gate-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_label }}
+  # One group per prompt VERSION: a promotion sends two events at once (the new version gets `production`,
+  # the old one `previous-production`); grouping by name alone let the housekeeping event cancel the gate.
+  group: northwind-gate-${{ github.event.client_payload.prompt.name || 'manual' }}-${{ github.event.client_payload.prompt.version || github.event.inputs.prompt_label }}
   cancel-in-progress: true
 
 jobs:
