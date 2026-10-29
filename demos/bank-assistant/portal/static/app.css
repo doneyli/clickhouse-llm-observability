@@ -125,13 +125,20 @@ code { font-family: var(--mono); font-size: .88em; background: var(--neutral-100
   content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px;
   background: var(--blue-500); border-radius: 3px 3px 0 0;
 }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Flex items default to min-width:auto, so without these the bar's parts refuse
+   to shrink and push the whole document into a horizontal scroll. */
+.tabs { min-width: 0; }
 .env-pill {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
   background: rgba(255,255,255,.08); color: var(--on-dark); border: 1px solid rgba(255,255,255,.12);
-  white-space: nowrap;
+  white-space: nowrap; min-width: 0;
 }
+/* The target name comes from the server ("production · Langfuse Cloud",
+   "production · Self-hosted Langfuse", …), so the pill must truncate rather
+   than set the bar's width. */
+.env-pill #envText { overflow: hidden; text-overflow: ellipsis; }
 .env-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue-500); box-shadow: 0 0 0 3px rgba(var(--blue-rgb),.25); }
 .env-pill .dot.bad { background: var(--brand-coral); box-shadow: 0 0 0 3px rgba(var(--coral-rgb),.25); }
 
@@ -420,19 +427,39 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
 .toast.show { opacity: 1; }
 .toast.bad { background: var(--red-600); }
 
+/* ── Top bar: shed the least important thing first ───────
+   At full size the bar needs 1197px — brand 271 + tabs 481 + right 333, plus
+   28px of padding each side and two 28px gaps. Below that its parts kept their
+   natural width, and the rescue only started at 980px, so 981–1196px scrolled
+   the whole page sideways (1024 and 1152 land right in it). Each tier drops one
+   more thing: the strapline, then the tab labels. */
+@media (max-width: 1200px) {
+  .topbar { gap: 16px; padding: 0 20px; }
+  .brand-sub { display: none; }
+}
 @media (max-width: 1180px) {
-  .presenter-layout { grid-template-columns: 1fr; }
+  /* minmax(0, …), not 1fr: 1fr floors at the content's min-content width, and the
+     console's nowrap link pills then push the column past the viewport. */
+  .presenter-layout { grid-template-columns: minmax(0, 1fr); }
   .console { position: static; height: 520px; }
   .status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .stat-aside { grid-column: 1 / -1; align-items: stretch; max-width: none; border-top: 1px solid var(--border); }
   .stat-aside .lf-credit, .stat-aside .stat-links { justify-content: flex-start; }
 }
+@media (max-width: 1080px) {
+  /* Icons-only tabs. Visually hidden rather than display:none so the label
+     stays in the accessibility tree — the tabs have no other text. */
+  .tab { padding: 0 13px; }
+  .tab span {
+    position: absolute; width: 1px; height: 1px; margin: -1px;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
 @media (max-width: 980px) {
-  .assistant-layout, .voice-layout { grid-template-columns: 1fr; }
+  .assistant-layout, .voice-layout { grid-template-columns: minmax(0, 1fr); }
   .sidebar, .result { position: static; }
-  .acts { grid-template-columns: 1fr; }
+  .acts { grid-template-columns: minmax(0, 1fr); }
   .topbar { gap: 14px; padding: 0 16px; overflow-x: auto; }
-  .brand-sub, .tab span { display: none; }
   main { padding: 16px; }
   .chat { height: 72vh; }
   .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
