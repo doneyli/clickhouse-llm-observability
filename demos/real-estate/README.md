@@ -136,13 +136,15 @@ with this demo's own project and keys. Then pick with `REAL_ESTATE_PROFILE`
 | `selfhosted` | `.env.selfhosted` | — |
 | `dual` — the default once `.env.selfhosted` exists | `.env` (Cloud) | `.env.selfhosted` |
 
-In **dual** mode every span — live traffic, portal *and* experiment runs — and every
+In **dual** mode every span — live traffic, portal *and* experiment runs — every
 score written through the client (code scores, SDK judges, user feedback, experiment
-evaluator scores) also lands on the local instance, with the **same trace, observation
-and score ids**, the same span filter and the same PII redaction. Prompts, datasets,
-dataset-run linkage and managed evaluators stay per instance, so experiment traces show
-up locally without run linkage (seed the local project with the same scripts under
-`REAL_ESTATE_PROFILE=selfhosted` to get prompts and judges there too). The copy is
+evaluator scores) and every image also lands on the local instance, with the **same
+trace, observation, score and media ids**, the same span filter and the same PII
+redaction; the chat shows a "Self-hosted copy" link next to the Cloud one. Prompts,
+datasets, dataset-run linkage and managed evaluators stay per instance, so experiment
+traces show up locally without run linkage. `./scripts/seed_targets.sh` seeds prompts,
+judges, datasets and dashboards into both projects (`./scripts/seed_targets.sh
+selfhosted` for the local one only); the local judges then score the copies too. The copy is
 best-effort: if the local instance is down or stops mid-run, the demo prints one warning,
 Cloud ingest carries on untouched, and the copy resumes when the instance is back. See
 [docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md). (The older

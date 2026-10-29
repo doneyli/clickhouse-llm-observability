@@ -47,6 +47,7 @@ cd demos/real-estate && ./.venv/bin/python scripts/prompt_gate.py --prompt-label
 ./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
 python3 scripts/langfuse_local.py status   # The ONE local Langfuse for the standalone demos (`up` starts it only if none runs)
 python3 scripts/langfuse_local.py provision real-estate  # give a demo its org+project+key (.env.selfhosted); see docs/LANGFUSE_DUAL_INGEST.md
+demos/<demo>/scripts/seed_targets.sh    # real-estate / bank-assistant / insurance-claims: seed prompts, judges, datasets, dashboards into Cloud AND the local copy
 ./scripts/langfuse-cli.sh api observations list  # Langfuse CLI (npm i -g @langfuse/cli); `api` is required, and span data is read via `observations` — `traces list` is removed in v4
 ```
 

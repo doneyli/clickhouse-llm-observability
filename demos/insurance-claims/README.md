@@ -63,7 +63,9 @@ never affects Cloud ingest: one warning, then the copy resumes when it is back. 
 Langfuse shared by all the standalone demos — `python scripts/langfuse_local.py provision insurance-claims`
 (from the repo root) reuses a healthy local Langfuse v4 instance or starts the shared one, and writes
 `.env.selfhosted`; this demo has no Langfuse containers of its own. `python scripts/langfuse_local.py status`
-shows which instance it is. See [docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
+shows which instance it is. `./scripts/seed_targets.sh` seeds prompts, judges, datasets and dashboards into
+both projects (`./scripts/seed_targets.sh selfhosted` for the local one only), and the workbench links the
+"Self-hosted copy" of each trace and claim session. See [docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
 
 Model keys come from this demo's `.env` or the repo-root `.env`. Shell-exported `LANGFUSE_*` variables
 are ignored on purpose (`claims/config.py`). Processes do not hot-reload: restart with

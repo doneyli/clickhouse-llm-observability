@@ -92,8 +92,10 @@ experiments are read from it) and every span, score and media item (voice audio)
 sent to the local instance with the same trace, observation and score ids and the same PII
 masking. n8n exports to one endpoint, so its traces reach Cloud only. If the local
 instance is down or stops mid-run, the demo prints one warning and Cloud ingest carries
-on untouched; the copy resumes when the instance is back. Seed the local project with the
-same scripts under `NORTHWIND_PROFILE=selfhosted` to get its prompts and judges too. See
+on untouched; the copy resumes when the instance is back. The portal shows a "Self-hosted
+copy" link next to each Cloud trace link. `./scripts/seed_targets.sh` seeds prompts, judges,
+datasets and dashboards into both projects (`./scripts/seed_targets.sh selfhosted` for the
+local one only); the local judges then score the copies too. See
 [docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
 
 Python scripts read Langfuse credentials from these files; exported `LANGFUSE_*`

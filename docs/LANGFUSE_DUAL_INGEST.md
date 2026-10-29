@@ -114,7 +114,7 @@ Each demo keeps its existing profile setting and gains a third value:
        ┌───────────────────────────┼──────────────────────────────┐
 LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
 (the Langfuse client)       (mirror: same filter + mask)      (APM, payload-stripped)
-       │                           │ GuardedExporter (3 s, circuit breaker)
+       │                           │ MirrorExporter (3 s, circuit breaker)
        ▼                           ▼                              ▼
  Langfuse Cloud              local self-hosted                 Jaeger
 ```
@@ -133,14 +133,15 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
 
   So the local copy gets **the same spans, the same PII masking and the same trace and observation
   ids** as Cloud. This also lifts real-estate's "mirror or masking" restriction.
-- **`GuardedExporter` keeps the local copy from slowing anything down:**
-  - Each export has a 3 s deadline. The OTLP exporter's retries stay inside that deadline.
+- **`MirrorExporter` keeps the local copy from slowing anything down:**
+  - Each export is one POST with a 3 s deadline, without the OTLP exporter's retry loop.
   - On a failure the circuit opens for 30 s. While it is open, batches are dropped without any
     network call. Then one batch is tried again, and a success closes the circuit. Each change
     between down and up is logged once.
   - A 401/403 gets its own "keys rejected" message and a longer cool-down.
   - All of this runs on the mirror processor's own worker thread. Cloud export never waits on it.
-- **Startup probe.** At startup, `/api/public/health` is called with a 1.5 s timeout. If the local
+- **Startup probe.** At startup, `/api/public/projects` is called with the local keys and a 1.5 s
+  timeout. If the local
   instance is down, the demo starts with the circuit open ("local Langfuse down, Cloud only") and
   switches to dual by itself once the instance comes up.
 - **Scores.** `client.create_score` is wrapped on the one client. It assigns a `score_id` when the
@@ -148,6 +149,14 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
   A background worker posts the copy to `POST /api/public/scores` with the same id, using the same
   circuit breaker, and skips traces the sampler dropped. This covers application scores, portal
   feedback and the evaluator scores from `dataset.run_experiment(...)`.
+- **Media.** Before export the SDK replaces images, audio and files in inputs and outputs with
+  `@@@langfuseMedia:…|id=<id>|…@@@` references and uploads the bytes to Cloud. The id is derived from
+  the bytes (sha256, base64url, first 22 characters) and every server recomputes it, so the same
+  bytes get the same id on the local instance too: the copied references stay as they are, and only
+  the bytes need uploading. The primary media manager's `_process_media` is wrapped so each upload
+  is also queued for the local instance (upload URL, PUT to its object storage, status PATCH), in a
+  byte-capped background queue behind the same circuit breaker. The mirror processor gets its own
+  media manager, so base64 media in third-party spans becomes the same reference there as well.
 - **Flush and exit.** `flush()` flushes Cloud first, with no limit as today, then the mirror with a
   3 s limit. The atexit handler does the same, so a dead local instance adds at most about 3 s when
   the process exits.
@@ -162,11 +171,12 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
 |---|---|---|
 | Traces, observations (live, portal, experiments) | ✓ | ✓ same ids |
 | App scores, user feedback, experiment evaluator scores | ✓ | ✓ same score ids |
-| Managed LLM judges | run in Cloud | run locally, once `seed_evals` has been run against the local instance |
+| Managed LLM judges | run in Cloud | run locally once seeded there (`scripts/seed_targets.sh`), on their own: the judge spend doubles and the score ids differ |
 | Prompts | served from here | prompt link works if the same name and version is seeded locally |
 | Datasets and experiment runs | ✓ | experiment traces appear without the dataset-run link |
-| Dashboards, annotation queues | per instance (seed scripts run per target) | per instance |
-| Media (images, audio) | uploaded | sent inline in v1. A media manager for the mirror is in Phase 2 |
+| Dashboards, annotation queues | per instance (`scripts/seed_targets.sh` seeds both) | per instance |
+| Media (images, audio, documents) | uploaded | uploaded too, same media ids |
+| n8n workflow traces (bank) | ✓ | — (n8n exports to one endpoint: the primary) |
 | APM copy (Jaeger / Dynatrace) | unchanged | unchanged |
 
 ### 5. When something fails
@@ -183,7 +193,7 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
 ## Phases
 
 **Phase 1: core**
-- `demos/_shared/langfuse_dual.py`: mirror processor, `GuardedExporter`, score mirroring, bounded flush
+- `demos/_shared/langfuse_dual.py`: mirror processor, `MirrorExporter`, score mirroring, bounded flush
 - `scripts/langfuse_local.py` (`status`, `up`, `provision`) and `infra/langfuse-local/docker-compose.yml`
 - each demo's `config.py`: profile with `dual`, `.env.selfhosted`, mirror attached when the profile
   is `dual`. Real-estate's own mirror code is replaced, and its `record_score` is now a plain
@@ -217,6 +227,34 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
 - portals show both trace links in dual mode
 - one command seeds prompts, judges, datasets and dashboards into both targets
 
+**Phase 2 status (2026-10-29): built and verified**
+- Media: unit tests cover the upload flow, one upload per media item and location, a dead mirror
+  and the byte cap; the end-to-end test checks that SDK media and base64 in a third-party span reach
+  the mirror under the primary's reference (22 tests, under SDK 4.14, 4.17 and 4.18). Live: a PNG in
+  a claims span downloads byte-identical from Cloud and from the local instance under the same id.
+- The bank and claims compose files have no Langfuse services. `bootstrap_selfhosted.sh` provisions
+  through `langfuse_local.py`; the RBAC and annuities seeders find the instance, org and Postgres
+  through `langfuse_local.connect()` and ran idempotently against the reused :3200 instance. Each
+  also creates its demo's platform admin (OWNER of that org only). n8n reaches a local instance
+  through `host.docker.internal`.
+- Portals: each turn result carries `mirror_trace_url`, shown as "Self-hosted copy" next to the
+  Cloud link (bank chat and voice, claims workbench and Q&A, real-estate chat).
+- `scripts/seed_targets.sh` (each demo) seeded prompts, judges, datasets (incl. media datasets)
+  and dashboards into the local projects and re-ran without duplicating items. Real-estate's judges
+  were paused locally (`DEFAULT_EVAL_MODEL_MISSING`: they used the project default model, which a
+  new project lacks); its seeder now pins the judge model, like the bank and claims seeders.
+- Full LLM turns in dual mode, compared through the public APIs of both instances:
+
+  | Demo | Processes | Observations, Cloud / local | App scores copied | Judges |
+  |---|---|---|---|---|
+  | real-estate | 1 | 7 / 7, same ids | 5 of 5, same ids | Helpfulness and Relevance ran on both |
+  | bank-assistant | agent + MCP server | 22 / 22, same ids | 16 of 16, same ids | the 7 seeded judges ran locally; Cloud also has its own decision-model evaluators |
+  | insurance-claims | graph + MCP + A2A doc intake | 67 / 67, same ids | 14 of 14, same ids | the 4 claims judges ran on both |
+
+  PII stayed masked on both copies. With the local copy unreachable, a real-estate turn took
+  14.7 s (normal: 15–20 s), the process exited 0.5 s after the flush, and the Cloud trace was
+  complete (7 observations, 7 scores).
+
 **Checks (live)**
 - dual mode: one turn per demo lands under the same trace id on Cloud and locally, with matching
   observation counts and scores on both
@@ -231,3 +269,7 @@ LangfuseSpanProcessor       LangfuseSpanProcessor             BatchSpanProcessor
   same way. grocery-assistant (TypeScript) would need a JS version.
 - n8n (bank) exports straight to one OTLP endpoint. Sending it to both would need an OTel Collector
   with two exporters.
+- `demos/bank-assistant-workshop/original-demo/` is a frozen copy of the bank demo and keeps its own
+  :3100 stack.
+- The bank and claims `seed_evals.py` PATCH every rule on every run ("reconciled") even when
+  nothing changed. Harmless, but it hides real drift.

@@ -397,6 +397,10 @@ def verify_project(api: Api, expected: str) -> bool:
     return True
 
 
+def _judge_model() -> dict:
+    return {"provider": "anthropic", "model": os.getenv("MANAGED_EVAL_MODEL", "claude-sonnet-4-6")}
+
+
 def upsert_llm_connection(api: Api) -> None:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
@@ -421,9 +425,26 @@ def ensure_evaluator(api: Api, spec: dict, existing: list[dict], dry_run: bool) 
     succeeds and leaves two evaluators with the same name rather than a 409.
     """
     name = spec["name"]
+    # Pin the judge model on the evaluator: without one it uses the project's default
+    # evaluation model, which a fresh project (e.g. the local self-hosted copy) does not
+    # have, and the server pauses the evaluator with DEFAULT_EVAL_MODEL_MISSING.
+    spec = {**spec, "modelConfig": _judge_model()}
     match = next((e for e in existing if e.get("name") == name), None)
     if match:
-        ok(f"{name} evaluator present (v{match.get('version')}, {match['id']})")
+        model = match.get("modelConfig") or {}
+        if (all(model.get(k) == v for k, v in spec["modelConfig"].items())
+                and match.get("status", "active") == "active"):
+            ok(f"{name} evaluator present (v{match.get('version')}, {match['id']})")
+            return match["id"]
+        if dry_run:
+            info(f"would PATCH /api/public/v2/evaluators/{match['id']}  modelConfig")
+            return match["id"]
+        status, payload = api.request("PATCH", f"/api/public/v2/evaluators/{match['id']}", spec)
+        if status in (200, 201):
+            ok(f"{name} evaluator updated: judge model {spec['modelConfig']['model']} "
+               f"(was {model.get('model') or 'project default'}, {match.get('status', 'active')})")
+            return match["id"]
+        warn(f"{name} evaluator update failed (HTTP {status}: {_err(payload)})")
         return match["id"]
     if dry_run:
         info(f"would POST /api/public/v2/evaluators  name={name}")
