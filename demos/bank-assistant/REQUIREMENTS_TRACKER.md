@@ -116,6 +116,7 @@ Legend: ✅ validated live (evidence linked) · 🟡 built, needs a final check 
 | ALB vs NLB concern | 📄 Langfuse web is plain HTTP; works behind an ALB. Stateful components are internal only. |
 | ClickHouse not yet an approved database in the bank's architecture | Talking point: BYOC (ClickHouse-managed, inside the bank's VPC) vs self-managed via the ClickHouse operator |
 | Spring AI (Java) | 📄 `docs/SPRING_AI.md` — verified recipe from the Langfuse Spring AI integration page + official example repo (not built into the demo) |
+| Can we evaluate 100% of traffic without the judge bill? | ✅ Act 2.5 · 📄 `docs/DECISION_MODELS.md`: decision-model evaluators (TypeSafe Jev, OpenAI `gpt-6-luna`), 13 typed scores per turn in 2 calls at input-token prices (measured: ~$0.0003/turn on `gpt-6-luna` vs $0.0027–0.0042 per LLM-judge call). No egress: a self-served System One model (Strands Decider) behind a custom connection, a POC item |
 | Multi-turn / session evaluation (N+1) | 📄 Talking point: real-estate demo pattern. Native session evaluation is expected soon (not verified). |
 | Langfuse Cloud vs self-hosted: same software | ✅ M0 talking point |
 | Frameworks in use: n8n, LangChain/LangGraph, Spring AI (Java) | ✅ n8n, ✅ LangGraph · 📄 Spring AI (`docs/SPRING_AI.md`) |
@@ -164,6 +165,15 @@ Dashboard: [Northwind — Business value & failure modes](https://us.cloud.langf
 - [ ] **Restart the MCP server before the session**: its in-memory banking state is
       dirty (card 4417 is already blocked)
 - [ ] Morning prep in DEMO_SCRIPT.md (restart MCP, `verify_demo.py`, warm-up traffic)
+- [x] **Decision-model evaluators (Act 2.5) live** since 2026-10-19 on `gpt-6-luna`: rules
+      `customer-signals` and `conduct-screen`, 100% of production turns; verified on five fresh
+      turns ([scam-risk hero](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22e6b8f41999ef8f77a7853855bff925) ·
+      [upsell hero](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/77f9c9ff2d45e2ff9b761bccd0b67bee)).
+- [ ] **Restart the portal on this release** so live turns carry `metadata.conversation_history`
+      (until then the decision models see no earlier turns; `verify_demo.py` warns).
+- [ ] **Jev:** add a TypeSafe connection (TypeSafe, OpenRouter or Vercel AI Gateway key) in
+      Settings → LLM Connections, then re-run `scripts/seed_decision_evals.py` (default
+      provider): a new evaluator version, same rules and score names.
 - [x] n8n, voice (5 EN + 3 ES), portal (EN | ES), adversarial review (Fable; second
       pass 2026-10-08 17:00Z: 18 findings, remediation PR) — done
 - [x] CI gate live in GitHub Actions (secrets set; dev ❌ / staging ✅ proven)
