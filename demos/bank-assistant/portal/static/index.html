@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <!-- ClickUI design tokens (vendored verbatim) must load before app.css -->
   <link rel="stylesheet" href="/static/clickui-tokens.css?v=1">
-  <link rel="stylesheet" href="/static/app.css?v=17">
+  <link rel="stylesheet" href="/static/app.css?v=20">
 </head>
 <body>
   <!-- inline icon sprite -->
@@ -59,6 +59,8 @@
       <button class="tab" role="tab" data-tab="presenter" aria-selected="false"><svg><use href="#i-console"/></svg><span data-i18n="tab.presenter">Presenter console</span></button>
     </nav>
     <div class="topbar-right">
+      <span class="lf-mark" title="Every turn is traced in Langfuse" data-i18n-title="chat.tracedTitle"><img class="lf-wordmark" src="/static/brand/langfuse-by-clickhouse-white.svg" width="2255" height="600" alt="Langfuse by ClickHouse"></span>
+      <span class="topbar-sep" aria-hidden="true"></span>
       <span class="env-pill" id="envPill" title=""><span class="dot" id="envDot"></span><span id="envText">connecting…</span></span>
       <div class="lang-toggle" id="langToggle" role="group" aria-label="Interface language" data-i18n-aria="lang.group" data-i18n-title="lang.group" title="Interface language">
         <svg aria-hidden="true"><use href="#i-globe"/></svg>
@@ -112,7 +114,6 @@
             </div>
             <div class="spacer"></div>
             <span class="badge badge-ok" title="Every turn is traced in Langfuse" data-i18n-title="chat.tracedTitle"><svg><use href="#i-lock"/></svg><span data-i18n="chat.traced">Traced · PII-masked</span></span>
-            <img class="lf-wordmark" src="/static/brand/langfuse-by-clickhouse.svg" width="2255" height="600" alt="Langfuse by ClickHouse">
             <button class="btn btn-sm" id="newConv"><svg><use href="#i-plus"/></svg><span data-i18n="chat.new">New conversation</span></button>
           </div>
           <div class="transcript" id="transcript"></div>
@@ -165,9 +166,10 @@
         <div class="stat-cell"><div class="k" data-i18n="pres.label">Served label</div><div class="v" id="stLabel">—</div><div class="s" data-i18n="pres.labelSub">portal default</div></div>
         <div class="stat-cell"><div class="k" data-i18n="pres.model">Agent model</div><div class="v" id="stModel">—</div><div class="s" id="stProfile">&nbsp;</div></div>
         <div class="stat-aside">
+          <!-- The wordmark lives in the banner now; this keeps the label that
+               groups the links out to Langfuse, Jaeger and n8n. -->
           <div class="lf-credit">
             <span class="k" data-i18n="pres.observability">Observability</span>
-            <img class="lf-wordmark" src="/static/brand/langfuse-by-clickhouse.svg" width="2255" height="600" alt="Langfuse by ClickHouse">
           </div>
           <div class="stat-links" id="stLinks"></div>
         </div>

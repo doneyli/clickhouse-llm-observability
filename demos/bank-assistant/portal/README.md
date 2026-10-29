@@ -97,7 +97,7 @@ visible yet, wait a few seconds and refresh Langfuse.
 - [static/app.js](static/app.js): UI behavior and the `I18N` dictionary.
 - [static/clickui-tokens.css](static/clickui-tokens.css): vendored ClickUI tokens.
 - [static/app.css](static/app.css): styles, and the token mapping in `:root`.
-- [static/brand/](static/brand): Langfuse brand assets.
+- [static/brand/](static/brand): the Langfuse wordmark (white, for the dark banner).
 
 ### Visual Style
 
@@ -141,6 +141,9 @@ extra line spacing.
 Type is Northwind's own — Plus Jakarta Sans and JetBrains Mono, not ClickUI's
 Inter and Inconsolata — so the fictional bank's product chrome does not read as
 ClickHouse's own UI. For the same reason Northwind keeps its name, mark and
-favicon in the header; the "Langfuse by ClickHouse" wordmark appears only where
-the portal credits observability: beside the chat's **Traced · PII-masked**
-badge and in the presenter console's status strip.
+favicon in the header. The "Langfuse by ClickHouse" wordmark appears once, in
+the top banner, next to the environment pill — the pill is the Langfuse target
+readout, so the two read as one observability cluster. It is the white artwork,
+because the banner is Northwind charcoal. One placement, not several: it used to
+sit beside the chat's **Traced · PII-masked** badge and in the presenter
+console's status strip, which showed it twice on the presenter tab.

@@ -428,12 +428,16 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
 .toast.bad { background: var(--red-600); }
 
 /* ── Top bar: shed the least important thing first ───────
-   At full size the bar needs 1197px — brand 271 + tabs 481 + right 333, plus
-   28px of padding each side and two 28px gaps. Below that its parts kept their
-   natural width, and the rescue only started at 980px, so 981–1196px scrolled
-   the whole page sideways (1024 and 1152 land right in it). Each tier drops one
-   more thing: the strapline, then the tab labels. */
-@media (max-width: 1200px) {
+   At full size the bar needs 1301px — brand 271 + tabs 481 + right 437 (the
+   Langfuse mark, the environment pill and the language toggle), plus 28px of
+   padding each side and two 28px gaps. Without tiers its parts keep their
+   natural width and push the whole document into a horizontal scroll.
+
+   What yields, in order: the strapline (decoration), then the tab labels
+   (the icons still identify them). The Langfuse mark is NOT in that list — it
+   belongs in the banner at every desktop width — and the environment pill
+   truncates on its own. Re-measure these numbers if the bar gains an item. */
+@media (max-width: 1300px) {
   .topbar { gap: 16px; padding: 0 20px; }
   .brand-sub { display: none; }
 }
@@ -446,7 +450,7 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
   .stat-aside { grid-column: 1 / -1; align-items: stretch; max-width: none; border-top: 1px solid var(--border); }
   .stat-aside .lf-credit, .stat-aside .stat-links { justify-content: flex-start; }
 }
-@media (max-width: 1080px) {
+@media (max-width: 1200px) {
   /* Icons-only tabs. Visually hidden rather than display:none so the label
      stays in the accessibility tree — the tabs have no other text. */
   .tab { padding: 0 13px; }
@@ -466,13 +470,17 @@ textarea::placeholder, input::placeholder { color: var(--muted); opacity: 1; }
 }
 
 /* ── Langfuse credit (observability layer, not Northwind's mark) ──
-   static/brand/langfuse-by-clickhouse.svg is the official wordmark for light
-   surfaces; it is 2255×600, so it is always constrained by height. */
+   static/brand/langfuse-by-clickhouse-white.svg is the official wordmark for
+   dark surfaces; it is 2255×600, so it is always constrained by height. */
 .lf-wordmark { width: auto; display: block; flex-shrink: 0; }
-.chat-head .lf-wordmark { height: 24px; }
+/* In the banner the mark sits beside the environment pill — the pill is the
+   Langfuse target readout, so the two read as one observability cluster. The
+   white artwork, because this surface is Northwind charcoal. */
+.topbar .lf-mark { display: inline-flex; align-items: center; flex-shrink: 0; }
+.topbar .lf-wordmark { height: 22px; opacity: .92; }
+.topbar-sep { width: 1px; height: 18px; background: rgba(255,255,255,.16); flex-shrink: 0; }
 .lf-credit { display: flex; align-items: center; gap: 10px; }
 .lf-credit .k { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.lf-credit .lf-wordmark { height: 28px; }
 
 /* ── Language toggle (EN | ES) + language badges ─────────── */
 .lang-toggle {
