@@ -21,7 +21,8 @@ The mirror must never cost the primary anything:
     mirror processor's own worker thread. The primary's export never waits on it.
   * A circuit breaker drops batches without I/O for `cooldown_s` after a failure, then
     tries again. Each up/down transition is logged once.
-  * Score copies go through a bounded background queue behind the same breaker.
+  * Score copies and media uploads go through bounded background queues behind the same
+    breaker.
   * Mirror.flush() is bounded, so a dead mirror adds at most ~timeout_s to process exit.
 
 Shared by demos/real-estate, demos/bank-assistant and demos/insurance-claims (including
@@ -252,22 +253,65 @@ def score_body(kwargs: dict, environment: Optional[str]) -> dict:
 _STOP = object()
 
 
-class ScoreMirror:
+class _Worker:
+    """A bounded queue drained by one lazily started daemon thread; `flush` waits a bounded time."""
+
+    thread_name = "langfuse-mirror"
+
+    def __init__(self, maxsize: int):
+        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize)
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+
+    def _enqueue(self, item: Any) -> bool:
+        try:
+            self._queue.put_nowait(item)
+        except queue.Full:
+            return False
+        with self._lock:
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._run, name=self.thread_name, daemon=True)
+                self._thread.start()
+        return True
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            try:
+                if item is _STOP:
+                    return
+                self._handle(item)
+            except Exception as error:  # noqa: BLE001 — one bad item must not stop the copies
+                _log(f"! {self.thread_name}: {type(error).__name__}: {error}")
+            finally:
+                self._queue.task_done()
+
+    def _handle(self, item: Any) -> None:
+        raise NotImplementedError
+
+    def flush(self, timeout_s: float) -> bool:
+        deadline = time.monotonic() + timeout_s
+        while self._queue.unfinished_tasks and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return not self._queue.unfinished_tasks
+
+
+class ScoreMirror(_Worker):
     """Copies scores to the mirror's public scores API from one background thread."""
+
+    thread_name = "langfuse-score-mirror"
 
     def __init__(self, target: Target, breaker: Breaker, *, environment: Optional[str] = None,
                  sampler=None, timeout_s: float = 3.0, maxsize: int = 10_000, http=None):
         import httpx
 
+        super().__init__(maxsize)
         self._url = f"{target.base_url}/api/public/scores"
         self._headers = {"Authorization": target.basic_auth(), "Content-Type": "application/json"}
         self._http = http or httpx.Client(timeout=timeout_s)
         self._breaker = breaker
         self._environment = environment
         self._sampler = sampler
-        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize)
-        self._thread: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
         self.rejected = 0
 
     def _sampled(self, trace_id: Optional[str]) -> bool:
@@ -285,28 +329,10 @@ class ScoreMirror:
     def submit(self, kwargs: dict) -> None:
         if not self._sampled(kwargs.get("trace_id")):
             return
-        try:
-            self._queue.put_nowait(score_body(kwargs, self._environment))
-        except queue.Full:
+        if not self._enqueue(score_body(kwargs, self._environment)):
             self._breaker.record_drop()
-            return
-        with self._lock:
-            if self._thread is None:
-                self._thread = threading.Thread(target=self._run, name="langfuse-score-mirror",
-                                                daemon=True)
-                self._thread.start()
 
-    def _run(self) -> None:
-        while True:
-            body = self._queue.get()
-            try:
-                if body is _STOP:
-                    return
-                self._send(body)
-            finally:
-                self._queue.task_done()
-
-    def _send(self, body: dict) -> None:
+    def _handle(self, body: dict) -> None:
         if not self._breaker.allow():
             self._breaker.record_drop()
             return
@@ -329,23 +355,146 @@ class ScoreMirror:
         else:
             self._breaker.record_success()
 
-    def flush(self, timeout_s: float) -> bool:
-        deadline = time.monotonic() + timeout_s
-        while self._queue.unfinished_tasks and time.monotonic() < deadline:
-            time.sleep(0.02)
-        return not self._queue.unfinished_tasks
+
+class MediaMirror(_Worker):
+    """Uploads each image/audio/file the primary uploads, so the copied spans' media resolve too.
+
+    The SDK swaps media in inputs and outputs for `@@@langfuseMedia:...|id=<id>|...@@@`
+    references before the span is exported, so the mirror receives references to media it
+    never got. The id is derived from the bytes (sha256, base64url, first 22 chars) and the
+    server recomputes and checks it, so the same bytes get the same id on every instance:
+    the references in the copied spans need no rewriting, only this upload. Same flow as the
+    SDK: request an upload URL, PUT the bytes to object storage, report the result.
+    """
+
+    thread_name = "langfuse-media-mirror"
+
+    def __init__(self, target: Target, breaker: Breaker, *, timeout_s: float = 3.0,
+                 upload_timeout_s: float = 30.0, max_bytes: int = 256 * 2**20,
+                 maxsize: int = 1_000, http=None):
+        import httpx
+
+        super().__init__(maxsize)
+        self._url = f"{target.base_url}/api/public/media"
+        self._headers = {"Authorization": target.basic_auth(), "Content-Type": "application/json"}
+        self._http = http or httpx.Client(timeout=timeout_s)
+        self._breaker = breaker
+        self._upload_timeout_s = upload_timeout_s
+        self._max_bytes = max_bytes
+        self._queued_bytes = 0
+        self._seen: "dict[tuple, None]" = {}  # insertion-ordered, bounded: recent uploads only
+        self._logged: set = set()
+        self.failed = 0
+
+    def submit(self, media, *, trace_id: Optional[str], observation_id: Optional[str],
+               field: str) -> None:
+        content = getattr(media, "_content_bytes", None)
+        media_id = getattr(media, "_media_id", None)
+        if not (content and media_id and media._content_type and media._content_sha256_hash):
+            return
+        key = (media_id, trace_id, observation_id, field)
+        with self._lock:
+            # The same item can arrive twice: from the primary's upload and from the mirror's own
+            # export-stage processing of a third-party span. One upload per (media, location).
+            if key in self._seen:
+                return
+            self._seen[key] = None
+            if len(self._seen) > 10_000:
+                self._seen.pop(next(iter(self._seen)))
+            if self._queued_bytes + len(content) > self._max_bytes:
+                self._breaker.record_drop()
+                return
+            self._queued_bytes += len(content)
+        job = {"media_id": media_id, "content": content, "content_type": media._content_type,
+               "sha256": media._content_sha256_hash, "trace_id": trace_id,
+               "observation_id": observation_id, "field": field}
+        if not self._enqueue(job):
+            with self._lock:
+                self._queued_bytes -= len(content)
+            self._breaker.record_drop()
+
+    def _handle(self, job: dict) -> None:
+        try:
+            self._upload(job)
+        finally:
+            with self._lock:
+                self._queued_bytes -= len(job["content"])
+
+    def _log_once(self, key: str, message: str) -> None:
+        if key not in self._logged:
+            self._logged.add(key)
+            _log(message)
+
+    def _upload(self, job: dict) -> None:
+        if not self._breaker.allow():
+            self._breaker.record_drop()
+            return
+        request = {"traceId": job["trace_id"], "observationId": job["observation_id"],
+                   "contentType": job["content_type"], "contentLength": len(job["content"]),
+                   "sha256Hash": job["sha256"], "field": job["field"]}
+        try:
+            response = self._http.post(self._url, content=json.dumps(request), headers=self._headers)
+        except Exception as error:  # noqa: BLE001
+            self._breaker.record_failure(type(error).__name__)
+            self._breaker.record_drop()
+            return
+        verdict = _classify(response.status_code)
+        if verdict is not None:
+            self._breaker.record_failure(f"HTTP {response.status_code}", auth=verdict == "auth")
+            self._breaker.record_drop()
+            return
+        if response.status_code >= 400:
+            self.failed += 1
+            self._log_once("request", f"! mirror refused a media upload: HTTP {response.status_code} "
+                                      f"{response.text[:200]}")
+            return
+        self._breaker.record_success()
+        answer = response.json()
+        upload_url = answer.get("uploadUrl")
+        if not upload_url:
+            return  # the mirror already has these bytes
+        if answer.get("mediaId") != job["media_id"]:
+            self.failed += 1
+            self._log_once("id", f"! mirror media id {answer.get('mediaId')} != {job['media_id']}: "
+                                 "upload skipped")
+            return
+        headers = {"Content-Type": job["content_type"]}
+        if "storage.googleapis.com" not in upload_url:  # same rule as the SDK
+            headers.update({"x-ms-blob-type": "BlockBlob", "x-amz-checksum-sha256": job["sha256"]})
+        started = time.monotonic()
+        try:
+            put = self._http.put(upload_url, content=job["content"], headers=headers,
+                                 timeout=self._upload_timeout_s)
+        except Exception as error:  # noqa: BLE001 — object storage, not the web server
+            self.failed += 1
+            host = upload_url.split("/")[2] if "//" in upload_url else upload_url
+            self._log_once("storage", f"! mirror media storage unreachable at {host} "
+                                      f"({type(error).__name__}): images/audio stay missing there")
+            return
+        if put.status_code >= 400:
+            self.failed += 1
+            self._log_once("put", f"! mirror media upload failed: HTTP {put.status_code}")
+        try:
+            self._http.patch(f"{self._url}/{job['media_id']}", headers=self._headers, content=json.dumps({
+                "uploadedAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "uploadHttpStatus": put.status_code,
+                "uploadHttpError": put.text[:1000] if put.status_code >= 400 else None,
+                "uploadTimeMs": int((time.monotonic() - started) * 1000)}))
+        except Exception:  # noqa: BLE001 — the bytes are there; the status is cosmetic
+            pass
 
 
 class Mirror:
     """Handle on an attached mirror: status, trace links and a bounded flush."""
 
     def __init__(self, target: Target, breaker: Breaker, processor, exporter: MirrorExporter,
-                 scores: ScoreMirror, timeout_s: float):
+                 scores: ScoreMirror, timeout_s: float, media: Optional[MediaMirror] = None):
         self.target = target
         self.breaker = breaker
         self.processor = processor
         self.exporter = exporter
         self.scores = scores
+        self.media = media
         self.timeout_s = timeout_s
 
     @property
@@ -361,6 +510,8 @@ class Mirror:
         deadline = time.monotonic() + budget
         self.processor.force_flush(int(budget * 1000))
         self.scores.flush(max(deadline - time.monotonic(), 0.0))
+        if self.media is not None:
+            self.media.flush(max(deadline - time.monotonic(), 0.0))
 
     def close(self) -> None:
         """atexit: bounded flush, then stop sending so a later provider shutdown cannot block."""
@@ -413,22 +564,26 @@ def attach(client, target: Target, *, primary_public_key: str, provider=None,
             breaker.record_failure(reason, auth="keys rejected" in reason)
 
         exporter = MirrorExporter(target, breaker, timeout_s=timeout_s)
+        media = MediaMirror(target, breaker, timeout_s=timeout_s)
         processor = LangfuseSpanProcessor(
             public_key=primary_public_key,  # project-scope filter only: accept the one client's spans
             secret_key=target.secret_key,
             base_url=target.base_url,
             span_exporter=exporter,
+            media_manager=_mirror_media_manager(client, media),
             should_export_span=should_export_span,
             mask_otel_spans=mask_otel_spans,
         )
         provider.add_span_processor(processor)
         scores = ScoreMirror(target, breaker, environment=environment,
                              sampler=getattr(provider, "sampler", None), timeout_s=timeout_s)
-        mirror = Mirror(target, breaker, processor, exporter, scores, timeout_s)
+        mirror = Mirror(target, breaker, processor, exporter, scores, timeout_s, media)
         _wrap_create_score(client, scores)
+        _wrap_media_uploads(client, media)
         atexit.register(mirror.close)
         if breaker.is_up:
-            _log(f"✓ mirroring traces + scores to {target.label} Langfuse at {target.base_url}")
+            _log(f"✓ mirroring traces, scores and media to {target.label} Langfuse at "
+                 f"{target.base_url}")
         return mirror
     except Exception as error:  # noqa: BLE001 — the mirror is optional; the primary must start
         _log(f"! {target.label} mirror disabled: {type(error).__name__}: {error}")
@@ -455,3 +610,44 @@ def _wrap_create_score(client, scores: ScoreMirror) -> None:
         return result
 
     client.create_score = create_score
+
+
+def _wrap_media_uploads(client, uploads: MediaMirror) -> None:
+    """Queue a mirror upload for every media item the primary's media manager uploads.
+
+    The SDK calls `_process_media` for media in span inputs/outputs/metadata (sampled spans
+    only) and for export-stage media in third-party spans. Patched on the instance, which
+    shadows the class method.
+    """
+    manager = getattr(getattr(client, "_resources", None), "_media_manager", None)
+    if manager is None:
+        return
+    original = manager._process_media
+
+    def _process_media(*, media: Any, trace_id: str, observation_id: Optional[str], field: str):
+        original(media=media, trace_id=trace_id, observation_id=observation_id, field=field)
+        try:
+            uploads.submit(media, trace_id=trace_id, observation_id=observation_id, field=field)
+        except Exception:  # noqa: BLE001 — never let the copy break the caller
+            pass
+
+    manager._process_media = _process_media
+
+
+def _mirror_media_manager(client, uploads: MediaMirror):
+    """Media manager for the mirror's own export stage: swaps base64 media in third-party spans
+    for the same references the primary writes, and queues the bytes for the mirror only."""
+    from langfuse._task_manager.media_manager import MediaManager
+
+    primary = getattr(getattr(client, "_resources", None), "_media_manager", None)
+
+    class _MirrorMediaManager(MediaManager):
+        # Only _find_and_process_media is used here, and it needs nothing but these two.
+        def __init__(self) -> None:  # no API client: the bytes go through `uploads`
+            self._enabled = getattr(primary, "_enabled", True)
+
+        def _process_media(self, *, media: Any, trace_id: str, observation_id: Optional[str],
+                           field: str) -> None:
+            uploads.submit(media, trace_id=trace_id, observation_id=observation_id, field=field)
+
+    return _MirrorMediaManager()

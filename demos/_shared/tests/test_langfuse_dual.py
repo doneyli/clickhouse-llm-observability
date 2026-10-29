@@ -1,10 +1,12 @@
-"""Dual-ingest contract: the mirror gets the same spans and scores, and a dead mirror costs nothing.
+"""Dual-ingest contract: the mirror gets the same spans, scores and media; a dead mirror costs nothing.
 
 Runs with any demo venv (needs langfuse, httpx, python-dotenv):
 
     demos/real-estate/.venv/bin/python -m unittest discover -s demos/_shared/tests
 """
 
+import base64
+import hashlib
 import json
 import sys
 import threading
@@ -233,15 +235,37 @@ class ProfileTest(unittest.TestCase):
 
 
 class Collector(BaseHTTPRequestHandler):
-    """Fake Langfuse: records POSTed OTLP batches and scores, answers the project probe."""
+    """Fake Langfuse: records OTLP batches, scores and media uploads, answers the project probe.
+
+    Media follows the real server: the id is derived from the sha256, and a second request for
+    bytes it already stores gets no upload URL.
+    """
 
     def do_GET(self):
         self._reply(200, {"data": [{"id": "proj"}]})
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = self._body()
         self.server.received.append((self.path, self.headers.get("x-langfuse-public-key"), body))
+        if self.path != "/api/public/media":
+            return self._reply(200, {})
+        media_id = json.loads(body)["sha256Hash"].replace("+", "-").replace("/", "_")[:22]
+        upload = None if media_id in self.server.stored else \
+            f"http://127.0.0.1:{self.server.server_port}/upload/{media_id}"
+        self._reply(200, {"mediaId": media_id, "uploadUrl": upload})
+
+    def do_PUT(self):
+        body = self._body()
+        self.server.received.append((self.path, None, body))
+        self.server.stored.add(self.path.rsplit("/", 1)[-1])
         self._reply(200, {})
+
+    def do_PATCH(self):
+        self.server.received.append((self.path, None, self._body()))
+        self._reply(200, {})
+
+    def _body(self):
+        return self.rfile.read(int(self.headers.get("Content-Length", 0)))
 
     def _reply(self, code, payload):
         data = json.dumps(payload).encode()
@@ -258,6 +282,7 @@ class Collector(BaseHTTPRequestHandler):
 def serve():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Collector)
     server.received = []
+    server.stored = set()
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -268,6 +293,67 @@ def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+PNG_URI = "data:image/png;base64," + base64.b64encode(PNG).decode()
+
+
+def media_id(content):
+    return base64.b64encode(hashlib.sha256(content).digest()).decode().replace("+", "-").replace("/", "_")[:22]
+
+
+def paths(server, prefix):
+    return [r[0] for r in server.received if r[0].startswith(prefix)]
+
+
+class MediaTest(unittest.TestCase):
+    def setUp(self):
+        from langfuse.media import LangfuseMedia
+
+        self.server = serve()
+        self.addCleanup(self.server.shutdown)
+        self.target = dual.Target(f"http://127.0.0.1:{self.server.server_port}", "pk-lf-mirror",
+                                  "sk-lf-mirror", "proj", "test")
+        self.photo = LangfuseMedia(base64_data_uri=PNG_URI)
+
+    def test_upload_then_report_and_each_location_once(self):
+        media = dual.MediaMirror(self.target, dual.Breaker("local", log=lambda m: None))
+        for field in ("input", "input", "output"):  # the duplicate is dropped before any I/O
+            media.submit(self.photo, trace_id="ab" * 16, observation_id="cd" * 8, field=field)
+        self.assertTrue(media.flush(5))
+
+        requests = [json.loads(r[2]) for r in self.server.received if r[0] == "/api/public/media"]
+        self.assertEqual([r["field"] for r in requests], ["input", "output"])
+        self.assertEqual(requests[0]["sha256Hash"], self.photo._content_sha256_hash)
+        self.assertEqual(requests[0]["contentLength"], len(PNG))
+        # the bytes go up once: for "output" the server already has them
+        uploads = [r for r in self.server.received if r[0].startswith("/upload/")]
+        self.assertEqual([(r[0], r[2]) for r in uploads], [(f"/upload/{media_id(PNG)}", PNG)])
+        self.assertEqual(paths(self.server, f"/api/public/media/{media_id(PNG)}"),
+                         [f"/api/public/media/{media_id(PNG)}"])
+        self.assertEqual(media.failed, 0)
+
+    def test_dead_mirror_drops_media_without_waiting(self):
+        clock = FakeClock()
+        breaker = dual.Breaker("local", clock=clock, log=lambda m: None)
+        http = FakeHttp(httpx.ConnectError("refused"))
+        media = dual.MediaMirror(self.target, breaker, http=http)
+        for i in range(20):
+            media.submit(self.photo, trace_id="ab" * 16, observation_id=f"{i:016x}", field="input")
+        started = time.monotonic()
+        self.assertTrue(media.flush(2))
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(len(http.calls), 1)
+        self.assertEqual(breaker.dropped, 20)
+
+    def test_queue_holds_a_bounded_number_of_bytes(self):
+        breaker = dual.Breaker("local", log=lambda m: None)
+        breaker.record_failure("test")  # open: nothing is sent, so nothing drains early
+        media = dual.MediaMirror(self.target, breaker, max_bytes=len(PNG) * 2, http=FakeHttp())
+        for i in range(5):
+            media.submit(self.photo, trace_id="ab" * 16, observation_id=f"{i:016x}", field="input")
+        self.assertGreaterEqual(breaker.dropped, 3)
 
 
 class EndToEndTest(unittest.TestCase):
@@ -327,6 +413,30 @@ class EndToEndTest(unittest.TestCase):
         self.assertNotIn(b"4111 1111 1111 1111", payload)
         scores = [json.loads(r[2]) for r in mirror_server.received if r[0] == "/api/public/scores"]
         self.assertEqual([(s["name"], s["traceId"]) for s in scores], [("helpful", trace_id)])
+
+    def test_media_reaches_the_mirror_under_the_same_reference(self):
+        from langfuse.media import LangfuseMedia
+
+        mirror_server = serve()
+        self.addCleanup(mirror_server.shutdown)
+        target = dual.Target(f"http://127.0.0.1:{mirror_server.server_port}", "pk-lf-mirror",
+                             "sk-lf-mirror", "proj", "test")
+        mirror = dual.attach(self.lf, target, primary_public_key=self.pk, provider=self.provider)
+        with self.lf.start_as_current_observation(name="photo-audit", as_type="span") as root:
+            root.update(input={"photo": LangfuseMedia(content_bytes=PNG, content_type="image/png"),
+                               "inline": PNG_URI}, output="ok")
+        # a third-party span (no Langfuse SDK involved) carrying a base64 image in gen_ai.prompt
+        with self.provider.get_tracer("some.instrumentor").start_as_current_span("llm") as span:
+            span.set_attribute("gen_ai.prompt", json.dumps([{"type": "image_url", "url": PNG_URI}]))
+        self.lf.flush()
+        mirror.flush(5)
+
+        reference = f"id={media_id(PNG)}".encode()
+        for server in (self.primary, mirror_server):
+            spans = b"".join(r[2] for r in server.received if r[0].endswith("/otel/v1/traces"))
+            self.assertIn(reference, spans)
+            self.assertNotIn(PNG_URI.split(",")[1].encode(), spans)  # no inline base64 left
+        self.assertEqual([r[2] for r in mirror_server.received if r[0].startswith("/upload/")], [PNG])
 
     def test_dead_mirror_costs_the_primary_nothing(self):
         target = dual.Target(f"http://127.0.0.1:{free_port()}", "pk-lf-mirror", "sk-lf-mirror",
