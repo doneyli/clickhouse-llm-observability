@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1B1917"/><path d="M16 4l3.2 8.8L28 16l-8.8 3.2L16 28l-3.2-8.8L4 16l8.8-3.2z" fill="#4E9CFF"/><path d="M16 9.5l1.6 4.9 4.9 1.6-4.9 1.6-1.6 4.9-1.6-4.9-4.9-1.6 4.9-1.6z" fill="#FF5D5F"/></svg>
+<!-- Northwind Bank's mark. Gold #D9A441 star, pierced #2B2112 centre — the
+     fictional bank's own hues, deliberately not Langfuse's. The plate keeps
+     #1B1917 to match the in-app avatar, which uses the portal's shared dark
+     chrome (--neutral-900). Keep in sync with #i-logo in index.html. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1B1917"/><path d="M16 4l3.2 8.8L28 16l-8.8 3.2L16 28l-3.2-8.8L4 16l8.8-3.2z" fill="#D9A441"/><path d="M16 9.5l1.6 4.9 4.9 1.6-4.9 1.6-1.6 4.9-1.6-4.9-4.9-1.6 4.9-1.6z" fill="#2B2112"/></svg>
