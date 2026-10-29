@@ -53,5 +53,5 @@ type for multi-modal judges (images of claim documents).
   (EKS, Aurora Postgres, ElastiCache, S3, ClickHouse) — see cicd/terraform/main.tf.
 - Enterprise features (project-level RBAC, protected prompt labels, audit logs, retention, ingestion
   masking, SCIM) are unlocked by the license key in the same containers as open source; the local demo
-  instance (`docker compose --profile selfhosted`, `:3200`) runs the same images.
+  instance (the shared local Langfuse, `scripts/langfuse_local.py`) runs the same images.
 - Images can be mirrored and scanned through an internal registry, or built from source.

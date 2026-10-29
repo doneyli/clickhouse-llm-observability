@@ -45,11 +45,9 @@ On first setup:
 uv venv --python 3.12 .venv
 uv pip install -p .venv/bin/python -r requirements.txt
 cp .env.example .env
-openssl rand -hex 32
 ```
 
-Put the generated value in `.env` as `ENCRYPTION_KEY`. Set `ANTHROPIC_API_KEY`;
-add `OPENAI_API_KEY` for optional features. Model keys can also come from the
+Set `ANTHROPIC_API_KEY` in `.env`; add `OPENAI_API_KEY` for optional features. Model keys can also come from the
 repository-root `.env`. Keep existing environment files when repeating setup.
 
 ### 2. Choose a Langfuse Target
@@ -71,24 +69,39 @@ Use the URL for your project's region. Start the local n8n and Jaeger services:
 ./scripts/up.sh
 ```
 
-**Self-hosted:** add `NORTHWIND_PROFILE=selfhosted` to `.env`. Keep the local
-Langfuse URL and demo keys from `.env.example`, then run:
+**Self-hosted:** this demo has no Langfuse containers of its own. It uses the ONE
+local Langfuse shared by all the standalone demos:
 
 ```bash
 ./scripts/up.sh --selfhosted
-curl -fsS http://localhost:3100/api/public/health
-curl -fsS http://localhost:3100/api/public/ready
+python3 ../../scripts/langfuse_local.py status
 ```
 
-Both checks must succeed. Log in at [localhost:3100](http://localhost:3100) with
-`admin@northwind.example` / `northwind-demo-1` unless you changed the template values.
-For Enterprise features, set `LANGFUSE_EE_LICENSE_KEY` in the repository-root `.env`
-before startup. Without a license, the local stack runs as OSS.
+`--selfhosted` runs `scripts/langfuse_local.py provision bank-assistant`: it reuses a
+healthy local Langfuse v4 instance, or starts the shared one on
+[localhost:3300](http://localhost:3300) (`infra/langfuse-local`), and writes
+`.env.selfhosted` with this demo's `Northwind Bank` org, `retail-assistant` project and
+keys. `status` shows the instance and checks the keys. Add `NORTHWIND_PROFILE=selfhosted`
+to `.env` to target only that instance. The instance's own admin can see the Northwind org;
+`./scripts/bootstrap_selfhosted.sh` also creates `admin@northwind.example` (password
+`LANGFUSE_INIT_USER_PASSWORD` in `.env`) and the RBAC users. A newly started shared stack
+reads `LANGFUSE_EE_LICENSE_KEY` from the repository-root `.env`; without one it runs as OSS.
+
+**Both at once — `NORTHWIND_PROFILE=dual`:** Cloud stays the primary (prompts, datasets,
+experiments are read from it) and every span, score and media item (voice audio) is also
+sent to the local instance with the same trace, observation and score ids and the same PII
+masking. n8n exports to one endpoint, so its traces reach Cloud only. If the local
+instance is down or stops mid-run, the demo prints one warning and Cloud ingest carries
+on untouched; the copy resumes when the instance is back. The portal shows a "Self-hosted
+copy" link next to each Cloud trace link. `./scripts/seed_targets.sh` seeds prompts, judges,
+datasets and dashboards into both projects (`./scripts/seed_targets.sh selfhosted` for the
+local one only); the local judges then score the copies too. See
+[docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
 
 Python scripts read Langfuse credentials from these files; exported `LANGFUSE_*`
 keys are ignored. An exported `NORTHWIND_PROFILE` overrides the file setting.
-Without an explicit profile, `.env.cloud` selects Cloud when present; otherwise
-the target is self-hosted.
+Without an explicit profile: `dual` when both `.env.cloud` and `.env.selfhosted`
+exist, `cloud` when only `.env.cloud` does, otherwise self-hosted.
 
 ### 3. Seed Prompts and Start the Portal
 
@@ -171,7 +184,7 @@ source. The synthetic items have obvious planted errors, so a judge can score
 | Voice calls | `.venv/bin/python scripts/run_voice_calls.py --lang en --verify` (requires OpenAI; use `--lang es` for Spanish) |
 | Complaint triage | [n8n setup and verification](n8n/README.md) |
 | Prompt gate and GitHub Actions | [CI instructions](cicd/README.md) |
-| Local Enterprise roles and audit activity | `mkdir -p logs`, then `./scripts/bootstrap_selfhosted.sh` after local Enterprise startup |
+| Local Enterprise roles and audit activity | `./scripts/bootstrap_selfhosted.sh` (provisions the shared local instance, then seeds it) |
 | Dispute-resolution regression | [Disputes walkthrough](docs/arcs/disputes.md) |
 | Cost regression | [Cost walkthrough](docs/arcs/cost-regression.md) |
 
@@ -191,7 +204,7 @@ for label state and rehearsal.
 |---|---|---|
 | Portal | [localhost:8090](http://localhost:8090) | Chat, voice, presenter console |
 | Core-banking MCP | `http://localhost:8765/mcp` | Started by the portal launcher |
-| Langfuse | Cloud URL or [localhost:3100](http://localhost:3100) | Selected by the profile |
+| Langfuse | Cloud URL and/or the local instance in `.env.selfhosted` | Selected by the profile |
 | Jaeger | [localhost:16686](http://localhost:16686) | Local infrastructure observability |
 | n8n | [localhost:5678](http://localhost:5678) | Credentials in `.env` after n8n setup |
 
@@ -205,7 +218,8 @@ for label state and rehearsal.
 | n8n webhook is missing | Rerun `./scripts/setup_n8n.sh`; see the [n8n guide](n8n/README.md). |
 
 Stop the portal with `./scripts/run_portal.sh --stop` (MCP stays running).
-Stop this demo's containers with `docker compose --profile selfhosted stop`.
+Stop this demo's containers (n8n, Jaeger) with `docker compose stop`. The local Langfuse
+is shared with the other demos, so it keeps running.
 
 ## Reference
 

@@ -123,22 +123,32 @@ manual UI recipe and still exits 0. Re-running is safe, and it **repairs** a
 rule whose filter has drifted rather than skipping it (`--no-reconcile` opts
 out, `--dry-run` shows what would change).
 
-**Switching targets:** keep one env file per backend (e.g. `.env.cloud`
-alongside your self-hosted `.env`, both gitignored) and copy the one you want
-into place: `cp .env.cloud .env`. Everything — scripts, portal, experiments —
-follows `.env`. Restart the portal after switching.
+**Cloud, self-hosted, or both.** `.env` holds the Cloud target. The local
+self-hosted target is the ONE Langfuse shared by all the standalone demos: from the
+repo root, `python scripts/langfuse_local.py provision real-estate` reuses a healthy
+local Langfuse v4 instance (or starts the shared one) and writes `.env.selfhosted`
+with this demo's own project and keys. Then pick with `REAL_ESTATE_PROFILE`
+(in `.env`, or as a one-off shell prefix):
 
-**Or send to both at once:** set the three `LANGFUSE_MIRROR_*` variables in
-`.env` (see `.env.example`; they are read from the file only, so stray shell
-exports can't silently enable mirroring). Every span — live traffic, portal,
-*and* experiment runs — is then exported to the mirror as well, with the
-**same trace ids on both backends** (one extra OTLP exporter on the same
-tracer provider). Scores are duplicated on the live-traffic and portal paths
-(code scores, SDK judges, user feedback); experiment evaluation scores,
-prompts, datasets, dataset-run linkage and managed evaluators exist only on
-the primary — so experiment traces show up on the mirror *without* scores or
-run linkage. The mirror is best-effort: if it's unreachable, the demo logs a
-warning and continues, adding at most ~3s to a turn.
+| `REAL_ESTATE_PROFILE` | Primary | Also receives a copy |
+|---|---|---|
+| `cloud` | `.env` (Cloud) | — |
+| `selfhosted` | `.env.selfhosted` | — |
+| `dual` — the default once `.env.selfhosted` exists | `.env` (Cloud) | `.env.selfhosted` |
+
+In **dual** mode every span — live traffic, portal *and* experiment runs — every
+score written through the client (code scores, SDK judges, user feedback, experiment
+evaluator scores) and every image also lands on the local instance, with the **same
+trace, observation, score and media ids**, the same span filter and the same PII
+redaction; the chat shows a "Self-hosted copy" link next to the Cloud one. Prompts,
+datasets, dataset-run linkage and managed evaluators stay per instance, so experiment
+traces show up locally without run linkage. `./scripts/seed_targets.sh` seeds prompts,
+judges, datasets and dashboards into both projects (`./scripts/seed_targets.sh
+selfhosted` for the local one only); the local judges then score the copies too. The copy is
+best-effort: if the local instance is down or stops mid-run, the demo prints one warning,
+Cloud ingest carries on untouched, and the copy resumes when the instance is back. See
+[docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md). (The older
+`LANGFUSE_MIRROR_*` variables still work as an alias for the copy's target.)
 
 ---
 
