@@ -519,6 +519,13 @@ def main() -> int:
 
     if load_dotenv is not None:
         load_dotenv(ROOT / ".env")
+        # REAL_ESTATE_PROFILE=selfhosted: a local Langfuse v4 has the same v2 evaluator API.
+        if os.getenv("REAL_ESTATE_PROFILE", "").lower() == "selfhosted":
+            if not (ROOT / ".env.selfhosted").exists():
+                print("REAL_ESTATE_PROFILE=selfhosted but .env.selfhosted is missing.")
+                return 1
+            load_dotenv(ROOT / ".env.selfhosted", override=True)
+            os.environ["LANGFUSE_HOST"] = os.environ.get("LANGFUSE_BASE_URL", "")
 
     host = os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL") or ""
     pk, sk = os.getenv("LANGFUSE_PUBLIC_KEY", ""), os.getenv("LANGFUSE_SECRET_KEY", "")
