@@ -44,7 +44,7 @@ def _paged(path, params, limit=1000):
 
 def agent_runs():
     roots = _paged("/v2/observations", {"name": "marketing-agent", "type": "AGENT", "limit": 100,
-                                        "fields": "core,basic,metadata"})
+                                        "fields": "core,basic,metadata,metrics"})
     scores = defaultdict(dict)
     for name in ("reviewer-decision", "agent-steps"):
         for s in _paged("/v3/scores", {"name": name, "limit": 100, "fields": "core,details,subject"}):

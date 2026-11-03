@@ -142,8 +142,9 @@ did it *think*, what did it *do*, and what came *back*?"
      Click one to see its description, which is what the model reads.
    - **Messages:** system instructions, then the marketer's task.
    - **Output:** the tool calls it chose, matched against the numbered tool list. Then
-     the **thinking**, e.g. "I'm pulling brand context on pricing and the visibility
-     report… I'll run them in parallel." That's the *why*.
+     the **thinking**, which reads something like "I'm pulling brand context on
+     pricing and the visibility report… I'll run them in parallel." (The wording
+     changes every run.) That's the *why*.
 4. **Click a tool** (`search_answer_engine`). Input = the arguments the model chose;
    output = what came back. Then click the *next* `plan-next-step`. Its input now
    ends with that tool result, which is exactly what the model saw before its next
@@ -171,27 +172,29 @@ marked ⚡).
 ### Case 1: "Why doesn't it know our pricing?" (wrong context)
 
 **Symptom.** Dana at Contoso: *"The pricing check is flaky. Sometimes it queues
-corrections, once it asked me what our price is, and the fact-check says both $12 and
-$15 are 'supported'. Which is it?"*
+corrections, sometimes it queues nothing and says it can't tell which of our prices is
+current, and the fact-check says both $12 and $15 are 'supported'. Which is it?"*
 
-**Find.** Search `metadata.customer:contoso metadata.task_type:pricing-check`. Open two
-runs side by side: one that queued corrections, and one that asked Dana to confirm.
-`verify_demo.py` lists both; a run that asked carries a `rejected` reviewer decision
-if one exists in the corpus.
+**Find.** Search `metadata.customer:contoso metadata.task_type:pricing-check`. The
+rejected rows ("Nothing was queued…") are the runs that gave up. Open one of them and
+one approved run side by side; `verify_demo.py` lists both.
 
 **Diagnose.**
 
 1. Open `retrieve_brand_context` (the retriever icon). **Output** is the three
-   passages the model got: all three are "Contoso pricing FAQ" saying $12/$20 per
-   user. **Metadata → hits** shows what the model did *not* see: `status: archived`,
-   `updated_at: 2024-02-12`, and `include_archived: true` on the index.
+   passages the model got. Two or three of them are the "Contoso pricing FAQ" saying
+   $12/$20 per user (all three for most queries the agent writes). **Metadata → hits**
+   shows what the model did *not* see: `status: archived`, `updated_at: 2024-02-12`,
+   and `include_archived: true` on the index.
 2. Open `check_claims` → `verify-claims`. The fact-checker read the same index, so it
    rated $12 "supported", and $15 too. The safety net was fooled by the same bad data.
-3. Read the next `plan-next-step` thinking: "The Context Manager has two conflicting
-   figures… I'll treat the FAQ as stale…" In good runs the agent noticed and called
-   `fetch_page` on the live pricing page. In the "asked Dana" run it didn't trust either.
-4. Compare the two runs: same retrieval and same defect. The difference is the agent's
-   judgment call, which is why the behaviour looked "flaky".
+3. Read the thinking on the next `plan-next-step`. It changes every run; in the seeded
+   runs it reads like "The Context Manager has two conflicting figures… I'll treat the
+   FAQ as stale". In the approved runs the agent noticed the conflict and called
+   `fetch_page` on the live pricing page. In the rejected runs it trusted neither
+   source and stopped to ask the marketer (open the final output).
+4. Compare the two runs: same retrieval, same defect. The only difference is the
+   agent's judgment call, which is why the behaviour looked "flaky".
 
 **Root cause.** Data, not the model. The Context Manager still serves an archived
 document, and its passages carry no dates, so the model can't tell old from new.
@@ -289,8 +292,11 @@ gracefully' means for a customer?"
 **Symptom.** Marco at Tailspin: the reviewer rejected FAQ drafts with "Draft was
 staged without a fact-check, which our process requires."
 
-**Find.** `scores.publishing-policy:false`, or on Observations
-`name:check-publishing-policy level:WARNING`.
+**Find.** `metadata.customer:tailspin scores.reviewer-decision:rejected`. Or go
+straight to the guardrail: remove the root-only filter and search
+`name:check-publishing-policy level:WARNING`. The `publishing-policy` score lives on
+the guardrail observation, so `name:check-publishing-policy scores.publishing-policy:false`
+works on those rows too.
 
 **Diagnose.**
 
@@ -414,7 +420,7 @@ own project first?"
 | Instructions | v3 dropped the fact-check rule (Case 4); "retry until you have it" (Case 3) | PM / deployment team | **yes**: Prompt Management version + label |
 | Tool contract | capture never reaches a final state (Case 3) | platform engineering | no; hand off with the tool outputs |
 | Slow dependency / harness | uncached CMS, sequential tool calls, raw HTML (Case 2) | platform engineering | no; hand off with the timeline + cost |
-| Model reasoning | agent asks for confirmation instead of resolving (Case 1 variant) | PM + engineering | sometimes (instructions); otherwise evals |
+| Model reasoning | agent stops and asks instead of resolving the conflict (Case 1, rejected runs) | PM + engineering | sometimes (instructions); otherwise evals |
 
 ## Appendix C: honest notes for the presenter
 

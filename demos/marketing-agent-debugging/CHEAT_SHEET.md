@@ -10,8 +10,8 @@
 | it was slow | `latency:>60` (seconds) |
 | a tool misbehaved | `type:TOOL name:fetch_page level:(ERROR OR WARNING)` |
 | it ran too long | `scores.agent-steps:>=8` |
-| a policy was broken | `scores.publishing-policy:false` |
-| some words in the answer | `output:"which price"` |
+| a policy was broken | `name:check-publishing-policy level:WARNING` (turn off "root only") |
+| some words in the answer | `output:"pricing FAQ"` |
 
 Don't know the field names? Click **Ask AI** and describe it. Use something every day?
 **Save the view.** Spike on the chart above the table? **Drag across it** to zoom in.

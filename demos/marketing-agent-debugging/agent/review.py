@@ -19,7 +19,20 @@ from typing import List, Optional, Tuple
 from .tools import RunState
 
 PUBLISHING_TOOLS = {"stage_cms_draft", "queue_correction"}
-_MEDICAL = re.compile(r"\b(cure[sd]?|fix(es|ed)?|correct(s|ed)?|prevent(s|ed)?|heal(s|ed)?)\b", re.I)
+# Affirmative medical claims only: "corrects overpronation", "prevents injuries". Not "find the
+# correct size", and not the brand's own disclaimer ("shoes don't fix anything").
+_MEDICAL = re.compile(r"\b(cure[sd]?|fix(es|ed)?|correct(s|ed)?|prevent(s|ed)?|heal(s|ed)?)\s+"
+                      r"(your\s+|the\s+|most\s+)?(flat\s+feet|over-?pronation|injur\w*|pain|plantar\w*|shin\s+splints)",
+                      re.I)
+_NEGATION = re.compile(r"(\bnot|\bnever|n't|\bno)\b[^.]{0,25}$", re.I)
+
+
+def medical_claim(text: str):
+    """First affirmative medical claim in the text, or None."""
+    for m in _MEDICAL.finditer(text):
+        if not _NEGATION.search(text[max(0, m.start() - 40):m.start()]):
+            return m.group(0)
+    return None
 
 
 def unchecked_publishes(state: RunState) -> List[str]:
@@ -47,7 +60,7 @@ def policy_check(state: RunState, step_limit_hit: bool) -> dict:
 
 
 def review(customer: str, state: RunState, final_text: str, *, step_limit_hit: bool,
-           duration_s: float) -> Tuple[str, str]:
+           duration_s: float, task_kind: str = "adhoc") -> Tuple[str, str]:
     calls = [c["name"] for c in state.calls]
     if step_limit_hit:
         n_search = calls.count("search_answer_engine")
@@ -60,10 +73,9 @@ def review(customer: str, state: RunState, final_text: str, *, step_limit_hit: b
         return ("rejected", f"Took {duration_s:.0f}s and {len(calls)} tool calls, and the report still has "
                             f"no {', '.join(stalled)} data - it kept re-polling a capture that never finished.")
 
-    if (customer == "contoso" and not state.corrections and "search_answer_engine" in calls
-            and re.search(r"\b(which price|confirm)\b", final_text, re.I)):
-        return ("rejected", "It asked ME what our current pricing is. The Context Manager is supposed to "
-                            "know that - nothing was queued.")
+    if task_kind == "pricing-check" and not state.corrections:
+        return ("rejected", "Nothing was queued, but ChatGPT and AI Overviews still quote last year's $12. "
+                            "Why doesn't the agent know our current pricing?")
 
     if customer == "contoso" and state.corrections:
         stale = [c for c in state.corrections if re.search(r"\$\s?12\b|\$\s?20\b", c["corrected_statement"])]
@@ -84,10 +96,9 @@ def review(customer: str, state: RunState, final_text: str, *, step_limit_hit: b
         return ("rejected", reason)
 
     if customer == "fabrikam":
-        bodies = " ".join(d["body_markdown"] for d in state.staged_drafts)
-        if _MEDICAL.search(bodies):
-            return ("rejected", f"Medical claim in the copy ('{_MEDICAL.search(bodies).group(0)}'). "
-                                "Shoes don't fix or prevent anything.")
+        claim = medical_claim(" ".join(d["body_markdown"] for d in state.staged_drafts))
+        if claim:
+            return ("rejected", f"Medical claim in the copy ('{claim}'). Shoes don't fix or prevent anything.")
         if duration_s > 60:
             return ("approved", f"Good refresh, but it took {duration_s:.0f}s - far too slow for the team.")
 

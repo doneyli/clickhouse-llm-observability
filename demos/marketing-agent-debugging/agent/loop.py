@@ -268,11 +268,13 @@ def run_agent(customer_id: str, task: str, *, task_kind: str = "adhoc", user_id:
     decision = comment = None
     if do_review:
         decision, comment = review(customer_id, state, final_text, step_limit_hit=step_limit_hit,
-                                   duration_s=duration)
+                                   duration_s=duration, task_kind=task_kind)
         lf.create_score(trace_id=trace_id, name="reviewer-decision", value=decision,
                         data_type="CATEGORICAL", comment=comment)
     lf.create_score(trace_id=trace_id, name="agent-steps", value=steps, data_type="NUMERIC")
     if policy["published_items"] or step_limit_hit:
+        # On the guardrail observation that produced it: filter the guardrail's rows in the
+        # Observations table (`name:check-publishing-policy scores.publishing-policy:false`).
         lf.create_score(trace_id=trace_id, observation_id=guard_id, name="publishing-policy",
                         value=1 if policy["passed"] else 0, data_type="BOOLEAN",
                         comment="; ".join(policy["violations"]) or "fact-checked before publishing")

@@ -137,10 +137,64 @@ def test_reviewer_rejects_stalled_polling():
     assert decision == "rejected" and "copilot" in comment
 
 
+def test_reviewer_rejects_pricing_check_that_queues_nothing():
+    s = _state("retrieve_brand_context", "search_answer_engine", "check_claims")
+    assert review("contoso", s, "Could you confirm which pricing is current?", step_limit_hit=False,
+                  duration_s=40, task_kind="pricing-check")[0] == "rejected"
+    # same behaviour on another task is not a pricing failure
+    assert review("contoso", s, "Please confirm the angle.", step_limit_hit=False,
+                  duration_s=40, task_kind="content-brief")[0] == "approved"
+
+
+@pytest.mark.parametrize("text,claim", [
+    ("Guide rails that correct overpronation on every stride.", True),
+    ("The Stride Stability 4 prevents injuries.", True),
+    ("Find the correct size with our fit guide.", False),
+    ("Shoes don't fix flat feet, but support helps.", False),
+    ("It will never cure plantar fasciitis.", False),
+])
+def test_medical_claim_detection(text, claim):
+    from agent.review import medical_claim
+    assert bool(medical_claim(text)) is claim
+
+
 def test_reviewer_flags_slow_fabrikam_refresh_but_approves():
     s = _state("check_claims", "stage_cms_draft", staged_drafts=[{"body_markdown": "Guide rails help."}])
     decision, comment = review("fabrikam", s, "", step_limit_hit=False, duration_s=75)
     assert decision == "approved" and "too slow" in comment
+
+
+# ----------------------------------------------------------------- harness
+class _Obs:
+    id = "obs"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def update(self, **kw):
+        self.kw = kw
+
+
+class _StubLangfuse:
+    def start_as_current_observation(self, **kw):
+        return _Obs()
+
+
+@pytest.mark.parametrize("fixes", [(), ("parallel-tools",)])
+def test_run_tools_keeps_order_sequential_and_parallel(fixes):
+    from agent.loop import _run_tools
+    c = ctx("fabrikam", *fixes)
+    urls = ["https://fabrikam.example/shoes/stride-stability-4",
+            "https://fabrikam.example/compare/stability-shoes",
+            "https://fabrikam.example/guides/shoe-fit"]
+    uses = [SimpleNamespace(id=f"t{i}", name="fetch_page", input={"url": u}) for i, u in enumerate(urls)]
+    outcomes = _run_tools(_StubLangfuse(), c, uses)
+    assert [o.result.get("url") for o in outcomes] == urls
+    assert [o.is_error for o in outcomes] == [False, True, False]
+    assert len(c.state.calls) == 3
 
 
 # ----------------------------------------------------------------- trace shape
