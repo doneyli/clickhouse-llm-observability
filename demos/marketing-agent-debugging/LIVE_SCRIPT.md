@@ -35,6 +35,7 @@ the ones you can fix yourself."
 - **Case 2:** [12dde9c4](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/traces/12dde9c43c20b8004191e0c4759ea633) (88 s; approved but "far too slow")
 - **Case 3:** [68be0677](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/traces/68be0677c376f436f55e36cf93785a21) (9 steps, rejected)
 - **Case 4:** [828eb8c9](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/traces/828eb8c9caacf43b6d350fbb97995aa0) (v3, rejected) · [41344e79](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/traces/41344e79bb4e1d3939da6541b49769e5) (v2, fact-checked)
+- **Judges (fresh runs, 09:51):** [da7579b5](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/traces/da7579b5e6a04980d10c7c2aebeb8ca4) (loop: request-fulfilled **0**) · [3e9c6fc5](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/traces/3e9c6fc5a4522fce43d0f346635f8e5c) (Contoso: retrieval-relevance **1.0** on the stale FAQ). The FAQ run scores fulfilled = 1 although the guardrail flagged it: you need both kinds of check.
 - **Dashboard:** [Agent health — deployment view](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/dashboards/cmw06mjs602b0ad0edf5lpk1p) · **Session:** [contoso-chat-cf4480e4](https://us.cloud.langfuse.com/project/cmw064gym06s2ad0ef63umyru/sessions/contoso-chat-cf4480e4)
 
 ## If something misbehaves
