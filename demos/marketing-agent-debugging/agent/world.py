@@ -10,7 +10,7 @@ look like production traces: sometimes the agent recovers, sometimes it doesn't.
   contoso   — the Context Manager still indexes an ARCHIVED 2024 pricing FAQ that
               out-ranks the current plans doc for "pricing" queries (wrong context).
   fabrikam  — the customer's CMS is slow (4-6 s per page), one page returns raw HTML
-              with nav/scripts (~15k tokens of noise) and one URL 404s (latency +
+              with nav/scripts (~45k tokens of noise) and one URL 404s (latency +
               tool error).
   tailspin  — Copilot snapshots for this account never finish capturing, so the tool
               keeps answering "retry" (tool loop); and the customer's agent

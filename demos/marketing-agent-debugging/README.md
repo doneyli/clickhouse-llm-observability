@@ -62,7 +62,9 @@ ANTHROPIC_API_KEY=sk-ant-... .venv/bin/python scripts/provision_cloud.py
 
 or copy `.env.example` to `.env` and fill in an existing project's keys plus
 `LANGFUSE_PROJECT_NAME`. `agent/config.py` refuses to run if the keys belong to a
-different project; shell-exported `LANGFUSE_*` variables are ignored on purpose.
+different project, and values in `.env` override any shell-exported `LANGFUSE_*`
+keys, so a stray export can't send traces elsewhere. The one setting meant to come from
+the shell is `LANGFUSE_TRACING_ENVIRONMENT` (for rehearsal runs); keep it out of `.env`.
 
 **2. Seed the project** (prompts, score configs, queue, dataset, dashboard, then traffic):
 
@@ -90,8 +92,9 @@ Rehearse with `LANGFUSE_TRACING_ENVIRONMENT=development` in front of a command, 
 rehearsal runs stay out of the production view. After a session where you "fixed"
 Tailspin's instructions live, run `scripts/seed_prompts.py --reset-tailspin`.
 
-**Tests** (offline, no keys needed): `.venv/bin/python -m pytest -q`. They pin every
-planted fault, every fix, the reviewer rules and the trace message shape.
+**Tests** (offline, no keys needed): `.venv/bin/python -m pytest -q`. They pin the
+planted faults, what each fix changes in the tools, the reviewer and guardrail rules,
+the sequential and parallel tool paths, and the trace message shape.
 
 ## Honest notes
 
@@ -102,7 +105,7 @@ planted fault, every fix, the reviewer rules and the trace message shape.
   `agent/review.py` that encode what each customer's marketer would object to. In
   production these are your users' approve/reject clicks.
 - **Outcomes vary on purpose.** Opus usually notices the stale Contoso pricing and
-  checks the live page; once in a while it asks the marketer instead. The fact-checker
+  checks the live page; sometimes (2 of 5 seeded runs) it asks the marketer instead. The fact-checker
   is fooled on every run. Cases 3 and 4 reproduce on every run (3/3 in the seed).
 - **Cost.** A run costs $0.05–0.45 on Opus 5.5. The Fabrikam raw-HTML page is the
   expensive one, which is the point of Case 2. Set `AGENT_MODEL` to try another model.

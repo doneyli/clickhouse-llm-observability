@@ -11,7 +11,7 @@ them, a multi-turn chat session, and Tailspin FAQ runs on BOTH instruction versi
     .venv/bin/python scripts/seed_traffic.py --only weekly-report --repeat 1
     .venv/bin/python scripts/seed_traffic.py --dry-run    # print the plan
 
-Cost: roughly $6-8 of Claude usage for the full plan (Opus 5.5); ~10 minutes.
+Cost: roughly $6-8 of Claude usage for the full plan (Opus 5.5); ~5 minutes with 4 workers.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def _run_job(job):
         r = run_agent(s.customer, task, task_kind=s.name, user_id=user_for(s), session_id=session,
                       history=history, **kwargs)
         results.append((s.customer, s.name, r))
-        history += [{"role": "user", "content": task}, {"role": "assistant", "content": r.final_text}]
+        history += [{"role": "user", "content": task}, {"role": "assistant", "content": r.final_text or "(no reply)"}]
     return results
 
 
