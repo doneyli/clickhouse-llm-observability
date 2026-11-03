@@ -1,0 +1,9 @@
+# Marketing agent debugging workshop
+# langfuse: repo-wide v4 line; 4.17 is the version the newest workshop demo pins and
+# the first this demo was validated on (observation types, propagate_attributes,
+# prompt linking, create_score). Python >=3.10.
+langfuse>=4.17,<5.0
+# anthropic 1.x: thinking display + output_config.effort + server-side fallbacks.
+anthropic>=1.13,<2.0
+python-dotenv>=1.0
+httpx>=0.27
