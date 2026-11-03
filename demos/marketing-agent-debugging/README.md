@@ -6,7 +6,7 @@ environment. It's built for one job: teaching product managers and deployment te
 debug a **probabilistic** agent (one that picks its own tools) from the Langfuse UI,
 without an engineer.
 
-- **Presenter script:** [WORKSHOP_GUIDE.md](WORKSHOP_GUIDE.md), a two-hour run of show with four case files.
+- **Presenter script:** [WORKSHOP_GUIDE.md](WORKSHOP_GUIDE.md), a two-hour run of show with four case files; [LIVE_SCRIPT.md](LIVE_SCRIPT.md) is the one-page version to keep open while presenting.
 - **Participant handout:** [CHEAT_SHEET.md](CHEAT_SHEET.md), a one-page "where do I click".
 - **Why this demo exists:** [ASSESSMENT.md](ASSESSMENT.md), what the other demos in this repo do and don't cover for this audience.
 
