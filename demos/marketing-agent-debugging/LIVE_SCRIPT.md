@@ -23,6 +23,7 @@ the ones you can fix yourself."
 | 70–80 | **Case 4, Tailspin:** no `check_claims` before staging; the 2nd `plan-next-step` thinking says it skipped "because the speed guidance says to"; prompt v2 vs v3 diff and commit message. ⚡ Restore the rule as a new version, re-run | "Instructions are product. Versioned, linked to every run; the label is the deploy." |
 | 80–85 | Break | |
 | 85–100 | Dashboard (slowest tools, rejections, spend per customer), then Halo: "which runs were rejected and why?" | "One bad run is an anecdote; this tells you if it's a pattern." |
+| (in 85–100) | **Evaluators:** two LLM judges score every new run. `request-fulfilled` gives 0 when the agent gave up, stalled or left part out. `retrieval-relevance` scores the stale Contoso passages **high**: on-topic, so "relevant". For older traces: select them → **Evaluate** (batch backfill, live) | "A judge you can set up without engineering. It also only sees what you give it; relevance is not freshness." |
 | 100–110 | Comment on an observation, root-cause label in the annotation queue, add to the `regression-cases` dataset | "Find it, explain it, label it, hand it off, or fix it yourself." |
 | 110–120 | Q&A | |
 
