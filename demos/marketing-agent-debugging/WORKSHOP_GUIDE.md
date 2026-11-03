@@ -186,11 +186,13 @@ one approved run side by side; `verify_demo.py` lists both.
 
 1. Open `retrieve_brand_context` (the retriever icon). **Output** is the three
    passages the model got. Two or three of them are the "Contoso pricing FAQ" saying
-   $12/$20 per user (all three for most queries the agent writes). **Metadata → hits**
-   shows what the model did *not* see: `status: archived`, `updated_at: 2024-02-12`,
+   $12/$20 per user (all three for most queries the agent writes). The **Attributes**
+   tab → metadata `hits` shows what the model did *not* see: `status: archived`, `updated_at: 2024-02-12`,
    and `include_archived: true` on the index.
-2. Open `check_claims` → `verify-claims`. The fact-checker read the same index, so it
-   rated $12 "supported", and $15 too. The safety net was fooled by the same bad data.
+2. Open `check_claims` → `verify-claims`. The fact-checker read the same index. In
+   trace `018dd48c…` it rated $12 "supported" *and* $15 "supported": the safety net was
+   fooled by the same bad data. In `754a8ff7…` it caught one conflict ($12
+   contradicted), so check which run you're opening.
 3. Read the thinking on the next `plan-next-step`. It changes every run; in the seeded
    runs it reads like "The Context Manager has two conflicting figures… I'll treat the
    FAQ as stale". In the approved runs the agent noticed the conflict and called
@@ -232,7 +234,8 @@ latency. Then on the Observations side: `type:TOOL name:fetch_page latency:>3`.
    Metadata: `content_type: text/html (format=text ignored)`.
 3. Every later step re-reads that context. One noisy page sets the price of the rest
    of the run.
-4. The red `fetch_page` node is a 404 on `compare/stability-shoes`. Check the next
+4. One `fetch_page` is a 404 on `compare/stability-shoes`. Its timeline bar looks like
+   the others; the detail panel shows the red "HTTP 404 from CMS" status. Check the next
    step's thinking to see how the agent handled the missing page: did it say so, or
    work around it?
 
@@ -306,7 +309,8 @@ works on those rows too.
 1. In the rejected run, the tool sequence is `retrieve_brand_context` → `fetch_page`
    → `stage_cms_draft`, with no `check_claims`. The guardrail observation says
    `published without fact-check: stage_cms_draft`.
-2. Open the `plan-next-step` that calls `stage_cms_draft`. The prompt link reads
+2. Open the `plan-next-step` that calls `stage_cms_draft` (the second one), and
+   expand its collapsed **Thinking** box. The prompt link reads
    `marketing-agent/tailspin v3`, and the thinking spells out the decision. In the seeded
    runs it reads: "I'm also wondering whether to double-check the claims, but since they
    come straight from the context and the speed guidance says to skip optional steps,
