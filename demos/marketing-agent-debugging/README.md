@@ -76,7 +76,15 @@ the shell is `LANGFUSE_TRACING_ENVIRONMENT` (for rehearsal runs); keep it out of
 .venv/bin/python scripts/verify_demo.py           # READY + the hero trace for each case
 ```
 
-**3. Live runs** (each prints the trace URL):
+**3. Present from the portal** — the marketer's workspace in front of the agent, with a
+presenter console for the fault switches and instructions version. Each run streams its
+tool calls live and ends with an "Open trace in Langfuse" button:
+
+```bash
+.venv/bin/python webapp/server.py        # http://localhost:8097
+```
+
+**Or run from the terminal** (each prints the trace URL):
 
 ```bash
 .venv/bin/python scripts/run_agent.py --scenario pricing-check
@@ -122,5 +130,6 @@ the sequential and parallel tool paths, and the trace message shape.
 | `agent/instructions.py` | per-customer instructions and Tailspin's version history |
 | `agent/review.py` | publishing-policy guardrail and simulated reviewer |
 | `agent/scenarios.py` | the marketer tasks |
+| `webapp/` | presenter portal (FastAPI + one static page, port 8097) |
 | `scripts/` | provision, seed, run, verify |
 | `tests/test_demo.py` | offline tests |
