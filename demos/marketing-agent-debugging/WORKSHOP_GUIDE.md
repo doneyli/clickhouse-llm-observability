@@ -373,6 +373,15 @@ customer, one tool, or everything since Tuesday."
    - "Build a dashboard widget of reviewer rejections per customer."
    Point out that Halo asks for approval before it changes anything.
 
+5. **Evaluators.** Two managed LLM-as-a-judge evaluators score every new run
+   (`scripts/seed_evaluators.py`):
+   - `request-fulfilled` on the root: 0 when the agent gave up, stalled or left part out.
+   - `retrieval-relevance` on `retrieve_brand_context`: the stale Contoso passages
+     score *high*, because they're on topic. A judge only sees what you map into it;
+     the archive status is in the metadata it never reads.
+   Rules only score new traffic. Backfill older traces live: select rows in Tracing,
+   then **Evaluate**.
+
 **Land.** "Dashboards and filters turn 'I think it's slow' into 'fetch_page p95 is 5.8
 seconds for Fabrikam only'. That's a ticket an engineer can act on."
 
@@ -439,8 +448,8 @@ own project first?"
 - **Outcomes vary, by design.** Case 1 is "flaky" because Opus usually notices the
   conflict; that variance is the lesson. Cases 3 and 4 reproduce reliably. If a live
   run surprises you, debug that one; it's more convincing than the script.
-- **What this workshop does not cover:** setting up evaluators, experiments and CI
-  gates. Those are the natural follow-up session, and the root-cause labels and
+- **What this workshop does not cover in depth:** designing evaluators, experiments and CI
+  gates (two judges are seeded so the scores exist). Those are the natural follow-up session, and the root-cause labels and
   regression dataset from module 5 are their input.
 
 ## Appendix D: show me the code

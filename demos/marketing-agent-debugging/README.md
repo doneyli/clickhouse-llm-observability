@@ -71,6 +71,7 @@ the shell is `LANGFUSE_TRACING_ENVIRONMENT` (for rehearsal runs); keep it out of
 ```bash
 .venv/bin/python scripts/seed_prompts.py
 .venv/bin/python scripts/seed_project.py all
+.venv/bin/python scripts/seed_evaluators.py      # 2 LLM judges (needs ANTHROPIC_API_KEY; stored as a Langfuse LLM connection)
 .venv/bin/python scripts/seed_traffic.py          # ~26 real agent runs, ~5 min with 4 workers, ~$6-8
 .venv/bin/python scripts/seed_project.py fill-queue
 .venv/bin/python scripts/verify_demo.py           # READY + the hero trace for each case
