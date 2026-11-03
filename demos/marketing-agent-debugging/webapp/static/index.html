@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Marketer — agent workspace</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --line: #e3e6eb; --text: #1b1f24; --muted: #5d6673;
+    --accent: #3b3f8f; --accent-soft: #ecedf8;
+    --lf-blue: #1F65BB; --lf-accent: #4E9CFF; --lf-coral: #FF5D5F;
+    --ok: #1d7a46; --ok-soft: #e5f4eb; --bad: #b42318; --bad-soft: #fdecea; --warn: #9a6200;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: var(--surface);
+           border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 700; letter-spacing: -.01em; }
+  .brand small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+  .customers { display: flex; gap: 6px; margin-left: 18px; }
+  .customers button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+                      padding: 5px 14px; font: inherit; cursor: pointer; color: var(--text); }
+  .customers button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .traced { margin-left: auto; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .traced a { color: var(--lf-blue); font-weight: 600; text-decoration: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lf-accent); display: inline-block; }
+  main { display: grid; grid-template-columns: 380px 1fr; gap: 18px; padding: 18px 22px; max-width: 1500px; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .who { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .scenario { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface);
+              border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; cursor: pointer; font: inherit; color: var(--text); }
+  .scenario:hover { border-color: var(--accent); }
+  .scenario b { display: block; font-size: 13px; }
+  .scenario span { font-size: 13px; color: var(--muted); }
+  textarea { width: 100%; min-height: 110px; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+             font: inherit; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .btn { border: 0; background: var(--accent); color: #fff; border-radius: 8px; padding: 9px 16px; font: inherit;
+         font-weight: 600; cursor: pointer; }
+  .btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .btn:disabled { opacity: .5; cursor: progress; }
+  details.console { margin-top: 16px; border-top: 1px dashed var(--line); padding-top: 12px; }
+  details.console summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .console label { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; margin: 8px 0; }
+  .console code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  .console select { font: inherit; font-size: 13px; padding: 4px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .thread { display: flex; flex-direction: column; gap: 14px; }
+  .msg-user { align-self: flex-end; background: var(--accent-soft); border-radius: 10px; padding: 10px 14px; max-width: 80%; }
+  .run { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .steps { background: #fbfbfd; border-bottom: 1px solid var(--line); padding: 10px 14px; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+           color: #39414d; max-height: 260px; overflow: auto; }
+  .steps .tool { color: var(--accent); }
+  .answer { padding: 14px 18px; }
+  .answer table { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+  .answer td, .answer th { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+  .answer h1, .answer h2, .answer h3 { font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--text); margin: 14px 0 6px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 18px; border-top: 1px solid var(--line);
+          font-size: 13px; color: var(--muted); }
+  .chip { border-radius: 999px; padding: 2px 10px; font-weight: 600; font-size: 12px; }
+  .chip.approved { background: var(--ok-soft); color: var(--ok); }
+  .chip.rejected { background: var(--bad-soft); color: var(--bad); }
+  .meta a.trace { margin-left: auto; color: #fff; background: var(--lf-blue); text-decoration: none; padding: 6px 12px;
+                  border-radius: 7px; font-weight: 600; }
+  .meta a.session { color: var(--lf-blue); }
+  .empty { color: var(--muted); text-align: center; padding: 60px 0; }
+  .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--accent); border-right-color: transparent;
+             border-radius: 50%; animation: spin .8s linear infinite; margin-right: 6px; vertical-align: -1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { color: var(--bad); padding: 12px 18px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">AI Marketer <small>agent workspace (fictional demo)</small></div>
+  <div class="customers" id="customers"></div>
+  <div class="traced"><span class="dot"></span>Every run is traced in <a id="lf-link" target="_blank" rel="noopener">Langfuse</a>
+    <span id="env"></span></div>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>Ask the agent</h2>
+      <div class="who" id="who"></div>
+      <div id="scenarios"></div>
+      <textarea id="task" placeholder="Type a task for the agent…"></textarea>
+      <div class="row">
+        <button class="btn" id="run">Run agent</button>
+        <button class="btn secondary" id="newchat" title="Start a new session">New chat</button>
+      </div>
+      <details class="console" id="console">
+        <summary>Presenter console</summary>
+        <div class="note">Switch a planted fault off, then run the same task again and compare the traces.</div>
+        <label><input type="checkbox" value="exclude-archived"><span><code>exclude-archived</code>: Context Manager stops serving archived docs (Case 1)</span></label>
+        <label><input type="checkbox" value="parallel-tools"><span><code>parallel-tools</code>: run a turn's tool calls concurrently (Case 2)</span></label>
+        <label><input type="checkbox" value="clean-html"><span><code>clean-html</code>: CMS returns text, not raw HTML (Case 2)</span></label>
+        <label><input type="checkbox" value="terminal-pending"><span><code>terminal-pending</code>: stalled captures say "unavailable, don't retry" (Case 3)</span></label>
+        <label><span>Instructions</span>
+          <select id="pversion"><option value="">production label</option><option value="1">v1</option><option value="2">v2</option><option value="3">v3</option></select>
+        </label>
+        <div class="note">Fixes and version are recorded on the trace (<code>metadata.fixes</code>, linked prompt).</div>
+      </details>
+    </div>
+  </section>
+  <section>
+    <div class="card">
+      <h2>Conversation</h2>
+      <div class="thread" id="thread"><div class="empty">Pick a task on the left, or type your own.</div></div>
+    </div>
+  </section>
+</main>
+<script>
+const state = { cfg: null, customer: "contoso", scenario: null, session: null, history: [], busy: false };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function md(text) {  // just enough markdown for the agent's replies: headings, bold, lists, tables, links
+  const lines = esc(text || "").split("\n"); let html = "", inList = false, table = [];
+  const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>")
+                         .replace(/(https?:\/\/[^\s)<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  const flushTable = () => { if (!table.length) return;
+    const rows = table.filter((r) => !/^\|\s*-/.test(r)).map((r) => r.replace(/^\||\|$/g, "").split("|"));
+    html += "<table>" + rows.map((r, i) => "<tr>" + r.map((c) => (i ? "<td>" : "<th>") + inline(c.trim()) + (i ? "</td>" : "</th>")).join("") + "</tr>").join("") + "</table>";
+    table = []; };
+  for (const l of lines) {
+    if (/^\|/.test(l)) { table.push(l); continue; } else flushTable();
+    if (/^\s*[-*] /.test(l) || /^\s*\d+\. /.test(l)) { if (!inList) { html += "<ul>"; inList = true; }
+      html += "<li>" + inline(l.replace(/^\s*([-*]|\d+\.) /, "")) + "</li>"; continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    const h = l.match(/^(#{1,3}) (.*)/);
+    if (h) html += `<h3>${inline(h[2])}</h3>`; else if (l.trim()) html += `<p>${inline(l)}</p>`;
+  }
+  flushTable(); if (inList) html += "</ul>"; return html;
+}
+
+function renderCustomer() {
+  const c = state.cfg.customers.find((x) => x.id === state.customer);
+  $("customers").innerHTML = state.cfg.customers.map((x) =>
+    `<button class="${x.id === state.customer ? "active" : ""}" data-id="${x.id}">${esc(x.name)}</button>`).join("");
+  $("customers").querySelectorAll("button").forEach((b) => b.onclick = () => { state.customer = b.dataset.id; newChat(); renderCustomer(); });
+  $("who").textContent = `${c.name} · ${c.category}`;
+  $("scenarios").innerHTML = c.scenarios.map((s) =>
+    `<button class="scenario" data-name="${s.name}"><b>${esc(s.name)}</b><span>${esc(s.task)}</span></button>`).join("");
+  $("scenarios").querySelectorAll(".scenario").forEach((b) => b.onclick = () => {
+    const s = c.scenarios.find((x) => x.name === b.dataset.name); state.scenario = s.name; $("task").value = s.task; });
+}
+
+function newChat() { state.session = null; state.history = []; state.scenario = null; $("task").value = "";
+  $("thread").innerHTML = '<div class="empty">New chat. Pick a task on the left, or type your own.</div>'; }
+
+async function run() {
+  const task = $("task").value.trim(); if (!task || state.busy) return;
+  state.busy = true; $("run").disabled = true;
+  if ($("thread").querySelector(".empty")) $("thread").innerHTML = "";
+  const fixes = [...document.querySelectorAll(".console input:checked")].map((i) => i.value);
+  const pv = $("pversion").value;
+  $("thread").insertAdjacentHTML("beforeend", `<div class="msg-user">${esc(task)}</div>`);
+  const box = document.createElement("div"); box.className = "run";
+  box.innerHTML = `<div class="steps"><span class="spinner"></span>agent working…</div><div class="answer"></div>`;
+  $("thread").appendChild(box); box.scrollIntoView({ behavior: "smooth", block: "end" });
+  const steps = box.querySelector(".steps"); steps.innerHTML = "";
+  const res = await fetch("/api/run", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ customer: state.customer, task, scenario: state.scenario, session_id: state.session,
+                           history: state.history, fixes, prompt_version: pv ? Number(pv) : null }) });
+  if (!res.ok) { box.innerHTML = `<div class="error">${esc(await res.text())}</div>`; state.busy = false; $("run").disabled = false; return; }
+  const { run_id, session_id } = await res.json(); state.session = session_id;
+  const es = new EventSource(`/api/runs/${run_id}/events`);
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === "step") {
+      const isTool = ev.text.includes("→");
+      steps.insertAdjacentHTML("beforeend", `<div class="${isTool ? "tool" : ""}">${esc(ev.text)}</div>`);
+      steps.scrollTop = steps.scrollHeight;
+    } else if (ev.type === "done") {
+      es.close(); state.busy = false; $("run").disabled = false;
+      box.querySelector(".answer").innerHTML = md(ev.final_text);
+      const chip = ev.decision ? `<span class="chip ${ev.decision}" title="${esc(ev.decision_comment || "")}">reviewer: ${ev.decision}</span>` : "";
+      box.insertAdjacentHTML("beforeend", `<div class="meta">${chip}<span>${ev.steps} model calls · ${ev.duration_s}s · instructions v${ev.instructions_version ?? "fallback"}${fixes.length ? " · fixes: " + fixes.join(", ") : ""}</span>
+        <a class="session" href="${ev.session_url}" target="_blank" rel="noopener">session</a>
+        <a class="trace" href="${ev.trace_url}" target="_blank" rel="noopener">Open trace in Langfuse ↗</a></div>`);
+      if (ev.decision === "rejected" && ev.decision_comment) box.insertAdjacentHTML("beforeend", `<div class="meta" style="color:var(--bad)">“${esc(ev.decision_comment)}”</div>`);
+      state.history.push({ role: "user", content: task }, { role: "assistant", content: ev.final_text || "(no reply)" });
+      $("task").value = ""; state.scenario = null;
+      box.scrollIntoView({ behavior: "smooth", block: "end" });
+    } else if (ev.type === "error") {
+      es.close(); state.busy = false; $("run").disabled = false;
+      box.insertAdjacentHTML("beforeend", `<div class="error">${esc(ev.text)}</div>`);
+    }
+  };
+}
+
+(async () => {
+  state.cfg = await (await fetch("/api/config")).json();
+  $("lf-link").href = state.cfg.project_url;
+  $("env").textContent = `· ${state.cfg.environment} · ${state.cfg.model}`;
+  renderCustomer();
+  $("run").onclick = run; $("newchat").onclick = newChat;
+  $("task").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); });
+})();
+</script>
+</body>
+</html>

@@ -51,8 +51,11 @@ run Case 3 as a two-minute look at the graph.
    or admin does this under Organization Settings → AI features. Both are off by default.
 4. **Turn on the Langfuse v4 preview** in the UI if the filter search bar isn't showing.
    The queries in this guide (`metadata.customer:contoso`, `scores.…`) need it.
-5. **Warm up one live run** so the first run on stage isn't a cold start:
-   `.venv/bin/python scripts/run_agent.py --scenario social-posts`. It takes about 15 s.
+5. **Start the portal and warm it up:** `.venv/bin/python webapp/server.py`, then open
+   http://localhost:8097 and run Fabrikam → `social-posts` once (about 20 s), so the
+   first run on stage isn't a cold start. Every ⚡ re-run below can come from the
+   portal: tick the fix in the **Presenter console**, or pick an instructions version,
+   then run the same task again. The CLI commands do the same thing.
 6. **Set the time range** to "Last 7 days" on the Tracing page. Seeded traffic is from
    the day before.
 7. **Close other Docker stacks** if you plan to run anything locally. This demo needs
