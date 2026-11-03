@@ -1,0 +1,4 @@
+# Local run log written by scripts/seed_traffic.py (trace ids of this machine's seeding)
+.runs.jsonl
+# Walkthrough recordings of the Langfuse UI (may show account/org names) — share directly, never commit
+recordings/
