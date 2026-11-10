@@ -1,6 +1,6 @@
 # Demos
 
-Eight independently runnable demos, each building on the same ClickHouse-backed
+Independently runnable demos, each building on the same ClickHouse-backed
 Langfuse stack. The container demos share the platform at the repo root
 (`docker-compose.yaml`, `setup.sh`, `scripts/`, `evaluators/`, `mcp-*/`); the
 standalone demos bring their own toolchain. For how they map to the AI
@@ -17,6 +17,7 @@ Engineering loop, see [`../AI_ENGINEERING_LOOP.md`](../AI_ENGINEERING_LOOP.md).
 | **[litellm-gateway](litellm-gateway/)** | LiteLLM AI gateway with centralized Langfuse OTLP tracing | Trace · Gateway | `./demos/litellm-gateway/run_demo.sh` · client script: [`DEMO_SCRIPT.md`](litellm-gateway/DEMO_SCRIPT.md) |
 | **[real-estate](real-estate/)** | Self-contained agentic concierge — the whole loop end-to-end in one place | ALL 5 + Deploy | `cd demos/real-estate && ./run_demo.sh` then `./run_portal.sh` · client script: [`DEMO_SCRIPT.md`](real-estate/DEMO_SCRIPT.md) |
 | **[brand-promo-multi-agent](brand-promo-multi-agent/)** | Multi-agent promo-planning assistant (LangGraph + CrewAI): synthetic history, online + offline evals, persona dashboards | Trace · Datasets · Experiment · Evaluate · Deploy | see [`DEMO_SCRIPT.md`](brand-promo-multi-agent/DEMO_SCRIPT.md) (client script) or [README](brand-promo-multi-agent/) |
+| **[langfuse-operations](langfuse-operations/)** | Real platform lifecycle automation: projects, SCIM/RBAC, scoped key rotation, dashboards, native audit evidence, protected labels, instance org provisioning, and reviewed reset | Platform operations · Governance | `cd demos/langfuse-operations && ./scripts/run-portal.sh` · [setup](langfuse-operations/README.md) · [presenter flow](langfuse-operations/DEMO_SCRIPT.md) |
 | **[langfuse-rls](langfuse-rls/)** | Attribute-based row-level-security prototype over Langfuse traces (Next.js): trace governance / access control | Governance (adjacent to the loop) | `cd demos/langfuse-rls && npm install && npm run dev` · client script: [`DEMO_SCRIPT.md`](langfuse-rls/DEMO_SCRIPT.md) |
 | **[slow-query-tuner](slow-query-tuner/)** | Autonomous agent loop: open-ended query optimization against a live ClickHouse lab — the agent decides when the query is fast enough; caps + kill switch + runaway Monitor as rails | Trace · Monitor · Datasets · Experiment · Evaluate | `docker compose --profile demo run --rm slow-query-tuner python main.py --query q1` · client script: [`DEMO_SCRIPT.md`](slow-query-tuner/DEMO_SCRIPT.md) |
 | **[grocery-assistant](grocery-assistant/)** | Retail-grocery shopping assistant (**TypeScript**, Vercel AI SDK 7, `@langfuse/*` v5). Teaching demo: the same agent instrumented **well vs badly** (5 real defects), and which evaluator to build first (4 deterministic before any judge) | Trace · Monitor · Evaluate | `cd demos/grocery-assistant && npm install && ./scripts/provision-project.sh && npm run demo` · client script: [`DEMO_SCRIPT.md`](grocery-assistant/DEMO_SCRIPT.md) |

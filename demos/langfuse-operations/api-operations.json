@@ -1,0 +1,523 @@
+{
+  "dataset-items/create": {
+    "method": "POST",
+    "path": "/api/public/dataset-items",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "dataset-items/delete": {
+    "method": "DELETE",
+    "path": "/api/public/dataset-items/{id}",
+    "pathParameterOrder": [
+      "id"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "dataset-items/get": {
+    "method": "GET",
+    "path": "/api/public/dataset-items/{id}",
+    "pathParameterOrder": [
+      "id"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "dataset-items/list": {
+    "method": "GET",
+    "path": "/api/public/dataset-items",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "dataset-name": "datasetName",
+      "limit": "limit",
+      "page": "page",
+      "source-observation-id": "sourceObservationId",
+      "source-trace-id": "sourceTraceId",
+      "version": "version"
+    }
+  },
+  "organizations/delete-membership": {
+    "method": "DELETE",
+    "path": "/api/public/organizations/memberships",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "organizations/list-api-keys": {
+    "method": "GET",
+    "path": "/api/public/organizations/apiKeys",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "organizations/list-memberships": {
+    "method": "GET",
+    "path": "/api/public/organizations/memberships",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "organizations/list-projects": {
+    "method": "GET",
+    "path": "/api/public/organizations/projects",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "organizations/update-membership": {
+    "method": "PUT",
+    "path": "/api/public/organizations/memberships",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/create": {
+    "method": "POST",
+    "path": "/api/public/projects",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/create-api-key": {
+    "method": "POST",
+    "path": "/api/public/projects/{projectId}/apiKeys",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/delete": {
+    "method": "DELETE",
+    "path": "/api/public/projects/{projectId}",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/delete-api-key": {
+    "method": "DELETE",
+    "path": "/api/public/projects/{projectId}/apiKeys/{apiKeyId}",
+    "pathParameterOrder": [
+      "projectId",
+      "apiKeyId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/delete-membership": {
+    "method": "DELETE",
+    "path": "/api/public/projects/{projectId}/memberships",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/list": {
+    "method": "GET",
+    "path": "/api/public/projects",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "projects/list-api-keys": {
+    "method": "GET",
+    "path": "/api/public/projects/{projectId}/apiKeys",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/list-memberships": {
+    "method": "GET",
+    "path": "/api/public/projects/{projectId}/memberships",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/update": {
+    "method": "PUT",
+    "path": "/api/public/projects/{projectId}",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "projects/update-membership": {
+    "method": "PUT",
+    "path": "/api/public/projects/{projectId}/memberships",
+    "pathParameterOrder": [
+      "projectId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/create-user": {
+    "method": "POST",
+    "path": "/api/public/scim/Users",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/delete-user": {
+    "method": "DELETE",
+    "path": "/api/public/scim/Users/{userId}",
+    "pathParameterOrder": [
+      "userId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/get-service-provider-config": {
+    "method": "GET",
+    "path": "/api/public/scim/ServiceProviderConfig",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/get-user": {
+    "method": "GET",
+    "path": "/api/public/scim/Users/{userId}",
+    "pathParameterOrder": [
+      "userId"
+    ],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/list-resource-types": {
+    "method": "GET",
+    "path": "/api/public/scim/ResourceTypes",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/list-schemas": {
+    "method": "GET",
+    "path": "/api/public/scim/Schemas",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {}
+  },
+  "scim/list-users": {
+    "method": "GET",
+    "path": "/api/public/scim/Users",
+    "pathParameterOrder": [],
+    "edition": "enterprise",
+    "scope": "Organization key",
+    "doc": "https://langfuse.com/docs/administration/scim-and-org-api",
+    "queryParameters": {
+      "count": "count",
+      "filter": "filter",
+      "start-index": "startIndex"
+    }
+  },
+  "unstable-dashboard-widgets/create": {
+    "method": "POST",
+    "path": "/api/public/unstable/dashboard-widgets",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboard-widgets/delete": {
+    "method": "DELETE",
+    "path": "/api/public/unstable/dashboard-widgets/{widgetId}",
+    "pathParameterOrder": [
+      "widgetId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboard-widgets/get": {
+    "method": "GET",
+    "path": "/api/public/unstable/dashboard-widgets/{widgetId}",
+    "pathParameterOrder": [
+      "widgetId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboard-widgets/list": {
+    "method": "GET",
+    "path": "/api/public/unstable/dashboard-widgets",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "limit": "limit",
+      "page": "page"
+    }
+  },
+  "unstable-dashboard-widgets/update": {
+    "method": "PATCH",
+    "path": "/api/public/unstable/dashboard-widgets/{widgetId}",
+    "pathParameterOrder": [
+      "widgetId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/add-placement": {
+    "method": "POST",
+    "path": "/api/public/unstable/dashboards/{dashboardId}/placements",
+    "pathParameterOrder": [
+      "dashboardId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/create": {
+    "method": "POST",
+    "path": "/api/public/unstable/dashboards",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/delete": {
+    "method": "DELETE",
+    "path": "/api/public/unstable/dashboards/{dashboardId}",
+    "pathParameterOrder": [
+      "dashboardId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/delete-placement": {
+    "method": "DELETE",
+    "path": "/api/public/unstable/dashboards/{dashboardId}/placements/{placementId}",
+    "pathParameterOrder": [
+      "dashboardId",
+      "placementId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/get": {
+    "method": "GET",
+    "path": "/api/public/unstable/dashboards/{dashboardId}",
+    "pathParameterOrder": [
+      "dashboardId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/list": {
+    "method": "GET",
+    "path": "/api/public/unstable/dashboards",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "limit": "limit",
+      "page": "page"
+    }
+  },
+  "unstable-dashboards/update": {
+    "method": "PATCH",
+    "path": "/api/public/unstable/dashboards/{dashboardId}",
+    "pathParameterOrder": [
+      "dashboardId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "unstable-dashboards/update-placement": {
+    "method": "PATCH",
+    "path": "/api/public/unstable/dashboards/{dashboardId}/placements/{placementId}",
+    "pathParameterOrder": [
+      "dashboardId",
+      "placementId"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "datasets/create": {
+    "method": "POST",
+    "path": "/api/public/v2/datasets",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "datasets/get": {
+    "method": "GET",
+    "path": "/api/public/v2/datasets/{datasetName}",
+    "pathParameterOrder": [
+      "datasetName"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "datasets/list": {
+    "method": "GET",
+    "path": "/api/public/v2/datasets",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "limit": "limit",
+      "page": "page"
+    }
+  },
+  "prompts/create": {
+    "method": "POST",
+    "path": "/api/public/v2/prompts",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "prompts/delete": {
+    "method": "DELETE",
+    "path": "/api/public/v2/prompts/{promptName}",
+    "pathParameterOrder": [
+      "promptName"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "label": "label",
+      "version": "version"
+    }
+  },
+  "prompts/get": {
+    "method": "GET",
+    "path": "/api/public/v2/prompts/{promptName}",
+    "pathParameterOrder": [
+      "promptName"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "label": "label",
+      "resolve": "resolve",
+      "version": "version"
+    }
+  },
+  "prompts/list": {
+    "method": "GET",
+    "path": "/api/public/v2/prompts",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {
+      "from-updated-at": "fromUpdatedAt",
+      "label": "label",
+      "limit": "limit",
+      "name": "name",
+      "page": "page",
+      "tag": "tag",
+      "to-updated-at": "toUpdatedAt"
+    }
+  },
+  "prompts/update-version": {
+    "method": "PATCH",
+    "path": "/api/public/v2/prompts/{name}/versions/{version}",
+    "pathParameterOrder": [
+      "name",
+      "version"
+    ],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/api-and-data-platform/features/public-api",
+    "queryParameters": {}
+  },
+  "scores/create": {
+    "method": "POST",
+    "path": "/api/public/scores",
+    "pathParameterOrder": [],
+    "edition": "oss",
+    "scope": "Project key",
+    "doc": "https://langfuse.com/docs/evaluation/scores/overview",
+    "queryParameters": {}
+  }
+}

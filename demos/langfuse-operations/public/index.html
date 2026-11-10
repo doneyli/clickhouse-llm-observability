@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Langfuse platform operations</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Langfuse / Platform operations</h1><p>Provisioning, governance, and lifecycle automation</p></div>
+    <div class="connection"><span class="live-dot"></span><span id="connection-status">Checking organization access</span><code>localhost:3001</code></div>
+  </header>
+  <nav id="workflows" aria-label="Workflows"></nav>
+  <div class="toolbar">
+    <label><input type="checkbox" id="highlight-enterprise" checked> Highlight Enterprise value</label>
+    <div class="legend"><span class="badge enterprise">Enterprise administration</span><span class="badge oss">OSS application API</span></div>
+    <label><input type="checkbox" id="show-api" checked> Show API calls</label>
+  </div>
+  <div class="layout" id="layout">
+    <section class="workspace">
+      <div class="heading-row"><h2 id="workflow-title">Provision an application</h2><span id="workflow-edition" class="badge"></span></div>
+      <p id="workflow-description" class="description"></p>
+      <form id="parameters">
+        <div id="new-application-fields" class="fields">
+          <label>Application name<input name="applicationName" id="application-name" value="Platform demo application" maxlength="60" required></label>
+          <label>Team name<input name="teamName" id="team-name" value="Platform engineering" maxlength="120" required><small>Labels this project; add people and roles in Team</small></label>
+          <label>Retention days<input name="retentionDays" id="retention-days" type="number" min="0" step="1" value="30" required><small>0 = unlimited; otherwise at least 3 days</small></label>
+          <label>Applications to create<input name="applicationCount" id="application-count" type="number" min="1" max="5" step="1" value="1" required><small>Apply the same blueprint to up to 5 applications</small></label>
+        </div>
+        <div id="existing-application-fields" hidden>
+          <label>Application<select id="selected-project" aria-label="Application"></select></label>
+          <p class="hint">Only applications created by this portal can be changed.</p>
+        </div>
+        <div id="governance-fields" hidden>
+          <label>Governance application name<input id="governance-name" value="Governance Demo" maxlength="60"></label>
+          <p class="hint">Creates a dedicated project and synthetic Member/Admin sign-in identities. Demonstrates native user permissions through a version-pinned UI adapter.</p>
+        </div>
+        <div id="instance-fields" hidden>
+          <label>Organization name<input id="organization-name" value="Operations Demo Organization" maxlength="100"></label>
+          <p class="hint">Requires ADMIN_API_KEY on the server and in private/instance.env. This key controls the instance; organization keys cannot create organizations.</p>
+        </div>
+        <div id="team-fields" class="fields" hidden>
+          <label>Member 1 email<input id="member-one-email" type="email" maxlength="254"></label>
+          <label>Member 1 project role<select id="member-one-role"><option value="MEMBER">Member</option><option value="VIEWER">Viewer</option><option value="ADMIN">Admin</option></select></label>
+          <label>Member 2 email<input id="member-two-email" type="email" maxlength="254"></label>
+          <label>Member 2 project role<select id="member-two-role"><option value="VIEWER">Viewer</option><option value="MEMBER">Member</option><option value="ADMIN">Admin</option></select></label>
+        </div>
+        <div id="permission-fields" class="fields" hidden>
+          <label>Team member<select id="selected-member"></select></label>
+          <label>New project role<select id="target-role"><option value="VIEWER">Viewer</option><option value="MEMBER">Member</option><option value="ADMIN">Admin</option></select></label>
+        </div>
+        <div id="key-fields" hidden>
+          <label>New key permissions<select id="key-role" required>
+            <option value="">Choose permissions</option>
+            <option value="ADMIN">Full access</option>
+            <option value="VIEWER">Viewer</option>
+            <option value="INGEST">Ingestion</option>
+            <option value="SCORES_INGEST">Scores ingestion</option>
+          </select></label>
+          <p id="key-role-description" class="hint"></p>
+          <p class="hint">Permissions apply to this project's API key. User roles are managed under Permissions. Changing a key's permissions requires a new key.</p>
+        </div>
+        <div id="reset-fields" class="reset-panel" hidden>
+          <p class="reset-warning">Permanently delete the demo projects and everything inside them, including keys, prompts, datasets, dashboards, and observations.</p>
+          <button type="button" id="preview-reset">Preview reset</button>
+          <div id="reset-preview" aria-live="polite"><p class="hint">Preview the exact projects and demo memberships before confirming.</p></div>
+          <label class="reset-confirm-label">Type RESET DEMO to confirm<input id="reset-confirmation" autocomplete="off" spellcheck="false" placeholder="RESET DEMO"></label>
+          <p class="hint">Only projects recorded by this portal are eligible. Demo users are removed from this organization; their global user accounts remain. The instance workflow’s isolated organizations are included after ownership checks. Global user accounts, the root instance key, organization credentials, and run history are kept.</p>
+        </div>
+        <div id="pre-run-note" class="workflow-note"></div>
+        <button type="button" id="go-to-team" class="team-shortcut" hidden>Go to Team onboarding</button>
+        <div class="actions"><button class="primary" id="run-workflow" type="submit">Create application</button><span class="hint">Executes real API calls</span></div>
+        <p id="form-error" class="error" role="alert" hidden></p>
+      </form>
+      <div class="run-summary" id="run-summary" aria-live="polite"></div>
+      <ol class="steps" id="steps" aria-label="Executed API calls"></ol>
+      <div id="run-result" class="result" aria-live="polite"></div>
+      <section id="evidence" aria-label="Verified governance evidence" aria-live="polite" hidden></section>
+      <section class="resources" aria-label="Created resources">
+        <div class="heading-row"><h3>Created in Langfuse</h3><button type="button" id="refresh-state" class="quiet">Refresh</button></div>
+        <div id="resource-list"><p class="hint">Create an application to see its real object IDs and links.</p></div>
+      </section>
+    </section>
+    <aside id="inspector" aria-label="Executed script and API details">
+      <div class="heading-row"><h2>Behind the button</h2><span id="call-edition" class="badge"></span></div>
+      <div class="inspector-tabs" aria-label="Inspector views">
+        <button data-view="script" aria-pressed="true">Script</button>
+        <button data-view="request" aria-pressed="false">HTTP request</button>
+        <button data-view="response" aria-pressed="false">Response</button>
+      </div>
+      <p id="inspector-label" class="hint"></p>
+      <pre><code id="inspector-code"></code></pre>
+      <div class="inspector-footer"><span id="call-scope" class="hint"></span><a id="call-doc" target="_blank" rel="noopener noreferrer" hidden>API documentation</a></div>
+    </aside>
+  </div>
+  <details class="edition-guide">
+    <summary>What the Enterprise license adds in this demo</summary>
+    <div class="edition-columns">
+      <section><span class="badge oss">Included in self-hosted OSS</span><h3>Build and observe applications</h3><p>Project APIs for prompts, datasets, examples, and dashboards. These steps stay blue even inside a paid administration workflow.</p><a href="https://langfuse.com/self-hosting/license-key" target="_blank" rel="noopener noreferrer">Core features and APIs</a></section>
+      <section><span class="badge enterprise">Enterprise administration</span><h3>Provision and govern the environment</h3><p>Organization-scoped project provisioning, API-key lifecycle, SCIM users, project memberships, retention policies, native audit evidence, protected prompt labels, and instance-level organization provisioning. Apply the same workflow across applications.</p><p>Project API keys are also available in OSS. The paid capability shown here is their organization-scoped lifecycle automation.</p><a href="https://langfuse.com/docs/administration/scim-and-org-api" target="_blank" rel="noopener noreferrer">Organization management API</a></section>
+    </div>
+    <p class="hint">Some Enterprise routes also start with <code>/api/public</code>. The badge follows the capability and entitlement, not the URL prefix. Organizations uses the separate instance API and <code>ADMIN_API_KEY</code>. Protected labels and audit reads use a version-pinned native UI RPC adapter, explicitly identified in the inspector. They are Enterprise features without a supported Public API management endpoint in this tested version. SSO configuration and other deployment settings are outside these workflows.</p>
+  </details>
+  <details class="edition-guide">
+    <summary>Potential future add-ons</summary>
+    <p class="hint">Planned: central server-side masking, LLM connection blueprints, export automation, external media storage, IAM role authentication, organization-creator controls, UI customization, and policy reconciliation.</p>
+    <a href="/future-addons.md" target="_blank" rel="noopener noreferrer">Read priorities and build specifications</a>
+  </details>
+  <footer><span>Local sample portal. API responses and object IDs are real; secrets are redacted before delivery.</span><span>Tiles select workflows. The main action button executes them.</span></footer>
+</main>
+</body>
+</html>
