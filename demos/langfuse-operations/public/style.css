@@ -5,3 +5,5 @@
 @media(max-width:900px){main{margin:10px}.layout{grid-template-columns:1fr}aside{border-left:0;border-top:1px solid var(--line)}header{align-items:flex-start}.connection{max-width:230px}.edition-columns{grid-template-columns:1fr}}@media(max-width:500px){main{margin:0;border-radius:0;border-inline:0}header{flex-direction:column;padding:20px}nav{padding-inline:20px}.toolbar,.workspace,aside,.edition-guide{padding-inline:20px}.fields{grid-template-columns:1fr}.connection{max-width:none;justify-content:flex-start}.step-label .badge{white-space:normal}input,select{font-size:16px}}@media(prefers-reduced-motion:no-preference){button{transition:background-color .12s,border-color .12s}}
 
 #evidence{margin:24px 0;padding:20px;background:#f8f5ff;border:1px solid #d8c8f2;border-radius:12px}#evidence details{margin-top:12px}#evidence summary{cursor:pointer;overflow-wrap:anywhere}#evidence pre{max-height:280px;overflow:auto;white-space:pre-wrap}nav{flex-wrap:wrap}
+
+.step-meta,.step-label{overflow-wrap:anywhere}.step-button>span{min-width:0}

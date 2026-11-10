@@ -98,6 +98,8 @@ def validate(workflow, params):
         count = p.get("applicationCount", 1)
         if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 5:
             raise WorkflowError("Create between 1 and 5 applications per run.")
+        if len(p["applicationName"]) < 3 or (count > 1 and len(p["applicationName"]) + 2 > 60):
+            raise WorkflowError("Application names require 3 to 60 characters, including the batch number suffix.")
     elif workflow not in {"reset", "governance", "audit", "instance"} and (not isinstance(p.get("projectId"), str) or not p["projectId"]):
         raise WorkflowError("Select an application created by this portal.")
     if workflow in {"governance", "instance"}:
@@ -105,6 +107,8 @@ def validate(workflow, params):
         value = p.get(field, "")
         if not isinstance(value, str) or not value.strip() or len(value) > (60 if workflow == "governance" else 100):
             raise WorkflowError("Provide a name containing 1 to 100 characters.")
+        if len(value.strip()) < 3:
+            raise WorkflowError("Names require at least 3 characters.")
         p = {field: value.strip()}
     if workflow == "team":
         members = p.get("members", [])
@@ -777,7 +781,7 @@ def provision_organization(ctx, p):
         ctx.save()
     if not org.get("projectId"):
         project = ctx.call("Create the organization's first application", "projects", "create", env=org["envFile"],
-                           body={"name": name + " / Starter application", "retention": 30, "metadata": {"demo": "langfuse-operations", "organizationId": org["id"]}})
+                           body={"name": (name + " / Starter application")[:60], "retention": 30, "metadata": {"demo": "langfuse-operations", "organizationId": org["id"]}})
         org.update(projectId=project["id"], projectName=project["name"])
         ctx.save()
     # Give an existing presenter visibility without creating or changing a global account.

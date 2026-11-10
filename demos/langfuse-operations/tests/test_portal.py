@@ -73,6 +73,12 @@ class PortalChecks(unittest.TestCase):
         with self.assertRaises(WorkflowError):
             validate("application", {"applicationName": "Demo", "teamName": "Team", "applicationCount": 100})
 
+    def test_project_name_limits_include_the_batch_suffix(self):
+        base={"applicationName":"x"*60,"teamName":"Team","keyRole":"ADMIN"}
+        self.assertEqual(validate("application",base)["applicationName"],base["applicationName"])
+        for params in ({**base,"applicationCount":2},{**base,"applicationName":"ab"}):
+            with self.assertRaises(WorkflowError):validate("application",params)
+
     def test_team_rejects_duplicate_emails_and_unrecognized_roles(self):
         for members in ([{"email": "demo@example.invalid", "role": "MEMBER"}, {"email": "DEMO@example.invalid", "role": "VIEWER"}], [{"email": "demo@example.invalid", "role": "ROOT"}], ["not-an-object"]):
             with self.assertRaises(WorkflowError):
