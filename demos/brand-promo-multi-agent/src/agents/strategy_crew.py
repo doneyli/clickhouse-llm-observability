@@ -7,6 +7,7 @@ from typing import Any
 
 from crewai import LLM, Agent, Crew, Process, Task
 
+from src.agents.crew_output import format_crew_output
 from src.config import load_config
 from src.prompts.strategy import PROMPTS
 
@@ -16,7 +17,7 @@ def _get_llm(callbacks: list[Any] | None = None) -> LLM:
     cfg = load_config()
     return LLM(
         model=f"anthropic/{cfg.llm.models.strategy_crew}",
-        max_tokens=cfg.llm.max_tokens_default,
+        max_tokens=cfg.llm.max_tokens_crew,
     )
 
 
@@ -66,32 +67,42 @@ def build_strategy_crew(
         .replace("{{query}}", query)
         .replace("{{brand}}", brand or "the brand")
         .replace("{{region}}", region or "all regions")
-        .replace("{{research_summary}}", research_summary[:2000] if research_summary else "No research data provided.")
+        .replace("{{research_summary}}", research_summary or "No research data provided.")
+    )
+    task_description += (
+        "\nReturn all options and your recommendation in at most 350 words. "
+        "Use a compact table or JSON; avoid long introductions and repeated research."
     )
 
     strategy_task = Task(
+        name="PromoOptions",
         description=task_description,
         expected_output=(
-            "2-3 promotional strategy options with mechanic, depth, duration, retailer targeting, and rationale."
+            "2-3 complete options and a recommendation, with mechanic, depth, duration, retailers, "
+            "and rationale; at most 350 words total."
         ),
         agent=promo_strategist,
     )
 
     lift_task = Task(
+        name="LiftForecast",
         description=(
             "For each promotional option proposed, estimate the expected sales lift percentage "
             "with a confidence level (HIGH/MEDIUM/LOW). "
             "Use historical benchmarks: Price 15-25% off = ~25-35% lift; "
-            "Price 25-40% off = ~35-55% lift; BOGO = ~40-60%; Bundle = ~25-40%."
+            "Price 25-40% off = ~35-55% lift; BOGO = ~40-60%; Bundle = ~25-40%. "
+            "Return a compact forecast table and short caveats in at most 250 words. "
+            "Do not repeat the full strategy or invent observed measurements."
         ),
         expected_output=(
-            "Lift estimates for each option with confidence levels and brief justification."
+            "Complete lift estimates, confidence, and caveats for each option, under 250 words."
         ),
         agent=lift_estimator,
         context=[strategy_task],
     )
 
     return Crew(
+        name="PromotionStrategy",
         agents=[promo_strategist, lift_estimator],
         tasks=[strategy_task, lift_task],
         process=Process.sequential,
@@ -115,4 +126,4 @@ def run_strategy_crew(
         callbacks=callbacks,
     )
     result = crew.kickoff()
-    return str(result)
+    return format_crew_output(result)

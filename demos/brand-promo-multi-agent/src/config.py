@@ -72,6 +72,9 @@ class LLMConfig(BaseModel):
     models: LLMModels
     prompt_caching: bool
     max_tokens_default: int
+    # Crew tasks can include tool reasoning and structured results. Keep the
+    # orchestrator's smaller budget independent of their completion headroom.
+    max_tokens_crew: int = 4096
 
 
 class SyntheticConfig(BaseModel):

@@ -22,7 +22,7 @@ from src.config import Backend, load_config
 # Module-level import preserved so tests can `patch("src.observability.CallbackHandler", ...)`.
 # This is fine because `langfuse` is in the base `dependencies` list of pyproject.toml.
 try:
-    from langfuse.langchain import CallbackHandler
+    from src.langfuse_callbacks import PromoPlannerCallbackHandler as CallbackHandler
 except ImportError:
     CallbackHandler = None  # type: ignore[assignment,misc]
 
@@ -134,6 +134,7 @@ def make_observability_run_metadata(
     del backend
     base = _base_metadata(agent_name, extra_metadata)
     md: dict[str, Any] = dict(base)
+    md["langfuse_trace_name"] = agent_name
     if user_id is not None:
         md["langfuse_user_id"] = user_id
     if session_id is not None:
@@ -178,6 +179,7 @@ def make_observability_run_config(
         backend=backend,
     )
     return {
+        "run_name": agent_name,
         "callbacks": callbacks,
         "metadata": metadata,
         "tags": list(tags or []),

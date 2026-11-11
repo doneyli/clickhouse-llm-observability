@@ -43,6 +43,20 @@ uv run scripts/run_live_demo.py            # interactive live agent
 
 Then open Langfuse UI to drive the demo.
 
+### Live trace shape
+
+Live traces are named **PromoPlanner**, with the user query as root input and the
+finished campaign brief as root output. Research, strategy, and compliance retain
+their detailed state on child observations. Crew agents and tasks use short,
+stable names, such as `DataAnalyst.SalesAndInventory.execute`.
+
+Crew tasks request concise, complete results and use `llm.max_tokens_crew` (4096
+by default), independently of the orchestrator's `max_tokens_default`. All task
+results are passed downstream without character slicing. Sales tools accept
+both `2024-Q1` and `Q1-2024`, normalize to `YYYY-Qn`, and return actionable errors
+for malformed quarters or unknown SKU codes. The research task includes the
+actual data catalog so agents can select valid filters on their first call.
+
 ## Eval suite
 
 The offline eval pipeline lets you measure agent quality against a labeled dataset, score every dimension (intent, tools, compliance, factuality, brief quality), and apply a pass/fail gate before shipping prompt changes.

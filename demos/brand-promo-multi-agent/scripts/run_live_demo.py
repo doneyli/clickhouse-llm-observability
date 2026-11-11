@@ -9,13 +9,6 @@ from __future__ import annotations
 
 import os
 import sys
-
-# Ensure the project root is on sys.path so `from src...` resolves.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_HERE)
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-
 import time
 import uuid
 from datetime import UTC, datetime
@@ -24,17 +17,14 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+# Ensure the project root is on sys.path so `from src...` resolves.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 app = typer.Typer(help="PromoPlanner live demo CLI")
 console = Console()
-
-
-def _trace_url(backend: str, host: str | None) -> str | None:
-    """Best-effort deep link to the Langfuse trace view."""
-    if backend == "langfuse":
-        if not host:
-            return None
-        return f"{host}/project/default/traces?filter=agent_name%3DPromoPlanner"
-    return None
 
 
 def _run_query(query_text: str) -> str | None:
@@ -42,15 +32,13 @@ def _run_query(query_text: str) -> str | None:
     from src.agents.orchestrator import run_orchestrator
     from src.config import load_config, load_env, resolve_backend
     from src.observability import (
-        make_observability_callbacks,
         make_observability_run_config,
         with_observability_context,
     )
 
     cfg = load_config()
-    env = load_env()
+    load_env()
     backend = resolve_backend()
-    host = env.langfuse_host or (cfg.langfuse.host if cfg.langfuse else None)
 
     console.print(f"[cyan]Backend:[/cyan] {backend}")
     console.print(f"[cyan]Query:[/cyan]   {query_text}")
@@ -75,6 +63,16 @@ def _run_query(query_text: str) -> str | None:
         ):
             result = run_orchestrator(query_text, config=run_config)
 
+        # CrewAI events can finish asynchronously; drain them before the SDK
+        # flush so short-lived CLI runs retain their final crew observations.
+        from crewai.events import crewai_event_bus
+        from langfuse import get_client
+
+        if not crewai_event_bus.flush(timeout=30):
+            console.print("[yellow]Some CrewAI trace events are still pending.[/yellow]")
+        client = get_client()
+        client.flush()
+
         console.print("\n[bold green]Final Brief:[/bold green]")
         console.print(Panel(result.get("final_brief", "No brief generated"), expand=False))
         console.print(f"\n[cyan]Intent:[/cyan]     {result.get('intent')}")
@@ -82,7 +80,8 @@ def _run_query(query_text: str) -> str | None:
         console.print(f"[cyan]Tools called:[/cyan] {', '.join(result.get('tools_called', []))}")
         console.print(f"[cyan]Session ID:[/cyan]  {session_id}")
 
-        url = _trace_url(backend, host)
+        trace_id = run_config["callbacks"][0].last_trace_id
+        url = client.get_trace_url(trace_id=trace_id)
         if url:
             console.print(f"\n[bold]{backend.capitalize()} URL:[/bold] {url}")
         return url

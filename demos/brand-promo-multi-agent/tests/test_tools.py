@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from src.tools.compliance import check_brand_guidelines, check_regulatory
 from src.tools.error_injection import InjectedFault, maybe_inject
 from src.tools.market import get_market_trends
@@ -40,6 +42,40 @@ def test_query_sales_no_filters():
         result = query_sales.invoke({})
     assert result["status"] == "ok"
     assert result["row_count"] > 0
+
+
+@pytest.mark.parametrize("start,end", [("2024-Q1", "2025-Q2"), ("Q1-2024", "Q2-2025")])
+def test_query_sales_quarter_formats_return_same_real_data(start, end):
+    with patch("src.tools.sales.maybe_inject", return_value=None):
+        expected = query_sales.invoke({
+            "brand": "Brand A", "region": "Southeast",
+            "quarter_start": "2024-Q1", "quarter_end": "2025-Q2",
+        })
+        actual = query_sales.invoke({
+            "brand": "Brand A", "region": "Southeast",
+            "quarter_start": start, "quarter_end": end,
+        })
+    assert actual == expected
+    assert actual["row_count"] > 0
+    assert actual["total_units"] > 0
+
+
+@pytest.mark.parametrize("start,end", [("Q5-2024", None), ("2025-Q2", "2024-Q1")])
+def test_query_sales_rejects_invalid_quarters_instead_of_empty_success(start, end):
+    with patch("src.tools.sales.maybe_inject", return_value=None):
+        result = query_sales.invoke({"quarter_start": start, "quarter_end": end})
+    assert result["status"] == "error"
+    assert result["tool.outcome"] == "error"
+    assert result["error"]
+
+
+@pytest.mark.parametrize("tool", [query_sales, query_inventory])
+def test_product_name_returns_actionable_sku_error(tool):
+    with patch("src.tools.sales.maybe_inject", return_value=None):
+        result = tool.invoke({"sku": "Brand A Classic", "region": "Southeast"})
+    assert result["status"] == "error"
+    assert "BRA-CLS-LRG" in result["valid_skus"]
+    assert "BRA-CLS-SML" in result["valid_skus"]
 
 
 def test_query_sales_injected_timeout():
