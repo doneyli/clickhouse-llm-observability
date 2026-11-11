@@ -114,6 +114,7 @@ demos/                      # The distinct LLM-app demos (see demos/README.md)
                             #   broken instrumentation + evaluator-selection teaching demo (own .env)
   brand-promo-multi-agent/  #   Standalone multi-agent promo assistant (LangGraph + CrewAI, uv)
   langfuse-rls/             #   Standalone trace RLS prototype (Next.js)
+  marketing-agent-debugging/ #  Agent-debugging workshop for PMs: Claude tool loop, 4 planted faults + live fixes (own venv/.env, Cloud)
 librechat/                  # LibreChat customizations (Dockerfile.api, entrypoint.sh, nginx.conf)
 test-scenarios/             # 40 synthetic traces for evaluation testing
 evaluators/                 # Langfuse code evaluators (TypeScript, seeded into Langfuse by setup)
