@@ -129,7 +129,7 @@ def build_compliance_graph() -> Any:
     graph.add_edge("regulatory_check", "aggregate")
     graph.add_edge("aggregate", END)
 
-    return graph.compile()
+    return graph.compile(name="PromotionCompliance")
 
 
 # Module-level compiled graph (lazy init)

@@ -64,7 +64,7 @@ def _classify_intent_node(state: OrchestratorState) -> dict[str, Any]:
         SystemMessage(content=system),
         HumanMessage(content=prompt),
     ]
-    response = llm.invoke(messages)
+    response = llm.invoke(messages, config={"run_name": "ClassifyPromotionIntent"})
     content = response.content
 
     # Extract JSON from response
@@ -130,7 +130,7 @@ def _compliance_node(state: OrchestratorState) -> dict[str, Any]:
     # Build a brief to check from research + strategy context
     brief_for_check = state.get("query", "")
     if state.get("strategy_summary"):
-        brief_for_check += "\n" + state["strategy_summary"][:500]
+        brief_for_check += "\n" + state["strategy_summary"]
 
     result = run_compliance_check(
         brief=brief_for_check,
@@ -163,8 +163,8 @@ def _compose_brief_node(state: OrchestratorState) -> dict[str, Any]:
         .replace("{{intent}}", state.get("intent") or "plan_promo")
         .replace("{{brand}}", state.get("brand") or "unspecified")
         .replace("{{region}}", state.get("region") or "all regions")
-        .replace("{{research_summary}}", (state.get("research_summary") or "No research data.")[:1000])
-        .replace("{{strategy_summary}}", (state.get("strategy_summary") or "No strategy generated.")[:1000])
+        .replace("{{research_summary}}", state.get("research_summary") or "No research data.")
+        .replace("{{strategy_summary}}", state.get("strategy_summary") or "No strategy generated.")
         .replace("{{compliance_status}}", state.get("compliance_status") or "APPROVED")
         .replace("{{compliance_findings}}", findings_text or "None")
     )
@@ -173,7 +173,7 @@ def _compose_brief_node(state: OrchestratorState) -> dict[str, Any]:
         SystemMessage(content=system),
         HumanMessage(content=prompt),
     ]
-    response = llm.invoke(messages)
+    response = llm.invoke(messages, config={"run_name": "ComposeCampaignBrief"})
     return {"final_brief": response.content}
 
 
@@ -227,7 +227,7 @@ def build_orchestrator() -> Any:
     graph.add_edge("compliance_node", "compose_brief")
     graph.add_edge("compose_brief", END)
 
-    return graph.compile()
+    return graph.compile(name="PromoPlanner")
 
 
 _orchestrator: Any | None = None

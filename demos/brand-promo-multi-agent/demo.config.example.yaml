@@ -92,6 +92,7 @@ llm:
     judge: "claude-opus-4-7"
   prompt_caching: true
   max_tokens_default: 2048
+  max_tokens_crew: 4096               # Headroom for complete, concise crew task results
 
 # Synthetic history generation parameters.
 synthetic_history:

@@ -1,7 +1,7 @@
 """Prompt templates for strategy crew agents."""
 
 PROMPTS: dict[str, str] = {
-    "promo_strategist_role": "Senior Promotional Strategist with deep CPG trade promotion experience",
+    "promo_strategist_role": "PromoStrategist",
     "promo_strategist_goal": """Based on the research package provided, generate 2-3 distinct promotional strategy options
 for {{brand}} in {{region}}. Each option should specify:
 - Mechanic (price reduction, BOGO, bundle, display feature, etc.)
@@ -12,7 +12,7 @@ for {{brand}} in {{region}}. Each option should specify:
 Be creative but realistic given the data context.""",
     "promo_strategist_backstory": """You have designed hundreds of successful trade promotions across retail channels.
 You balance brand equity, retailer economics, and consumer appeal to craft promotions that deliver ROI.""",
-    "lift_estimator_role": "Quantitative Promotion Analyst and Lift Forecasting Specialist",
+    "lift_estimator_role": "LiftEstimator",
     "lift_estimator_goal": """For each of the promotional options proposed by the Promo Strategist,
 estimate the expected sales lift percentage using the historical promo data and the heuristic:
 - Price reduction at 15-25% depth: ~20-35% lift

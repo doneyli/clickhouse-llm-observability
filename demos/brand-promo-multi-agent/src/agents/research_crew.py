@@ -9,10 +9,11 @@ from typing import Any
 from crewai import LLM, Agent, Crew, Process, Task
 from crewai.tools import BaseTool
 
+from src.agents.crew_output import format_crew_output
 from src.config import load_config
 from src.prompts.research import PROMPTS
 from src.tools.market import get_market_trends
-from src.tools.sales import query_inventory, query_sales
+from src.tools.sales import query_inventory, query_sales, sales_catalog
 
 
 def _get_llm(callbacks: list[Any] | None = None) -> LLM:
@@ -23,7 +24,7 @@ def _get_llm(callbacks: list[Any] | None = None) -> LLM:
     cfg = load_config()
     return LLM(
         model=f"anthropic/{cfg.llm.models.research_crew}",
-        max_tokens=cfg.llm.max_tokens_default,
+        max_tokens=cfg.llm.max_tokens_crew,
     )
 
 
@@ -41,7 +42,11 @@ class _LCToolAdapter(BaseTool):
         self.lc_tool = lc_tool
 
     def _run(self, **kwargs: Any) -> Any:
-        return self.lc_tool.invoke(kwargs)
+        # The OpenInference CrewAI instrumentor (src/observability.py) already
+        # records this call as a TOOL span under the agent that made it. Without
+        # `callbacks=[]` the LangChain handler inherited from research_node would
+        # record it a second time, flat under the node.
+        return self.lc_tool.invoke(kwargs, config={"callbacks": []})
 
 
 def _keyword_search_promos(brand: str | None, region: str | None, query: str) -> dict[str, Any]:
@@ -130,36 +135,52 @@ def build_research_crew(
 
     # Historical context is pre-fetched and injected to avoid historian needing a tool
     historical_data = _keyword_search_promos(brand, region, query)
-    task_description += f"\n\nPre-fetched historical promo data:\n{json.dumps(historical_data, indent=2)}"
+    task_description += (
+        "\n\nAvailable sales catalog (use these exact SKU codes and YYYY-Qn quarters):\n"
+        + json.dumps(sales_catalog())
+        + "\nStart with brand/region totals; omit sku unless a specific SKU code is requested. "
+        "Use the full available history unless the query specifies a period. "
+        "Do not repeat empty queries with guessed identifiers. "
+        "Your task is sales and inventory analysis; other agents handle market trends and history. "
+        "Return a complete result in at most 250 words, including the observed totals and constraints."
+    )
 
     research_task = Task(
+        name="SalesAndInventory",
         description=task_description,
         expected_output=(
-            "A structured ResearchPackage JSON with keys: "
-            "sales_summary, inventory_summary, market_trends, historical_context"
+            "A complete JSON object with sales_summary and inventory_summary; at most 250 words. "
+            "Include actual tool totals and SKU codes, and do not invent missing data."
         ),
         agent=data_analyst,
     )
 
     market_task = Task(
-        description=f"Research market trends for {brand or 'CPG'} in {region or 'all regions'}.",
-        expected_output="3-4 key market trends relevant to the promotional query.",
+        name="MarketTrends",
+        description=(f"Research market trends for {brand or 'CPG'} in {region or 'all regions'}. "
+                     "Call get_market_trends once for that scope. Return 3-4 trends in at most 180 words."),
+        expected_output="3-4 concise, complete market trends, at most 180 words total.",
         agent=market_researcher,
     )
 
     history_task = Task(
+        name="PromoHistory",
         description=(
             f"Summarize historical promotional performance for {brand or 'all brands'} "
-            f"in {region or 'all regions'} using the pre-fetched data above."
+            f"in {region or 'all regions'}. Use these pre-fetched records:\n"
+            f"{json.dumps(historical_data)}\n"
+            "Return only historical patterns and benchmarks, in at most 200 words. "
+            "Do not rewrite the sales analysis or draft the campaign."
         ),
         expected_output=(
-            "Key patterns from historical promos: best mechanics, average lift ranges, notable results."
+            "Historical patterns, mechanics, and lift benchmarks; a complete answer under 200 words."
         ),
         agent=historian,
         context=[research_task, market_task],
     )
 
     return Crew(
+        name="PromotionResearch",
         agents=[data_analyst, market_researcher, historian],
         tasks=[research_task, market_task, history_task],
         process=Process.sequential,
@@ -176,4 +197,4 @@ def run_research_crew(
     """Run the research crew and return the result string."""
     crew = build_research_crew(query=query, brand=brand, region=region, callbacks=callbacks)
     result = crew.kickoff()
-    return str(result)
+    return format_crew_output(result)
