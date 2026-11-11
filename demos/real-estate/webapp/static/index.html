@@ -235,7 +235,8 @@ function addBot(data){
       <span class="lbl">Helpful?</span>
       <button class="up" title="Helpful" aria-label="Helpful">👍</button>
       <button class="down" title="Not helpful" aria-label="Not helpful">👎</button></div>` : "";
-  const trace = `<a class="tracelink" href="${data.trace_url}" target="_blank" rel="noopener">🔍 View trace in Langfuse</a>`;
+  const trace = `<a class="tracelink" href="${data.trace_url}" target="_blank" rel="noopener">🔍 View trace in Langfuse</a>`
+    + (data.mirror_trace_url ? ` <a class="tracelink" href="${data.mirror_trace_url}" target="_blank" rel="noopener">Self-hosted copy ↗</a>` : "");
   const m=document.createElement("div"); m.className="msg bot";
   m.innerHTML=`<div class="avatar">🤖</div><div class="bubble">${md(data.answer)}${cards}
     <div class="tracebar">${tools}${fb}${trace}</div></div>`;

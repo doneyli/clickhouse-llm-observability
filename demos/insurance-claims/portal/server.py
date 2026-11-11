@@ -81,6 +81,7 @@ def get_claim(claim_id: str):
     rec = s.get("recommendation")
     return {"summary": _summary(c), "header": claimsdb.claim_header(c), "policy": claimsdb.policy_record(c),
             "documents": docs, "session_url": config.session_url(claim_id),
+            "mirror_session_url": config.mirror_session_url(claim_id),
             "recommendation": _public(rec) if rec else None, "review": s.get("review"),
             "review_result": _public(s.get("review_result")) if s.get("review_result") else None,
             "answers": s.get("answers", [])}
@@ -88,7 +89,8 @@ def get_claim(claim_id: str):
 
 def _public(res: dict) -> dict:
     st = res.get("state") or {}
-    return {k: res.get(k) for k in ("recommendation", "final_decision", "trace_url", "apm_url", "guard", "calculation",
+    return {k: res.get(k) for k in ("recommendation", "final_decision", "trace_url", "mirror_trace_url", "apm_url",
+                                    "guard", "calculation",
                                     "prompt_versions", "cost_usd")} | {
         "rules": st.get("rules") or [], "note": (st.get("recommendation") or {}).get("examiner_note"),
         "next_actions": (st.get("recommendation") or {}).get("next_actions") or [],

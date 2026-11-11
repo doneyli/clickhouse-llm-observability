@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from agent.config import (get_langfuse, record_score, flush_langfuse,
+from agent.config import (get_langfuse, record_score, flush_langfuse, mirror_trace_url,
                           verify_project, langfuse_api, LANGFUSE_HOST, AGENT_MODEL)
 from agent.concierge import run_turn
 from agent.catalog import get_listing
@@ -136,6 +136,7 @@ def chat(req: ChatRequest):
         "tools_called": result["tools_called"],
         "trace_id": result["trace_id"],
         "trace_url": trace_url,
+        "mirror_trace_url": mirror_trace_url(result["trace_id"]),
         "session_id": req.session_id,
     }
 

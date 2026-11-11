@@ -36,7 +36,7 @@
       "foot.latencyTitle": "End-to-end latency", "foot.promptTitle": "Prompt version · model",
       "foot.fallbackPrompt": "fallback prompt",
       "foot.traceTitle": "Same trace id in Langfuse and the APM — click to copy",
-      "foot.openLf": "Open in Langfuse", "foot.openApm": "Open in APM",
+      "foot.openLf": "Open in Langfuse", "foot.openLfMirror": "Self-hosted copy", "foot.openApm": "Open in APM",
       "fb.up": "Helpful", "fb.upAria": "Thumbs up", "fb.down": "Not helpful", "fb.downAria": "Thumbs down",
       "fb.sent": "Feedback sent", "fb.placeholder": "What went wrong? (optional)", "fb.aria": "Feedback comment",
       "fb.send": "Send", "fb.cancel": "Cancel",
@@ -98,7 +98,7 @@
       "foot.latencyTitle": "Latencia de extremo a extremo", "foot.promptTitle": "Versión del prompt · modelo",
       "foot.fallbackPrompt": "prompt de respaldo",
       "foot.traceTitle": "El mismo ID de traza en Langfuse y en el APM: haga clic para copiarlo",
-      "foot.openLf": "Abrir en Langfuse", "foot.openApm": "Abrir en APM",
+      "foot.openLf": "Abrir en Langfuse", "foot.openLfMirror": "Copia autoalojada", "foot.openApm": "Abrir en APM",
       "fb.up": "Útil", "fb.upAria": "Pulgar arriba", "fb.down": "No fue útil", "fb.downAria": "Pulgar abajo",
       "fb.sent": "Valoración enviada", "fb.placeholder": "¿Qué salió mal? (opcional)", "fb.aria": "Comentario de la valoración",
       "fb.send": "Enviar", "fb.cancel": "Cancelar",
@@ -137,6 +137,7 @@
       "lk.dataset": "Dataset", "lk.datasets": "Datasets y ejecuciones", "lk.prompt": "Prompt {id}", "lk.prompts": "Prompts",
       // header quick links (server labels)
       "link.Langfuse project": "Proyecto de Langfuse",
+      "link.Langfuse project (self-hosted copy)": "Proyecto de Langfuse (copia autoalojada)",
       // customer products (display data from /api/info)
       "cust.C-1001.products": "Cuenta corriente · Ahorros · Crédito Classic •••4417",
       "cust.C-1002.products": "Cuenta corriente Premier · Depósito a plazo · Platinum •••9921",
@@ -468,6 +469,7 @@
     if (tid) foot.push(`<span class="sep"></span><span class="trace-id" data-copy="${esc(tid)}" title="${esc(t("foot.traceTitle"))}">${esc(tid.slice(0, 8))}…</span>`);
     foot.push(`<span class="grow"></span>`);
     if (r.trace_url) foot.push(`<a class="btn btn-xs btn-navy" href="${esc(r.trace_url)}" target="_blank" rel="noopener">${esc(t("foot.openLf"))}${icon("ext")}</a>`);
+    if (r.mirror_trace_url) foot.push(`<a class="btn btn-xs" href="${esc(r.mirror_trace_url)}" target="_blank" rel="noopener">${esc(t("foot.openLfMirror"))}${icon("ext")}</a>`);
     if (r.apm_url) foot.push(`<a class="btn btn-xs" href="${esc(r.apm_url)}" target="_blank" rel="noopener">${icon("pulse")}${esc(t("foot.openApm"))}${icon("ext")}</a>`);
     if (tid) {
       const fb = r.feedback;
@@ -708,6 +710,7 @@
         ${res.trace_id ? `<span class="sep"></span><span class="trace-id" title="${esc(res.trace_id)}">${esc(res.trace_id.slice(0, 8))}…</span>` : ""}
         <span class="grow"></span>
         ${res.trace_url ? `<a class="btn btn-xs btn-navy" href="${esc(res.trace_url)}" target="_blank" rel="noopener">${esc(t("foot.openLf"))}${icon("ext")}</a>` : ""}
+        ${res.mirror_trace_url ? `<a class="btn btn-xs" href="${esc(res.mirror_trace_url)}" target="_blank" rel="noopener">${esc(t("foot.openLfMirror"))}${icon("ext")}</a>` : ""}
         ${res.apm_url ? `<a class="btn btn-xs" href="${esc(res.apm_url)}" target="_blank" rel="noopener">${icon("pulse")}${esc(t("foot.openApm"))}${icon("ext")}</a>` : ""}
       </div>`;
   }

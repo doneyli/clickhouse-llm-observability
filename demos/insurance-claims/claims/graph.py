@@ -647,7 +647,7 @@ async def _traced_run(claim_id: str, event: str, graph_input, *, mode: str, labe
         raise error
     return {**out, "claim_id": claim_id, "event": event, "trace_id": trace_id, "root_id": root_id,
             "trace_url": settings.trace_url(trace_id), "session_url": settings.session_url(session_id) if session_id else None,
-            "apm_url": settings.apm_url(trace_id), "prompt_versions": rt.served, "state": state, "thread_id": thread_id,
+            "mirror_trace_url": settings.mirror_trace_url(trace_id), "apm_url": settings.apm_url(trace_id), "prompt_versions": rt.served, "state": state, "thread_id": thread_id,
             "cost_usd": usd}
 
 
@@ -795,4 +795,5 @@ async def ask_assistant(claim_id: str, thread_id: Optional[str], question: str, 
                 obs.update(output=answer)
             root.update(output={"answer": answer})
             trace_id = root.trace_id
-    return {"answer": answer, "trace_id": trace_id, "trace_url": settings.trace_url(trace_id)}
+    return {"answer": answer, "trace_id": trace_id, "trace_url": settings.trace_url(trace_id),
+            "mirror_trace_url": settings.mirror_trace_url(trace_id)}

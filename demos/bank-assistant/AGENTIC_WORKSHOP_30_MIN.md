@@ -67,7 +67,7 @@ Replace the uppercase IDs with returned IDs. Filter observations to the relevant
 
 ### MCP connection
 
-Connect the coding agent's MCP client to `<bank Langfuse base URL>/api/public/mcp`, using Streamable HTTP and an `Authorization: Basic <base64(public-key:secret-key)>` header. For US Cloud the endpoint is `https://us.cloud.langfuse.com/api/public/mcp`; the bank self-hosted default is `http://localhost:3100/api/public/mcp`. Use the real target from the bank configuration. [MCP connection instructions](https://langfuse.com/docs/api-and-data-platform/features/mcp-server)
+Connect the coding agent's MCP client to `<bank Langfuse base URL>/api/public/mcp`, using Streamable HTTP and an `Authorization: Basic <base64(public-key:secret-key)>` header. For US Cloud the endpoint is `https://us.cloud.langfuse.com/api/public/mcp`; for the local self-hosted instance it is `<LANGFUSE_BASE_URL in .env.selfhosted>/api/public/mcp`. Use the real target from the bank configuration. [MCP connection instructions](https://langfuse.com/docs/api-and-data-platform/features/mcp-server)
 
 Verify the connection by asking it to list prompts and fetch `northwind-assistant-system` by label. Current useful tools include `listObservations`, `getObservation`, `listScores`, `getPrompt`, `listDatasetItems`, `listExperiments`, `listExperimentItems`, `createTextPrompt`, and `upsertDatasetItem`. Inspect schemas on the connected instance; self-hosted versions can expose a different tool surface. The agent still needs a terminal or a separately configured execution tool to run this demo's experiment scripts.
 
