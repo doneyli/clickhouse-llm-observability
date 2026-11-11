@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claims Workbench</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f3a5f'/><path d='M9 22V10l7 7 7-7v12' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<!-- Paths are relative on purpose: portal/server.py mounts static/ with html=True at "/", not at /static. -->
+<link rel="icon" type="image/svg+xml" href="northwind-mark.svg">
+<link rel="stylesheet" href="clickui-tokens.css">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -12,7 +14,7 @@
   <div class="brand"><span class="logo">N</span><div><b>Northwind Life &amp; Annuity</b><small>Death-claims workbench · synthetic demo data</small></div></div>
   <div class="top-right">
     <label class="presenter"><input type="checkbox" id="presenter"> Presenter view</label>
-    <a id="lf-link" target="_blank" rel="noopener">Langfuse ↗</a>
+    <a id="lf-link" target="_blank" rel="noopener" aria-label="Open this project in Langfuse" title="Open this project in Langfuse"><img src="langfuse-by-clickhouse-white.svg" alt="Langfuse by ClickHouse" width="79" height="21"><span aria-hidden="true">↗</span></a>
   </div>
 </header>
 <main>
