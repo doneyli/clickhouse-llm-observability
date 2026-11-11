@@ -1,0 +1,5 @@
+# Optional override; use only with a private instance.env loaded by Docker Compose.
+services:
+  langfuse-web:
+    environment:
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Set ADMIN_API_KEY using --env-file private/instance.env}
