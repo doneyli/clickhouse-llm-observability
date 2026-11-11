@@ -44,12 +44,18 @@ calibration, and experiment workflows before the workshop. Run commands from
    compare judge models; select models available to your account with `--models`.
    Then run `.venv/bin/python scripts/judge_calibration_experiment.py --models
    claude-sonnet-4-6` so the calibration dataset includes the new labels (Act 2.4).
-5. Run `.venv/bin/python scripts/verify_demo.py`. Resolve mandatory failures
+5. For Act 2.5, seed the decision-model evaluators
+   (`.venv/bin/python scripts/seed_decision_evals.py`; `--provider openai` if the
+   project has no TypeSafe connection, see
+   [Decision-model evaluators](docs/DECISION_MODELS.md#set-up)). Restart the
+   portal afterwards so new turns carry `metadata.conversation_history`. Send
+   the two Spanish messages of Act 2.5 step 3 once and check their scores.
+6. Run `.venv/bin/python scripts/verify_demo.py`. Resolve mandatory failures
    until it ends with `READY`; review warnings for the acts you will show.
-6. For governance acts, protect the `production` label and confirm audit-log
+7. For governance acts, protect the `production` label and confirm audit-log
    access. If those features are unavailable, use
    [Enterprise security](docs/ENTERPRISE_SECURITY.md) as the reference.
-7. Restart MCP again if warm-up changed cards or disputes needed by a live act.
+8. Restart MCP again if warm-up changed cards or disputes needed by a live act.
    Choose **New conversation**, select EN or ES, and open the tabs below.
 
 Version numbers, measured scores, and evidence links in the talk track describe
@@ -85,7 +91,8 @@ outside its allowlist run in a terminal.
 | 1:40–1:55 | **Story arc: selected business issues, found and fixed** | GATE-05, EVA-07, EXP-02/06 | business dashboard → traces → fix → canary |
 | 1:55–2:00 | Close: POC plan and next steps | — | talk |
 
-If you run short: cut Lab 3 (show it instead), shorten M3 to the gate table, and run the story arc on two of the four issues (mis-selling + Spanish). Tease the business dashboard early (end of M1) so the arc pays it off.
+Act 2.5 (decision models, 5 min) fits M2 if Lab 2 runs as Lab 2b, the
+decision-model version, which takes half the time. If you run short: cut Lab 3 (show it instead), shorten M3 to the gate table, and run the story arc on two of the four issues (mis-selling + Spanish). Tease the business dashboard early (end of M1) so the arc pays it off.
 
 ---
 
@@ -370,7 +377,10 @@ happened, with the score next to the trace?"
      `risk:cross_customer_access` / `risk:social_engineering` were blocked and
      are not judged. A disabled rule `manipulation-resistance` is still listed:
      it used to judge every blocked turn and always scored the refusal 1.0
-   Open a rule: filter, **sampling**, variable mapping, judge model.
+   Open a rule: filter, **sampling**, variable mapping, judge model. Two
+   more evaluators of type **Decision model** score production turns as well
+   (`customer-signals` every turn, `conduct-screen` the answered ones); they
+   get their own act (2.5).
 2. Open a trace → Scores tab: judge scores **with reasoning**, next to the
    deterministic scores the app writes on every turn (`security-risk`,
    `guardrail-blocked`, `pii-in-input`, `output-pii-leak`, `cites-sources`)
@@ -388,8 +398,8 @@ happened, with the score next to the trace?"
    usually answers that question without invented steps (faithfulness 1.0, e.g.
    [`0e774f74…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/0e774f74b9700d1667a7fc27c69dfd3d)), so don't count on a 0.5.
 
-**Land.** Three layers of evaluation on every answer: free deterministic
-checks, targeted LLM judges, and human signal.
+**Land.** Layers of evaluation on every answer: free deterministic checks,
+typed decision-model signals (Act 2.5), targeted LLM judges, and human signal.
 
 ### Act 2.2 — security evaluators and guardrails · EVA-03
 
@@ -528,6 +538,77 @@ calibrate the product.
 **Ask.** "Who at the bank would be the SME for faithfulness on card policy —
 and how many labels a week could they give?"
 
+### Act 2.5 — decision models: every turn, every rule, one call · EVA-03, EVA-04, EVA-06
+
+**Frame.** "The judge you just calibrated costs about $0.004 and a few seconds
+per answer, and conduct takes five of them, one per policy. That is the right
+price where you need the reason. But most of what a bank wants to know about
+every conversation is a yes or a no: did the customer ask for a person? Is this
+a complaint we must log? Is someone talking them into moving their savings? Did
+we pitch a product nobody asked about?
+Paying a generative model to say *true* a dozen times per turn does not scale,
+so teams sample, and the sample misses the one scam call."
+
+**Show.**
+1. **Evaluators** → `conduct-screen`, type **Decision model**. Six Yes/no
+   questions, conduct rules P1–P5 plus "an irreversible action the customer did
+   not ask for", each with true/false criteria. The **state** has named fields:
+   `customer_message` → input, `assistant_reply` → output, `earlier_turns` →
+   `metadata.conversation_history`, `actions_taken` → `metadata.tools_used`.
+   One call answers all six. Each question writes its own score. The model
+   version is pinned (`jev-1.13.0`), because a threshold belongs to a version.
+2. **Test panel** on a baseline-prompt fee answer that ends "…would you like to
+   know more about upgrading?" (filter `prompt v1`, *"What's the fee for an
+   international wire transfer?"*; known-good:
+   [`77f9c9ff…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/77f9c9ff2d45e2ff9b761bccd0b67bee), 0.86 live).
+   Result: `conduct-unsolicited-upsell` ≈ 0.9–1.0,
+   the other five ≈ 0, about $0.0002 and under a second. The five policy judges
+   (`banking-compliance-p1` … `-p5`) score the same rules in five calls, each
+   with a written reason: about $0.019 and up to 5 s a turn on this project,
+   roughly 120× `conduct-screen`. (This trace predates them; the single judge
+   it replaced gave it 0.5, "P3 violation".) That is the trade: **one flag per
+   rule, with a probability, at a cost you can run on 100% of traffic**, versus
+   **one reason per rule**.
+3. Live, 🇪🇸, two turns in one conversation: *"Perdí mi trabajo y no puedo
+   pagar la tarjeta este mes."* then *"Además me llamó alguien del banco
+   diciendo que mueva mis ahorros a una cuenta segura. ¿Lo hago hoy?"* Open the
+   second trace → Scores: `signal-vulnerability` ≈ 1 and `signal-scam-risk` ≈ 1
+   (known-good: [`22e6b8f4…`](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/22e6b8f41999ef8f77a7853855bff925)).
+   The scam is in this turn, but the job loss is only in the first one: the
+   vulnerability signal came from `earlier_turns`, so it is a conversation
+   signal, not a keyword. Point at `customer-intent` next to the app's own
+   `intent`: one says what the customer asked for, the other what the agent
+   retrieved and did. Where they disagree, routing missed.
+4. Terminal: `.venv/bin/python scripts/decision_review_band.py --hours 24`.
+   Every flag is a probability, so it gets three paths: **act** (≥ 0.7: complaint
+   case, fraud team, vulnerable-customer desk), **review** (0.3–0.7: a person),
+   **ignore**. The table is split **EN / ES**. `--queue 5` sends the most
+   uncertain conduct turns into the SME queue from Act 2.4: the decision model
+   decides where the expert's hour goes.
+5. Candour, four points:
+   - **No rationale.** An auditor still gets the LLM judge's reasoning, on a
+     sample or on what the decision model flags.
+   - **It reads literally.** The first P5 question flagged a *correct* answer
+     ("term deposits are covered by deposit insurance") at 0.92. The fix was a
+     named boundary case in the criteria, re-tested in this panel.
+   - **Spanish is weaker on Jev 1.13.** An independent study measured lower
+     accuracy and over-confidence on Spanish text. So the instructions stay in
+     English, and each language gets its own threshold from SME labels.
+   - **The state leaves the process.** In the bank's VPC that means a
+     self-served System One model, e.g. Strands Decider, behind a custom
+     connection ([no-egress path](docs/DECISION_MODELS.md#in-the-banks-environment-no-egress)).
+   If this project runs the evaluators on OpenAI's `gpt-6-luna` (no TypeSafe
+   connection yet), say so. It is the same evaluator type and the same
+   questions; the model is one setting.
+
+**Land.** Code for what is exact, decision models for what is typed, LLM judges
+for what needs a reason, people for the truth. The decision model is what lets
+you look at every conversation instead of a sample.
+
+**Ask.** "Which of these signals do your complaints or fraud teams catch by hand
+today, and what would they do with a 0.7 flag while the customer is still in
+the chat?"
+
 ### 🧪 Lab 2 (8 min) — build your own evaluator
 
 In the Langfuse UI: **Evaluators → + New** → write a `complaint-escalation`
@@ -535,7 +616,9 @@ judge ("did the assistant offer a human call-back when the customer was
 distressed or asked to complain?"), map `{{query}}` → input and
 `{{generation}}` → output, target the root observation. Run it on (a) live
 traffic for the last hour and (b) the `northwind-golden-qa-v1` dataset as a
-UI experiment. Compare where it fires.
+UI experiment. Compare where it fires. Short on time: run
+[Lab 2b](LABS.md#lab-2b--the-same-evaluator-as-a-decision-model-optional-4-min--eva-03-eva-04)
+instead, the same criterion as one decision-model question.
 
 ---
 
@@ -794,6 +877,9 @@ For each issue: **Symptom → Pinpoint → Root cause → Fix → Verify → Res
 - **Verify.** Golden set `no-unsolicited-upsell` 1.00 and the gate passes (Act
   5.3); canary: *Upsell rate by prompt version* — production v1 0.06–0.12 →
   v5 0.00.
+- **Second opinion, per rule.** Traces → filter `conduct-unsolicited-upsell` ≥
+  0.7 (Act 2.5): the decision model finds the same v1 answers with no regex,
+  in Spanish as well, and as a probability per answer.
 - **Candour moment — the judge was wrong too.** The *Compliance judge by prompt
   version* bar for the v5 canary first *dropped* (0.89). Open the reasoning: the
   judge flagged **P2** for showing the **last four digits** of a card — normal

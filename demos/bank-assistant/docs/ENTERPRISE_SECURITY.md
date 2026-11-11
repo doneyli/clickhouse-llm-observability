@@ -133,6 +133,17 @@ API keys ([docs](https://langfuse.com/docs/administration/rbac#api-keys)): proje
 | 3. Server-side ingestion masking | **EE** | Worker → HTTP callback you operate | One policy for every team ([data masking](https://langfuse.com/self-hosting/security/data-masking)). Applies to the **OTel endpoint only** (`/api/public/otel`), not legacy `/api/public/ingestion` |
 | 4. Retention | **EE** | Nightly job | Expires what was kept (below) |
 
+**What evaluators send out.** A managed evaluator sends the mapped fields of an
+observation (the **masked** copy Langfuse stored) to the model behind its LLM
+connection. For LLM judges that is Bedrock or the internal gateway. Decision-model
+evaluators use OpenAI or TypeSafe, and both are egress. In a no-egress VPC, serve a
+System One-compatible decision model inside the VPC instead, such as
+[Strands Decider](https://github.com/strands-labs/strands-decider) (open weights,
+Apache 2.0), and connect it as **TypeSafe (System One) → Custom** with its base URL
+allowlisted in `LANGFUSE_LLM_CONNECTION_WHITELISTED_HOST` (self-hosted Langfuse
+≥ 4.45). Map only the fields a question needs: less data leaves, and a decision
+model is more accurate on a small state ([DECISION_MODELS.md](DECISION_MODELS.md#in-the-banks-environment-no-egress)).
+
 Server-side masking config (worker):
 
 ```bash
