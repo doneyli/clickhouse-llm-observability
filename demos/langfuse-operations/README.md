@@ -30,13 +30,12 @@ The instance API uses a separate high-privilege Bearer key. Organization Basic k
 ```bash
 # From demos/langfuse-operations. Refuses to overwrite an existing file.
 python3 scripts/prepare-instance-key.py
-# Native Compose env loaders read both files. Restart only the web service.
-docker compose --env-file ../../.env --env-file private/instance.env \
-  -f ../../docker-compose.yaml -f docker-compose.instance-api.yaml \
-  up -d --no-deps langfuse-web
+# Preview, then recreate only the web service with ADMIN_API_KEY added.
+./scripts/enable-instance-api.sh --dry-run
+./scripts/enable-instance-api.sh
 ```
 
-Use a compatible running stack and its original Compose env file. Confirm its image/version before applying an override. The override only adds `ADMIN_API_KEY`; it does not supply a license or upgrade Langfuse. Keep `private/instance.env` under the same state directory selected by `--state-dir`. If the server already has an instance key, place that key in the private file instead of generating another one. Do not change a shared instance key to suit the demo.
+Do not recreate web from `../../docker-compose.yaml` by hand. The repository root may pin an older Langfuse than your running stack (on `main` it pins 3.221.1). Recreating web from it would downgrade a 4.76.0 server against its already-migrated databases. `enable-instance-api.sh` reuses the Compose project, files, and env files Docker recorded on the running `langfuse-web` container and adds only this override and `private/instance.env`. It refuses when the recreated image would differ from the running one. Pass `--instance-env /absolute/path/instance.env` when you use a different `--state-dir`. The override only adds `ADMIN_API_KEY`; it does not supply a license or upgrade Langfuse. Keep `private/instance.env` under the same state directory selected by `--state-dir`. If the server already has an instance key, place that key in the private file instead of generating another one. Do not change a shared instance key to suit the demo.
 
 To disable the locally added key, recreate web using the original Compose file without the override. Docker Compose remembers its last file combination; include this override explicitly on subsequent web recreations while the demo is in use. Preserve the private key until any demo organizations have been reset.
 

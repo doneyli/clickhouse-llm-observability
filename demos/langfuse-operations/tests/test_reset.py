@@ -163,6 +163,29 @@ class ResetChecks(unittest.TestCase):
         self.assertEqual(remove_project_key_files(self.ctx, "owned"), 1)
         self.assertTrue(Path(self.ctx.org_env).exists())
 
+    def test_deleted_governance_project_is_forgotten_while_preserved_personas_remain(self):
+        personas = Path(self.directory.name) / "personas"
+        personas.mkdir()
+        kept, removed = personas / "member.env", personas / "admin.env"
+        kept.touch()
+        removed.touch()
+        self.api.projects["gov"] = {"id": "gov", "name": "Governance Demo", "metadata": {"demo": "langfuse-admin-portal"}}
+        self.api.members["kept-user"] = {"userId": "kept-user", "email": "kept@example.invalid", "role": "ADMIN"}
+        self.api.members["removed-user"] = {"userId": "removed-user", "email": "removed@example.invalid", "role": "NONE"}
+        self.ctx.state["applications"]["gov"] = {"id": "gov", "name": "Governance Demo", "members": []}
+        self.ctx.state["users"].update({"kept@example.invalid": {"id": "kept-user", "email": "kept@example.invalid"},
+                                        "removed@example.invalid": {"id": "removed-user", "email": "removed@example.invalid"}})
+        self.ctx.state["governance"] = {"projectId": "gov", "versions": [{"id": "v1", "version": 1}, {"id": "v2", "version": 2}],
+                                        "personas": {"MEMBER": {"email": "kept@example.invalid", "envFile": str(kept)},
+                                                     "ADMIN": {"email": "removed@example.invalid", "envFile": str(removed)}}}
+        reset_demo(self.ctx, self.params())
+        governance = self.ctx.state["governance"]
+        self.assertNotIn("projectId", governance)
+        self.assertNotIn("versions", governance)
+        self.assertEqual(list(governance["personas"]), ["MEMBER"])
+        self.assertTrue(kept.exists())
+        self.assertFalse(removed.exists())
+
     def test_repeated_preview_after_success_has_nothing_to_delete(self):
         reset_demo(self.ctx, self.params())
         preview = reset_preview(self.ctx)

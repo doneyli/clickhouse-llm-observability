@@ -145,7 +145,7 @@ elif command -v langfuse &>/dev/null; then
     else
         echo "Warning: 'langfuse' on PATH reports version '${INSTALLED_VERSION:-unknown}';" >&2
         echo "         this repo needs >= ${CLI_MIN_MAJOR}.0. Falling back to ${CLI_PKG} via npx/bunx." >&2
-        echo "         Upgrade with: npm install -g langfuse-cli@latest" >&2
+        echo "         Upgrade with: npm install -g @langfuse/cli@1" >&2
     fi
 fi
 
@@ -158,7 +158,7 @@ if [[ ${#RUNNER[@]} -eq 0 ]]; then
         RUNNER_SOURCE="bunx ${CLI_PKG}"
     else
         die "no Langfuse CLI runner found. Install Node.js 20+ or Bun, then either:
-    npm install -g langfuse-cli@latest
+    npm install -g @langfuse/cli@1
   or rely on npx/bunx, which this wrapper uses automatically."
     fi
 fi
@@ -245,11 +245,21 @@ if [[ "$MODE" == "check" ]]; then
 
     # Auth probe. Only the HTTP status is surfaced, never the response body.
     AUTH_RC=0
+    AUTH_SCOPE="project"
     AUTH_JSON="$("${RUNNER[@]}" ${GLOBAL_ARGS[@]+"${GLOBAL_ARGS[@]}"} api prompts list --limit 1 --json 2>/dev/null)" || AUTH_RC=$?
     AUTH_STATUS="$(echo "${AUTH_JSON:-}" | jq -r '.status // empty' 2>/dev/null || true)"
+    if [[ "${AUTH_STATUS:-}" == "403" ]]; then
+        # A valid organization key is denied project endpoints with 403; probe an organization endpoint instead.
+        ORG_JSON="$("${RUNNER[@]}" ${GLOBAL_ARGS[@]+"${GLOBAL_ARGS[@]}"} api organizations list-projects --json 2>/dev/null)" || true
+        if [[ "$(echo "${ORG_JSON:-}" | jq -r '.status // empty' 2>/dev/null || true)" == "200" ]]; then
+            AUTH_STATUS=200
+            AUTH_SCOPE="organization"
+        fi
+    fi
     case "${AUTH_STATUS:-}" in
-        200) echo "Auth:         OK (HTTP 200, project keys accepted)" ;;
-        401|403) echo "Auth:         REJECTED (HTTP ${AUTH_STATUS}). Wrong key pair for this host, or wrong region."; exit 5 ;;
+        200) echo "Auth:         OK (HTTP 200, ${AUTH_SCOPE} key accepted)" ;;
+        401) echo "Auth:         REJECTED (HTTP 401). Wrong key pair for this host, or wrong region."; exit 5 ;;
+        403) echo "Auth:         DENIED (HTTP 403). The key authenticated but may read neither prompts nor organization projects."; exit 5 ;;
         "")  echo "Auth:         FAILED (exit ${AUTH_RC})"; exit "${AUTH_RC:-5}" ;;
         *)   echo "Auth:         unexpected HTTP ${AUTH_STATUS}"; exit 5 ;;
     esac

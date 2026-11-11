@@ -9,6 +9,7 @@ import mimetypes
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import threading
 import time
 from urllib.parse import parse_qs, urlparse
@@ -30,6 +31,7 @@ class Portal:
             self.runs[record["id"]] = record
         self.lock = threading.Lock()
         self.active = None
+        self.previewing = False
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.tag = uuid.uuid4().hex[:6]
 
@@ -40,8 +42,8 @@ class Portal:
     def start(self, workflow, params):
         params = validate(workflow, params)
         with self.lock:
-            if self.active:
-                raise WorkflowError("A workflow is already running. Wait for it to complete.")
+            if self.active or self.previewing:
+                raise WorkflowError("A workflow or reset preview is already running. Wait for it to complete.")
             if workflow not in {"application", "reset", "governance", "audit", "instance"} and params["projectId"] not in load_state(self.directory)["applications"]:
                 raise WorkflowError("Select an application created by this portal.")
             run_id = str(uuid.uuid4())
@@ -58,16 +60,19 @@ class Portal:
         command = [str(ROOT / "scripts" / info["script"]), "--params-file", str(self.directory / "requests" / (run_id + ".json")),
                    "--state-dir", str(self.directory), "--org-env", str(self.org_env), "--run-id", run_id]
         try:
-            process = subprocess.Popen(command, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            for line in process.stdout:
-                try:
-                    event = scrub(json.loads(line))
-                except json.JSONDecodeError:
-                    event = {"type": "error", "message": "The workflow returned an invalid execution event."}
-                with self.lock:
-                    run["events"].append(event)
-            stderr = process.stderr.read()
-            code = process.wait()
+            # stderr goes to a file: a piped stderr that fills while stdout is being read would deadlock the run.
+            with tempfile.TemporaryFile(mode="w+") as errors:
+                process = subprocess.Popen(command, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=errors, text=True)
+                for line in process.stdout:
+                    try:
+                        event = scrub(json.loads(line))
+                    except json.JSONDecodeError:
+                        event = {"type": "error", "message": "The workflow returned an invalid execution event."}
+                    with self.lock:
+                        run["events"].append(event)
+                code = process.wait()
+                errors.seek(0)
+                stderr = errors.read()
             with self.lock:
                 complete = any(e["type"] == "complete" for e in run["events"])
                 run["status"] = "complete" if code == 0 and complete else "failed"
@@ -98,11 +103,20 @@ class Portal:
         return {"host": HOST, "status": payload.get("status"), "organizationProjectCount": len(projects), "ok": payload.get("status") == 200}
 
     def preview_reset(self):
+        # A flag, not the lock, keeps runs out during the preview: the live inventory makes one CLI call per
+        # project, and holding the lock that long would stall state reads and run polling.
         with self.lock:
             if self.active:
                 raise WorkflowError("Wait for the running workflow before previewing reset.")
+            if self.previewing:
+                raise WorkflowError("A reset preview is already running.")
+            self.previewing = True
+        try:
             context = Context(self.directory, self.org_env, "reset-preview", emit=lambda event: None)
             return reset_preview(context)
+        finally:
+            with self.lock:
+                self.previewing = False
 
 
 def handler_for(portal):

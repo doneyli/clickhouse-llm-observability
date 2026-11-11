@@ -69,6 +69,36 @@ class PortalChecks(unittest.TestCase):
             self.assertEqual(ctx.call.call_args.args[2:4], ("delete-api-key", ("project", "replacement")))
             ctx.save.assert_not_called()
 
+    def test_failed_old_key_revoke_is_retried_and_only_401_proves_rejection(self):
+        app = {"id": "project", "name": "Demo", "keyId": "old", "envFile": "/old.env", "keyRole": "INGEST"}
+        ctx = Mock()
+        ctx.managed_app.return_value = app
+        def revoke_times_out(label, resource, action, ids=(), **kwargs):
+            if action == "delete-api-key" and ids == ("project", "old"):
+                raise WorkflowError("revoke timed out")
+            return {}
+        ctx.call.side_effect = revoke_times_out
+        with patch("workflows.issue_project_key", return_value=({"id": "new"}, "/new.env")), patch("workflows.verify_project_key"):
+            with self.assertRaises(WorkflowError):
+                rotate_key(ctx, {"projectId": "project", "keyRole": "INGEST"})
+        self.assertEqual((app["keyId"], app["pendingRevokeKeyIds"]), ("new", ["old"]))
+        calls = []
+        def record(label, resource, action, ids=(), **kwargs):
+            calls.append((resource, action, ids, kwargs.get("expected")))
+            return {"apiKeys": [{"id": "newer", "role": "INGEST"}]} if action == "list-api-keys" else {}
+        ctx.call.side_effect = record
+        with patch("workflows.issue_project_key", return_value=({"id": "newer"}, "/newer.env")), patch("workflows.verify_project_key"):
+            rotate_key(ctx, {"projectId": "project", "keyRole": "INGEST"})
+        self.assertEqual(calls[0][:3], ("projects", "delete-api-key", ("project", "old")))
+        self.assertEqual(app["pendingRevokeKeyIds"], [])
+        self.assertEqual(next(c for c in calls if c[:2] == ("prompts", "list"))[3], (401,))
+
+    def test_name_errors_state_the_actual_limits(self):
+        with self.assertRaisesRegex(WorkflowError, "3 to 60"):
+            validate("governance", {"governanceName": "x" * 61})
+        with self.assertRaisesRegex(WorkflowError, "3 to 100"):
+            validate("instance", {"organizationName": "ab"})
+
     def test_bulk_creation_is_bounded(self):
         with self.assertRaises(WorkflowError):
             validate("application", {"applicationName": "Demo", "teamName": "Team", "applicationCount": 100})

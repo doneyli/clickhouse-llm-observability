@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from workflows import Context, WorkflowError, audit_evidence, instance_reset_preview, public_state, reset_instance_organizations
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from workflows import Context, WorkflowError, audit_evidence, instance_reset_preview, prepare_governance, public_state, reset_instance_organizations
 
 
 class EnterpriseChecks(unittest.TestCase):
@@ -81,6 +83,32 @@ class EnterpriseChecks(unittest.TestCase):
             with self.assertRaises(WorkflowError):audit_evidence(ctx,{})
         self.assertEqual(ctx.call.call_args.kwargs['body']['role'],'MEMBER')
 
+class GovernanceSetupChecks(unittest.TestCase):
+    def test_partial_governance_setup_resumes_under_the_same_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ctx=Context(directory,'/not-read/org.env','test',emit=lambda e:None)
+            ctx.state['applications']['other']={'id':'other','name':'Support assistant','team':'Support','members':[]}
+            personas={role:{'email':role.lower()+'@example.invalid','name':role,'envFile':'/not-read/'+role,'registered':True} for role in ('MEMBER','ADMIN')}
+            ctx.state['governance']={'personas':personas}
+            attempts=[]
+            def onboard(ctx_, params):
+                # The first attempt records the project, then fails later in onboarding.
+                attempts.append(params['applicationName'])
+                ctx_.state['applications']['gov']={'id':'gov','name':params['applicationName'],'team':'Platform governance','members':[]}
+                if len(attempts)==1:
+                    raise WorkflowError('prompt seed failed')
+                return {'projectIds':['gov']}
+            with patch('workflows.onboard_application',side_effect=onboard),patch('workflows.onboard_team'):
+                with self.assertRaisesRegex(WorkflowError,'prompt seed failed'):
+                    prepare_governance(ctx,'Governance Demo')
+                app,governance=prepare_governance(ctx,'Governance Demo')
+                self.assertEqual((app['id'],governance['projectId']),('gov','gov'))
+                self.assertNotIn('pendingName',governance)
+                ctx.state['governance'].pop('projectId')
+                with self.assertRaisesRegex(WorkflowError,'fresh governance'):
+                    prepare_governance(ctx,'Support assistant')
+
+
 class OrganizationCleanupChecks(unittest.TestCase):
     def test_async_purge_preserves_org_record_and_key_until_retry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -99,6 +127,20 @@ class OrganizationCleanupChecks(unittest.TestCase):
                 self.assertEqual(reset_instance_organizations(ctx,[row]),[])
                 cleanup.assert_called_once_with(ctx,'o')
             self.assertNotIn('o',ctx.state['organizations'])
+
+    def test_slow_starter_project_removal_is_pending_not_fatal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ctx=Context(directory,'/not-read/org.env','test',emit=lambda e:None)
+            ctx.state['organizations']={'o':{'id':'o','name':'Sandbox','projectId':'p','envFile':'/not-read/key.env'}}
+            row={'id':'o','name':'Sandbox','present':True,'blocked':False,'reason':'','projects':[]}
+            current={'id':'o','metadata':{'demo':'langfuse-operations'},'projects':[{'id':'p','name':'Starter','metadata':{'demo':'langfuse-operations'}}]}
+            ctx.instance=Mock(return_value=current)
+            ctx.call=Mock(return_value={})
+            with patch('workflows.instance_reset_preview',return_value=[row]),patch('workflows.time.sleep'),patch('workflows.remove_project_key_files') as cleanup:
+                self.assertEqual(reset_instance_organizations(ctx,[row]),['o'])
+            cleanup.assert_not_called()
+            self.assertFalse(any(call.args[1]=='DELETE' for call in ctx.instance.call_args_list))
+            self.assertEqual(ctx.state['organizations']['o']['resetStatus'],'deletion_requested')
 
     def test_unexpected_org_delete_error_does_not_clear_local_state(self):
         with tempfile.TemporaryDirectory() as directory:

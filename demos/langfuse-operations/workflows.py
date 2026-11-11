@@ -5,6 +5,7 @@ import argparse
 import ast
 from contextlib import contextmanager
 import fcntl
+import functools
 import hashlib
 import inspect
 import json
@@ -43,6 +44,20 @@ WORKFLOWS = [
 
 class WorkflowError(Exception):
     pass
+
+
+@functools.lru_cache(maxsize=None)
+def source_lines():
+    """This file's lines, read once per process for inspector excerpts."""
+    return Path(__file__).read_text().splitlines()
+
+
+@functools.lru_cache(maxsize=None)
+def call_spans():
+    """(first, last) line of every `.call(...)` expression in this file, parsed once per process."""
+    tree = ast.parse("\n".join(source_lines()))
+    return [(node.lineno, node.end_lineno) for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "call"]
 
 
 def scrub(value):
@@ -105,10 +120,9 @@ def validate(workflow, params):
     if workflow in {"governance", "instance"}:
         field = "governanceName" if workflow == "governance" else "organizationName"
         value = p.get(field, "")
-        if not isinstance(value, str) or not value.strip() or len(value) > (60 if workflow == "governance" else 100):
-            raise WorkflowError("Provide a name containing 1 to 100 characters.")
-        if len(value.strip()) < 3:
-            raise WorkflowError("Names require at least 3 characters.")
+        limit = 60 if workflow == "governance" else 100
+        if not isinstance(value, str) or not 3 <= len(value.strip()) <= limit:
+            raise WorkflowError("Provide a name containing 3 to " + str(limit) + " characters.")
         p = {field: value.strip()}
     if workflow == "team":
         members = p.get("members", [])
@@ -186,13 +200,12 @@ class Context:
         source_line = caller.f_lineno
         caller_path = Path(caller.f_code.co_filename).resolve()
         if caller_path == Path(__file__).resolve():
-            lines = caller_path.read_text().splitlines()
-            tree = ast.parse("\n".join(lines))
-            calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "call" and node.lineno <= source_line <= node.end_lineno]
-            selected = min(calls, key=lambda node: node.end_lineno - node.lineno) if calls else None
+            lines = source_lines()
+            spans = [span for span in call_spans() if span[0] <= source_line <= span[1]]
+            selected = min(spans, key=lambda span: span[1] - span[0]) if spans else None
             if selected:
-                source_line = selected.lineno
-                excerpt = "\n".join(lines[selected.lineno - 1:selected.end_lineno])
+                source_line = selected[0]
+                excerpt = "\n".join(lines[selected[0] - 1:selected[1]])
             else:
                 excerpt = lines[source_line - 1]
         else:
@@ -232,6 +245,8 @@ class Context:
         if caller.f_code.co_name in {"native", "instance"}:
             caller = caller.f_back
         source_line = caller.f_lineno
+        in_this_file = Path(caller.f_code.co_filename).resolve() == Path(__file__).resolve()
+        excerpt = source_lines()[source_line - 1] if in_this_file else "# Called through the workflow helper."
         wire_body = {"json": body} if mode == "rpc" else {"name": persona["name"], "email": persona["email"], "password": "[redacted]"} if mode == "signup" else body
         if mode == "rpc" and method == "GET":
             from urllib.parse import quote
@@ -241,7 +256,7 @@ class Context:
                    "doc": "https://langfuse.com/self-hosting/administration/instance-management-api" if mode == "instance" else "https://langfuse.com/docs/administration/audit-logs" if path == "auditLogs.all" else "https://langfuse.com/self-hosting/security/authentication-and-sso" if mode == "signup" else "https://langfuse.com/faq/all/who-can-edit-prompts-and-labels",
                    "body": scrub(wire_body) if method != "GET" else None,
                    "command": "node --env-file=$PRIVATE_ENV scripts/platform-api.mjs  # request JSON on stdin; " + surface,
-                   "source": {"file": "workflows.py", "line": source_line, "code": Path(__file__).read_text().splitlines()[source_line-1]}})
+                   "source": {"file": "workflows.py", "line": source_line, "code": excerpt}})
         request = {"host": HOST, "mode": mode, "method": method, "body": body}
         request.update({"procedure": path} if mode == "rpc" else {"path": path})
         if mode == "signup": request["name"] = persona["name"]
@@ -287,13 +302,18 @@ def issue_project_key(ctx, app, role, label, name):
     return key, ctx.store_key(app, key)
 
 
+def revoke_pending_keys(ctx, app, field, label):
+    """Retry revocations an interrupted run recorded before revoking; 404 means already gone."""
+    for key_id in list(app.get(field, [])):
+        ctx.call(label, "projects", "delete-api-key", (app["id"], key_id), expected=(200, 204, 404))
+        app[field].remove(key_id)
+        ctx.save()
+
+
 @contextmanager
 def project_setup_access(ctx, app):
     """Use a temporary Full access key when the integration key cannot provision assets."""
-    for key_id in list(app.get("pendingSetupKeyIds", [])):
-        ctx.call("Clean up previous temporary setup key", "projects", "delete-api-key", (app["id"], key_id), expected=(200, 204, 404))
-        app["pendingSetupKeyIds"].remove(key_id)
-        ctx.save()
+    revoke_pending_keys(ctx, app, "pendingSetupKeyIds", "Clean up previous temporary setup key")
     if app.get("keyRole") in (None, "ADMIN", "LEGACY_PROJECT_API_KEY"):
         yield app["envFile"]
         return
@@ -431,6 +451,7 @@ def change_access(ctx, p):
 def rotate_key(ctx, p):
     """Switch this demo integration to a verified replacement key, then revoke its old key."""
     app = ctx.managed_app(p["projectId"])
+    revoke_pending_keys(ctx, app, "pendingRevokeKeyIds", "Retry revoking a previous integration key")
     old_id, old_env = app["keyId"], app["envFile"]
     key, new_env = issue_project_key(ctx, app, p["keyRole"], "Create replacement key: " + KEY_ROLES[p["keyRole"]], app["name"] + " replacement")
     try:
@@ -440,14 +461,19 @@ def rotate_key(ctx, p):
         Path(new_env).unlink(missing_ok=True)
         raise
     app.update(keyId=key["id"], envFile=new_env, keyRole=p["keyRole"], previousKeyId=old_id, previousEnvFile=old_env)
+    # Record the revocation first: if it fails, the next rotation retries it instead of losing a live key.
+    app.setdefault("pendingRevokeKeyIds", []).append(old_id)
     ctx.save()
     ctx.note("Demo integration switched", "Subsequent portal project calls now use the verified replacement key. External applications are not reconfigured.")
     ctx.call("Revoke the previous integration key", "projects", "delete-api-key", (app["id"], old_id))
+    app["pendingRevokeKeyIds"].remove(old_id)
+    ctx.save()
     inventory = ctx.call("Verify replacement role and old key removal", "projects", "list-api-keys", (app["id"],))
     keys = inventory.get("apiKeys", [])
     if any(k["id"] == old_id for k in keys) or not any(k["id"] == key["id"] and k.get("role") == p["keyRole"] for k in keys):
         raise WorkflowError("Key inventory did not confirm the replacement role and old key removal.")
-    ctx.call("Verify the old key is rejected", "prompts", "list", env=old_env, query=("--limit", "1"), expected=(401, 403))
+    # Only 401 proves revocation: a still-valid Ingestion or Scores key also gets 403 from prompt reads.
+    ctx.call("Verify the old key is rejected", "prompts", "list", env=old_env, query=("--limit", "1"), expected=(401,))
     verify_project_key(ctx, app, new_env, p["keyRole"])
     return {"projectIds": [app["id"]], "message": "Demo integration key rotated with " + KEY_ROLES[p["keyRole"]] + " permissions; allowed operations succeed and the previous key is rejected."}
 
@@ -633,14 +659,20 @@ def reset_demo(ctx, p):
             users_removed += 1
         except WorkflowError as error:
             errors.append(user["email"] + ": " + str(error))
-    governance = ctx.state.get("governance", {})
-    if governance.get("projectId") and governance["projectId"] not in ctx.state["applications"]:
-        for persona in governance.get("personas", {}).values():
+    governance = ctx.state.get("governance")
+    if governance and governance.get("projectId") not in ctx.state["applications"]:
+        personas = governance.get("personas", {})
+        for role, persona in list(personas.items()):
             if persona["email"] not in ctx.state["users"]:
                 path = Path(persona["envFile"])
                 if path.parent.resolve() == (ctx.directory / "personas").resolve() and not path.is_symlink():
                     path.unlink(missing_ok=True)
-        if all(p["email"] not in ctx.state["users"] for p in governance.get("personas", {}).values()):
+                personas.pop(role)
+        # Prompt versions and the project ID belonged to the deleted project. Preserved personas are re-granted
+        # to a fresh governance project on the next run.
+        for field in ("projectId", "versions", "pendingName"):
+            governance.pop(field, None)
+        if not personas:
             ctx.state.pop("governance", None)
         ctx.save()
     if errors:
@@ -662,12 +694,16 @@ def prepare_governance(ctx, name=None):
     governance = ctx.state.setdefault("governance", {})
     app = ctx.state["applications"].get(governance.get("projectId"))
     if not app:
-        name = name or "Governance Demo"
-        if any(a["name"] == name for a in ctx.state["applications"].values()):
+        name = name or governance.get("pendingName") or "Governance Demo"
+        if governance.get("pendingName") != name and any(a["name"] == name for a in ctx.state["applications"].values()):
             raise WorkflowError("Choose a fresh governance project name; existing application history is preserved.")
+        # Record intent before creating, so a partial failure resumes this project instead of refusing its name.
+        governance["pendingName"] = name
+        ctx.save()
         result = onboard_application(ctx, {"applicationName": name, "teamName": "Platform governance", "retentionDays": 30, "keyRole": "ADMIN"})
         app = ctx.managed_app(result["projectIds"][0])
         governance["projectId"] = app["id"]
+        governance.pop("pendingName", None)
         ctx.save()
     elif name and name != app["name"]:
         raise WorkflowError("Governance is already prepared for " + app["name"] + ". Reset before choosing a different name.")
@@ -847,7 +883,9 @@ def reset_instance_organizations(ctx, rows):
                 if not empty.get("projects"): break
                 time.sleep(1)
             if empty.get("projects"):
-                raise WorkflowError("Organization project deletion is pending. Preview and retry reset.")
+                pending.append(row["id"])
+                ctx.note("Organization cleanup pending: " + org["name"], "Starter project deletion is still being processed. Preview and retry Reset; records and credentials were kept.")
+                continue
             result = ctx.instance("Delete the empty demo organization", "DELETE", path, expected=(200, 400))
             if not result.get("success"):
                 if result.get("error") == "Cannot delete organization with existing projects":
