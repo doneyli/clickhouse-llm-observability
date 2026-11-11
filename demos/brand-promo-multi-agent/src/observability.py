@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
+from threading import Lock
 from typing import Any
 
 from src.config import Backend, load_config
@@ -29,6 +30,7 @@ except ImportError:
 _DEMO_RUN_ID = str(uuid.uuid4())
 
 _CREWAI_INSTRUMENTED = False
+_CREWAI_INSTRUMENTATION_LOCK = Lock()
 
 
 def instrument_crewai() -> None:
@@ -46,18 +48,21 @@ def instrument_crewai() -> None:
     under `research_node` / `strategy_node`. Idempotent.
     """
     global _CREWAI_INSTRUMENTED
-    if _CREWAI_INSTRUMENTED:
-        return
-    from langfuse import get_client
-    from openinference.instrumentation.crewai import CrewAIInstrumentor
+    # Experiment tasks build callbacks concurrently. OTel's instrumentor also
+    # uses an unlocked boolean guard, so serialize the entire initialization to
+    # avoid registering multiple listeners and exporting each generation twice.
+    with _CREWAI_INSTRUMENTATION_LOCK:
+        if _CREWAI_INSTRUMENTED:
+            return
+        from langfuse import get_client
+        from openinference.instrumentation.crewai import CrewAIInstrumentor
 
-    # The instrumentor binds to the global TracerProvider at instrument() time;
-    # creating the Langfuse client first makes that Langfuse's provider.
-    get_client()
-    CrewAIInstrumentor().instrument(
-        use_event_listener=True, create_llm_spans=True, skip_dep_check=True
-    )
-    _CREWAI_INSTRUMENTED = True
+        # Bind to the global provider after Langfuse has initialized its exporter.
+        get_client()
+        CrewAIInstrumentor().instrument(
+            use_event_listener=True, create_llm_spans=True, skip_dep_check=True
+        )
+        _CREWAI_INSTRUMENTED = True
 
 
 @lru_cache(maxsize=1)
