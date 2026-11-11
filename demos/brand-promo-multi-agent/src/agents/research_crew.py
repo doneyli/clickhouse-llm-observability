@@ -41,7 +41,11 @@ class _LCToolAdapter(BaseTool):
         self.lc_tool = lc_tool
 
     def _run(self, **kwargs: Any) -> Any:
-        return self.lc_tool.invoke(kwargs)
+        # The OpenInference CrewAI instrumentor (src/observability.py) already
+        # records this call as a TOOL span under the agent that made it. Without
+        # `callbacks=[]` the LangChain handler inherited from research_node would
+        # record it a second time, flat under the node.
+        return self.lc_tool.invoke(kwargs, config={"callbacks": []})
 
 
 def _keyword_search_promos(brand: str | None, region: str | None, query: str) -> dict[str, Any]:

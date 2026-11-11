@@ -10,6 +10,9 @@ dependencies = [
     "crewai>=0.80.0",
     "crewai-tools>=0.12.0",
     "langfuse>=4.7,<5.0",
+    # CrewAI's own LLM calls (crewai.LLM -> native Anthropic provider) bypass
+    # LangChain callbacks; this turns them into OTel spans Langfuse exports.
+    "openinference-instrumentation-crewai>=1.1.22",
     "anthropic>=0.40.0",
     "pydantic>=2.0",
     "pyyaml>=6.0",

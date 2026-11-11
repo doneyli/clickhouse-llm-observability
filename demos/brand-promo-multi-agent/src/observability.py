@@ -28,6 +28,37 @@ except ImportError:
 # One demo_run_id per process so all live runs in a session are filterable together
 _DEMO_RUN_ID = str(uuid.uuid4())
 
+_CREWAI_INSTRUMENTED = False
+
+
+def instrument_crewai() -> None:
+    """Trace the CrewAI crews' own LLM calls into the same Langfuse trace.
+
+    The research/strategy crews call the model through `crewai.LLM` (CrewAI's
+    native Anthropic provider), which LangChain callbacks never see. Without
+    this, those nodes show their tool calls but no generations, and the trace
+    cost only counts the orchestrator's two ChatAnthropic calls.
+
+    OpenInference's event-listener mode turns CrewAI's LLMCallStarted/Completed
+    events into OTel spans (with model + token usage). Langfuse's default span
+    filter exports the `openinference` scope, and the LangChain handler
+    attaches each chain span to the OTel context, so the crew spans nest
+    under `research_node` / `strategy_node`. Idempotent.
+    """
+    global _CREWAI_INSTRUMENTED
+    if _CREWAI_INSTRUMENTED:
+        return
+    from langfuse import get_client
+    from openinference.instrumentation.crewai import CrewAIInstrumentor
+
+    # The instrumentor binds to the global TracerProvider at instrument() time;
+    # creating the Langfuse client first makes that Langfuse's provider.
+    get_client()
+    CrewAIInstrumentor().instrument(
+        use_event_listener=True, create_llm_spans=True, skip_dep_check=True
+    )
+    _CREWAI_INSTRUMENTED = True
+
 
 @lru_cache(maxsize=1)
 def _get_customer_name() -> str:
@@ -74,7 +105,9 @@ def make_observability_callbacks(
             "BACKEND=langfuse but `langfuse` is not installed. "
             "Reinstall the demo dependencies."
         )
-    return [CallbackHandler()]
+    handlers = [CallbackHandler()]
+    instrument_crewai()
+    return handlers
 
 
 def make_observability_run_metadata(

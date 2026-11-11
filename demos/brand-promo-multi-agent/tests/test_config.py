@@ -100,3 +100,29 @@ def test_make_observability_run_config_shape():
         assert cfg["metadata"]["langfuse_user_id"] == "u1"
         assert cfg["metadata"]["langfuse_session_id"] == "s1"
         assert cfg["tags"] == ["live_demo"]
+
+
+def test_observability_callbacks_instrument_crewai(monkeypatch):
+    """Building callbacks also routes CrewAI's own LLM calls into the trace.
+
+    crewai.LLM bypasses LangChain callbacks, so without the OpenInference
+    CrewAI instrumentor the research/strategy crews emit no generations.
+    """
+    import src.observability as obs
+
+    monkeypatch.setattr(obs, "_CREWAI_INSTRUMENTED", False)
+    instrumentor_cls = MagicMock()
+    with (
+        patch("src.observability.CallbackHandler", MagicMock()),
+        patch("langfuse.get_client"),
+        patch("openinference.instrumentation.crewai.CrewAIInstrumentor", instrumentor_cls),
+    ):
+        obs.make_observability_callbacks(agent_name="test-agent")
+        obs.make_observability_callbacks(agent_name="test-agent")
+
+    # Idempotent: instrumented exactly once per process, in event-listener mode
+    # (the mode that turns LLMCallStarted/Completed events into LLM spans).
+    instrumentor_cls.return_value.instrument.assert_called_once()
+    kwargs = instrumentor_cls.return_value.instrument.call_args.kwargs
+    assert kwargs["use_event_listener"] is True
+    assert kwargs["create_llm_spans"] is True
