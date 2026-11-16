@@ -45,6 +45,7 @@ from pydantic import BaseModel  # noqa: E402
 
 from northwind import agent, config  # noqa: E402
 from northwind.compliance_sync import sync_recent  # noqa: E402
+from northwind.feedback_queue import QUEUE_NAME as FEEDBACK_QUEUE_NAME, FeedbackQueue  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 VOICE_DIR = DEMO_DIR / "data" / "voice"
@@ -557,6 +558,22 @@ class FeedbackIn(BaseModel):
     comment: Optional[str] = None
 
 
+# Thumbs-down → "Negative feedback — thumbs down" queue (northwind/feedback_queue.py).
+_FEEDBACK_QUEUE = FeedbackQueue(config.api)
+
+
+async def _enqueue_thumbs_down(trace_id: str) -> dict:
+    """Best effort: the score is already recorded, so a queue failure is reported, never raised."""
+    try:
+        res = await asyncio.wait_for(asyncio.to_thread(_FEEDBACK_QUEUE.add, trace_id), timeout=20)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "name": FEEDBACK_QUEUE_NAME, "error": f"{type(exc).__name__}: {exc}"[:200]}
+    pid = await asyncio.to_thread(_project_id_sync)
+    url = (f"{config.LANGFUSE_BASE_URL}/project/{pid}/annotation-queues/{res['queue_id']}"
+           if pid else None)
+    return {"ok": True, "name": FEEDBACK_QUEUE_NAME, "added": res["added"], "url": url}
+
+
 @app.post("/api/feedback")
 async def feedback(body: FeedbackIn):
     if not re.fullmatch(r"[0-9a-f]{32}", body.trace_id or ""):
@@ -565,14 +582,18 @@ async def feedback(body: FeedbackIn):
     comment = (body.comment or "").strip()[:1000] or None
 
     def _score():
-        config.get_langfuse().create_score(trace_id=body.trace_id, name="user-feedback", value=value,
-                                           data_type="BOOLEAN", comment=comment)
-        config.flush()
+        lf = config.get_langfuse()
+        lf.create_score(trace_id=body.trace_id, name="user-feedback", value=value,
+                        data_type="BOOLEAN", comment=comment)
+        # Langfuse only: config.flush() also drains the APM exporter, and a slow or
+        # stopped APM collector would make the button wait on its retries.
+        lf.flush()
     try:
         await asyncio.wait_for(asyncio.to_thread(_score), timeout=20)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}, status_code=502)
-    return {"ok": True, "value": value, "comment": comment}
+    queue = await _enqueue_thumbs_down(body.trace_id) if value == 0 else None
+    return {"ok": True, "value": value, "comment": comment, "queue": queue}
 
 
 # ── Voice endpoints ───────────────────────────────────────────────────────────

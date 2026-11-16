@@ -451,6 +451,14 @@ needs to agree with your experts — and you need a rule for which judge model
 is approved."
 
 **Show.**
+0. **Thumbs-down → queue, live.** In the portal, 👎 an answer and type a reason.
+   The toast confirms `user-feedback = 0`, and the reply shows **In review queue ↗**.
+   Click it: the trace is already pending in *Negative feedback — thumbs down*,
+   with `sme-failure-mode` (what went wrong) and `pm-action` (fix-agent,
+   fix-knowledge-base, add-to-dataset, …). Langfuse has no built-in "score
+   filter → queue" rule; it is one API call in the app's feedback handler
+   (`northwind/feedback_queue.py`). `add-to-dataset` is where triage feeds the
+   golden set.
 1. **Annotation queues** → *SME review — assistant answers*: production answers,
    worst first from the last 24 hours — customer thumbs-down, the lowest judge
    scores and P1-P5 violations, then a random sample. Open a **pending** item

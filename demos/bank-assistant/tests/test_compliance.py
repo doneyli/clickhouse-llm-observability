@@ -229,7 +229,8 @@ class ManagedRollout(unittest.TestCase):
                 elif path.endswith("evaluation-rules"):
                     data = list(rules.values())
                 elif path.endswith("annotation-queues"):
-                    data = [{"name": "SME review — assistant answers"}, {"name": "SME review — conduct policies"}]
+                    data = [{"name": "SME review — assistant answers"}, {"name": "SME review — conduct policies"},
+                            {"name": "Negative feedback — thumbs down"}]
                 else:
                     raise AssertionError(path)
                 return {"data": data, "meta": {}}
