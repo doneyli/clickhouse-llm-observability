@@ -845,6 +845,10 @@ services:
       # internal host the endpoint returns 403 (per Langfuse docs → MCP Server →
       # Self-Hosted, reverse-proxy note). Allow the Docker-internal host + port.
       LANGFUSE_MCP_ALLOWED_HOSTS: langfuse-web:3000
+      # Instance Management API (/api/admin/*, Enterprise). Empty = disabled. Set in
+      # .env so every recreate of web keeps it; demos/langfuse-operations needs it
+      # for organization provisioning and reset.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 
   # ClickHouse MCP Server for Langfuse Traces
   # Enables natural language querying of Langfuse trace data via LibreChat agents
