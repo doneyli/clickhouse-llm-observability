@@ -1,6 +1,10 @@
 'use strict';
 const $ = selector => document.querySelector(selector);
-const state = {workflow:'application',config:null,apps:[],projectId:'',run:null,selected:0,view:'script',source:null,busy:false,follow:true,resetPreview:null,resetLoading:false,demoTag:null};
+const state = {workflow:'application',config:null,apps:[],projectId:'',run:null,selected:0,view:'script',source:null,busy:false,follow:true,resetPreview:null,resetLoading:false,demoTag:null,memberFieldsFor:null};
+const teamSlots = [
+  {name:'maya', defaultRole:'MEMBER', email:$('#member-one-email'), role:$('#member-one-role')},
+  {name:'alex', defaultRole:'VIEWER', email:$('#member-two-email'), role:$('#member-two-role')},
+];
 const descriptions = {
   governance:'Protect production promotion with real human roles: Member can change staging, Member is denied production, Admin can promote. Writable service keys keep CI access.',
   audit:'Make a controlled role change and correlate it with Langfuse’s persisted audit records. Prepares the dedicated governance project when needed.',
@@ -44,7 +48,8 @@ function fieldVisibility() {
   $('#key-role-description').textContent=keyRoleDescriptions[$('#key-role').value]||'Choose the access required by the integration.';
   $('#application-name').required=applicationWorkflow;$('#team-name').required=applicationWorkflow;
   $('#retention-days').required=applicationWorkflow;$('#application-count').required=applicationWorkflow;
-  $('#member-one-email').required=state.workflow==='team';$('#member-two-email').required=state.workflow==='team';
+  const needsTeamEmail = state.workflow === 'team' && !teamSlots.some(slot => slot.email.value.trim());
+  for (const slot of teamSlots) slot.email.required = needsTeamEmail;
   const days=Number($('#retention-days').value);
   $('#retention-days').setCustomValidity(state.workflow==='application'&&(days===1||days===2)?'Retention must be 0 or at least 3 days.':'');
   $('#workflow-title').textContent=action.title;$('#workflow-description').textContent=descriptions[state.workflow];
@@ -91,11 +96,34 @@ function renderProjects() {
   const memberSelector=$('#selected-member'),previous=memberSelector.value;memberSelector.replaceChildren();
   for(const member of app()?.members||[])if(member.active){const option=document.createElement('option');option.value=member.userId;option.textContent=member.email+' ('+member.role+')';memberSelector.append(option);}
   if([...memberSelector.options].some(option=>option.value===previous))memberSelector.value=previous;
-  const members=app()?.members||[];
-  if(members[0]){$('#member-one-email').value=members[0].email;$('#member-one-role').value=members[0].role;}
-  if(members[1]){$('#member-two-email').value=members[1].email;$('#member-two-role').value=members[1].role;}
+  renderTeamFields();
   renderResources();
   renderOrganizations($('#resource-list'));
+}
+function renderTeamFields() {
+  const switched = state.memberFieldsFor !== state.projectId;
+  state.memberFieldsFor = state.projectId;
+  const members = app()?.members || [];
+  const used = new Set(state.apps.flatMap(item => (item.members || []).map(member => member.email)));
+
+  teamSlots.forEach((slot, index) => {
+    const member = members[index];
+    const fresh = state.demoTag ? `${slot.name}.demo+${state.demoTag}@example.invalid` : '';
+    const defaults = {
+      email: member?.email ?? (used.has(fresh) ? '' : fresh),
+      role: member?.role ?? slot.defaultRole,
+    };
+    // A refresh may change defaults while the presenter is editing this email/role pair.
+    const previous = slot.defaults;
+    const edited = previous && (slot.email.value !== previous.email || slot.role.value !== previous.role);
+    const claimedSuggestion = fresh && previous?.email === fresh && slot.email.value === fresh
+      && used.has(fresh) && member?.email !== fresh;
+    if (switched || !edited || claimedSuggestion) {
+      slot.email.value = defaults.email;
+      slot.role.value = defaults.role;
+      slot.defaults = defaults;
+    }
+  });
 }
 function renderResources() {
   const container=$('#resource-list');container.replaceChildren();
@@ -178,9 +206,10 @@ function renderInspector() {
   }
 }
 async function refreshState() {
-  const data=await api('/api/state');state.apps=data.applications;state.organizations=data.organizations||[];renderProjects();
-  if(state.demoTag!==data.demoTag&&!app()?.members?.length){$('#member-one-email').value='maya.demo+'+data.demoTag+'@example.invalid';$('#member-two-email').value='alex.demo+'+data.demoTag+'@example.invalid';}
-  state.demoTag=data.demoTag;state.resetPreview=null;$('#reset-confirmation').value='';renderResetPreview();fieldVisibility();return data;
+  const data=await api('/api/state');state.apps=data.applications;state.organizations=data.organizations||[];
+  // A new demo tag (first load, or after a reset) re-seeds the member fields with that run's identities.
+  if(state.demoTag!==data.demoTag){state.demoTag=data.demoTag;state.memberFieldsFor=null;}
+  renderProjects();state.resetPreview=null;$('#reset-confirmation').value='';renderResetPreview();fieldVisibility();return data;
 }
 async function selectWorkflow(id) {
   if(id!==state.workflow&&['application','keys'].includes(id))$('#key-role').value='';
@@ -207,7 +236,9 @@ function parameters() {
   if(state.workflow==='application')return {applicationName:$('#application-name').value,teamName:$('#team-name').value,retentionDays:Number($('#retention-days').value),applicationCount:Number($('#application-count').value),keyRole:$('#key-role').value};
   const p={projectId:state.projectId};
   if(state.workflow==='keys')p.keyRole=$('#key-role').value;
-  if(state.workflow==='team')p.members=[{email:$('#member-one-email').value,role:$('#member-one-role').value},{email:$('#member-two-email').value,role:$('#member-two-role').value}];
+  if (state.workflow === 'team') {
+    p.members = teamSlots.map(slot => ({email:slot.email.value.trim(), role:slot.role.value})).filter(member => member.email);
+  }
   if(state.workflow==='permissions'){p.userId=$('#selected-member').value;p.role=$('#target-role').value;}
   return p;
 }
@@ -244,7 +275,6 @@ async function init() {
   state.config=await api('/api/config');
   for(const action of state.config.workflows){const button=document.createElement('button');button.type='button';button.dataset.workflow=action.id;button.append(document.createTextNode(action.label),badge(action.edition));button.addEventListener('click',()=>selectWorkflow(action.id).catch(runError));$('#workflows').append(button);}
   const initial=await refreshState();
-  if(!app()?.members?.length){$('#member-one-email').value='maya.demo+'+initial.demoTag+'@example.invalid';$('#member-two-email').value='alex.demo+'+initial.demoTag+'@example.invalid';}
   document.body.classList.add('highlight');await selectWorkflow('application');
   const selectedRun=new URLSearchParams(location.search).get('run')||initial.activeRun;
   if(selectedRun){const running=await api('/api/runs/'+encodeURIComponent(selectedRun));await selectWorkflow(running.workflow);state.busy=running.status==='running';fieldVisibility();poll(selectedRun).catch(runError);}

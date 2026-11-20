@@ -91,4 +91,13 @@ node --check scripts/platform-api.mjs
 bash -n scripts/*.sh
 ```
 
+To run the Team form regression in Chromium using fixture projects and memberships, install Playwright in a temporary directory:
+
+```bash
+pw_dir="$(mktemp -d)"
+npm install --prefix "$pw_dir" playwright@1.61.1
+"$pw_dir/node_modules/.bin/playwright" install chromium
+NODE_PATH="$pw_dir/node_modules" node --test tests/team-form.test.cjs
+```
+
 No LLM provider or paid model calls are required. Live proof requires the local licensed stack. [DEMO_SCRIPT.md](DEMO_SCRIPT.md) describes the presenter flow and expected evidence.
