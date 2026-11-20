@@ -837,6 +837,10 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
+    # Keep the instance credential in a web-only env file. Several apps import
+    # the entire root .env, so that file holds only the path to the credential.
+    env_file:
+      - ${LANGFUSE_INSTANCE_ENV_FILE:-./demos/langfuse-operations/instance.env.example}
     environment:
       <<: *langfuse-common-env
       # The self-hosted MCP server (/api/public/mcp) validates the incoming Host
@@ -845,10 +849,6 @@ services:
       # internal host the endpoint returns 403 (per Langfuse docs → MCP Server →
       # Self-Hosted, reverse-proxy note). Allow the Docker-internal host + port.
       LANGFUSE_MCP_ALLOWED_HOSTS: langfuse-web:3000
-      # Instance Management API (/api/admin/*, Enterprise). Empty = disabled. Set in
-      # .env so every recreate of web keeps it; demos/langfuse-operations needs it
-      # for organization provisioning and reset.
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 
   # ClickHouse MCP Server for Langfuse Traces
   # Enables natural language querying of Langfuse trace data via LibreChat agents

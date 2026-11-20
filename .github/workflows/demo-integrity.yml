@@ -29,6 +29,7 @@ on:
       - 'demos/**/requirements.txt'
       - 'demos/**/langfuse_config.py'
       - 'docker-compose.yaml'
+      - 'demos/langfuse-operations/instance.env.example'
       - 'setup.sh'
       - 'scripts/**.sh'
       - '.github/workflows/demo-integrity.yml'
@@ -115,6 +116,15 @@ jobs:
           check --profile langfuse --profile demo
           check --profile langfuse --profile demo --profile tools --profile dashboard
           exit $fail
+      - name: Verify instance key isolation with all profiles enabled
+        run: |
+          docker compose --profile '*' config --format json |
+            jq -e 'all(.services[]; .environment.ADMIN_API_KEY == null)'
+          printf '%s\n' 'ADMIN_API_KEY=ci-fixture' > "$RUNNER_TEMP/instance.env"
+          printf '\nLANGFUSE_INSTANCE_ENV_FILE=%s/instance.env\n' "$RUNNER_TEMP" >> .env
+          docker compose --profile '*' config --format json |
+            jq -e '(.services."langfuse-web".environment.ADMIN_API_KEY == "ci-fixture") and
+              all(.services | del(."langfuse-web")[]; .environment.ADMIN_API_KEY == null)'
 
   instrumentation-safety:
     name: tracing wrappers do not swallow caller exceptions
