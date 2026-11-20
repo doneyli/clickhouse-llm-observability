@@ -54,7 +54,7 @@ def make_task(topology: str, linkage: str, label: str):
             await orch.aclose()
         return {"reply": r.reply, "replied_by": r.replied_by, "agent_path": r.agent_path,
                 "first_handoff": r.first_handoff,
-                "handoffs": [{k: h.get(k) for k in ("kind", "from", "to", "payload", "state")} for h in r.handoffs],
+                "handoffs": [{k: h.get(k) for k in ("kind", "from", "to", "payload", "message", "state")} for h in r.handoffs],
                 "tools": r.tools, "effects": r.effects, "owner_after": r.owner_after,
                 "latency_s": round(time.perf_counter() - started, 2), "topology": topology,
                 "session_id": conv.session_id}

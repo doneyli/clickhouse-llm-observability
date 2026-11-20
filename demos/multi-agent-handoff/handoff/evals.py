@@ -74,7 +74,10 @@ def handoff_context_complete(*, output, **_) -> list[Evaluation]:
         if h.get("kind") == "continue":
             continue
         need = AGENTS[h["to"]].required_fields
-        absent = [f for f in need if not str((h.get("payload") or {}).get(f) or "").strip()]
+        carried = dict(h.get("payload") or {})
+        if h.get("kind") == "delegate":  # ask_*: the request is the question, not an issue_summary field
+            carried.setdefault("issue_summary", h.get("message") or "")
+        absent = [f for f in need if not str(carried.get(f) or "").strip()]
         checked += 1
         if absent:
             missing.append(f"{h['from']}→{h['to']}: {', '.join(absent)}")

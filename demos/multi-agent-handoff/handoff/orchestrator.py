@@ -202,8 +202,8 @@ class Orchestrator:
                                            message=request.get("message") or message, payload=payload,
                                            turn=turn_ctx, context_id=ref.get("context_id", ""), hop=len(handoffs) + 1,
                                            prompt_label=self.prompt_label)
-        handoffs.append({"kind": "transfer", "from": frm, "to": to, "payload": payload, "state": res.state,
-                         "t": started})
+        handoffs.append({"kind": "transfer", "from": frm, "to": to, "payload": payload,
+                         "message": request.get("message") or message, "state": res.state, "t": started})
         conv.transfers += 1
         path.append(to)
         return await self._after(conv, to, res, message, turn_ctx, path, handoffs)

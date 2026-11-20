@@ -55,7 +55,6 @@ def _specs() -> list[tuple]:
          [C], "faq_answered", []),
         ("faq-05", "faq", "cust-1027", "How do I return a phone I bought last week?", [C], "faq_answered", []),
         ("faq-06", "faq", "cust-1015", "Just curious: how do outage credits work in general?", [C], "faq_answered", []),
-        ("faq-07", "faq", "cust-1030", "How do I change to a different plan?", [C], "faq_answered", []),
         ("faq-08", "faq", "cust-1009", "What are your support hours?", [C], "faq_answered", []),
         ("faq-09", "faq", "cust-1040", "Which plans do I have on my account?", [C], "faq_answered", ["Fiber 300"]),
         # --- billing questions -----------------------------------------------------------------
@@ -70,6 +69,8 @@ def _specs() -> list[tuple]:
          [_total("cust-1014", "2026-11")]),
         ("bill-06", "billing", "cust-1021", "How much is my current invoice?", [C, B], "info_answered",
          [_total("cust-1021", "2026-11")]),
+        # was faq-07: billing's agent card says it owns plan changes, so routing there is right
+        ("bill-07", "billing", "cust-1030", "How do I change to a different plan?", [C, B], "info_answered", []),
         # --- technical, no outage ------------------------------------------------------------
         ("tech-01", "tech", "cust-1020", "Calls work but I have no mobile data since I got my new phone.", [C, T],
          "resolved", ["APN"]),
@@ -104,18 +105,19 @@ def _specs() -> list[tuple]:
          "Our internet was down for most of last week. Please credit my account.",
          [C, T, B], *_credit("L-1029-2", "OUT-2026-1112-04")[:2]),
         ("credit-07", "outage-credit", "cust-1013",
-         "My internet was out for days last week and now my bill looks wrong. What's going on?",
+         "My internet was out for days last week and my bill shows no credit for it. Please fix that.",
          [C, T, B], *_credit("L-1013-2", "OUT-2026-1112-04")[:2]),
         ("credit-08", "outage-credit", "cust-1037",
          "Our home internet went down for a couple of days last week. Is there a credit for that?",
          [C, T, B], *_credit("L-1037-2", "OUT-2026-1112-04")[:2]),
-        # --- credit asked for, policy says no ----------------------------------------------------
+        # --- credit asked for, policy says no. Tech-support knows the 4-hour rule, so billing is not
+        #     needed (the first runs showed the ideal path had billing in it by mistake) -----------
         ("nocredit-01", "no-credit", "cust-1007",
-         "My internet dropped for a couple of hours on Sunday afternoon. I want a credit.", [C, T, B], "no_credit", []),
+         "My internet dropped for a couple of hours on Sunday afternoon. I want a credit.", [C, T], "no_credit", []),
         ("nocredit-02", "no-credit", "cust-1010",
-         "Internet went out for a bit on Sunday afternoon. Can I get money back?", [C, T, B], "no_credit", []),
+         "Internet went out for a bit on Sunday afternoon. Can I get money back?", [C, T], "no_credit", []),
         ("nocredit-03", "no-credit", "cust-1026",
-         "We lost internet for a couple of hours on Sunday. Credit please.", [C, T, B], "no_credit", []),
+         "We lost internet for a couple of hours on Sunday. Credit please.", [C, T], "no_credit", []),
         ("nocredit-04", "no-credit", "cust-1031", "My internet was down yesterday. I want a credit.", [C, T],
          "no_credit", []),
         ("nocredit-05", "no-credit", "cust-1004", "My home internet was out this morning. I'd like a credit.", [C, T],

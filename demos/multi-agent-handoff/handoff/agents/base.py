@@ -271,7 +271,7 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                                                   conversation_id=state.conversation_id or "",
                                                   prompt_label=inp.prompt_label)
                     out.handoffs.append({"kind": "delegate", "from": name, "to": target, "payload": payload,
-                                         "state": res.state, "t": started})
+                                         "message": question, "state": res.state, "t": started})
                     out.handoffs += res.data.get("handoffs") or []
                     out.tools += res.data.get("tools") or []
                     out.path.append(target)
