@@ -165,9 +165,18 @@ def get_invoice(customer_id: str, month: Optional[str] = None, state: Optional[R
             "note": "credits_applied are on the account and will show on the next invoice"}
 
 
+PRIORITY_DATA_GB = {"mobile": 50, "home-internet": 1200}  # per month; after it, speeds drop to 2 Mbps
+
+
 def get_plan(line_id: str) -> dict:
     ln = _line(line_id)
-    return {"error": f"unknown line {line_id}"} if not ln else {k: ln[k] for k in ("line_id", "kind", "plan", "monthly_price")}
+    if not ln:
+        return {"error": f"unknown line {line_id}"}
+    out = {k: ln[k] for k in ("line_id", "kind", "plan", "monthly_price")}
+    cap = PRIORITY_DATA_GB[ln["kind"]]
+    out["priority_data"] = {"cap_gb": cap, "resets": "2026-12-01", "speed_after_cap": "2 Mbps",
+                            "used_gb": round(cap * 1.04, 1) if ln["status"] == "speed-throttled" else round(cap * 0.41, 1)}
+    return out
 
 
 def compute_credit(line_id: str, outage_id: Optional[str] = None) -> dict:

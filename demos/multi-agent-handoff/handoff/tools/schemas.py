@@ -38,7 +38,8 @@ TOOLS: dict[str, tuple[str, dict, Callable[..., Any]]] = {
                     "applied to the account that will show on the next invoice.",
                     _obj({"customer_id": S, "month": S}, ["customer_id"]),
                     lambda st, **a: crm.get_invoice(**a, state=st)),
-    "get_plan": ("Get the plan and monthly price of a line.",
+    "get_plan": ("Get the plan, monthly price and priority-data usage of a line (speeds drop to 2 Mbps after the "
+                 "monthly priority-data cap until it resets).",
                  _obj({"line_id": S}, ["line_id"]),
                  lambda st, **a: crm.get_plan(**a)),
     "compute_credit": ("Compute the policy credit for a line and a confirmed outage id. Always use this; never "
