@@ -79,6 +79,12 @@ MODES = {
 }
 
 FALLBACKS = {"concierge": CONCIERGE, "tech-support": TECH_SUPPORT, "billing": BILLING, "single": SINGLE}
+PROMPT_NAMES = {"concierge": "concierge", "tech-support": "tech-support", "billing": "billing",
+                "single": "single-agent"}  # names in Langfuse prompt management
+
+
+def prompt_name(agent: str) -> str:
+    return PROMPT_NAMES[agent]
 
 
 def compile_text(template: str, **variables: str) -> str:
@@ -92,7 +98,7 @@ def get(agent: str, label: Optional[str] = None):
         return template, None
     try:
         lf = config.get_langfuse(config.SERVICE or agent)
-        client = lf.get_prompt(agent, label=label or LABEL, type="text", fallback=template,
+        client = lf.get_prompt(prompt_name(agent), label=label or LABEL, type="text", fallback=template,
                                cache_ttl_seconds=60)
         return client.prompt, (None if getattr(client, "is_fallback", False) else client)
     except Exception:  # noqa: BLE001 — prompts must never take the agent down

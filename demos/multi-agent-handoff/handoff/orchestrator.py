@@ -17,6 +17,7 @@ so an evaluator that sees only the root can still check the trajectory.
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -25,7 +26,7 @@ from handoff import config
 from handoff.agents.base import AgentInput, Roster, run_agent
 from handoff.agents.registry import SPECIALISTS
 from handoff.linkage import DEFAULT_MODE, TurnContext
-from handoff.tools.crm import RunState
+from handoff.tools.crm import RunState, ledger_snapshot
 from handoff.transport import A2ATransport, HandoffResult, LocalTransport
 
 MAX_HANDOFFS = int(config.setting("HANDOFF_MAX_HANDOFFS", "4"))
@@ -46,6 +47,7 @@ class Conversation:
     transfers: int = 0
     effects: dict = field(default_factory=lambda: {"credits": [], "technicians": []})
     transcript: list = field(default_factory=list)
+    turn_tools: list = field(default_factory=list)  # this turn's "agent:tool" calls, every process
 
 
 @dataclass
@@ -53,10 +55,15 @@ class TurnResult:
     reply: str
     replied_by: str
     agent_path: list
-    handoffs: list
+    handoffs: list  # every handoff this turn, in order, with its payload
     owner_after: str
     trace_id: str
     effects: dict
+    tools: list = field(default_factory=list)
+
+    @property
+    def first_handoff(self) -> Optional[str]:
+        return self.handoffs[0]["to"] if self.handoffs else None
 
 
 class Orchestrator:
@@ -65,7 +72,8 @@ class Orchestrator:
             raise ValueError(topology)
         self.topology, self.linkage, self.prompt_label = topology, linkage, prompt_label
         self.lf = config.get_langfuse("orchestrator")
-        self.roster = Roster.from_registry()
+        self.roster = Roster.from_registry()  # a2a: replaced by the agent cards on the first turn
+        self._cards = topology != "a2a"
         self._local_hist: dict = {}
         if topology == "a2a":
             self.transport = A2ATransport(linkage)
@@ -79,18 +87,19 @@ class Orchestrator:
 
     def _local_agent(self, name: str):
         async def call(*, message: str, payload: dict, turn: TurnContext, task_id: str, context_id: str,
-                       frm: str, kind: str) -> HandoffResult:
+                       frm: str, kind: str, conversation_id: str = "") -> HandoffResult:
             key = (turn.session_id, name)
             out = await run_agent(name, AgentInput(
                 message=message, kind=kind, customer_id=str(payload.get("customer_id", "")), turn=turn,
                 payload=payload if kind != "continue" else {}, history=self._local_hist.get(key, []) if kind != "delegate" else [],
-                frm=frm, prompt_label=self.prompt_label), transport=self.transport, state=RunState())
+                frm=frm, prompt_label=self.prompt_label), transport=self.transport,
+                state=RunState(conversation_id=conversation_id or turn.session_id))
             if kind != "delegate":
                 self._local_hist[key] = out.history
             return HandoffResult(state=out.state, text=out.text, task_id=f"local-{name}",
                                  context_id=f"local-{turn.session_id}-{name}",
                                  data={"effects": out.effects, "path": out.path, "transfer": out.transfer,
-                                       "handback": out.handback})
+                                       "handback": out.handback, "tools": out.tools, "handoffs": out.handoffs})
         return call
 
     # --- the turn -------------------------------------------------------------------------
@@ -99,8 +108,12 @@ class Orchestrator:
         from langfuse import propagate_attributes
 
         conv.turns += 1
+        conv.turn_tools = []
         path: list = []
         handoffs: list = []
+        if not self._cards:
+            self.roster = await Roster.from_cards(SPECIALISTS)
+            self._cards = True
         turn_ctx = TurnContext(session_id=conv.session_id, user_id=conv.customer_id, trace_name="support-turn")
         owner_before = conv.owner
         with propagate_attributes(session_id=conv.session_id, user_id=conv.customer_id, trace_name="support-turn",
@@ -110,7 +123,8 @@ class Orchestrator:
                     metadata={"role": "orchestrator", "topology": self.topology,
                               "linkage": self.linkage if self.topology == "a2a" else "in-process",
                               "customer_id": conv.customer_id, "turn": str(conv.turns),
-                              "owner_before": owner_before, "scenario": conv.scenario}) as root:
+                              "owner_before": owner_before, "scenario": conv.scenario,
+                              "roster_source": self.roster.source}) as root:
                 trace_id = self.lf.get_current_trace_id() or ""
                 if self.topology == "single":
                     reply, replied_by = await self._single(conv, message, turn_ctx, path)
@@ -119,22 +133,26 @@ class Orchestrator:
                 else:
                     reply, replied_by = await self._continue(conv, message, turn_ctx, path, handoffs)
                 count = 0 if self.topology == "single" else len(path) - (1 if path[:1] == ["concierge"] else 0)
+                handoffs.sort(key=lambda h: h.get("t", 0))  # remote hops report their own start times
                 root.update(output={"reply": reply, "replied_by": replied_by},
                             metadata={"agent_path": ">".join(path), "handoff_count": str(count),
+                                      "first_handoff": handoffs[0]["to"] if handoffs else "none",
                                       "owner_after": conv.owner, "replied_by": replied_by})
+        conv.effects = ledger_snapshot(conv.session_id)  # the system of record, whoever wrote it
         conv.transcript += [{"role": "customer", "text": message}, {"role": replied_by, "text": reply}]
         return TurnResult(reply=reply, replied_by=replied_by, agent_path=path, handoffs=handoffs,
-                          owner_after=conv.owner, trace_id=trace_id, effects=conv.effects)
+                          owner_after=conv.owner, trace_id=trace_id, effects=conv.effects,
+                          tools=list(conv.turn_tools))
 
     async def _single(self, conv, message, turn_ctx, path):
         path.append("single")
-        state = RunState()
+        state = RunState(conversation_id=conv.session_id)
         out = await run_agent("single", AgentInput(message=message, kind="customer", customer_id=conv.customer_id,
                                                    turn=turn_ctx, history=conv.histories.get("single", []),
                                                    prompt_label=self.prompt_label),
                               transport=None, state=state)
         conv.histories["single"] = out.history
-        self._merge(conv, out.effects)
+        conv.turn_tools += out.tools
         return out.text, "single"
 
     async def _concierge(self, conv, message, turn_ctx, path, handoffs):
@@ -151,20 +169,24 @@ class Orchestrator:
         out = await run_agent("concierge", AgentInput(message=user, kind="customer", customer_id=conv.customer_id,
                                                       turn=turn_ctx, history=conv.histories.get("concierge", []),
                                                       prompt_label=self.prompt_label),
-                              transport=self.transport, state=RunState(), roster=self.roster, on_transfer=on_transfer)
+                              transport=self.transport, state=RunState(conversation_id=conv.session_id), roster=self.roster,
+                              on_transfer=on_transfer)
         conv.histories["concierge"] = out.history
         path += [p for p in out.path if p]
-        handoffs += [{"kind": "delegate", "from": "concierge", "to": p} for p in out.path if p in SPECIALISTS]
-        self._merge(conv, out.effects)
+        handoffs += out.handoffs
+        conv.turn_tools += out.tools
         return out.text, replied["by"]
 
     async def _continue(self, conv, message, turn_ctx, path, handoffs):
         owner = conv.owner
         ref = conv.tasks.get(owner, {})
+        started = time.time()
         res = await self.transport.handoff(frm="router", to=owner, kind="continue", reason="customer reply",
                                            message=message, payload={"customer_id": conv.customer_id}, turn=turn_ctx,
-                                           task_id=ref.get("task_id", ""), context_id=ref.get("context_id", ""), hop=1)
-        handoffs.append({"kind": "continue", "from": "router", "to": owner, "state": res.state})
+                                           task_id=ref.get("task_id", ""), context_id=ref.get("context_id", ""), hop=1,
+                                           prompt_label=self.prompt_label)
+        handoffs.append({"kind": "continue", "from": "router", "to": owner, "payload": {"customer_id": conv.customer_id},
+                         "state": res.state, "t": started})
         path.append(owner)
         return await self._after(conv, owner, res, message, turn_ctx, path, handoffs)
 
@@ -174,11 +196,14 @@ class Orchestrator:
             conv.owner = "concierge"
             return FALLBACK_REPLY, "router"
         ref = conv.tasks.get(to, {})
+        payload = {"customer_id": conv.customer_id, **(request.get("payload") or {})}
+        started = time.time()
         res = await self.transport.handoff(frm=frm, to=to, kind="transfer", reason=request.get("reason", ""),
-                                           message=request.get("message") or message,
-                                           payload={"customer_id": conv.customer_id, **(request.get("payload") or {})},
-                                           turn=turn_ctx, context_id=ref.get("context_id", ""), hop=len(handoffs) + 1)
-        handoffs.append({"kind": "transfer", "from": frm, "to": to, "state": res.state})
+                                           message=request.get("message") or message, payload=payload,
+                                           turn=turn_ctx, context_id=ref.get("context_id", ""), hop=len(handoffs) + 1,
+                                           prompt_label=self.prompt_label)
+        handoffs.append({"kind": "transfer", "from": frm, "to": to, "payload": payload, "state": res.state,
+                         "t": started})
         conv.transfers += 1
         path.append(to)
         return await self._after(conv, to, res, message, turn_ctx, path, handoffs)
@@ -186,8 +211,9 @@ class Orchestrator:
     async def _after(self, conv, agent, res: HandoffResult, message, turn_ctx, path, handoffs):
         """Apply a specialist's reply to the conversation state."""
         conv.tasks[agent] = {"task_id": res.task_id, "context_id": res.context_id}
-        self._merge(conv, res.data.get("effects") or {})
         path += [p for p in (res.data.get("path") or []) if p]
+        handoffs += res.data.get("handoffs") or []
+        conv.turn_tools += res.data.get("tools") or []
         if res.state == "failed":
             conv.owner = "concierge"
             return FALLBACK_REPLY, "router"
@@ -202,10 +228,3 @@ class Orchestrator:
         handback = res.data.get("handback") or {}
         conv.note = f"[{agent} handed the customer back to you. Summary: {handback.get('summary', res.text)[:400]}]"
         return res.text, agent
-
-    @staticmethod
-    def _merge(conv, effects: dict) -> None:
-        for k in ("credits", "technicians"):
-            for e in effects.get(k) or []:
-                if e not in conv.effects[k]:
-                    conv.effects[k].append(e)

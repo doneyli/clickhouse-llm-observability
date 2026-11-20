@@ -34,9 +34,10 @@ TOOLS: dict[str, tuple[str, dict, Callable[..., Any]]] = {
     "book_technician": ("Book a technician visit for a line (refused during an area outage).",
                         _obj({"line_id": S, "window": S}, ["line_id"]),
                         lambda st, **a: crm.book_technician(st, **a)),
-    "get_invoice": ("Get the customer's invoices (optionally one month, YYYY-MM).",
+    "get_invoice": ("Get the customer's invoices (optionally one month, YYYY-MM) and any credits already "
+                    "applied to the account that will show on the next invoice.",
                     _obj({"customer_id": S, "month": S}, ["customer_id"]),
-                    lambda st, **a: crm.get_invoice(**a)),
+                    lambda st, **a: crm.get_invoice(**a, state=st)),
     "get_plan": ("Get the plan and monthly price of a line.",
                  _obj({"line_id": S}, ["line_id"]),
                  lambda st, **a: crm.get_plan(**a)),
