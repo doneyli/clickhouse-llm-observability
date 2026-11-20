@@ -6,10 +6,11 @@ what a handoff looks like in a trace, how to keep a handoff in one trace and one
 and how to evaluate a system with handoffs. Design: [SPEC.md](SPEC.md).
 
 > **Status:** Phases 0–3 are built and run on Langfuse Cloud: the linkage harness (verified
-> live), the agents, the `single` / `local` / `a2a` topologies, managed prompts, the
-> `handoff-routing` dataset, and the three-topology experiment with its evaluators. The
-> online evaluators, the conversation dataset, the seeded faults, the CI gate, and the demo
-> script (Phases 4–6) are not built yet.
+> live), the agents, the `single` / `local` / `a2a` topologies, managed prompts, both
+> datasets, and the experiments with their evaluators. Phase 4 is in progress: the online
+> code evaluators, the simulated-customer conversations, session scores and the review
+> queue are live. The LLM judges, most seeded faults, the dashboards, the CI gate and the
+> demo script are not built yet.
 
 ## The agents
 
@@ -80,6 +81,36 @@ every item. `single` cost $0.0177 per item at 5.5 s mean latency; `local` $0.021
 and the A2A hop itself adds about half a second. Full table:
 [docs/TOPOLOGY_COMPARISON.md](docs/TOPOLOGY_COMPARISON.md); discussion in [SPEC.md §9](SPEC.md).
 
+## Online evaluation and production traffic
+
+```bash
+.venv/bin/python scripts/seed_evals.py --queue        # code evaluators + rules, score configs, review queue
+.venv/bin/python scripts/seed_evals.py --judges       # LLM judges (needs an Anthropic LLM connection)
+.venv/bin/python scripts/run_traffic.py               # 12 simulated conversations as production traffic
+.venv/bin/python scripts/run_experiment.py --topology a2a --dataset conversations
+```
+
+| Evaluator | Kind | Runs on | Catches |
+|---|---|---|---|
+| `handoff-context-complete` (+ `handoff-payload-clean`) | code, in Langfuse | every `handoff` | a handoff missing a field its target needs (fault F2), or carrying a card number |
+| `handoff-loop` (+ `handoff-count`) | code, in Langfuse | every turn root | ping-pong, repeated hops, the hop cap (fault F3) |
+| `handoff-appropriate` | LLM judge (Haiku 5.5) | every `handoff` | the wrong agent for the request, read against the roster (fault F1) |
+| `customer-resolved` | LLM judge (Sonnet 5.5) | every turn root | a reply that leaves the customer without an answer or a next step |
+
+Each rule selects its observation by `metadata.role` and runs only on production
+`support-turn` traces, so experiments never trigger them. A judge sees only the
+observation it matched, so the transport writes onto each `handoff` what its evaluators
+need: the target's required fields and the agent roster.
+
+`run_traffic.py` drives each conversation with a simulated customer (Haiku 5.5: a persona,
+a goal, what it knows). Every customer message is a `support-turn` trace and the
+conversation is one session. At the end it writes conversation-level scores on the
+session (`turns-to-resolution`, `transfers`, `conversation-ended-by`, `resolution-correct`
+against the ledger; Langfuse has no session-target judge). It also sends every conversation
+with a transfer to the **Transferred conversations** annotation queue as a `SESSION` item.
+On the first full run, every turn, handoff and session got its scores, and the queue got
+all 12 sessions.
+
 ## The linkage matrix (question 2)
 
 ```bash
@@ -101,5 +132,5 @@ Langfuse Cloud matched the offline table in every mode
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q tests   # oracle, ledger, evaluators, the five linkage modes
+.venv/bin/python -m pytest -q tests   # oracle, ledger, evaluators (incl. the uploaded code evaluators), linkage modes
 ```
