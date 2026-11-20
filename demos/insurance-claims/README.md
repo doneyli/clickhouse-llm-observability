@@ -27,7 +27,7 @@ Examiner workbench :8095 ──► LangGraph claims graph ──► policy-admin
                                │  load-claim → intake → policy-coverage → screening → assemble → sop-rules
                                │  → critical-rule guard → adjudication → examiner review (interrupt) → letter
               one OpenTelemetry TracerProvider per process
-               ├─► Langfuse (PII-masked)     Cloud project, or self-hosted Enterprise on :3200
+               ├─► Langfuse (PII-masked)     Cloud project, the shared local Enterprise instance, or both
                └─► APM, payload-free copy, same trace ids — Jaeger :16686 as the Dynatrace stand-in
 ```
 
@@ -52,9 +52,20 @@ docker compose --profile apm up -d                         # Jaeger (skip if the
 ./scripts/run_services.sh                                  # MCP + A2A + workbench → http://127.0.0.1:8095
 ./scripts/run_all_experiments.sh --fresh                   # the experiment matrix (~45 min)
 ./scripts/run_traffic.sh                                   # production-like traffic for dashboards + judges
-./scripts/bootstrap_selfhosted.sh                          # optional: self-hosted Enterprise on :3200
+./scripts/bootstrap_selfhosted.sh                          # optional: Enterprise governance on the shared local Langfuse
 .venv/bin/python scripts/verify_demo.py                    # readiness check
 ```
+
+**Cloud, self-hosted, or both.** `CLAIMS_PROFILE=cloud` uses `.env.cloud`; `selfhosted` uses
+`.env.selfhosted`; `dual` (the default once both exist) keeps Cloud as the primary and also sends every
+span, score and media item (claim photos) to the local instance, with the same ids and the same PII masking. A stopped local instance
+never affects Cloud ingest: one warning, then the copy resumes when it is back. The local target is the ONE
+Langfuse shared by all the standalone demos — `python scripts/langfuse_local.py provision insurance-claims`
+(from the repo root) reuses a healthy local Langfuse v4 instance or starts the shared one, and writes
+`.env.selfhosted`; this demo has no Langfuse containers of its own. `python scripts/langfuse_local.py status`
+shows which instance it is. `./scripts/seed_targets.sh` seeds prompts, judges, datasets and dashboards into
+both projects (`./scripts/seed_targets.sh selfhosted` for the local one only), and the workbench links the
+"Self-hosted copy" of each trace and claim session. See [docs/LANGFUSE_DUAL_INGEST.md](../../docs/LANGFUSE_DUAL_INGEST.md).
 
 Model keys come from this demo's `.env` or the repo-root `.env`. Shell-exported `LANGFUSE_*` variables
 are ignored on purpose (`claims/config.py`). Processes do not hot-reload: restart with

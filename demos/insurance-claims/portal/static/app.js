@@ -53,6 +53,9 @@ async function openClaim(id) {
   renderClaim(d);
 }
 
+// Dual mode: the same trace/session on the local self-hosted copy.
+function mirrorLink(url) { return url ? `<a href="${url}" target="_blank" rel="noopener">Self-hosted copy ↗</a>` : ""; }
+
 function kv(label, value) { return `<div class="kv"><small>${label}</small><b>${esc(value ?? "—")}</b></div>`; }
 
 function renderClaim(d) {
@@ -60,7 +63,7 @@ function renderClaim(d) {
   const amount = pol.face_amount ?? (pol.basic_amount != null ? pol.basic_amount + (pol.supplemental_amount || 0) : pol.contract_value);
   $("#detail").innerHTML = `
     <div class="card"><div class="title-row"><div><h1>${s.claim_id} · ${esc(s.insured)}</h1><p>${esc(s.scenario)}</p></div>
-      <div class="links"><a href="${d.session_url}" target="_blank" rel="noopener">Claim session in Langfuse ↗</a></div></div>
+      <div class="links"><a href="${d.session_url}" target="_blank" rel="noopener">Claim session in Langfuse ↗</a>${mirrorLink(d.mirror_session_url)}</div></div>
       <div class="grid" style="margin-top:12px">
         ${kv("Product", h.line.replace("_", " "))}${kv("Governing state", h.governing_state)}${kv("Policy", h.policy_number)}
         ${kv("Issue date", pol.issue_date)}${kv("Status at death", pol.status_at_death)}${kv("Amount", money(amount))}
@@ -108,7 +111,7 @@ function recHtml(r) {
   const guard = r.guard && r.guard.triggered ? `<div class="guard">⚠️ <b>Critical-rule guard:</b> the agent missed ${esc(r.guard.missing.join(", "))}. The codified rule was added before adjudication${r.recommendation !== "PAY" ? " — the claim is held, not paid" : ""}.</div>` : "";
   return `<div class="rec-head" style="margin-top:12px"><span class="badge ${r.recommendation}">${r.recommendation}</span>
       ${c.gross_benefit != null ? `<span>Gross <b>${money(c.gross_benefit)}</b> · interest <b>${money(c.interest_due)}</b> <span class="muted small">${c.interest_rule || ""}</span></span>` : ""}
-      <span class="links"><a href="${r.trace_url}" target="_blank" rel="noopener">Trace in Langfuse ↗</a><a href="${r.apm_url}" target="_blank" rel="noopener">Same trace in APM ↗</a></span>
+      <span class="links"><a href="${r.trace_url}" target="_blank" rel="noopener">Trace in Langfuse ↗</a>${mirrorLink(r.mirror_trace_url)}<a href="${r.apm_url}" target="_blank" rel="noopener">Same trace in APM ↗</a></span>
       <span class="small muted">≈ $${(r.cost_usd || 0).toFixed(3)} · prompts ${Object.entries(r.prompt_versions || {}).map(([k, v]) => `${k.replace("claims-", "")} v${v}`).join(", ")}</span></div>
     ${guard}
     <p class="small muted">Retrieved ${r.retrieved.length} SOPs · citation validity ${r.citation_validity?.score ?? "—"} · retrieval coverage ${r.retrieval_coverage?.score ?? "—"}${r.retrieval_coverage?.missing?.length ? ` (missing ${r.retrieval_coverage.missing.join(", ")})` : ""}</p>
@@ -123,7 +126,7 @@ function reviewHtml(d) {
     const fd = esc(d.review_result.final_decision);
     return `<h3>Examiner decision</h3><p><span class="badge ${fd}">${fd}</span>
       <span class="small muted" style="margin-left:8px">${d.review.action === "approve" ? "approved as recommended" : `overridden (${esc(d.review.reason)})`} · ${esc(d.review.note)}</span>
-      <span class="links" style="margin-left:10px"><a href="${d.review_result.trace_url}" target="_blank" rel="noopener">Review trace ↗</a></span></p>
+      <span class="links" style="margin-left:10px"><a href="${d.review_result.trace_url}" target="_blank" rel="noopener">Review trace ↗</a>${mirrorLink(d.review_result.mirror_trace_url)}</span></p>
       <h3>Letter to the claimant</h3><div class="letter">${esc(d.review_result.letter)}</div>`;
   }
   return `<h3>Examiner review</h3>
@@ -160,7 +163,7 @@ async function processClaim(id) {
   } catch (e) { $("#proc-status").textContent = "Error: " + e.message; btn.disabled = false; btn.textContent = "Process claim"; }
 }
 
-function ansHtml(a) { return `<div class="answer"><b>Q:</b> ${esc(a.question)}<br><b>A:</b> ${esc(a.answer)} <a class="small" href="${a.trace_url}" target="_blank" rel="noopener">trace ↗</a></div>`; }
+function ansHtml(a) { return `<div class="answer"><b>Q:</b> ${esc(a.question)}<br><b>A:</b> ${esc(a.answer)} <a class="small" href="${a.trace_url}" target="_blank" rel="noopener">trace ↗</a>${a.mirror_trace_url ? ` <a class="small" href="${a.mirror_trace_url}" target="_blank" rel="noopener">self-hosted ↗</a>` : ""}</div>`; }
 
 async function ask(id) {
   const q = $("#question").value.trim();

@@ -177,7 +177,7 @@ async def _traced(request_id: str, event: str, graph_input, *, mode: str, labels
             lf.create_score(trace_id=trace_id, observation_id=root_id, name="guard-triggered",
                             value=1 if state["guard"]["triggered"] else 0, data_type="BOOLEAN")
     return {**out, "request_id": request_id, "trace_id": trace_id, "root_id": root_id, "thread_id": thread_id,
-            "trace_url": settings.trace_url(trace_id),
+            "trace_url": settings.trace_url(trace_id), "mirror_trace_url": settings.mirror_trace_url(trace_id),
             "session_url": settings.session_url(session_id) if session_id else None, "state": state,
             "prompt_versions": rt.served}
 

@@ -235,20 +235,20 @@ flowchart LR
 
 ## 6. Demo vs production
 
-The local stack (`../docker-compose.yml`, project `northwind`) mirrors the production topology, with single containers instead of managed services.
+The local stack mirrors the production topology, with single containers instead of managed services. Langfuse is the shared local stack (`../../../infra/langfuse-local/docker-compose.yml`, project `langfuse-local`, used by every standalone demo); n8n and Jaeger are in `../docker-compose.yml` (project `northwind`).
 
 | Demo component (compose) | Demo setting | Production equivalent |
 |---|---|---|
-| `langfuse-web` 4.53.0, port 3100 → 3000 | `NEXTAUTH_URL=http://localhost:3100`, password login | EKS Deployment ≥ 2 replicas behind the internal ALB, HPA. `NEXTAUTH_URL=https://langfuse.<internal-domain>`. Entra ID SSO, password login disabled |
-| `langfuse-worker` 4.53.0, 127.0.0.1:13030 | Single replica | EKS Deployment ≥ 2 replicas. Autoscale on CPU or queue depth. Liveness probe `:3030/api/health?failIfQueueConsumptionStuck=true` |
+| `langfuse-web` 4.70.1, port 3300 → 3000 | `NEXTAUTH_URL=http://localhost:3300`, password login | EKS Deployment ≥ 2 replicas behind the internal ALB, HPA. `NEXTAUTH_URL=https://langfuse.<internal-domain>`. Entra ID SSO, password login disabled |
+| `langfuse-worker` 4.70.1, 127.0.0.1:13330 | Single replica | EKS Deployment ≥ 2 replicas. Autoscale on CPU or queue depth. Liveness probe `:3030/api/health?failIfQueueConsumptionStuck=true` |
 | `postgres:17` container | Local volume, `TZ=UTC` | RDS PostgreSQL 16, Multi-AZ, KMS, PITR, UTC |
 | `redis:7` | `--maxmemory-policy noeviction`, password | ElastiCache Redis 7.2 / Valkey 8, noeviction parameter group, TLS, Multi-AZ failover |
 | `clickhouse-server:25.12` single container | `CLICKHOUSE_CLUSTER_ENABLED=false` | ClickHouse BYOC, or operator with 3 replicas + 3 Keeper, single shard, 26.4 recommended. TLS URLs (8443 / 9440) |
 | `minio` with `events/`, `media/`, `exports/` prefixes in one bucket | Static keys, path-style | S3 buckets or prefixes, SSE-KMS, gateway endpoint, IRSA (no static keys). Lifecycle on events only, never on media |
 | `LANGFUSE_S3_BATCH_EXPORT_ENABLED=true` | MinIO presigned URLs | Exports bucket. External endpoint reachable by analyst desktops |
-| `LANGFUSE_INIT_*` bootstrap | One org, project `retail-assistant`, one owner | First project only. Then Org Management API / SCIM. One project per application |
-| `LANGFUSE_EE_LICENSE_KEY` read by `../scripts/up.sh` from the repo-root `.env` | Never copied into demo files | AWS Secrets Manager → External Secrets, on web **and** worker |
-| `SALT`, `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`, DB passwords in `.env` | Demo values | Generated, stored in Secrets Manager, rotated. `ENCRYPTION_KEY` = 64 hex chars (`openssl rand -hex 32`) |
+| `scripts/langfuse_local.py provision bank-assistant` | Org `northwind`, project `retail-assistant`, one key; `scripts/bootstrap_selfhosted.sh` adds the owner and RBAC users | First project only. Then Org Management API / SCIM. One project per application |
+| `LANGFUSE_EE_LICENSE_KEY` read by `scripts/langfuse_local.py up` from the repo-root `.env` | Never copied into demo files | AWS Secrets Manager → External Secrets, on web **and** worker |
+| `SALT`, `NEXTAUTH_SECRET`, `ENCRYPTION_KEY` in `infra/langfuse-local/.env`, DB passwords in the compose file | Generated demo values | Generated, stored in Secrets Manager, rotated. `ENCRYPTION_KEY` = 64 hex chars (`openssl rand -hex 32`) |
 | `TELEMETRY_ENABLED=false` | Intended as "no call-home" | **Has no effect with an EE license**, which always reports aggregated telemetry. Handle it in the egress decision |
 | `AUTH_AZURE_AD_*` (commented out) | Off | Enabled (see [ENTERPRISE_SECURITY.md](ENTERPRISE_SECURITY.md)). Note the linking variable is `AUTH_AZURE_AD_ALLOW_ACCOUNT_LINKING` |
 | `jaeger` 2.22.0 (UI :16686, OTLP :14318) | Local infrastructure observability | Example: Dynatrace via an ActiveGate in the VPC (see [DYNATRACE.md](DYNATRACE.md)) |
