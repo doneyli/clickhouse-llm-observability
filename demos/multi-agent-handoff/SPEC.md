@@ -1,6 +1,6 @@
 # Multi-agent handoff demo (A2A) — design spec
 
-**Status:** Phases 0–3 built and run on Langfuse Cloud (linkage harness verified live, agents, single/local/A2A topologies, managed prompts, `handoff-routing` dataset, three-topology experiment). The `handoff-conversations` dataset moves to Phase 4 with the user simulator. Phases 4–6 not started. Tracks DON-245.
+**Status:** Phases 0–3 built and run on Langfuse Cloud. Phase 4 in progress: online code evaluators live (verified on production traffic), `handoff-conversations` dataset with a simulated customer, conversation-level session scores, the SESSION review queue, `run_traffic.py`. Not yet: the two LLM judges (seeded once the project has an Anthropic LLM connection), fault switches F1/F3/F5, dashboards, `verify_demo.py`. Phases 5–6 not started. Tracks DON-245.
 **Scope size:** Medium. New standalone demo, own venv, three local agent services.
 Customer-agnostic: Northwind Mobile is fictional and all data is synthetic.
 
@@ -493,7 +493,29 @@ a partner agent you do not control, conversations that move between owners. Thos
 what the conversation dataset (Phase 4) and the faults (Phase 5) test. With 40 items and
 one run each, a one-item difference (0.97 vs. 1.00) is noise.
 
-The first batch of runs, before these, failed on four things, and none of them was an
+**Multi-turn, measured (2026-11-19):** one run per topology on `handoff-conversations`
+(12 goals, a simulated customer; `docs/CONVERSATION_COMPARISON.md`). Every topology
+reached the right back-office state in all 12. Cost per conversation, simulator
+included: `single` $0.0555, `local` $0.0589, `a2a` $0.0664. Mean turns 3.8 / 3.3 / 4.1.
+The simulated customer ended satisfied in 8 / 9 / 7 of 12, which is noise at this size.
+So across turns too, the extra agents buy no accuracy on this desk; they cost 6–20% more
+and the A2A hop adds latency.
+
+Building the conversation runs surfaced three more things, none of them a handoff bug:
+- **The simulator must return a status, not a token.** Haiku 5.5 thinks by default and
+  thinking tokens count against `max_tokens`; with a 300-token budget some replies came
+  back with no text. With thinking off, it rarely said "DONE" and kept asking for exact
+  appointment slots after its goal was met (21 of 36 conversations hit the turn limit).
+  A structured `{status, message}` reply fixed both: 24 of 36 now end because the
+  customer is done.
+- **An unanswerable goal.** A throttled line had no explanation anywhere in the tools or
+  the KB, so agents could only say "we can't tell". `get_plan` now reports priority-data
+  usage.
+- **A real policy miss, kept on purpose.** Pushed by the customer, tech-support booked a
+  technician for a throttled line, which KB-207 forbids (no fault at the address).
+  `resolution-correct` reads the ledger and failed it; the reply alone looked helpful.
+
+The first batch of routing runs failed on four things, and none of them was an
 agent: the policy credited an ongoing outage, the context check misread delegations, and
 two dataset items had the wrong ideal path or an ambiguous request. Reading the failing
 scores' comments found each one. That is the loop's first lesson: check the evaluator
@@ -603,6 +625,7 @@ demos/multi-agent-handoff/
 | 2. A2A | Services, `A2ATransport`, transfer/continue/hand-back state, peer hop, linkage modes, `linkage_matrix.py` | The hero scenario on `a2a` gives one trace across three processes, and the matrix script reproduces Phase 0 |
 | 3. Evals offline | Datasets, item and run evaluators, the three-topology comparison | Three experiment runs comparable in the UI |
 | 4. Evals online + faults | Code evaluators, judges, annotation queue, F1–F5 switches, dashboards, `run_traffic.py` | Each fault trips its catching layer in `verify_demo.py` |
+| | *Progress (2026-11-19):* code evaluators live and verified; conversation dataset + simulator + session scores; SESSION queue; `run_traffic.py`. F2 and F4 switches exist. Open: judges (need the project's LLM connection), F1/F3 prompt labels, F5 switch, dashboards, `verify_demo.py`. | |
 | 5. Loop + gate + script | `promote_to_dataset.py`, `prompt_gate.py`, workflow, `DEMO_SCRIPT.md`, README with measured numbers, repo indexes (demos/README, docs/README, AI_ENGINEERING_LOOP.md, CLAUDE.md layout) | One full pass of §17 runs live: F1 in production → flagged → labelled → fixed → gated → promoted → misroute rate down |
 | 6. Optional | device-protection partner (black box), second-framework specialist, chat portal | |
 
