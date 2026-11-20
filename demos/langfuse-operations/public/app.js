@@ -1,6 +1,10 @@
 'use strict';
 const $ = selector => document.querySelector(selector);
-const state = {workflow:'application',config:null,apps:[],projectId:'',run:null,selected:0,view:'script',source:null,busy:false,follow:true,resetPreview:null,resetLoading:false,demoTag:null,memberFieldsFor:''};
+const state = {workflow:'application',config:null,apps:[],projectId:'',run:null,selected:0,view:'script',source:null,busy:false,follow:true,resetPreview:null,resetLoading:false,demoTag:null,memberFieldsFor:null};
+const teamSlots = [
+  {name:'maya', defaultRole:'MEMBER', email:$('#member-one-email'), role:$('#member-one-role')},
+  {name:'alex', defaultRole:'VIEWER', email:$('#member-two-email'), role:$('#member-two-role')},
+];
 const descriptions = {
   governance:'Protect production promotion with real human roles: Member can change staging, Member is denied production, Admin can promote. Writable service keys keep CI access.',
   audit:'Make a controlled role change and correlate it with Langfuse’s persisted audit records. Prepares the dedicated governance project when needed.',
@@ -44,7 +48,8 @@ function fieldVisibility() {
   $('#key-role-description').textContent=keyRoleDescriptions[$('#key-role').value]||'Choose the access required by the integration.';
   $('#application-name').required=applicationWorkflow;$('#team-name').required=applicationWorkflow;
   $('#retention-days').required=applicationWorkflow;$('#application-count').required=applicationWorkflow;
-  $('#member-one-email').required=state.workflow==='team';$('#member-two-email').required=state.workflow==='team';
+  const needsTeamEmail = state.workflow === 'team' && !teamSlots.some(slot => slot.email.value.trim());
+  for (const slot of teamSlots) slot.email.required = needsTeamEmail;
   const days=Number($('#retention-days').value);
   $('#retention-days').setCustomValidity(state.workflow==='application'&&(days===1||days===2)?'Retention must be 0 or at least 3 days.':'');
   $('#workflow-title').textContent=action.title;$('#workflow-description').textContent=descriptions[state.workflow];
@@ -91,17 +96,34 @@ function renderProjects() {
   const memberSelector=$('#selected-member'),previous=memberSelector.value;memberSelector.replaceChildren();
   for(const member of app()?.members||[])if(member.active){const option=document.createElement('option');option.value=member.userId;option.textContent=member.email+' ('+member.role+')';memberSelector.append(option);}
   if([...memberSelector.options].some(option=>option.value===previous))memberSelector.value=previous;
-  const members=app()?.members||[],switched=state.memberFieldsFor!==state.projectId;state.memberFieldsFor=state.projectId;
-  // A slot the selected project has no member for must not keep another project's identity: on a project
-  // switch it falls back to this run's fresh demo identity, or to blank when another project already uses it.
-  const used=new Set(state.apps.flatMap(item=>(item.members||[]).map(member=>member.email)));
-  [['one','maya','MEMBER'],['two','alex','VIEWER']].forEach(([slot,name,role],index)=>{
-    const email=$('#member-'+slot+'-email'),roleField=$('#member-'+slot+'-role');
-    if(members[index]){email.value=members[index].email;roleField.value=members[index].role;}
-    else if(switched){const fresh=state.demoTag?name+'.demo+'+state.demoTag+'@example.invalid':'';email.value=used.has(fresh)?'':fresh;roleField.value=role;}
-  });
+  renderTeamFields();
   renderResources();
   renderOrganizations($('#resource-list'));
+}
+function renderTeamFields() {
+  const switched = state.memberFieldsFor !== state.projectId;
+  state.memberFieldsFor = state.projectId;
+  const members = app()?.members || [];
+  const used = new Set(state.apps.flatMap(item => (item.members || []).map(member => member.email)));
+
+  teamSlots.forEach((slot, index) => {
+    const member = members[index];
+    const fresh = state.demoTag ? `${slot.name}.demo+${state.demoTag}@example.invalid` : '';
+    const defaults = {
+      email: member?.email ?? (used.has(fresh) ? '' : fresh),
+      role: member?.role ?? slot.defaultRole,
+    };
+    // A refresh may change defaults while the presenter is editing this email/role pair.
+    const previous = slot.defaults;
+    const edited = previous && (slot.email.value !== previous.email || slot.role.value !== previous.role);
+    const claimedSuggestion = fresh && previous?.email === fresh && slot.email.value === fresh
+      && used.has(fresh) && member?.email !== fresh;
+    if (switched || !edited || claimedSuggestion) {
+      slot.email.value = defaults.email;
+      slot.role.value = defaults.role;
+      slot.defaults = defaults;
+    }
+  });
 }
 function renderResources() {
   const container=$('#resource-list');container.replaceChildren();
@@ -214,7 +236,9 @@ function parameters() {
   if(state.workflow==='application')return {applicationName:$('#application-name').value,teamName:$('#team-name').value,retentionDays:Number($('#retention-days').value),applicationCount:Number($('#application-count').value),keyRole:$('#key-role').value};
   const p={projectId:state.projectId};
   if(state.workflow==='keys')p.keyRole=$('#key-role').value;
-  if(state.workflow==='team')p.members=[{email:$('#member-one-email').value,role:$('#member-one-role').value},{email:$('#member-two-email').value,role:$('#member-two-role').value}];
+  if (state.workflow === 'team') {
+    p.members = teamSlots.map(slot => ({email:slot.email.value.trim(), role:slot.role.value})).filter(member => member.email);
+  }
   if(state.workflow==='permissions'){p.userId=$('#selected-member').value;p.role=$('#target-role').value;}
   return p;
 }
