@@ -1,6 +1,6 @@
 # Multi-agent handoff demo (A2A) — design spec
 
-**Status:** Phases 0–2 built (linkage harness, agents, local + A2A topologies); Phases 3–6 not started. Tracks DON-245.
+**Status:** Phases 0–3 built and run on Langfuse Cloud (linkage harness verified live, agents, single/local/A2A topologies, managed prompts, `handoff-routing` dataset, three-topology experiment). The `handoff-conversations` dataset moves to Phase 4 with the user simulator. Phases 4–6 not started. Tracks DON-245.
 **Scope size:** Medium. New standalone demo, own venv, three local agent services.
 Customer-agnostic: Northwind Mobile is fictional and all data is synthetic.
 
@@ -305,12 +305,18 @@ or marked as an application root by the SDK.
 | `session` | A2A message metadata `session_id` / `user_id` (application level), no trace headers | 3 | 3 | 5/5 · 5/5 | **Asynchronous or long-running handoffs**: the remote work outlives the turn. Each agent's run is its own trace (`tech-support-task`, `billing-task`) in the same session, linked back by `parent_trace_id`. |
 
 No mode produced a dangling parent (a parent span that was never exported), because the
-`a2a-sdk` telemetry stays off (rule 2 below). The same run with real LLM agents
-(`scripts/run_scenario.py hero-outage-credit --topology a2a`) gave the `baggage` row: one
-trace across three services, one APP-ROOT on `support-turn`, and the session on all 20
-observations. **Still to verify against a live Langfuse server:** how the server derives
-`isRootObservation` and session aggregates from these spans, and how many times a
-root-filtered judge actually fires.
+`a2a-sdk` telemetry stays off (rule 2 below).
+
+**Verified on Langfuse Cloud (2026-11-19, US, SDK 5.2.0).** `linkage_matrix.py --live`
+ran every mode against the demo's project and read the result back through
+`GET /api/public/v2/observations`. All five rows matched the offline table, with the
+server's own `isRootObservation` in the roots column: `traceparent` alone is **one trace
+with three server roots** (`support-turn`, `tech-support`, `billing`). The same turn with
+real LLM agents (`run_scenario.py hero-outage-credit --topology a2a`) gave the `baggage`
+row on Cloud: 21 observations from three processes in one trace, `isRootObservation`
+true only on `support-turn`, and session and user on all 21. The live table is in
+`docs/LINKAGE_MATRIX.live.md`. **Still to measure:** how many times a root-filtered judge
+fires per mode (Phase 4, once the judges exist).
 
 The mechanism behind the `traceparent` row is already documented in this repo
 (`docs/LANGFUSE_V4_MIGRATION_SPEC.md` §16 and the bank-assistant MCP hop). The receiving
@@ -326,10 +332,13 @@ The A2A spec defines no tracing field. Its enterprise guidance says to use
 OpenTelemetry with W3C Trace Context in ordinary HTTP headers, and that is what the
 demo does. Three implementation rules:
 
-1. **Inject on the A2A client only**, through an `a2a-sdk` `ClientCallInterceptor` (or a
-   request hook on the client's httpx instance; Phase 0 picks one). Do **not** install
-   global httpx auto-instrumentation to get this. The Anthropic SDK also uses httpx, so
-   the session and user baggage would ride along on every model API call.
+1. **Inject on the A2A client only**, per call. `a2a-sdk` 1.3 sends
+   `ClientCallContext(service_parameters=...)` as HTTP headers on that one call, so no
+   interceptor is needed. Do **not** install global httpx auto-instrumentation to get
+   this. The Anthropic SDK also uses httpx, so the session and user baggage would ride
+   along on every model API call. Anthropic SDK 2.11 does this on its own: it injects
+   trace headers, baggage included, into model API calls through the global propagator.
+   The demo's client turns that off (`open_telemetry={"traces": False, "propagation": False}`).
 2. **Inject from the `handoff` observation's context.** Leave the SDK's own spans off
    (`OTEL_INSTRUMENTATION_A2A_SDK_ENABLED=false`). If an `a2a-sdk` CLIENT span is
    current when the headers are written, the remote agent gets that span as its parent.
@@ -348,17 +357,21 @@ inside, and the demo records it on the `handoff` output when the partner sends o
 
 ### Measuring the matrix
 
-`scripts/linkage_matrix.py` runs the hero scenario once per mode. It then reads the
-results back through the v2 observations API and prints the measured table: trace
-count, `isRootObservation` count, the share of remote observations with `sessionId`,
-the environment on remote rows, and how many times the root-filtered judge fired. The
-README publishes that output, not the "expected" column above.
+`scripts/linkage_matrix.py` runs one turn per mode with deterministic stub agents, so
+it needs no LLM key. Offline (the default, and the test) it reads each process's
+exported spans from files. With `--live` it runs each mode again against the project in
+the demo `.env`, in the `linkage-matrix` environment so the runs stay out of the demo's
+dashboards, and reads them back through the v2 observations API. Spans from split
+modes have no session, so each mode is found by environment plus its time window. The
+output is the trace count, the server's `isRootObservation` count, the share of remote
+observations with `sessionId` / `userId`, dangling parents, and whether live matched
+offline. Phase 4 adds how many times the root-filtered judge fired.
 
 ## 7. Data
 
 All synthetic, under `data/`:
 
-- `customers.json`: 40 customers with lines (`mobile` / `home-internet`), plans,
+- `customers.json`: 42 customers with lines (`mobile` / `home-internet`), plans,
   addresses (zip only), and invoices.
 - `outages.json`: outage windows by zip, including one that spans midnight (the
   credit-period edge case).
@@ -366,9 +379,16 @@ All synthetic, under `data/`:
 - `policy.py`: a **deterministic credit oracle**. Credit = pro-rated daily rate ×
   outage hours, rounded up to whole days, capped at one month, and only if the outage
   is confirmed. The oracle is the ground truth for `credit-amount-correct`.
-- Fake CRM writes (`issue_credit`, `book_technician`) go to an in-memory store per run
-  and are returned in the run record, so outcome evaluators can check state and not
-  just prose.
+- Fake CRM writes (`issue_credit`, `book_technician`) go to a **shared ledger**: one
+  SQLite file (`.run/ledger.sqlite`, `HANDOFF_LEDGER`) that every agent in every process
+  reads and writes, keyed by conversation id. That is the system of record a real support
+  desk has. The conversation id travels as business data in the A2A message metadata, so
+  the ledger works in every linkage mode, `none` included. `get_invoice` shows credits
+  already applied, and the write paths refuse duplicates (one credit per line and outage,
+  one technician visit per line). The run record's effects are read from the ledger, so
+  outcome evaluators check what was written, not what a reply claims. The first live run
+  (with a per-call store) showed why: billing issued the credit on tech-support's peer
+  hop, then on the next turn told the customer no credit was on the account.
 
 ### Datasets (Langfuse)
 

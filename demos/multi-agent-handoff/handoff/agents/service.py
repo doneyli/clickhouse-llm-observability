@@ -24,15 +24,19 @@ def make_handler(name: str):
         transport = _TRANSPORTS.setdefault(req.linkage, A2ATransport(req.linkage))
         customer_id = str(req.data.get("customer_id") or req.metadata.get("customer_id") or "")
         history = _HISTORY.get(req.context_id, []) if kind != "delegate" else []
+        conversation_id = str(req.metadata.get("conversation_id") or (req.turn.session_id if req.turn else "")
+                              or req.context_id)
         out = await run_agent(name, AgentInput(
             message=req.text, kind=kind, customer_id=customer_id, turn=req.turn,
             payload=req.data if kind in ("transfer", "delegate") else {}, history=history,
             frm=str(req.metadata.get("handoff_from", "")), hop=int(req.metadata.get("handoff_hop") or 1),
-            prompt_label=req.metadata.get("prompt_label")), transport=transport, state=RunState(),
+            prompt_label=req.metadata.get("prompt_label")), transport=transport,
+            state=RunState(conversation_id=conversation_id),
             open_observation=False)
         if kind != "delegate":
             _HISTORY[req.context_id] = out.history
-        data = {"effects": out.effects, "path": out.path, "prompt_version": out.prompt_version}
+        data = {"effects": out.effects, "path": out.path, "prompt_version": out.prompt_version,
+                "tools": out.tools, "handoffs": out.handoffs}
         if out.transfer:
             data["transfer"] = out.transfer
         if out.handback:

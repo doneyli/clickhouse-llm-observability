@@ -54,7 +54,8 @@ class A2ATransport:
 
     async def handoff(self, *, frm: str, to: str, kind: str, reason: str, message: str, payload: dict,
                       turn: TurnContext, task_id: str = "", context_id: str = "", hop: int = 1,
-                      linkage: Optional[str] = None) -> HandoffResult:
+                      linkage: Optional[str] = None, conversation_id: str = "",
+                      prompt_label: Optional[str] = None) -> HandoffResult:
         from handoff.a2a_client import A2AError
 
         mode = linkage or self.linkage
@@ -63,8 +64,12 @@ class A2ATransport:
                                   hop=hop, linkage=mode, transport=self.name) as obs:
             try:
                 with outbound(mode, turn) as (headers, meta):
+                    # Business data, not tracing: the case the work belongs to travels with the
+                    # message in every linkage mode, so the ledger works even when traces split.
                     meta = {**meta, "handoff_linkage": mode, "handoff_kind": kind, "handoff_from": frm,
-                            "handoff_hop": str(hop), "customer_id": str(payload.get("customer_id", ""))}
+                            "handoff_hop": str(hop), "customer_id": str(payload.get("customer_id", "")),
+                            "conversation_id": conversation_id or turn.session_id or "",
+                            **({"prompt_label": prompt_label} if prompt_label else {})}
                     r = await self.pool.send(url, text=message, data=payload, task_id=task_id,
                                              context_id=context_id, headers=headers, metadata=meta)
                 res = HandoffResult(state=r.state, text=r.text, data=r.data, task_id=r.task_id,
@@ -95,12 +100,14 @@ class LocalTransport:
 
     async def handoff(self, *, frm: str, to: str, kind: str, reason: str, message: str, payload: dict,
                       turn: TurnContext, task_id: str = "", context_id: str = "", hop: int = 1,
-                      linkage: Optional[str] = None) -> HandoffResult:
+                      linkage: Optional[str] = None, conversation_id: str = "",
+                      prompt_label: Optional[str] = None) -> HandoffResult:
         with _handoff_observation(frm=frm, to=to, kind=kind, reason=reason, message=message, payload=payload,
                                   hop=hop, linkage="in-process", transport=self.name) as obs:
             try:
                 res = await self.agents[to](message=message, payload=payload, turn=turn, task_id=task_id,
-                                            context_id=context_id, frm=frm, kind=kind)
+                                            context_id=context_id, frm=frm, kind=kind,
+                                            conversation_id=conversation_id or turn.session_id or "")
             except Exception as exc:  # noqa: BLE001 — same contract as a failed A2A task
                 res = HandoffResult(state="failed", text=f"{to} failed: {type(exc).__name__}: {exc}"[:300])
             _record(obs, res, {"a2a_task_id": res.task_id, "a2a_context_id": res.context_id})

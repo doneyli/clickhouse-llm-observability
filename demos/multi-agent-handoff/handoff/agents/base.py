@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -61,6 +62,28 @@ class Roster:
                         "skills": [s["description"] for s in a.skills], "version": config.RELEASE}
                     for n, a in AGENTS.items() if n not in ("concierge", "single")})
 
+    @classmethod
+    async def from_cards(cls, names) -> "Roster":
+        """A2A discovery: each specialist's `/.well-known/agent-card.json`, registry as fallback."""
+        import httpx
+
+        entries = cls.from_registry().entries
+        async with httpx.AsyncClient(timeout=5) as client:
+            for n in names:
+                try:
+                    card = (await client.get(f"{config.agent_url(n)}/.well-known/agent-card.json")).json()
+                except (httpx.HTTPError, ValueError):
+                    continue  # agent down: keep the registry entry; the handoff itself will fail cleanly
+                entries[n] = {"description": card.get("description", ""),
+                              "skills": [sk.get("description", "") for sk in card.get("skills", [])],
+                              "version": card.get("version", ""), "source": "agent-card",
+                              "required_fields": AGENTS[n].required_fields}
+        return cls(entries)
+
+    @property
+    def source(self) -> str:
+        return "agent-card" if any(e.get("source") == "agent-card" for e in self.entries.values()) else "registry"
+
     def text(self, names: list[str]) -> str:
         lines = []
         for n in names:
@@ -94,6 +117,8 @@ class AgentOutput:
     history: list = field(default_factory=list)
     path: list = field(default_factory=list)  # agents reached by this run's delegations
     prompt_version: str = "fallback"
+    tools: list = field(default_factory=list)  # "agent:tool" in call order, delegations included
+    handoffs: list = field(default_factory=list)  # this run's delegations (and theirs), with payloads
 
 
 def _handoff_schema(target: str, kind: str) -> dict:
@@ -137,6 +162,11 @@ def _tools_for(spec: AgentSpec, kind: str) -> list[dict]:
 def _target(name: str, prefix: str) -> str:
     raw = name[len(prefix):]
     return next(a for a in AGENTS if tool_name(a) == raw)
+
+
+def _skipped(uses: list) -> list[dict]:
+    return [{"type": "tool_result", "tool_use_id": u["id"], "content": "not run: the conversation moved on"}
+            for u in uses]
 
 
 def slim(payload: dict) -> dict:
@@ -207,7 +237,7 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                 out.state = "input-required" if inp.kind in ("transfer", "continue") else "completed"
                 return
             results = []
-            for tu in uses:
+            for i, tu in enumerate(uses):
                 tname, args = tu["name"], dict(tu.get("input") or {})
                 if tname.startswith("transfer_to_"):
                     target = _target(tname, "transfer_to_")
@@ -215,8 +245,9 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                                     "message": args.get("issue_summary", ""), "payload": slim(args)}
                     out.text = text
                     out.state = "completed"
-                    messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tu["id"],
-                                                                  "content": f"transferred to {target}"}]})
+                    messages.append({"role": "user", "content": results + [
+                        {"type": "tool_result", "tool_use_id": tu["id"], "content": f"transferred to {target}"}]
+                        + _skipped(uses[i + 1:])})
                     if on_transfer is not None:
                         out.text, out.state = await on_transfer(out.transfer)
                     return
@@ -224,22 +255,32 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                     out.handback = {"summary": args.get("summary", ""), "outcome": args.get("outcome", "")}
                     out.text = args.get("closing_message") or text
                     out.state = "completed"
-                    messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tu["id"],
-                                                                  "content": "handed back"}]})
+                    messages.append({"role": "user", "content": results + [
+                        {"type": "tool_result", "tool_use_id": tu["id"], "content": "handed back"}]
+                        + _skipped(uses[i + 1:])})
                     return
                 if tname.startswith("ask_"):
                     target = _target(tname, "ask_")
                     reason = args.pop("reason", "")
                     question = args.pop("question", "")
+                    payload = slim({"customer_id": inp.customer_id, **args})
+                    started = time.time()
                     res = await transport.handoff(frm=name, to=target, kind="delegate", reason=reason,
-                                                  message=question, payload=slim({"customer_id": inp.customer_id, **args}),
-                                                  turn=inp.turn, hop=inp.hop + 1)
+                                                  message=question, payload=payload,
+                                                  turn=inp.turn, hop=inp.hop + 1,
+                                                  conversation_id=state.conversation_id or "",
+                                                  prompt_label=inp.prompt_label)
+                    out.handoffs.append({"kind": "delegate", "from": name, "to": target, "payload": payload,
+                                         "state": res.state, "t": started})
+                    out.handoffs += res.data.get("handoffs") or []
+                    out.tools += res.data.get("tools") or []
                     out.path.append(target)
                     for k in ("credits", "technicians"):
                         out.effects[k] += (res.data.get("effects") or {}).get(k, [])
                     out.path += [p for p in (res.data.get("path") or []) if p]
                     content = res.text if res.state != "failed" else f"ERROR: {res.text}"
                 else:
+                    out.tools.append(f"{name}:{tname}")
                     with lf.start_as_current_observation(as_type="tool", name=tname, input=args) as t:
                         result = schemas.call(tname, state, args)
                         t.update(output=result, level="WARNING" if isinstance(result, dict) and "error" in result else "DEFAULT")
