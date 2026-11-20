@@ -25,19 +25,24 @@ The vendored `scripts/langfuse-connect.sh` passes credential paths to the CLI's 
 
 ## Enable organization creation
 
-The instance API uses a separate high-privilege Bearer key. Organization Basic keys cannot substitute for it. This setup is optional for the other workflows.
+The instance API uses a separate high-privilege Bearer key. If the instance already has a key, store that value in the portal’s private `instance.env` (mode 0600). For a new instance, generate a key with the command below. Skip this setup if you only need project-level workflows.
 
 ```bash
 # From demos/langfuse-operations. Refuses to overwrite an existing file.
 python3 scripts/prepare-instance-key.py
-# Preview, then recreate only the web service with ADMIN_API_KEY added.
+```
+
+For a deployment using the repository’s root Compose file, set `LANGFUSE_INSTANCE_ENV_FILE=./demos/langfuse-operations/private/instance.env` in the Compose project’s root `.env`. Use an absolute path if your portal uses a separate checkout or a custom `--state-dir`. Keep the credential itself exclusively in the private file. The root Compose file loads it into `langfuse-web` on subsequent recreates, including when other overlays are applied. Other services import the root `.env` in full.
+
+```bash
+# Check the running image before applying the key to an existing deployment.
 ./scripts/enable-instance-api.sh --dry-run
 ./scripts/enable-instance-api.sh
 ```
 
-Do not recreate web from `../../docker-compose.yaml` by hand. The repository root may pin an older Langfuse than your running stack (on `main` it pins 3.221.1). Recreating web from it would downgrade a 4.76.0 server against its already-migrated databases. `enable-instance-api.sh` reuses the Compose project, files, and env files Docker recorded on the running `langfuse-web` container and adds only this override and `private/instance.env`. It refuses when the recreated image would differ from the running one. Pass `--instance-env /absolute/path/instance.env` when you use a different `--state-dir`. The override only adds `ADMIN_API_KEY`; it does not supply a license or upgrade Langfuse. Keep `private/instance.env` under the same state directory selected by `--state-dir`. If the server already has an instance key, place that key in the private file instead of generating another one. Do not change a shared instance key to suit the demo.
+The repository root can pin an older image than the running server. The helper reuses the Compose project, files, and env files recorded on the running `langfuse-web`, adds this demo’s instance override, and checks that the image matches before recreating web. Pass `--instance-env /absolute/path/instance.env` when using a custom state directory. Deployments with a different base Compose file must include the override and private env file on subsequent recreates.
 
-To disable the locally added key, recreate web using the original Compose file without the override. Docker Compose remembers its last file combination; include this override explicitly on subsequent web recreations while the demo is in use. Preserve the private key until any demo organizations have been reset.
+To disable the instance API, first finish any demo organization cleanup. Remove `LANGFUSE_INSTANCE_ENV_FILE` from the root `.env` and recreate web using the matching deployment files with the instance override omitted. Keep the private file secure.
 
 ## Workflows and the paid boundary
 

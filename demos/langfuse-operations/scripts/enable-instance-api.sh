@@ -51,6 +51,8 @@ for env_file in ${ENVS[@]+"${ENVS[@]}"}; do
     [[ -f "$env_file" ]] || die "the env file that created langfuse-web no longer exists: $env_file"
     ARGS+=(--env-file "$env_file")
 done
+# Compose gives shell exports precedence over even the last --env-file.
+unset ADMIN_API_KEY
 ARGS+=(--env-file "$INSTANCE_ENV" -p "$PROJECT" --project-directory "$WORKDIR" --profile langfuse)
 
 IFS=, read -r -a FILES <<<"$CONFIG_FILES"

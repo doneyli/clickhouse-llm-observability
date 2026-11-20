@@ -837,6 +837,10 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
+    # Keep the instance credential in a web-only env file. Several apps import
+    # the entire root .env, so that file holds only the path to the credential.
+    env_file:
+      - ${LANGFUSE_INSTANCE_ENV_FILE:-./demos/langfuse-operations/instance.env.example}
     environment:
       <<: *langfuse-common-env
       # The self-hosted MCP server (/api/public/mcp) validates the incoming Host
