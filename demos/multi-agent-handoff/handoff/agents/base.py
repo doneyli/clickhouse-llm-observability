@@ -207,7 +207,7 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
     system = prompts.compile_text(template, customer_id=inp.customer_id, mode=prompts.MODES[inp.kind],
                                   roster=roster.text(spec.transfers + [a for a in spec.asks if a not in spec.transfers]))
     prompt_version = str(getattr(prompt_client, "version", "fallback"))
-    user = inp.message
+    user = inp.message if inp.message.strip() else "(empty message)"  # the API rejects empty user content
     if inp.payload and inp.kind in ("transfer", "delegate"):
         user = f"[handoff from {inp.frm}]\n{json.dumps(inp.payload, indent=1)}\n\n{inp.message}"
     messages = list(inp.history) + [{"role": "user", "content": user}]

@@ -1,7 +1,7 @@
 """
 Seed the evaluation datasets into Langfuse (SPEC §7).
 
-    .venv/bin/python scripts/seed_datasets.py            # handoff-routing (40 items)
+    .venv/bin/python scripts/seed_datasets.py            # handoff-routing (40) + handoff-conversations (12)
     .venv/bin/python scripts/seed_datasets.py --dry-run
 
 Items have stable ids (`routing-<item>`), so re-running updates them in place instead of
@@ -23,6 +23,9 @@ DESCRIPTIONS = {
     datasets.ROUTING: ("Single-turn Northwind Mobile support requests. expected_output: the first handoff, the "
                        "ideal agent path, the fields the first handoff must carry, the back-office outcome "
                        "(from the credit oracle), and facts the reply must state."),
+    datasets.CONVERSATIONS: ("Multi-turn goals for a simulated customer (persona, goal, what they know). "
+                             "expected_output: the first specialist, the back-office outcome (from the credit "
+                             "oracle), and the turn budget."),
 }
 
 
@@ -30,25 +33,27 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    items = datasets.routing_items()
+    all_items = {datasets.ROUTING: datasets.routing_items(), datasets.CONVERSATIONS: datasets.conversation_items()}
     if args.dry_run:
-        for it in items:
-            print(it["id"], it["expected_output"]["first_handoff"], it["expected_output"]["outcome"])
+        for name, items in all_items.items():
+            for it in items:
+                print(name, it["id"], it["expected_output"]["first_handoff"], it["expected_output"]["outcome"])
         return
     lf = config.get_langfuse("seed")
-    lf.create_dataset(name=datasets.ROUTING, description=DESCRIPTIONS[datasets.ROUTING],
-                      metadata={"demo": "multi-agent-handoff", "items": len(items)})
-    for it in items:
-        lf.create_dataset_item(dataset_name=datasets.ROUTING, id=it["id"], input=it["input"],
-                               expected_output=it["expected_output"], metadata=it["metadata"])
-    wanted = {it["id"] for it in items}
-    retired = [i for i in lf.get_dataset(datasets.ROUTING).items if i.id not in wanted and i.status != "ARCHIVED"]
-    for old in retired:  # items dropped from the code are archived, so old runs keep their links
-        lf.create_dataset_item(dataset_name=datasets.ROUTING, id=old.id, input=old.input,
-                               expected_output=old.expected_output, metadata=old.metadata, status="ARCHIVED")
-    lf.flush()
-    print(f"{datasets.ROUTING}: {len(items)} items upserted, {len(retired)} archived"
-          + (f" ({', '.join(i.id for i in retired)})" if retired else ""))
+    for name, items in all_items.items():
+        lf.create_dataset(name=name, description=DESCRIPTIONS[name],
+                          metadata={"demo": "multi-agent-handoff", "items": len(items)})
+        for it in items:
+            lf.create_dataset_item(dataset_name=name, id=it["id"], input=it["input"],
+                                   expected_output=it["expected_output"], metadata=it["metadata"])
+        wanted = {it["id"] for it in items}
+        retired = [i for i in lf.get_dataset(name).items if i.id not in wanted and i.status != "ARCHIVED"]
+        for old in retired:  # items dropped from the code are archived, so old runs keep their links
+            lf.create_dataset_item(dataset_name=name, id=old.id, input=old.input,
+                                   expected_output=old.expected_output, metadata=old.metadata, status="ARCHIVED")
+        lf.flush()
+        print(f"{name}: {len(items)} items upserted, {len(retired)} archived"
+              + (f" ({', '.join(i.id for i in retired)})" if retired else ""))
 
 
 if __name__ == "__main__":

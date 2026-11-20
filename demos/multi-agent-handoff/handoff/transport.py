@@ -27,13 +27,19 @@ class HandoffResult:
 
 def _handoff_observation(*, frm: str, to: str, kind: str, reason: str, message: str, payload: dict,
                          hop: int, linkage: str, transport: str):
+    from handoff.agents.registry import AGENTS, roster_text
+
     lf = config.get_langfuse(config.SERVICE or "orchestrator")
+    # An online evaluator sees only this observation, so what it needs to judge the handoff is
+    # written here: the target's required fields (code evaluator) and the roster (LLM judge).
     return lf.start_as_current_observation(
         as_type="tool", name="handoff",
         input={"to": to, "kind": kind, "reason": reason, "message": message, "payload": payload},
         metadata={"role": "handoff", "handoff_kind": kind, "handoff_from": frm, "handoff_to": to,
                   "handoff_hop": str(hop), "handoff_reason": reason[:200], "linkage": linkage,
-                  "transport": transport})
+                  "transport": transport,
+                  "required_fields": ",".join(AGENTS[to].required_fields) if to in AGENTS else "",
+                  "roster": roster_text()})
 
 
 def _record(obs, res: HandoffResult, extra: Optional[dict] = None) -> None:

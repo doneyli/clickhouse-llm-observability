@@ -145,3 +145,87 @@ def routing_items() -> list[dict]:
             "metadata": {"category": category, "item": item_id},
         })
     return items
+
+
+# --- handoff-conversations: multi-turn goals for a simulated customer -----------------------
+
+CONVERSATIONS = "handoff-conversations"
+
+
+def _conv_specs() -> list[tuple]:
+    # (id, customer, opening message, persona, goal, what the customer knows, first handoff, outcome, max turns)
+    return [
+        ("conv-01", "cust-1042", "My home internet has been down since last night. I want money back for it.",
+         "Direct, a bit annoyed, short messages.",
+         "Get a credit for last night's outage and know when it shows up.",
+         "The internet is back now. You restarted the router this morning. \"It shows on your next bill\" is "
+         "an acceptable answer to when the credit appears.", T,
+         _credit("L-1042-2", "OUT-2026-1117-01")[0], 6),
+        ("conv-02", "cust-1016", "My fiber router has a red light and nothing works.",
+         "Patient but busy; answers questions accurately.",
+         "Get a technician visit booked if the router can't be fixed remotely.",
+         "You already restarted the router twice. The light is still red. Any day this week works.", T,
+         "technician_booked:L-1016-2", 6),
+        ("conv-03", "cust-1011", "My home internet router shows offline.",
+         "Polite, not technical; does what the agent asks.",
+         "Get the home internet working again.",
+         "If asked to restart the router, you do it and it is STILL offline afterwards. You are happy with a "
+         "technician visit.", T, "technician_booked:L-1011-2", 7),
+        ("conv-04", "cust-1020", "Calls work but I have no mobile data since I got my new phone.",
+         "Friendly, follows instructions.",
+         "Get mobile data working.",
+         "If the agent gives you APN settings to check, you apply them and mobile data then works.", T,
+         "resolved", 6),
+        ("conv-05", "cust-1007", "My internet dropped for a couple of hours on Sunday afternoon. I want a credit.",
+         "Insistent at first, accepts a clear explanation.",
+         "Get a credit, or understand clearly why there isn't one.",
+         "It was out from about 1 pm to 3:30 pm on Sunday.", T, "no_credit", 5),
+        ("conv-06", "cust-1013",
+         "My internet was out for days last week and my bill shows no credit for it. What's going on?",
+         "Frustrated, wants it fixed in one go.",
+         "Get the credit you are owed for the multi-day outage.",
+         "You want whatever credit you are owed applied.", T, _credit("L-1013-2", "OUT-2026-1112-04")[0], 6),
+        ("conv-07", "cust-1001", "How much is my bill this month?",
+         "Chatty; brings up a second issue after the first is answered.",
+         "First learn your bill total; then get a credit for last night's internet outage.",
+         "After the bill question is answered, say your internet was out all last night and ask for a credit.",
+         B, _credit("L-1001-2", "OUT-2026-1117-01")[0], 7),
+        ("conv-08", "cust-1036", "No mobile service at all today. Can you send someone?",
+         "Worried, needs the phone for work.",
+         "Get mobile service back, or know when it will be back.",
+         "You will ask for a credit once you hear it is an outage.", T, "outage_confirmed", 6),
+        ("conv-09", "cust-1008", "My home internet has been really slow all week.",
+         "Curious, wants to understand why.",
+         "Understand why the internet is slow and what to do about it.",
+         "Speed tests show about 2 Mbps. You have not changed anything.", T, "resolved", 6),
+        ("conv-10", "cust-1022", "What time do your stores open on Sunday?",
+         "Easy-going; asks a second, technical question after the first.",
+         "Learn the Sunday store hours, then get mobile data working.",
+         "After the hours answer, say mobile data stopped working when you switched phones. If given APN "
+         "settings, you apply them and data works.", T, "resolved", 7),
+        ("conv-11", "cust-1030", "I want to switch my phone to a cheaper plan.",
+         "Price-conscious.",
+         "Learn what cheaper plan you could switch to and how.",
+         "You are on Mobile Unlimited at $65 and want to pay less.", B, "info_answered", 5),
+        ("conv-12", "cust-1025",
+         "We had no internet from yesterday evening until this morning. Can you credit me?",
+         "Forgetful; asks for the same thing twice.",
+         "Get the outage credit, exactly once.",
+         "After the credit is confirmed, ask again a little later whether you can get the credit for the "
+         "outage (you forgot it was already done).", T, _credit("L-1025-2", "OUT-2026-1117-01")[0], 6),
+    ]
+
+
+def conversation_items() -> list[dict]:
+    items = []
+    for cid, customer, opening, persona, goal, facts, first, outcome, max_turns in _conv_specs():
+        items.append({
+            "id": f"conversation-{cid}",
+            "input": {"customer_id": customer, "opening": opening, "persona": persona, "goal": goal,
+                      "facts": facts},
+            "expected_output": {"first_handoff": first, "outcome": outcome, "max_turns": max_turns,
+                                "required_fields": AGENTS[first].required_fields if first else [],
+                                "reply_mentions": [outcome.split(":")[2]] if outcome.startswith("credit:") else []},
+            "metadata": {"item": cid, "kind": "conversation"},
+        })
+    return items

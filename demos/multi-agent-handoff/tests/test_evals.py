@@ -82,3 +82,23 @@ def test_answering_a_faq_without_a_handoff():
 def test_a_duplicate_credit_fails_resolution():
     run = {**GOOD_HERO, "effects": {"credits": [{"line_id": "L-1042-2", "amount": 2.67}] * 2, "technicians": []}}
     assert _scores(run, HERO)["resolution-correct"] == 0
+
+
+def test_conversation_record_and_shape_scores():
+    from handoff.conversation import ConversationResult
+
+    res = ConversationResult(
+        session_id="conv-x", turns=3, ended_by="customer-done",
+        transcript=[{"role": "customer", "text": "router red"}, {"role": "tech-support", "text": "booked TECH-L-1016-2"}],
+        replied_by=["tech-support", "tech-support", "concierge"], owners=["tech-support", "tech-support", "concierge"],
+        handoffs=[{"kind": "transfer", "from": "concierge", "to": "tech-support", "payload": {}},
+                  {"kind": "continue", "from": "router", "to": "tech-support", "payload": {}}],
+        effects={"credits": [], "technicians": [{"line_id": "L-1016-2"}]})
+    rec = res.record("a2a")
+    assert rec["agent_path"] == ["concierge", "tech-support"] and rec["first_handoff"] == "tech-support"
+    assert rec["transfers"] == 1 and rec["reply"] == "booked TECH-L-1016-2"
+    s = {e.name: e.value for e in evals.conversation_shape(output=rec)}
+    assert s == {"turns-to-resolution": 3.0, "transfers": 1.0, "conversation-ended-by": "customer-done",
+                 "simulated-customer-satisfied": 1.0}
+    exp = next(i for i in datasets.conversation_items() if i["id"] == "conversation-conv-02")["expected_output"]
+    assert evals.resolution_correct(output=rec, expected_output=exp)[0].value == 1.0

@@ -66,6 +66,16 @@ AGENTS: dict[str, AgentSpec] = {
 SPECIALISTS = ("tech-support", "billing")
 
 
+def roster_text() -> str:
+    """Who owns what, as one block of text: what the `handoff-appropriate` judge reads."""
+    lines = []
+    for n in ("concierge", *SPECIALISTS):
+        a = AGENTS[n]
+        skills = "; ".join(s["description"] for s in a.skills)
+        lines.append(f"- {n}: {a.description}" + (f" Skills: {skills}" if skills else ""))
+    return "\n".join(lines)
+
+
 def skills_for(name: str) -> list[dict]:
     return AGENTS[name].skills
 

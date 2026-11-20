@@ -38,14 +38,14 @@ def _bool(name: str, ok: bool, comment: str = "") -> Evaluation:
 # --- A1 / B1 / B3: routing and trajectory --------------------------------------------------
 
 def handoff_target_correct(*, output, expected_output, **_) -> list[Evaluation]:
-    if not _multi(output):
+    if not _multi(output) or "first_handoff" not in expected_output:
         return []
     want, got = expected_output.get("first_handoff"), output.get("first_handoff")
     return [_bool("handoff-target-correct", want == got, f"expected {want or 'no handoff'}, got {got or 'no handoff'}")]
 
 
 def path_match(*, output, expected_output, **_) -> list[Evaluation]:
-    if not _multi(output):
+    if not _multi(output) or "path" not in expected_output:
         return []
     want, got = expected_output["path"], output.get("agent_path") or []
     it = iter(got)
@@ -55,7 +55,7 @@ def path_match(*, output, expected_output, **_) -> list[Evaluation]:
 
 
 def unnecessary_handoff(*, output, expected_output, **_) -> list[Evaluation]:
-    if not _multi(output) or expected_output["path"] != ["concierge"]:
+    if not _multi(output) or expected_output.get("path") != ["concierge"]:
         return []
     got = output.get("agent_path") or []
     return [_bool("unnecessary-handoff", len(got) > 1, f"path {'>'.join(got)}")]
@@ -153,6 +153,19 @@ def outage_verified_first(*, output, **_) -> list[Evaluation]:
     return [_bool("outage-verified-first", checked, " → ".join(output.get("tools") or []))]
 
 
+# --- C3: the conversation as a whole (handoff-conversations) --------------------------------
+
+def conversation_shape(*, output, **_) -> list[Evaluation]:
+    if "turns" not in output:
+        return []
+    ended = output.get("ended_by", "")
+    return [Evaluation(name="turns-to-resolution", value=float(output["turns"]), comment=f"ended by {ended}"),
+            Evaluation(name="transfers", value=float(output.get("transfers", 0)),
+                       comment=" > ".join(output.get("owners") or [])),
+            Evaluation(name="conversation-ended-by", value=ended, data_type="CATEGORICAL"),
+            _bool("simulated-customer-satisfied", ended == "customer-done", ended)]
+
+
 ITEM_EVALUATORS = [handoff_target_correct, path_match, unnecessary_handoff, handoff_context_complete,
                    credit_amount_correct, resolution_correct, reply_mentions_facts, outage_verified_first]
 
@@ -189,6 +202,10 @@ def _handoffs(*, item_results, **_) -> Optional[Evaluation]:
     return Evaluation(name="mean-handoffs", value=round(statistics.mean(vals), 3)) if vals else None
 
 
+CONVERSATION_EVALUATORS = [handoff_target_correct, handoff_context_complete, credit_amount_correct,
+                           resolution_correct, reply_mentions_facts, outage_verified_first, conversation_shape]
+
+
 RUN_EVALUATORS: list[Any] = [
     _mean("handoff-target-correct", "routing-accuracy"),
     _mean("path-match", "path-match-rate"),
@@ -198,4 +215,15 @@ RUN_EVALUATORS: list[Any] = [
     _mean("handoff-context-complete", "context-complete-rate"),
     _latency,
     _handoffs,
+]
+
+CONVERSATION_RUN_EVALUATORS: list[Any] = [
+    _mean("resolution-correct", "resolution-rate"),
+    _mean("handoff-target-correct", "routing-accuracy"),
+    _mean("credit-amount-correct", "credit-accuracy"),
+    _mean("simulated-customer-satisfied", "satisfied-rate"),
+    _mean("turns-to-resolution", "mean-turns"),
+    _mean("transfers", "mean-transfers"),
+    _mean("handoff-context-complete", "context-complete-rate"),
+    _latency,
 ]

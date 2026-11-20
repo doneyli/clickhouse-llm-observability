@@ -48,6 +48,7 @@ class Conversation:
     effects: dict = field(default_factory=lambda: {"credits": [], "technicians": []})
     transcript: list = field(default_factory=list)
     turn_tools: list = field(default_factory=list)  # this turn's "agent:tool" calls, every process
+    cap_hit: bool = False                           # this turn hit MAX_HANDOFFS
 
 
 @dataclass
@@ -109,6 +110,7 @@ class Orchestrator:
 
         conv.turns += 1
         conv.turn_tools = []
+        conv.cap_hit = False
         path: list = []
         handoffs: list = []
         if not self._cards:
@@ -137,6 +139,7 @@ class Orchestrator:
                 root.update(output={"reply": reply, "replied_by": replied_by},
                             metadata={"agent_path": ">".join(path), "handoff_count": str(count),
                                       "first_handoff": handoffs[0]["to"] if handoffs else "none",
+                                      "hop_cap_hit": "true" if conv.cap_hit else "false",
                                       "owner_after": conv.owner, "replied_by": replied_by})
         conv.effects = ledger_snapshot(conv.session_id)  # the system of record, whoever wrote it
         conv.transcript += [{"role": "customer", "text": message}, {"role": replied_by, "text": reply}]
@@ -193,6 +196,7 @@ class Orchestrator:
     async def _transfer_chain(self, conv, frm, request, message, turn_ctx, path, handoffs):
         to = request["to"]
         if len(handoffs) >= MAX_HANDOFFS:
+            conv.cap_hit = True
             conv.owner = "concierge"
             return FALLBACK_REPLY, "router"
         ref = conv.tasks.get(to, {})
