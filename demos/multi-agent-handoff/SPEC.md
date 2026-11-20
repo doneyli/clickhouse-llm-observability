@@ -471,6 +471,34 @@ The talking point does not depend on which architecture wins. Multi-agent has to
 its cost on a metric you chose before you ran it. The demo publishes the measured
 numbers and does not predict them.
 
+**Measured on Langfuse Cloud (2026-11-19):** one run per topology, 40 items, prompts v1,
+Haiku 5.5 concierge and Sonnet 5.5 specialists (`docs/TOPOLOGY_COMPARISON.md`):
+
+| | `single` | `local` | `a2a` |
+|---|---|---|---|
+| `resolution-correct` (ledger) | 1.00 | 1.00 | 1.00 |
+| `credit-amount-correct` | 1.00 | 1.00 | 1.00 |
+| `outage-verified-first` | 1.00 | 1.00 | 1.00 |
+| `handoff-target-correct` | — | 1.00 | 0.97 (one FAQ sent to billing) |
+| `path-match` (exact) | — | 0.97 | 0.93 |
+| Model cost per item | $0.0177 | $0.0213 | $0.0217 |
+| Mean / p95 latency | 5.5 s / 7.7 s | 10.0 s / 19.3 s | 10.5 s / 20.2 s |
+
+On single-turn requests, splitting the work does not buy accuracy: every architecture
+reaches the right back-office state. It costs about 20% more and doubles latency, and
+almost all of that is the extra agent turns (`single` vs. `local`). The A2A hop itself
+(`local` vs. `a2a`) adds about half a second and no measurable cost. So the case for the
+multi-agent design has to come from somewhere else: team ownership, independent deploys,
+a partner agent you do not control, conversations that move between owners. Those are
+what the conversation dataset (Phase 4) and the faults (Phase 5) test. With 40 items and
+one run each, a one-item difference (0.97 vs. 1.00) is noise.
+
+The first batch of runs, before these, failed on four things, and none of them was an
+agent: the policy credited an ongoing outage, the context check misread delegations, and
+two dataset items had the wrong ideal path or an ambiguous request. Reading the failing
+scores' comments found each one. That is the loop's first lesson: check the evaluator
+and the dataset before blaming the agent.
+
 ## 10. Seeded failure modes
 
 Each fault can be switched on live (a prompt label or an env flag) and has a layer that

@@ -99,7 +99,13 @@ def main() -> None:
     ap.add_argument("--until")
     ap.add_argument("--markdown", type=Path)
     args = ap.parse_args()
-    md = table(collect(args.since, args.until))
+    from datetime import datetime, timezone
+
+    head = (f"Read back from `{config.LANGFUSE_BASE_URL}` on {datetime.now(timezone.utc):%Y-%m-%d} "
+            f"(`scripts/compare_runs.py --since {args.since}`): runs on `handoff-routing`, one row per run. "
+            "Scores are means over the items they apply to; cost is the model cost Langfuse computed for "
+            "the run's generations.\n\n")
+    md = head + table(collect(args.since, args.until))
     print(md)
     if args.markdown:
         args.markdown.write_text(md)

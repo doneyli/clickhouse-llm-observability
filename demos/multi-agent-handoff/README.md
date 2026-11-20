@@ -71,7 +71,14 @@ The outcome scores (`resolution-correct`, `credit-amount-correct`) and the proce
 all three runs. The routing and trajectory scores (`handoff-target-correct`, `path-match`,
 `handoff-context-complete`, `unnecessary-handoff`) exist only where there are handoffs.
 The evaluators read the ledger, not the reply, so a confident reply about a credit that
-was never issued scores 0.
+was never issued scores 0. `scripts/compare_runs.py --since <time>` reads the runs back
+from Langfuse and prints the comparison, cost per item included.
+
+Measured on Cloud (one run each, 40 items): every topology reached the right outcome on
+every item. `single` cost $0.0177 per item at 5.5 s mean latency; `local` $0.0213 at
+10.0 s; `a2a` $0.0217 at 10.5 s. The extra agents cost about 20% and double the latency,
+and the A2A hop itself adds about half a second. Full table:
+[docs/TOPOLOGY_COMPARISON.md](docs/TOPOLOGY_COMPARISON.md); discussion in [SPEC.md §9](SPEC.md).
 
 ## The linkage matrix (question 2)
 
