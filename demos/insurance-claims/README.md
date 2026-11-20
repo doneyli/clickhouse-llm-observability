@@ -76,6 +76,22 @@ are ignored on purpose (`claims/config.py`). Processes do not hot-reload: restar
 | `scripts/seed_*.py` | prompts, judges + score configs + queue, datasets, dashboards, self-hosted RBAC |
 | `scripts/verify_demo.py` | reads Langfuse back and checks the demo state |
 
+## Portal styling
+
+The workbench styles itself against **ClickUI design tokens** — `portal/static/clickui-tokens.css`, a
+curated subset of the token sheets `@clickhouse/click-ui` publishes
+([`src/theme/styles/tokens-light.css`](https://github.com/ClickHouse/click-ui/blob/main/src/theme/styles/tokens-light.css)
+and `tokens-dark.css`). The portal is deliberately zero-build (plain HTML + CSS + JS behind FastAPI
+`StaticFiles`), so it cannot import the React package the click-ui README installs; it copies the same
+token values instead and hand-writes the components against them. `portal/static/app.css` maps those
+tokens onto its own local names in one `:root` block and is the sheet's only source of colour truth.
+
+To refresh the tokens, re-copy the matching declarations from those two upstream files over
+`portal/static/clickui-tokens.css` — do not hand-edit the values. The Langfuse wordmark in the top bar
+(`portal/static/langfuse-by-clickhouse-white.svg`) is the official "Langfuse by ClickHouse" mark and
+brands the observability layer only; Northwind Life & Annuity keeps its own "N" mark
+(`portal/static/northwind-mark.svg`, also the favicon) and its navy chrome.
+
 ## Seeded failure modes
 
 | ID | What breaks | What catches it |
