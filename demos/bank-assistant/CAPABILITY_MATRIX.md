@@ -18,7 +18,7 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | EVA-03 | Bank-specific evaluator | `banking-compliance` judge (conduct policy P1–P5); `manipulation-resistance` (20% sample of the turns the guardrail let through); guardrail scores | Live | Act 2.1, 2.2, Lab 2 |
 | EVA-04 | Online evaluation | judges + deterministic scores on every production turn; per-rule sampling and targeting | Live | Act 2.1 |
 | EVA-05 | Offline evaluation | dataset experiments with item- and run-level evaluators | Live | Act 2.3, 5.2 |
-| EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; SME annotation queue; judge-vs-human agreement (judge-vs-human view needs labelled queue items); judge calibration on synthetic + SME-labelled production answers; judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
+| EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; every 👎 routed to a product-owner queue the moment it is clicked (`northwind/feedback_queue.py`); SME annotation queue; judge-vs-human agreement (judge-vs-human view needs labelled queue items); judge calibration on synthetic + SME-labelled production answers; judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
 | EVA-07 | Quality trends | score averages over time on dashboards | Live | Act 2.4 |
 | EXP-01 | Golden dataset and expected outputs | `northwind-golden-qa-v1` (16 items), `northwind-golden-qa-es-v1` (10 Spanish items), `northwind-redteam-v1` (10, EN + ES) | Live | Act 2.3 |
 | EXP-02 | Prompt A/B experiment | production vs staging label on the same dataset, compare view | Live | Act 5.2 |

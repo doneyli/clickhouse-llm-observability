@@ -243,6 +243,9 @@ select.input, input.input {
 .fb button.on-down { background: var(--red-50); border-color: var(--coral-100); color: var(--red-600); }
 .fb button[disabled] { cursor: default; }
 .fb-note { font-size: 12px; color: var(--green-600); font-weight: 600; }
+.fb-queued { display: inline-flex; align-items: center; gap: 3px; color: var(--red-600); text-decoration: none; }
+.fb-queued:hover { text-decoration: underline; }
+.fb-queued svg { width: 12px; height: 12px; }
 .fb-box { display: flex; gap: 8px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
 .fb-box textarea { flex: 1; min-height: 38px; height: 38px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
 

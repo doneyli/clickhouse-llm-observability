@@ -41,6 +41,9 @@
       "fb.sent": "Feedback sent", "fb.placeholder": "What went wrong? (optional)", "fb.aria": "Feedback comment",
       "fb.send": "Send", "fb.cancel": "Cancel",
       "toast.fbOk": "Thanks — recorded as user-feedback = {v} on the trace", "toast.fbFail": "Feedback failed: {e}",
+      "fb.queued": "In review queue", "fb.queuedTitle": "Added to the “{q}” annotation queue — open it in Langfuse",
+      "toast.fbQueued": "Recorded user-feedback = 0 and added the trace to “{q}”",
+      "toast.fbQueueFail": "Recorded user-feedback = 0, but the review queue failed: {e}",
       "toast.copied": "Trace id copied",
       "voice.caller": "Caller", "voice.auto": "Auto (caller on the recording)", "voice.reload": "Reload sample calls",
       "voice.upload": "Upload a call", "voice.formats": ".wav or .mp3", "voice.choose": "Choose file",
@@ -103,6 +106,9 @@
       "fb.sent": "Valoración enviada", "fb.placeholder": "¿Qué salió mal? (opcional)", "fb.aria": "Comentario de la valoración",
       "fb.send": "Enviar", "fb.cancel": "Cancelar",
       "toast.fbOk": "Gracias: se registró user-feedback = {v} en la traza", "toast.fbFail": "No se pudo enviar la valoración: {e}",
+      "fb.queued": "En cola de revisión", "fb.queuedTitle": "Añadida a la cola de anotación «{q}»: ábrala en Langfuse",
+      "toast.fbQueued": "Se registró user-feedback = 0 y la traza se añadió a «{q}»",
+      "toast.fbQueueFail": "Se registró user-feedback = 0, pero falló la cola de revisión: {e}",
       "toast.copied": "ID de traza copiado",
       "voice.caller": "Cliente", "voice.auto": "Auto (según la grabación)", "voice.reload": "Recargar llamadas de ejemplo",
       "voice.upload": "Subir una llamada", "voice.formats": ".wav o .mp3", "voice.choose": "Elegir archivo",
@@ -475,7 +481,8 @@
         <button data-fb="1" title="${esc(t("fb.up"))}" aria-label="${esc(t("fb.upAria"))}" class="${fb === 1 ? "on-up" : ""}" ${fb != null ? "disabled" : ""}>${icon("up")}</button>
         <button data-fb="0" title="${esc(t("fb.down"))}" aria-label="${esc(t("fb.downAria"))}" class="${fb === 0 ? "on-down" : ""}" ${fb != null ? "disabled" : ""}>${icon("down")}</button>
       </span>`);
-      if (fb != null) foot.push(`<span class="fb-note">${esc(t("fb.sent"))}</span>`);
+      if (fb === 0 && r.queue_url) foot.push(`<a class="fb-note fb-queued" href="${esc(r.queue_url)}" target="_blank" rel="noopener" title="${esc(t("fb.queuedTitle", { q: r.queue_name || "" }))}">${esc(t("fb.queued"))}${icon("ext")}</a>`);
+      else if (fb != null) foot.push(`<span class="fb-note">${esc(t("fb.sent"))}</span>`);
     }
 
     wrap.innerHTML = `<div class="mini-avatar"><svg viewBox="0 0 32 32"><use href="#i-logo"/></svg></div>
@@ -517,10 +524,15 @@
   async function sendFeedback(idx, value, comment) {
     const m = S.messages[idx]; if (!m || !m.meta) return;
     try {
-      await postJSON("/api/feedback", { trace_id: m.meta.trace_id, value, comment });
-      m.meta.feedback = value; persist();
+      const res = await postJSON("/api/feedback", { trace_id: m.meta.trace_id, value, comment });
+      const q = res && res.queue;
+      m.meta.feedback = value;
+      if (q && q.ok) { m.meta.queue_url = q.url; m.meta.queue_name = q.name; }
+      persist();
       replaceMessage(idx);
-      toast(t("toast.fbOk", { v: value }));
+      if (q && q.ok) toast(t("toast.fbQueued", { q: q.name }));
+      else if (q) toast(t("toast.fbQueueFail", { e: q.error }), true);
+      else toast(t("toast.fbOk", { v: value }));
     } catch (e) { toast(t("toast.fbFail", { e: e.message }), true); }
   }
 
