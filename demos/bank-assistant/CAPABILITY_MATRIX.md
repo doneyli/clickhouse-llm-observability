@@ -15,10 +15,10 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | OBS-06 | Infrastructure observability correlation | one OTel pipeline, two exporters, same trace id; payload-free APM copy; links both ways | Live (Jaeger) · Config (vendor integration) | Act 1.4 · `docs/DYNATRACE.md` |
 | EVA-01 | Faithfulness / groundedness | managed LLM judge on production traffic against retrieved context | Live | Act 2.1 |
 | EVA-02 | Correctness / factuality | LLM judge against expected outputs + deterministic must-include facts | Live | Act 2.3 · `northwind/evals.py` |
-| EVA-03 | Bank-specific evaluator | `banking-compliance` judge (conduct policy P1–P5); `manipulation-resistance` (20% sample of the turns the guardrail let through); guardrail scores | Live | Act 2.1, 2.2, Lab 2 |
-| EVA-04 | Online evaluation | judges + deterministic scores on every production turn; per-rule sampling and targeting | Live | Act 2.1 |
+| EVA-03 | Bank-specific evaluator | five conduct-policy judges `banking-compliance-p1` … `-p5` (P1–P5, one call each, with a derived `banking-compliance`); `manipulation-resistance` (20% sample of the turns the guardrail let through); guardrail scores; decision-model `conduct-screen` (P1–P5 as one calibrated flag each) and `customer-signals` (complaint, vulnerability, scam risk, hand-off) | Live | Act 2.1, 2.2, 2.5, Lab 2 / 2b · `docs/DECISION_MODELS.md` |
+| EVA-04 | Online evaluation | judges + deterministic scores on every production turn; per-rule sampling and targeting; decision-model evaluators on 100% of turns (13 scores in 2 calls, input-token pricing) | Live | Act 2.1, 2.5 |
 | EVA-05 | Offline evaluation | dataset experiments with item- and run-level evaluators | Live | Act 2.3, 5.2 |
-| EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; SME annotation queue; judge-vs-human agreement (judge-vs-human view needs labelled queue items); judge calibration on synthetic + SME-labelled production answers; judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
+| EVA-06 | Human feedback and annotation | customer 👍/👎 from the app; SME annotation queue (plus the decision models' review band, `decision_review_band.py --queue`); judge-vs-human agreement (judge-vs-human view needs labelled queue items); judge calibration on synthetic + SME-labelled production answers; judge-model bake-off | Live | Act 2.4 · `scripts/judge_calibration.py` |
 | EVA-07 | Quality trends | score averages over time on dashboards | Live | Act 2.4 |
 | EXP-01 | Golden dataset and expected outputs | `northwind-golden-qa-v1` (16 items), `northwind-golden-qa-es-v1` (10 Spanish items), `northwind-redteam-v1` (10, EN + ES) | Live | Act 2.3 |
 | EXP-02 | Prompt A/B experiment | production vs staging label on the same dataset, compare view | Live | Act 5.2 |
@@ -35,5 +35,7 @@ Script references point to [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 | GATE-03 | Architectural integration | Agent orchestration, MCP, n8n, voice, APM; AWS reference architecture | Evidence | M3 · `docs/ARCHITECTURE.md` |
 | GATE-04 | Operation and resilience | health endpoints, HA topology, backups, upgrades, platform monitoring | Config | M4 · `docs/OPERATIONS.md` |
 | GATE-05 | Value, Enterprise support and TCO | cost per turn/customer, judge cost lever, TCO worksheet, support model | Evidence | M3 · `docs/PATH_TO_PRODUCTION.md` |
+
+**Decision-model evaluators** (Act 2.5) are seeded as code through the Langfuse MCP server. Jev needs a TypeSafe connection added in the UI; until then the same evaluators run on OpenAI's `gpt-6-luna` (`--provider openai`).
 
 **Bilingual:** every capability above can be shown in English or Spanish (portal EN | ES toggle); Spanish adds `language-match` and `formal-register` (usted) evaluators online and offline.

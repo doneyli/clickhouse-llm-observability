@@ -27,7 +27,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from northwind import config, prompts  # noqa: E402
+from northwind import config, decision_evals, prompts  # noqa: E402
 from northwind.compliance import COVERAGE_NAME, POLICIES, STATUS_NAME  # noqa: E402
 import prompt_label  # noqa: E402  — one definition of "untitled version" for the CLI and this check
 
@@ -296,6 +296,25 @@ def main():
               "user-feedback", "cites-sources", "task-outcome", "contained", "value-usd", "failure-mode",
               "unsolicited-upsell", "advisor-offered", "pii-education"]:
         check(n in names, f"app scores: {n}", f"n={names.get(n, [0])[0]}")
+
+    # ── decision-model evaluators (optional, docs/DECISION_MODELS.md) ──
+    for e in decision_evals.EVALUATORS:
+        r = by.get(e["rule"]["name"])
+        check(bool(r) and r.get("enabled") is True, f"decision-model rule {e['rule']['name']} enabled",
+              f"sampling={r.get('sampling') if r else None}", required=False)
+    decision = sorted(decision_evals.questions_by_score())
+    seen = [n for n in decision if n in names]
+    check(len(seen) == len(decision), "decision-model scores (customer-signals, conduct-screen)",
+          f"{len(seen)}/{len(decision)} score names in window" +
+          ("" if seen else " — run scripts/seed_decision_evals.py"), required=False)
+    # Their state reads metadata.conversation_history. A portal started on code from
+    # before that key feeds them an empty history — silently, the evaluators still run.
+    recent = get("/api/public/v2/observations", name="northwind-assistant", environment="production",
+                 fromStartTime=since, limit=10, fields="core,metadata")["data"]
+    stale = [o for o in recent if "conversation_history" not in (o.get("metadata") or {})]
+    check(bool(recent) and not stale, "assistant turns carry metadata.conversation_history",
+          f"{len(stale)}/{len(recent)} latest turns without it — restart the portal and MCP on this release "
+          "(scripts/run_portal.sh)" if stale else f"{len(recent)} latest turns", required=False)
 
     # ── annotation queue ──
     qs = get("/api/public/annotation-queues", limit=50)["data"]
