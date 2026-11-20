@@ -1,6 +1,6 @@
 # Multi-agent handoff demo (A2A) — design spec
 
-**Status:** Phases 0–3 built and run on Langfuse Cloud. Phase 4 in progress: online code evaluators live (verified on production traffic), `handoff-conversations` dataset with a simulated customer, conversation-level session scores, the SESSION review queue, `run_traffic.py`. Not yet: the two LLM judges (seeded once the project has an Anthropic LLM connection), fault switches F1/F3/F5, dashboards, `verify_demo.py`. Phases 5–6 not started. Tracks DON-245.
+**Status:** Phases 0–3 built and run on Langfuse Cloud. Phase 4 in progress: online code evaluators live (verified on production traffic), `handoff-conversations` dataset with a simulated customer, conversation-level session scores, the SESSION review queue, `run_traffic.py`. Both LLM judges are live on the organization's inherited `Anthropic` connection. Not yet: fault switches F1/F3/F5, dashboards, `verify_demo.py`. Phases 5–6 not started. Tracks DON-245.
 **Scope size:** Medium. New standalone demo, own venv, three local agent services.
 Customer-agnostic: Northwind Mobile is fictional and all data is synthetic.
 
@@ -452,6 +452,19 @@ Design rules this table follows, each learned in another demo in this repo:
   a **SESSION** annotation queue for human review.
 - Judges get a pinned model. A fresh self-hosted project with no default model blocks
   them with `DEFAULT_EVAL_MODEL_MISSING`, and nothing reports it.
+- **A judge names its LLM connection by the connection's name, case-sensitively.** This
+  project inherits the organization's connections, named `Anthropic` and `OpenAI`. A
+  project key cannot list organization connections (`organizationLlmApiKeys:read`), and
+  `GET /api/public/llm-connections` returns only project connections, so a wrong name
+  (`anthropic`) shows up only as a paused judge with `LLM_CONNECTION_MISSING`. The seeder
+  reads `HANDOFF_JUDGE_PROVIDER` (default `Anthropic`) and prints each judge's status.
+
+**First live judge scores (2026-11-19, 4 production conversations):** `handoff-appropriate`
+passed all 11 handoffs, citing the roster ("billing owns outage credits once an outage is
+confirmed"). `customer-resolved` ranged from 0.3 to 0.95. Its 0.3 went to the correct
+no-credit answer for a 2.5-hour blip: the judge penalised the customer having no next step,
+although the reply applied the policy correctly. Judge and policy disagree, which is what
+the session review queue and calibration (§17) are for.
 
 ### Single-agent vs. multi-agent (question 3, head on)
 
@@ -625,7 +638,7 @@ demos/multi-agent-handoff/
 | 2. A2A | Services, `A2ATransport`, transfer/continue/hand-back state, peer hop, linkage modes, `linkage_matrix.py` | The hero scenario on `a2a` gives one trace across three processes, and the matrix script reproduces Phase 0 |
 | 3. Evals offline | Datasets, item and run evaluators, the three-topology comparison | Three experiment runs comparable in the UI |
 | 4. Evals online + faults | Code evaluators, judges, annotation queue, F1–F5 switches, dashboards, `run_traffic.py` | Each fault trips its catching layer in `verify_demo.py` |
-| | *Progress (2026-11-19):* code evaluators live and verified; conversation dataset + simulator + session scores; SESSION queue; `run_traffic.py`. F2 and F4 switches exist. Open: judges (need the project's LLM connection), F1/F3 prompt labels, F5 switch, dashboards, `verify_demo.py`. | |
+| | *Progress (2026-11-19):* code evaluators live and verified; conversation dataset + simulator + session scores; SESSION queue; `run_traffic.py`. F2 and F4 switches exist. Judges live (2026-11-19). Open: F1/F3 prompt labels, F5 switch, dashboards, `verify_demo.py`. | |
 | 5. Loop + gate + script | `promote_to_dataset.py`, `prompt_gate.py`, workflow, `DEMO_SCRIPT.md`, README with measured numbers, repo indexes (demos/README, docs/README, AI_ENGINEERING_LOOP.md, CLAUDE.md layout) | One full pass of §17 runs live: F1 in production → flagged → labelled → fixed → gated → promoted → misroute rate down |
 | 6. Optional | device-protection partner (black box), second-framework specialist, chat portal | |
 

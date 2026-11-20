@@ -8,8 +8,8 @@ and how to evaluate a system with handoffs. Design: [SPEC.md](SPEC.md).
 > **Status:** Phases 0–3 are built and run on Langfuse Cloud: the linkage harness (verified
 > live), the agents, the `single` / `local` / `a2a` topologies, managed prompts, both
 > datasets, and the experiments with their evaluators. Phase 4 is in progress: the online
-> code evaluators, the simulated-customer conversations, session scores and the review
-> queue are live. The LLM judges, most seeded faults, the dashboards, the CI gate and the
+> code evaluators, both LLM judges, the simulated-customer conversations, session scores
+> and the review queue are live. Most seeded faults, the dashboards, the CI gate and the
 > demo script are not built yet.
 
 ## The agents
@@ -85,7 +85,7 @@ and the A2A hop itself adds about half a second. Full table:
 
 ```bash
 .venv/bin/python scripts/seed_evals.py --queue        # code evaluators + rules, score configs, review queue
-.venv/bin/python scripts/seed_evals.py --judges       # LLM judges (needs an Anthropic LLM connection)
+.venv/bin/python scripts/seed_evals.py --judges       # LLM judges, on the LLM connection named "Anthropic"
 .venv/bin/python scripts/run_traffic.py               # 12 simulated conversations as production traffic
 .venv/bin/python scripts/run_experiment.py --topology a2a --dataset conversations
 ```
@@ -96,6 +96,11 @@ and the A2A hop itself adds about half a second. Full table:
 | `handoff-loop` (+ `handoff-count`) | code, in Langfuse | every turn root | ping-pong, repeated hops, the hop cap (fault F3) |
 | `handoff-appropriate` | LLM judge (Haiku 5.5) | every `handoff` | the wrong agent for the request, read against the roster (fault F1) |
 | `customer-resolved` | LLM judge (Sonnet 5.5) | every turn root | a reply that leaves the customer without an answer or a next step |
+
+The judges use the organization's inherited LLM connection named `Anthropic`. Connection
+names are case-sensitive, and a project key cannot list organization connections, so a
+wrong name shows up only as a paused judge (`LLM_CONNECTION_MISSING`). Set
+`HANDOFF_JUDGE_PROVIDER` to use another connection; the seeder prints each judge's status.
 
 Each rule selects its observation by `metadata.role` and runs only on production
 `support-turn` traces, so experiments never trigger them. A judge sees only the
