@@ -2,7 +2,7 @@
 Seed online evaluation into the demo's Langfuse project (SPEC §9), stable v2 API only.
 
     .venv/bin/python scripts/seed_evals.py                 # code evaluators + rules
-    .venv/bin/python scripts/seed_evals.py --judges        # + LLM judges (needs an Anthropic LLM connection)
+    .venv/bin/python scripts/seed_evals.py --judges        # + LLM judges (project or inherited org Anthropic connection)
     .venv/bin/python scripts/seed_evals.py --queue         # + score configs and the SESSION review queue
     .venv/bin/python scripts/seed_evals.py --dry-run
 
@@ -21,8 +21,10 @@ Every rule is scoped to production `support-turn` traces and selects its observa
 them. The seeder reconciles: a changed source, prompt, filter or assignment is PATCHed,
 not skipped.
 
-`--store-anthropic-key` also writes the demo .env's ANTHROPIC_API_KEY into the project as
-its Anthropic LLM connection, for the judges. It is never done implicitly.
+The judges use the LLM connection named by HANDOFF_JUDGE_PROVIDER (default "Anthropic": the
+clickhouse organization's connection, which every project inherits). `--store-anthropic-key`
+would instead write the demo .env's ANTHROPIC_API_KEY as a project connection; it is never
+done implicitly, and not needed while the organization connection exists.
 """
 
 from __future__ import annotations
@@ -41,6 +43,10 @@ from handoff import config  # noqa: E402
 
 TRACE_NAME = "support-turn"
 JUDGE_MODELS = {"handoff-appropriate": "claude-haiku-5-5", "customer-resolved": "claude-sonnet-5-5"}
+# An evaluator names its LLM connection by the connection's *name*, case-sensitive. The clickhouse
+# organization's inherited Anthropic connection is named "Anthropic"; a project key cannot list
+# organization connections, so a wrong name only shows up as a paused judge (LLM_CONNECTION_MISSING).
+JUDGE_PROVIDER = config.setting("HANDOFF_JUDGE_PROVIDER", "Anthropic")
 
 
 def api(method: str, path: str, body: Optional[dict] = None, params: Optional[dict] = None) -> dict:
@@ -183,7 +189,7 @@ def seed_code(evaluators: dict, rules: dict) -> None:
 
 def seed_judges(evaluators: dict, rules: dict) -> None:
     for j in JUDGES:
-        model = {"provider": "anthropic", "model": JUDGE_MODELS[j["name"]]}
+        model = {"provider": JUDGE_PROVIDER, "model": JUDGE_MODELS[j["name"]]}
         definition = {"type": "llm_as_judge", "name": j["name"],
                       "description": f"multi-agent-handoff · {j['name']} ({j['role']})",
                       "prompt": [{"role": "user", "content": j["prompt"]}], "modelConfig": model,
@@ -195,7 +201,7 @@ def seed_judges(evaluators: dict, rules: dict) -> None:
             text = p[0].get("content") if isinstance(p, list) and p else p
             out = e.get("outputDefinition") or {}
             return (text == j["prompt"] and out.get("dataType") == j["dataType"]
-                    and (e.get("modelConfig") or {}).get("model") == model["model"])
+                    and (e.get("modelConfig") or {}) == model)
         ev = _upsert_evaluator(evaluators, j["name"], definition, same)
         _upsert_rule(rules, j["name"], j["role"], ev["id"], j["mapping"], j["sampling"])
 
@@ -245,11 +251,16 @@ def main() -> None:
             api("PUT", "/api/public/llm-connections",
                 {"provider": "anthropic", "adapter": "anthropic", "secretKey": config.setting("ANTHROPIC_API_KEY")})
             print("✓ LLM connection: anthropic")
-        connections = [c for c in paginate("/api/public/llm-connections") if c.get("adapter") == "anthropic"]
-        if not connections:
-            raise SystemExit("No Anthropic LLM connection in this project. Add one in Settings → LLM Connections, "
-                             "or re-run with --store-anthropic-key.")
+        if not any(c.get("provider") == JUDGE_PROVIDER for c in paginate("/api/public/llm-connections")):
+            # A project inherits organization connections, and a project API key cannot list those
+            # (organizationLlmApiKeys:read). So this is a note, not a stop: the judges' status after seeding
+            # (active vs. paused) and their first scores are the real check.
+            print(f"· no project connection named {JUDGE_PROVIDER!r}; expecting an inherited organization connection")
         seed_judges(evaluators, rules)
+        for e in paginate("/api/public/v2/evaluators"):
+            if e["name"] in JUDGE_MODELS:
+                why = f" ({e.get('pausedReason')}: {e.get('pausedMessage')})" if e.get("status") == "paused" else ""
+                print(f"  {e['name']}: status {e.get('status', '?')}{why}")
     if args.queue:
         seed_queue()
     print(f"Evaluators: {config.LANGFUSE_BASE_URL}/project/{project_id()}/evals")
