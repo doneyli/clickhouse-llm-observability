@@ -1,6 +1,6 @@
 'use strict';
 const $ = selector => document.querySelector(selector);
-const state = {workflow:'application',config:null,apps:[],projectId:'',run:null,selected:0,view:'script',source:null,busy:false,follow:true,resetPreview:null,resetLoading:false,demoTag:null};
+const state = {workflow:'application',config:null,apps:[],projectId:'',run:null,selected:0,view:'script',source:null,busy:false,follow:true,resetPreview:null,resetLoading:false,demoTag:null,memberFieldsFor:''};
 const descriptions = {
   governance:'Protect production promotion with real human roles: Member can change staging, Member is denied production, Admin can promote. Writable service keys keep CI access.',
   audit:'Make a controlled role change and correlate it with Langfuse’s persisted audit records. Prepares the dedicated governance project when needed.',
@@ -91,9 +91,15 @@ function renderProjects() {
   const memberSelector=$('#selected-member'),previous=memberSelector.value;memberSelector.replaceChildren();
   for(const member of app()?.members||[])if(member.active){const option=document.createElement('option');option.value=member.userId;option.textContent=member.email+' ('+member.role+')';memberSelector.append(option);}
   if([...memberSelector.options].some(option=>option.value===previous))memberSelector.value=previous;
-  const members=app()?.members||[];
-  if(members[0]){$('#member-one-email').value=members[0].email;$('#member-one-role').value=members[0].role;}
-  if(members[1]){$('#member-two-email').value=members[1].email;$('#member-two-role').value=members[1].role;}
+  const members=app()?.members||[],switched=state.memberFieldsFor!==state.projectId;state.memberFieldsFor=state.projectId;
+  // A slot the selected project has no member for must not keep another project's identity: on a project
+  // switch it falls back to this run's fresh demo identity, or to blank when another project already uses it.
+  const used=new Set(state.apps.flatMap(item=>(item.members||[]).map(member=>member.email)));
+  [['one','maya','MEMBER'],['two','alex','VIEWER']].forEach(([slot,name,role],index)=>{
+    const email=$('#member-'+slot+'-email'),roleField=$('#member-'+slot+'-role');
+    if(members[index]){email.value=members[index].email;roleField.value=members[index].role;}
+    else if(switched){const fresh=state.demoTag?name+'.demo+'+state.demoTag+'@example.invalid':'';email.value=used.has(fresh)?'':fresh;roleField.value=role;}
+  });
   renderResources();
   renderOrganizations($('#resource-list'));
 }
@@ -178,9 +184,10 @@ function renderInspector() {
   }
 }
 async function refreshState() {
-  const data=await api('/api/state');state.apps=data.applications;state.organizations=data.organizations||[];renderProjects();
-  if(state.demoTag!==data.demoTag&&!app()?.members?.length){$('#member-one-email').value='maya.demo+'+data.demoTag+'@example.invalid';$('#member-two-email').value='alex.demo+'+data.demoTag+'@example.invalid';}
-  state.demoTag=data.demoTag;state.resetPreview=null;$('#reset-confirmation').value='';renderResetPreview();fieldVisibility();return data;
+  const data=await api('/api/state');state.apps=data.applications;state.organizations=data.organizations||[];
+  // A new demo tag (first load, or after a reset) re-seeds the member fields with that run's identities.
+  if(state.demoTag!==data.demoTag){state.demoTag=data.demoTag;state.memberFieldsFor=null;}
+  renderProjects();state.resetPreview=null;$('#reset-confirmation').value='';renderResetPreview();fieldVisibility();return data;
 }
 async function selectWorkflow(id) {
   if(id!==state.workflow&&['application','keys'].includes(id))$('#key-role').value='';
@@ -244,7 +251,6 @@ async function init() {
   state.config=await api('/api/config');
   for(const action of state.config.workflows){const button=document.createElement('button');button.type='button';button.dataset.workflow=action.id;button.append(document.createTextNode(action.label),badge(action.edition));button.addEventListener('click',()=>selectWorkflow(action.id).catch(runError));$('#workflows').append(button);}
   const initial=await refreshState();
-  if(!app()?.members?.length){$('#member-one-email').value='maya.demo+'+initial.demoTag+'@example.invalid';$('#member-two-email').value='alex.demo+'+initial.demoTag+'@example.invalid';}
   document.body.classList.add('highlight');await selectWorkflow('application');
   const selectedRun=new URLSearchParams(location.search).get('run')||initial.activeRun;
   if(selectedRun){const running=await api('/api/runs/'+encodeURIComponent(selectedRun));await selectWorkflow(running.workflow);state.busy=running.status==='running';fieldVisibility();poll(selectedRun).catch(runError);}
