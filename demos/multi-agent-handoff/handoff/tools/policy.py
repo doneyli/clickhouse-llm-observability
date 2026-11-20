@@ -2,8 +2,8 @@
 The outage-credit policy as code: the ground truth `credit-amount-correct` checks against.
 
     credit = whole days of outage (rounded up) × line daily rate (monthly price / days in month)
-    only the affected service's line, only for a confirmed outage of at least 4 hours,
-    capped at one month's price.
+    only the affected service's line, only for a confirmed outage of at least 4 hours that
+    has ended (the duration is only known then), capped at one month's price.
 """
 
 from __future__ import annotations
@@ -33,6 +33,9 @@ def credit_for(line: dict, outage: Optional[dict]) -> dict:
         return {"eligible": False, "amount": 0.0, "days": 0, "hours": 0.0,
                 "reason": "outage does not affect this line"}
     hours = outage_hours(outage)
+    if outage.get("status") == "ongoing" or not outage.get("end"):
+        return {"eligible": False, "amount": 0.0, "days": 0, "hours": hours,
+                "reason": "outage still ongoing; the credit is applied once it is resolved"}
     if hours < MIN_HOURS:
         return {"eligible": False, "amount": 0.0, "days": 0, "hours": hours,
                 "reason": f"outage under {MIN_HOURS:g} hours"}

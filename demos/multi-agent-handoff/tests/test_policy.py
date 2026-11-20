@@ -44,3 +44,8 @@ def test_no_technician_during_an_area_outage():
     st = crm.RunState()
     assert crm.book_technician(st, "L-1042-2")["booked"] is False
     assert crm.book_technician(st, "L-1016-2")["booked"] is True
+
+
+def test_an_ongoing_outage_is_not_credited_yet():
+    r = crm.compute_credit("L-1012-1", "OUT-2026-1118-03")  # mobile outage in 94612, still ongoing
+    assert not r["eligible"] and "ongoing" in r["reason"]

@@ -4,7 +4,7 @@
  {"id": "KB-103", "category": "faq", "title": "Autopay discount", "body": "Autopay with a bank account takes $5 off each line per month. Card autopay has no discount."},
  {"id": "KB-104", "category": "faq", "title": "International roaming", "body": "Mobile Unlimited and Unlimited Plus include roaming in 30 countries. Essentials needs the $10/day travel pass."},
  {"id": "KB-105", "category": "faq", "title": "Changing plans", "body": "Plan changes take effect on the next bill. Billing can change a plan and pro-rate the difference."},
- {"id": "KB-106", "category": "faq", "title": "Outage credits", "body": "Customers affected by a confirmed outage of 4 hours or more get a credit. Tech support confirms the outage; billing applies the credit to the next bill."},
+ {"id": "KB-106", "category": "faq", "title": "Outage credits", "body": "Customers affected by a confirmed outage of 4 hours or more get a credit once the outage is resolved. Tech support confirms the outage; billing applies the credit to the next bill."},
  {"id": "KB-107", "category": "faq", "title": "Returning a device", "body": "Devices can be returned within 14 days in original condition. Device damage claims go to the device protection partner."},
  {"id": "KB-201", "category": "troubleshooting", "title": "Router offline", "body": "If the router light is red: power-cycle it for 30 seconds, check the fiber cable is seated, then run line diagnostics. Persistent red after reset needs a technician."},
  {"id": "KB-202", "category": "troubleshooting", "title": "Slow home internet", "body": "Run a wired speed test. Wi-Fi speeds below plan are usually interference; move the router or use 5 GHz. A throttled line shows 'speed-throttled' in diagnostics and is fixed by billing if it is a plan cap."},
