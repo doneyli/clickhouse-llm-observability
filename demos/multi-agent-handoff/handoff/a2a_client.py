@@ -54,8 +54,9 @@ def _parts(parts) -> tuple[list[str], dict]:
 class A2AClientPool:
     """One a2a-sdk client per agent URL; the agent card is resolved once."""
 
-    def __init__(self, timeout: float = 120.0):
-        self._timeout = timeout
+    def __init__(self, timeout: Optional[float] = None):
+        # HANDOFF_A2A_TIMEOUT_S: how long a handoff waits for the remote agent (fault F5 lowers it)
+        self._timeout = timeout or float(config.setting("HANDOFF_A2A_TIMEOUT_S", "120"))
         self._clients: dict[str, Any] = {}
         self._cards: dict[str, Any] = {}
         self._http: Optional[httpx.AsyncClient] = None
@@ -77,7 +78,10 @@ class A2AClientPool:
     async def send(self, url: str, *, text: str, data: Optional[dict] = None, task_id: str = "",
                    context_id: str = "", headers: Optional[dict] = None,
                    metadata: Optional[dict] = None) -> A2AResult:
-        client = await self._client(url)
+        try:  # an unreachable agent fails at card resolution: that is a failed handoff, not a crash
+            client = await self._client(url)
+        except Exception as exc:  # noqa: BLE001
+            raise A2AError(f"{type(exc).__name__}: {exc}") from exc
         parts = [new_text_part(text)] + ([new_data_part(data)] if data else [])
         msg = Message(role=Role.ROLE_USER, message_id=str(uuid.uuid4()), parts=parts)
         if task_id:

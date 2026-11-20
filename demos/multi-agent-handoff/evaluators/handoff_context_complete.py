@@ -9,6 +9,8 @@ required fields, written by the transport. Scores:
   handoff-context-complete  BOOLEAN  every required field is present (comment names the missing ones)
   handoff-payload-clean     BOOLEAN  no payment-card number in the payload (it is copied into
                                      another agent's context, and into a partner's)
+  handoff-succeeded         BOOLEAN  the target answered (A2A task not failed: fault F5, remote down
+                                     or too slow)
 
 A delegation (`ask_*`) carries its request as the message, so the message counts as the
 issue summary. Continuations carry only the customer's reply and are not checked for fields.
@@ -78,6 +80,12 @@ def evaluate(ctx):
     target = str(md.get("handoff_to") or inp.get("to") or "?")
 
     scores = []
+    out = _decode(ctx.observation.output) or {}
+    out = out if isinstance(out, dict) else {}
+    if out:
+        failed = str(out.get("state") or "") == "failed"
+        scores.append(Score(name="handoff-succeeded", value=not failed, data_type="BOOLEAN",
+                            comment=(str(out.get("reply") or "")[:200] if failed else f"{target} answered")))
     cards = _card_numbers(json.dumps(payload))
     scores.append(Score(name="handoff-payload-clean", value=not cards, data_type="BOOLEAN",
                         comment=(f"card number ending {', '.join(cards)} in the payload" if cards

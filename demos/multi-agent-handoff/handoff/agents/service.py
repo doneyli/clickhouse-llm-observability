@@ -9,6 +9,9 @@ linkage mode the request came in with: the peer hop.
 
 from __future__ import annotations
 
+import asyncio
+
+from handoff import config
 from handoff.a2a_service import AgentReply, AgentRequest
 from handoff.agents.base import AgentInput, run_agent
 from handoff.tools.crm import RunState
@@ -19,7 +22,12 @@ _TRANSPORTS: dict[str, A2ATransport] = {}
 
 
 def make_handler(name: str):
+    # Fault F5 (slow remote agent): BILLING_FAULT_LATENCY_MS / TECH_SUPPORT_FAULT_LATENCY_MS on the service
+    latency_ms = int(config.setting(f"{name.upper().replace('-', '_')}_FAULT_LATENCY_MS", "0") or 0)
+
     async def handle(req: AgentRequest) -> AgentReply:
+        if latency_ms:
+            await asyncio.sleep(latency_ms / 1000)
         kind = str(req.metadata.get("handoff_kind") or ("continue" if req.continuation else "transfer"))
         transport = _TRANSPORTS.setdefault(req.linkage, A2ATransport(req.linkage))
         customer_id = str(req.data.get("customer_id") or req.metadata.get("customer_id") or "")
