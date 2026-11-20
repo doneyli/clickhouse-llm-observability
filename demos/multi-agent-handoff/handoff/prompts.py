@@ -96,10 +96,24 @@ def get(agent: str, label: Optional[str] = None):
     template = FALLBACKS[agent]
     if config.CAPTURE_DIR or config.setting("HANDOFF_OFFLINE_PROMPTS") == "1":
         return template, None
+    wanted = label or LABEL
     try:
         lf = config.get_langfuse(config.SERVICE or agent)
-        client = lf.get_prompt(prompt_name(agent), label=label or LABEL, type="text", fallback=template,
+        if wanted != LABEL:
+            # A label is per agent: an agent with no version under it (e.g. billing under `fault-f1`)
+            # runs its production prompt, so one label can change one agent and leave the rest alone.
+            try:
+                return _served(lf.get_prompt(prompt_name(agent), label=wanted, type="text", cache_ttl_seconds=60))
+            except Exception:  # noqa: BLE001 — not found under this label
+                pass
+        client = lf.get_prompt(prompt_name(agent), label=LABEL, type="text", fallback=template,
                                cache_ttl_seconds=60)
-        return client.prompt, (None if getattr(client, "is_fallback", False) else client)
+        return _served(client, template)
     except Exception:  # noqa: BLE001 — prompts must never take the agent down
         return template, None
+
+
+def _served(client, template: Optional[str] = None):
+    if getattr(client, "is_fallback", False):
+        return template or client.prompt, None
+    return client.prompt, client

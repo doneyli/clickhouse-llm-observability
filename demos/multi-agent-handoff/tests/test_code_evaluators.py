@@ -18,8 +18,8 @@ def _load(name):
 CONTEXT, LOOP = _load("handoff_context_complete"), _load("handoff_loop")
 
 
-def _ctx(input=None, metadata=None):
-    return SimpleNamespace(observation=SimpleNamespace(input=input, output=None, metadata=metadata, tool_calls=[]),
+def _ctx(input=None, metadata=None, output=None):
+    return SimpleNamespace(observation=SimpleNamespace(input=input, output=output, metadata=metadata, tool_calls=[]),
                            experiment=None)
 
 
@@ -83,3 +83,12 @@ def test_f3_ping_pong_is_a_loop():
 def test_hop_cap_is_a_loop():
     assert _scores(LOOP.evaluate(_ctx(metadata={"agent_path": "concierge>billing", "handoff_count": "1",
                                                 "hop_cap_hit": "true"})))["handoff-loop"][0] is True
+
+
+def test_f5_failed_handoff_is_scored():
+    inp = {"kind": "delegate", "message": "balance?", "payload": {"customer_id": "c", "line_id": "L"}}
+    md = {**HANDOFF_MD, "handoff_kind": "delegate", "handoff_to": "billing",
+          "required_fields": "customer_id,line_id,issue_summary"}
+    failed = _scores(CONTEXT.evaluate(_ctx(inp, md, {"state": "failed", "reply": "billing unavailable: timeout"})))
+    ok = _scores(CONTEXT.evaluate(_ctx(inp, md, json.dumps({"state": "completed", "reply": "141.38"}))))
+    assert failed["handoff-succeeded"] == (False, "billing unavailable: timeout") and ok["handoff-succeeded"][0] is True

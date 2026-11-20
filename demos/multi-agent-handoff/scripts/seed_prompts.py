@@ -7,7 +7,11 @@ is created only when the text (or config) differs from what the label points at,
 re-running is a no-op.
 
     .venv/bin/python scripts/seed_prompts.py                    # label production
+    .venv/bin/python scripts/seed_prompts.py --faults           # + fault variants under fault-f1 / fault-f3
     .venv/bin/python scripts/seed_prompts.py --dry-run
+
+A fault label holds only the agents it changes (SPEC §10); the others keep running their
+production prompt under that label.
 """
 
 from __future__ import annotations
@@ -18,14 +22,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from handoff import config, prompts  # noqa: E402
+from handoff import config, faults, prompts  # noqa: E402
 from handoff.agents.registry import AGENTS  # noqa: E402
 
 
-def seed(label: str = "production", dry_run: bool = False) -> list[tuple[str, str]]:
+def seed(label: str = "production", dry_run: bool = False, texts: dict | None = None) -> list[tuple[str, str]]:
     lf = config.get_langfuse("seed")
     report = []
-    for agent, text in prompts.FALLBACKS.items():
+    for agent, text in (texts or prompts.FALLBACKS).items():
         name = prompts.prompt_name(agent)
         cfg = {"agent": agent, "model": AGENTS[agent].model, "demo": "multi-agent-handoff"}
         try:
@@ -48,10 +52,15 @@ def seed(label: str = "production", dry_run: bool = False) -> list[tuple[str, st
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--label", default="production")
+    ap.add_argument("--faults", action="store_true", help="also seed the fault prompts (fault-f1, fault-f3)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     for name, what in seed(args.label, args.dry_run):
         print(f"{name:14s} {what}")
+    if args.faults:
+        for label, texts in faults.PROMPT_FAULTS.items():
+            for name, what in seed(label, args.dry_run, texts):
+                print(f"{name:14s} {what}  [{label}]")
 
 
 if __name__ == "__main__":
