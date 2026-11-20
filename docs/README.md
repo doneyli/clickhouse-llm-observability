@@ -28,6 +28,7 @@ Pick your path by what you're trying to do.
 | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | Deep screen-by-screen reference + fallbacks (pairs with the co-located [demo script](../demos/agentic-rag/DEMO_SCRIPT.md)) |
 | [Brand-Promo Multi-Agent Runbook](../demos/brand-promo-multi-agent/docs/DEMO_RUNBOOK.md) | Deep 60-min segment-by-segment reference (pairs with the co-located [demo script](../demos/brand-promo-multi-agent/DEMO_SCRIPT.md)) |
 | [Langfuse RLS Demo Script](../demos/langfuse-rls/DEMO_SCRIPT.md) | Short (~10 min) governance-conversation script for the row-level-security **prototype** over Langfuse traces — simulated feature, loop-adjacent |
+| [Multi-Agent Handoff Demo Script](../demos/multi-agent-handoff/DEMO_SCRIPT.md) | Consultative ~45-min script for the A2A handoff demo: one trace across three services, the linkage that keeps it one session, handoff vs. end-to-end evaluation, five live faults, single vs. multi-agent measured |
 | [Dashboard (LLM Observatory)](DASHBOARD.md) | The "your data is just ClickHouse tables" 5-min demo beat |
 
 ## I want to learn from it
