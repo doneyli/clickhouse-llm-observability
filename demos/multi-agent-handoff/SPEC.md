@@ -1,6 +1,6 @@
 # Multi-agent handoff demo (A2A) — design spec
 
-**Status:** Phases 0–3 built and run on Langfuse Cloud. Phase 4 in progress: online code evaluators live (verified on production traffic), `handoff-conversations` dataset with a simulated customer, conversation-level session scores, the SESSION review queue, `run_traffic.py`. Both LLM judges are live on the organization's inherited `Anthropic` connection. Not yet: fault switches F1/F3/F5, dashboards, `verify_demo.py`. Phases 5–6 not started. Tracks DON-245.
+**Status:** Phases 0–4 built and run on Langfuse Cloud: linkage harness (verified live), agents, single/local/A2A topologies, managed prompts, both datasets and experiments, online code evaluators and LLM judges, session scores and the review queue, faults F1–F5 with `verify_demo.py` (all catches verified live), README runbook and DEMO_SCRIPT.md. Not built: dashboards, the prompt CI gate and the loop on one bug (Phase 5), the partner agent (Phase 6). Tracks DON-245.
 **Scope size:** Medium. New standalone demo, own venv, three local agent services.
 Customer-agnostic: Northwind Mobile is fictional and all data is synthetic.
 
@@ -547,6 +547,27 @@ catches it and a layer that misses it:
 | F4 | **Broken propagation.** "The new A2A client dropped the baggage header." | `--linkage traceparent` (or `none`) | `verify_demo.py` trace-integrity check (remote rows without `sessionId`, more than one logical root), the dashboard widget "observations without session" | Every quality score. The answers are still correct, and only the observability broke. |
 | F5 | **Remote agent down or slow.** | stop the billing service, or set `BILLING_LATENCY_MS=20000` | `handoff` observation level `ERROR`, A2A state `failed`, the concierge fallback reply, a `handoff-success` rate widget | none. Shows graceful degradation. |
 
+**Measured (2026-11-20, `verify_demo.py --faults`, one live A2A turn each; `docs/FAULT_MATRIX.md`):**
+
+| # | Caught by (observed) | Missed by (observed) |
+|---|---|---|
+| F1 | `handoff-appropriate` false on exactly the concierge → billing handoff ("an outage credit requires a confirmed outage"); `handoff-target-correct` 0 | `customer-resolved` 0.92: billing's own rule sent it on to tech-support, so the customer still got the right credit, one hop late. The oracle never had to refuse. |
+| F2 | `handoff-context-complete`: "transfer to tech-support is missing: line_id" | the outcome: tech-support looked the line up and booked the right technician |
+| F3 | `handoff-loop`: "ping-pong tech-support>billing>tech-support", hop cap; 9 model calls, $0.075 (about 4× a normal turn) | the per-hop judge passed 3 of 4 hops |
+| F4 | 3 roots, 15 of 21 rows without session | `customer-resolved` 0.93; and online coverage: 1 of 2 handoffs scored, because the remote hop lost the trace name the rules select on |
+| F5 | the `handoff` at ERROR ("billing unavailable: AgentCardResolutionError …"), `handoff-succeeded` false | nothing: the concierge apologised and offered a retry |
+
+What building them taught:
+- **The first, softer fault prompts never fired.** The F1 concierge still routed outages to
+  tech-support, because the roster says tech-support confirms outages before any credit. The F3
+  billing agent computed the credit instead of bouncing it. A seeded fault needs a variant that
+  reads like a plausible bad edit *and* that the model actually follows: "skip a hop to save
+  latency"; "our agent never touches money".
+- **F5 found a real bug.** An unreachable agent raised `AgentCardResolutionError` out of the A2A
+  client and crashed the turn; it is now a failed handoff.
+- **Fault labels resolve per agent.** An agent with no version under the label runs its production
+  prompt, so one label changes one agent.
+
 ## 11. Experiments and CI gate
 
 - `scripts/run_experiment.py`: `dataset.run_experiment(...)` with the item evaluators
@@ -638,7 +659,7 @@ demos/multi-agent-handoff/
 | 2. A2A | Services, `A2ATransport`, transfer/continue/hand-back state, peer hop, linkage modes, `linkage_matrix.py` | The hero scenario on `a2a` gives one trace across three processes, and the matrix script reproduces Phase 0 |
 | 3. Evals offline | Datasets, item and run evaluators, the three-topology comparison | Three experiment runs comparable in the UI |
 | 4. Evals online + faults | Code evaluators, judges, annotation queue, F1–F5 switches, dashboards, `run_traffic.py` | Each fault trips its catching layer in `verify_demo.py` |
-| | *Progress (2026-11-19):* code evaluators live and verified; conversation dataset + simulator + session scores; SESSION queue; `run_traffic.py`. F2 and F4 switches exist. Judges live (2026-11-19). Open: F1/F3 prompt labels, F5 switch, dashboards, `verify_demo.py`. | |
+| | *Done (2026-11-20):* code evaluators and judges live; conversation dataset + simulator + session scores; SESSION queue; `run_traffic.py`; F1–F5 switches; `verify_demo.py --faults` passes every catch live (`docs/FAULT_MATRIX.md`). Dashboards moved to Phase 5. | |
 | 5. Loop + gate + script | `promote_to_dataset.py`, `prompt_gate.py`, workflow, `DEMO_SCRIPT.md`, README with measured numbers, repo indexes (demos/README, docs/README, AI_ENGINEERING_LOOP.md, CLAUDE.md layout) | One full pass of §17 runs live: F1 in production → flagged → labelled → fixed → gated → promoted → misroute rate down |
 | 6. Optional | device-protection partner (black box), second-framework specialist, chat portal | |
 
