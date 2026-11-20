@@ -1,0 +1,10 @@
+# multi-agent-handoff demo — Python 3.11+ (Langfuse SDK v5 floor). Own venv:
+#   uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+langfuse>=5.2,<6
+a2a-sdk[http-server]==1.3.*      # A2A protocol 1.0; same pin on every agent service
+anthropic>=2.11,<3
+uvicorn>=0.30
+httpx>=0.27
+python-dotenv>=1.0
+pytest>=8
+pytest-asyncio>=0.24

@@ -1,6 +1,6 @@
 # Multi-agent handoff demo (A2A) — design spec
 
-**Status:** Draft for review, not built. Tracks DON-245.
+**Status:** Phases 0–2 built (linkage harness, agents, local + A2A topologies); Phases 3–6 not started. Tracks DON-245.
 **Scope size:** Medium. New standalone demo, own venv, three local agent services.
 Customer-agnostic: Northwind Mobile is fictional and all data is synthetic.
 
@@ -289,14 +289,28 @@ handoffs. It is the same customer turn, so the two trees can be compared side by
 
 ### Linkage modes: question 2, measured
 
-`--linkage` changes only what crosses the wire:
+`--linkage` changes only what crosses the wire. **Measured in Phase 0**: one customer
+turn, three real processes, two A2A hops (support-turn → concierge → handoff →
+tech-support → handoff → billing). Each process's Langfuse SDK v5.2 exported its spans to
+a file instead of a server (`scripts/linkage_matrix.py`, pinned by
+`tests/test_linkage_matrix.py`). "Logical roots" uses Langfuse's definition: no parent,
+or marked as an application root by the SDK.
 
-| Mode | Sent on the A2A call | Expected in Langfuse (to be measured in Phase 0) | When to use it |
-|---|---|---|---|
-| `none` | nothing | Two traces. The remote one has no session, user, or release and is its own root. The concierge's `handoff` span keeps only the A2A task id as a manual link. | Never on purpose. This is the default if nobody wires propagation. |
-| `traceparent` | W3C `traceparent` | One trace id, nested correctly. But the remote process marks its first span as an **app root** (`isRootObservation=true`) with no session, user, or environment. The root-observation list shows two rows, and a judge filtered on *Is Root Observation* fires twice. | A third-party agent: they can correlate if they trace, and nothing internal leaks. |
-| `baggage` (default) | `traceparent` + `baggage` (Langfuse trace claim, session, user, trace name, release, environment), scoped to the one call | One trace, one logical root, and session and user on every row in every process | **Synchronous handoffs inside your platform** (delegate, transfer turns) |
-| `session` | A2A message `metadata.session_id` / `user_id` (application level), no `traceparent` | Two or more traces in **one session**, cross-linked by `handoff.parent_trace_id` ↔ `a2a_task_id` | **Asynchronous or long-running handoffs**: the remote work outlives the turn (push notifications, human approval, hours later). It lets each agent's run be its own trace and get its own evaluation. |
+| Mode | Sent on the A2A call | Traces | Logical roots | Remote obs. with session / user | When to use it |
+|---|---|---|---|---|---|
+| `none` | nothing | 3 | 3 | 0/5 · 0/5 | Never on purpose. This is what you get if nobody wires propagation. |
+| `traceparent` | W3C `traceparent` | **1** | **3** | 0/5 · 0/5 | A third-party agent: they can correlate if they trace, and nothing internal leaks. Every remote process marks its first span as an app root, so a judge on *Is Root Observation* fires **once per hop**, not once per turn. |
+| `baggage-claim` (diagnostic) | `traceparent` + a `baggage` header, no `propagate_attributes(as_baggage=True)` | 1 | **1** | **0/5** · 0/5 | Never. It shows the trap: the SDK's own `langfuse_trace_id` claim (written into baggage by every `start_as_current_observation`) removes the extra roots, so the trace *looks* fixed, but session and user are still missing on every remote row. |
+| `baggage` (default) | `traceparent` + `baggage` with session, user, trace name, environment, scoped to the one call | **1** | **1** | **5/5 · 5/5** | **Synchronous handoffs inside your platform** (delegate, transfer turns) |
+| `session` | A2A message metadata `session_id` / `user_id` (application level), no trace headers | 3 | 3 | 5/5 · 5/5 | **Asynchronous or long-running handoffs**: the remote work outlives the turn. Each agent's run is its own trace (`tech-support-task`, `billing-task`) in the same session, linked back by `parent_trace_id`. |
+
+No mode produced a dangling parent (a parent span that was never exported), because the
+`a2a-sdk` telemetry stays off (rule 2 below). The same run with real LLM agents
+(`scripts/run_scenario.py hero-outage-credit --topology a2a`) gave the `baggage` row: one
+trace across three services, one APP-ROOT on `support-turn`, and the session on all 20
+observations. **Still to verify against a live Langfuse server:** how the server derives
+`isRootObservation` and session aggregates from these spans, and how many times a
+root-filtered judge actually fires.
 
 The mechanism behind the `traceparent` row is already documented in this repo
 (`docs/LANGFUSE_V4_MIGRATION_SPEC.md` §16 and the bank-assistant MCP hop). The receiving
@@ -493,9 +507,9 @@ evaluators, and `linkage_matrix.py`.
 | Decision | Recommendation | Verify in Phase 0 |
 |---|---|---|
 | Langfuse Python SDK | **v5** (`langfuse>=5.2,<6`, Python 3.11+; 5.2.0 shipped 2026-11-05). This new standalone demo has no legacy calls to migrate, and Cloud removed the legacy v3 read endpoints on 2026-11-16. The repo's other demos stay on v4. v5 needs Cloud or self-hosted 4.59+, and the main stack runs 4.79.0. | `propagate_attributes(as_baggage=True)` behaves as on v4; v5's JSON-encoded metadata doesn't break the `stringObject` rule filter |
-| A2A SDK | `a2a-sdk[http-server]==1.3.*` (1.3.1, 2026-11-17), the same pin on both sides | which client hook injects headers (§6); the executor reads headers from the server call context; with SDK telemetry off, remote `parentObservationId` = the `handoff` observation |
+| A2A SDK | `a2a-sdk[http-server]==1.3.*` (1.3.1, 2026-11-17), the same pin on both sides | **Done.** Headers go in `ClientCallContext(service_parameters=...)` per call; no interceptor or httpx hook is needed. The server reads them from `call_context.state["headers"]`. With SDK telemetry off, the remote agent's parent is the `handoff` observation (0 dangling parents). |
 | A2A protocol | **1.0** (v1.0.1, 2026-05-28). Send `A2A-Version: 1.0`. | `TASK_STATE_INPUT_REQUIRED` keeps a task open across turns; a second message with the stored `taskId` continues it |
-| Model spans | Anthropic SDK + explicit Langfuse `generation` observations, or the SDK's native GenAI spans if Langfuse maps them with model, usage, and cost | no double counting (claims saw duplicates when a framework also traced) |
+| Model spans | **Done: explicit `generation` observations, native spans off.** Anthropic SDK 2.11 emits its own CLIENT span per call (content off by default) **and injects trace headers into every model API request through the global propagator, baggage included**. On a remote agent, that would send the caller's session and user ids to the model API. So the client is built with `open_telemetry={"traces": False, "propagation": False}`. | — |
 | Code evaluators | created through the stable Evaluators + Evaluation Rules API | if the API can't create code evaluators, fall back to a documented UI step (the user owns it, as with claims automations) |
 
 Gotchas already known from this repo, applied from day one: `temperature` is rejected by

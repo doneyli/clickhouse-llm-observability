@@ -1,0 +1,34 @@
+[
+ {
+  "outage_id": "OUT-2026-1117-01",
+  "zip": "94107",
+  "service": "home-internet",
+  "start": "2026-11-17T19:00:00Z",
+  "end": "2026-11-18T09:00:00Z",
+  "status": "resolved"
+ },
+ {
+  "outage_id": "OUT-2026-1116-02",
+  "zip": "94110",
+  "service": "home-internet",
+  "start": "2026-11-16T13:00:00Z",
+  "end": "2026-11-16T15:30:00Z",
+  "status": "resolved"
+ },
+ {
+  "outage_id": "OUT-2026-1118-03",
+  "zip": "94612",
+  "service": "mobile",
+  "start": "2026-11-18T06:00:00Z",
+  "end": null,
+  "status": "ongoing"
+ },
+ {
+  "outage_id": "OUT-2026-1112-04",
+  "zip": "95014",
+  "service": "home-internet",
+  "start": "2026-11-12T08:00:00Z",
+  "end": "2026-11-14T20:00:00Z",
+  "status": "resolved"
+ }
+]

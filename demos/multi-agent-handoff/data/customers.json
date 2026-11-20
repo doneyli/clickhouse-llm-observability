@@ -1,0 +1,1746 @@
+[
+ {
+  "customer_id": "cust-1001",
+  "name": "Ana Abara",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1001-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "ok",
+    "zip": "94107"
+   },
+   {
+    "line_id": "L-1001-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94107"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1001-202609",
+    "month": "2026-09",
+    "total": 125.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1001-202610",
+    "month": "2026-10",
+    "total": 125.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1001-202611",
+    "month": "2026-11",
+    "total": 125.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1002",
+  "name": "Ben Brandt",
+  "zip": "94110",
+  "lines": [
+   {
+    "line_id": "L-1002-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94110"
+   },
+   {
+    "line_id": "L-1002-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "apn-misconfigured",
+    "zip": "94110"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1002-202609",
+    "month": "2026-09",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1002-202610",
+    "month": "2026-10",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1002-202611",
+    "month": "2026-11",
+    "total": 119.62,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1003",
+  "name": "Chloe Castillo",
+  "zip": "94117",
+  "lines": [
+   {
+    "line_id": "L-1003-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "router-offline",
+    "zip": "94117"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1003-202609",
+    "month": "2026-09",
+    "total": 92.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1003-202610",
+    "month": "2026-10",
+    "total": 92.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1003-202611",
+    "month": "2026-11",
+    "total": 92.44,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1004",
+  "name": "Dev Dunn",
+  "zip": "94612",
+  "lines": [
+   {
+    "line_id": "L-1004-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94612"
+   },
+   {
+    "line_id": "L-1004-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94612"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1004-202609",
+    "month": "2026-09",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1004-202610",
+    "month": "2026-10",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1004-202611",
+    "month": "2026-11",
+    "total": 157.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1005",
+  "name": "Elena Ekwueme",
+  "zip": "95014",
+  "lines": [
+   {
+    "line_id": "L-1005-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "speed-throttled",
+    "zip": "95014"
+   },
+   {
+    "line_id": "L-1005-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "95014"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1005-202609",
+    "month": "2026-09",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1005-202610",
+    "month": "2026-10",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1005-202611",
+    "month": "2026-11",
+    "total": 119.62,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1006",
+  "name": "Farid Fischer",
+  "zip": "94040",
+  "lines": [
+   {
+    "line_id": "L-1006-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94040"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1006-202609",
+    "month": "2026-09",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1006-202610",
+    "month": "2026-10",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1006-202611",
+    "month": "2026-11",
+    "total": 70.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1007",
+  "name": "Grace Gomez",
+  "zip": "94110",
+  "lines": [
+   {
+    "line_id": "L-1007-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "sim-not-provisioned",
+    "zip": "94110"
+   },
+   {
+    "line_id": "L-1007-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "ok",
+    "zip": "94110"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1007-202609",
+    "month": "2026-09",
+    "total": 97.87,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1007-202610",
+    "month": "2026-10",
+    "total": 97.87,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1007-202611",
+    "month": "2026-11",
+    "total": 97.87,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1008",
+  "name": "Hiro Haddad",
+  "zip": "95112",
+  "lines": [
+   {
+    "line_id": "L-1008-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "95112"
+   },
+   {
+    "line_id": "L-1008-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "speed-throttled",
+    "zip": "95112"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1008-202609",
+    "month": "2026-09",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1008-202610",
+    "month": "2026-10",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1008-202611",
+    "month": "2026-11",
+    "total": 141.38,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1009",
+  "name": "Ines Ito",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1009-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94107"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1009-202609",
+    "month": "2026-09",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1009-202610",
+    "month": "2026-10",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1009-202611",
+    "month": "2026-11",
+    "total": 70.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1010",
+  "name": "Jonas Jensen",
+  "zip": "94110",
+  "lines": [
+   {
+    "line_id": "L-1010-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "router-offline",
+    "zip": "94110"
+   },
+   {
+    "line_id": "L-1010-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "94110"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1010-202609",
+    "month": "2026-09",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1010-202610",
+    "month": "2026-10",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1010-202611",
+    "month": "2026-11",
+    "total": 141.38,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1011",
+  "name": "Kira Abara",
+  "zip": "94117",
+  "lines": [
+   {
+    "line_id": "L-1011-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "speed-throttled",
+    "zip": "94117"
+   },
+   {
+    "line_id": "L-1011-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "router-offline",
+    "zip": "94117"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1011-202609",
+    "month": "2026-09",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1011-202610",
+    "month": "2026-10",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1011-202611",
+    "month": "2026-11",
+    "total": 141.38,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1012",
+  "name": "Luis Brandt",
+  "zip": "94612",
+  "lines": [
+   {
+    "line_id": "L-1012-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "speed-throttled",
+    "zip": "94612"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1012-202609",
+    "month": "2026-09",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1012-202610",
+    "month": "2026-10",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1012-202611",
+    "month": "2026-11",
+    "total": 38.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1013",
+  "name": "Maya Castillo",
+  "zip": "95014",
+  "lines": [
+   {
+    "line_id": "L-1013-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "speed-throttled",
+    "zip": "95014"
+   },
+   {
+    "line_id": "L-1013-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "ok",
+    "zip": "95014"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1013-202609",
+    "month": "2026-09",
+    "total": 152.25,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1013-202610",
+    "month": "2026-10",
+    "total": 152.25,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1013-202611",
+    "month": "2026-11",
+    "total": 152.25,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1014",
+  "name": "Nate Dunn",
+  "zip": "94040",
+  "lines": [
+   {
+    "line_id": "L-1014-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "ok",
+    "zip": "94040"
+   },
+   {
+    "line_id": "L-1014-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "94040"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1014-202609",
+    "month": "2026-09",
+    "total": 87.0,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1014-202610",
+    "month": "2026-10",
+    "total": 87.0,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1014-202611",
+    "month": "2026-11",
+    "total": 87.0,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1015",
+  "name": "Olu Ekwueme",
+  "zip": "94301",
+  "lines": [
+   {
+    "line_id": "L-1015-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "ok",
+    "zip": "94301"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1015-202609",
+    "month": "2026-09",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1015-202610",
+    "month": "2026-10",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1015-202611",
+    "month": "2026-11",
+    "total": 38.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1016",
+  "name": "Priya Fischer",
+  "zip": "94040",
+  "lines": [
+   {
+    "line_id": "L-1016-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "94040"
+   },
+   {
+    "line_id": "L-1016-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "router-offline",
+    "zip": "94040"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1016-202609",
+    "month": "2026-09",
+    "total": 179.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1016-202610",
+    "month": "2026-10",
+    "total": 179.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1016-202611",
+    "month": "2026-11",
+    "total": 179.44,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1017",
+  "name": "Quinn Gomez",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1017-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94107"
+   },
+   {
+    "line_id": "L-1017-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "apn-misconfigured",
+    "zip": "94107"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1017-202609",
+    "month": "2026-09",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1017-202610",
+    "month": "2026-10",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1017-202611",
+    "month": "2026-11",
+    "total": 157.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1018",
+  "name": "Rosa Haddad",
+  "zip": "94110",
+  "lines": [
+   {
+    "line_id": "L-1018-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "sim-not-provisioned",
+    "zip": "94110"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1018-202609",
+    "month": "2026-09",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1018-202610",
+    "month": "2026-10",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1018-202611",
+    "month": "2026-11",
+    "total": 38.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1019",
+  "name": "Sam Ito",
+  "zip": "94117",
+  "lines": [
+   {
+    "line_id": "L-1019-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "router-offline",
+    "zip": "94117"
+   },
+   {
+    "line_id": "L-1019-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "94117"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1019-202609",
+    "month": "2026-09",
+    "total": 87.0,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1019-202610",
+    "month": "2026-10",
+    "total": 87.0,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1019-202611",
+    "month": "2026-11",
+    "total": 87.0,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1020",
+  "name": "Tara Jensen",
+  "zip": "94301",
+  "lines": [
+   {
+    "line_id": "L-1020-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "apn-misconfigured",
+    "zip": "94301"
+   },
+   {
+    "line_id": "L-1020-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "speed-throttled",
+    "zip": "94301"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1020-202609",
+    "month": "2026-09",
+    "total": 87.0,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1020-202610",
+    "month": "2026-10",
+    "total": 87.0,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1020-202611",
+    "month": "2026-11",
+    "total": 87.0,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1021",
+  "name": "Ana Abara",
+  "zip": "95014",
+  "lines": [
+   {
+    "line_id": "L-1021-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "ok",
+    "zip": "95014"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1021-202609",
+    "month": "2026-09",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1021-202610",
+    "month": "2026-10",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1021-202611",
+    "month": "2026-11",
+    "total": 38.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1022",
+  "name": "Ben Brandt",
+  "zip": "94040",
+  "lines": [
+   {
+    "line_id": "L-1022-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "apn-misconfigured",
+    "zip": "94040"
+   },
+   {
+    "line_id": "L-1022-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94040"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1022-202609",
+    "month": "2026-09",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1022-202610",
+    "month": "2026-10",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1022-202611",
+    "month": "2026-11",
+    "total": 157.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1023",
+  "name": "Chloe Castillo",
+  "zip": "94301",
+  "lines": [
+   {
+    "line_id": "L-1023-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "apn-misconfigured",
+    "zip": "94301"
+   },
+   {
+    "line_id": "L-1023-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94301"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1023-202609",
+    "month": "2026-09",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1023-202610",
+    "month": "2026-10",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1023-202611",
+    "month": "2026-11",
+    "total": 157.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1024",
+  "name": "Dev Dunn",
+  "zip": "95112",
+  "lines": [
+   {
+    "line_id": "L-1024-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "apn-misconfigured",
+    "zip": "95112"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1024-202609",
+    "month": "2026-09",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1024-202610",
+    "month": "2026-10",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1024-202611",
+    "month": "2026-11",
+    "total": 38.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1025",
+  "name": "Elena Ekwueme",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1025-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "ok",
+    "zip": "94107"
+   },
+   {
+    "line_id": "L-1025-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94107"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1025-202609",
+    "month": "2026-09",
+    "total": 125.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1025-202610",
+    "month": "2026-10",
+    "total": 125.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1025-202611",
+    "month": "2026-11",
+    "total": 125.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1026",
+  "name": "Farid Fischer",
+  "zip": "94110",
+  "lines": [
+   {
+    "line_id": "L-1026-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "apn-misconfigured",
+    "zip": "94110"
+   },
+   {
+    "line_id": "L-1026-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "ok",
+    "zip": "94110"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1026-202609",
+    "month": "2026-09",
+    "total": 97.87,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1026-202610",
+    "month": "2026-10",
+    "total": 97.87,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1026-202611",
+    "month": "2026-11",
+    "total": 97.87,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1027",
+  "name": "Grace Gomez",
+  "zip": "94117",
+  "lines": [
+   {
+    "line_id": "L-1027-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94117"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1027-202609",
+    "month": "2026-09",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1027-202610",
+    "month": "2026-10",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1027-202611",
+    "month": "2026-11",
+    "total": 70.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1028",
+  "name": "Hiro Haddad",
+  "zip": "94612",
+  "lines": [
+   {
+    "line_id": "L-1028-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94612"
+   },
+   {
+    "line_id": "L-1028-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "apn-misconfigured",
+    "zip": "94612"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1028-202609",
+    "month": "2026-09",
+    "total": 130.5,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1028-202610",
+    "month": "2026-10",
+    "total": 130.5,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1028-202611",
+    "month": "2026-11",
+    "total": 130.5,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1029",
+  "name": "Ines Ito",
+  "zip": "95014",
+  "lines": [
+   {
+    "line_id": "L-1029-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "speed-throttled",
+    "zip": "95014"
+   },
+   {
+    "line_id": "L-1029-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "speed-throttled",
+    "zip": "95014"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1029-202609",
+    "month": "2026-09",
+    "total": 97.87,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1029-202610",
+    "month": "2026-10",
+    "total": 97.87,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1029-202611",
+    "month": "2026-11",
+    "total": 97.87,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1030",
+  "name": "Jonas Jensen",
+  "zip": "94040",
+  "lines": [
+   {
+    "line_id": "L-1030-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94040"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1030-202609",
+    "month": "2026-09",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1030-202610",
+    "month": "2026-10",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1030-202611",
+    "month": "2026-11",
+    "total": 70.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1031",
+  "name": "Kira Abara",
+  "zip": "94301",
+  "lines": [
+   {
+    "line_id": "L-1031-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "94301"
+   },
+   {
+    "line_id": "L-1031-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94301"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1031-202609",
+    "month": "2026-09",
+    "total": 179.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1031-202610",
+    "month": "2026-10",
+    "total": 179.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1031-202611",
+    "month": "2026-11",
+    "total": 179.44,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1032",
+  "name": "Luis Brandt",
+  "zip": "95112",
+  "lines": [
+   {
+    "line_id": "L-1032-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "95112"
+   },
+   {
+    "line_id": "L-1032-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "95112"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1032-202609",
+    "month": "2026-09",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1032-202610",
+    "month": "2026-10",
+    "total": 141.38,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1032-202611",
+    "month": "2026-11",
+    "total": 141.38,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1033",
+  "name": "Maya Castillo",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1033-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "speed-throttled",
+    "zip": "94107"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1033-202609",
+    "month": "2026-09",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1033-202610",
+    "month": "2026-10",
+    "total": 70.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1033-202611",
+    "month": "2026-11",
+    "total": 70.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1034",
+  "name": "Nate Dunn",
+  "zip": "94110",
+  "lines": [
+   {
+    "line_id": "L-1034-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94110"
+   },
+   {
+    "line_id": "L-1034-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "94110"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1034-202609",
+    "month": "2026-09",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1034-202610",
+    "month": "2026-10",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1034-202611",
+    "month": "2026-11",
+    "total": 119.62,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1035",
+  "name": "Olu Ekwueme",
+  "zip": "94117",
+  "lines": [
+   {
+    "line_id": "L-1035-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "apn-misconfigured",
+    "zip": "94117"
+   },
+   {
+    "line_id": "L-1035-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94117"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1035-202609",
+    "month": "2026-09",
+    "total": 179.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1035-202610",
+    "month": "2026-10",
+    "total": 179.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1035-202611",
+    "month": "2026-11",
+    "total": 179.44,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1036",
+  "name": "Priya Fischer",
+  "zip": "94612",
+  "lines": [
+   {
+    "line_id": "L-1036-1",
+    "kind": "mobile",
+    "plan": "Mobile Essentials",
+    "monthly_price": 35.0,
+    "status": "router-offline",
+    "zip": "94612"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1036-202609",
+    "month": "2026-09",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1036-202610",
+    "month": "2026-10",
+    "total": 38.06,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1036-202611",
+    "month": "2026-11",
+    "total": 38.06,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1037",
+  "name": "Quinn Gomez",
+  "zip": "95014",
+  "lines": [
+   {
+    "line_id": "L-1037-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "apn-misconfigured",
+    "zip": "95014"
+   },
+   {
+    "line_id": "L-1037-2",
+    "kind": "home-internet",
+    "plan": "Fixed Wireless 100",
+    "monthly_price": 45.0,
+    "status": "ok",
+    "zip": "95014"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1037-202609",
+    "month": "2026-09",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1037-202610",
+    "month": "2026-10",
+    "total": 119.62,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1037-202611",
+    "month": "2026-11",
+    "total": 119.62,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1038",
+  "name": "Rosa Haddad",
+  "zip": "94040",
+  "lines": [
+   {
+    "line_id": "L-1038-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "router-offline",
+    "zip": "94040"
+   },
+   {
+    "line_id": "L-1038-2",
+    "kind": "home-internet",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok",
+    "zip": "94040"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1038-202609",
+    "month": "2026-09",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1038-202610",
+    "month": "2026-10",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1038-202611",
+    "month": "2026-11",
+    "total": 157.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1039",
+  "name": "Sam Ito",
+  "zip": "94301",
+  "lines": [
+   {
+    "line_id": "L-1039-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "94301"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1039-202609",
+    "month": "2026-09",
+    "total": 92.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1039-202610",
+    "month": "2026-10",
+    "total": 92.44,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1039-202611",
+    "month": "2026-11",
+    "total": 92.44,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1040",
+  "name": "Tara Jensen",
+  "zip": "95112",
+  "lines": [
+   {
+    "line_id": "L-1040-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "95112"
+   },
+   {
+    "line_id": "L-1040-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "ok",
+    "zip": "95112"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1040-202609",
+    "month": "2026-09",
+    "total": 152.25,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1040-202610",
+    "month": "2026-10",
+    "total": 152.25,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1040-202611",
+    "month": "2026-11",
+    "total": 152.25,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1041",
+  "name": "Ana Abara",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1041-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited Plus",
+    "monthly_price": 85.0,
+    "status": "ok",
+    "zip": "94107"
+   },
+   {
+    "line_id": "L-1041-2",
+    "kind": "home-internet",
+    "plan": "Fiber 300",
+    "monthly_price": 55.0,
+    "status": "ok",
+    "zip": "94107"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1041-202609",
+    "month": "2026-09",
+    "total": 152.25,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1041-202610",
+    "month": "2026-10",
+    "total": 152.25,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1041-202611",
+    "month": "2026-11",
+    "total": 152.25,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ },
+ {
+  "customer_id": "cust-1042",
+  "name": "Ben Brandt",
+  "zip": "94107",
+  "lines": [
+   {
+    "line_id": "L-1042-1",
+    "kind": "mobile",
+    "plan": "Mobile Unlimited",
+    "monthly_price": 65.0,
+    "status": "ok",
+    "zip": "94107"
+   },
+   {
+    "line_id": "L-1042-2",
+    "kind": "home-internet",
+    "zip": "94107",
+    "plan": "Fiber 1 Gig",
+    "monthly_price": 80.0,
+    "status": "ok"
+   }
+  ],
+  "invoices": [
+   {
+    "invoice_id": "INV-1042-202609",
+    "month": "2026-09",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1042-202610",
+    "month": "2026-10",
+    "total": 157.69,
+    "status": "paid"
+   },
+   {
+    "invoice_id": "INV-1042-202611",
+    "month": "2026-11",
+    "total": 157.69,
+    "status": "open"
+   }
+  ],
+  "credits": []
+ }
+]
