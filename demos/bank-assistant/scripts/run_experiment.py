@@ -53,6 +53,8 @@ def run(dataset: str, prompt_label: str, model: str, run_name: str | None = None
                   tags=["experiment", f"prompt:{prompt_label}"])
         r = await agent.run_turn(q, **kw)
         out = {k: r[k] for k in ("answer", "sources", "retrieved", "tools_used", "blocked", "prompt_version", "model")}
+        # The trajectory across the whole conversation, each step tagged with its turn
+        out["tool_calls"] = [{**s, "turn": 1} for s in r["tool_calls"]]
         md = item.metadata or {}
         # Simulated customer (disputes): the agent found the expected charge and asked to
         # confirm instead of opening it → the customer says yes, once, in the same trace.
@@ -63,7 +65,8 @@ def run(dataset: str, prompt_label: str, model: str, run_name: str | None = None
             r2 = await agent.run_turn(md["confirm_reply"], history=[{"role": "user", "content": q},
                                                                     {"role": "assistant", "content": r["answer"]}], **kw)
             out.update({k: r2[k] for k in ("answer", "sources", "retrieved", "blocked")},
-                       tools_used=r["tools_used"] + r2["tools_used"], first_answer=r["answer"], turns=2)
+                       tools_used=r["tools_used"] + r2["tools_used"], first_answer=r["answer"], turns=2,
+                       tool_calls=out["tool_calls"] + [{**s, "turn": 2} for s in r2["tool_calls"]])
         return out
 
     evaluators = (evals.REDTEAM_EVALUATORS if redteam else

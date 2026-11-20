@@ -173,6 +173,7 @@ source. The synthetic items have obvious planted errors, so a judge can score
 | Prompt gate and GitHub Actions | [CI instructions](cicd/README.md) |
 | Local Enterprise roles and audit activity | `mkdir -p logs`, then `./scripts/bootstrap_selfhosted.sh` after local Enterprise startup |
 | Dispute-resolution regression | [Disputes walkthrough](docs/arcs/disputes.md) |
+| Agent trajectory: right steps, in order, with the right arguments (gold path offline, code evaluator online) | [Trajectory walkthrough](docs/arcs/trajectory.md) |
 | Cost regression | [Cost walkthrough](docs/arcs/cost-regression.md) |
 
 `run_all_experiments.sh --fresh` deletes existing experiment traces and scores

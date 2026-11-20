@@ -861,6 +861,12 @@ For each issue: **Symptom → Pinpoint → Root cause → Fix → Verify → Res
   **2/10 → 10/10**, value on dispute turns USD 13 → USD 65.
   [After trace](https://us.cloud.langfuse.com/project/cmuz1kt5z04uead0eyjm92c7f/traces/1be9e4f473f5f7a0e939f77f47e5341a).
   Full write-up, runs and reproduce commands: `docs/arcs/disputes.md`.
+- **Pinpoint without walking the tree (trajectory).** The `trajectory-args`
+  comment on the 1.5.0 run says it in one line: `FAIL: transaction lookup 30
+  days, the charge is 41 days old`. Right tools, right order, wrong argument.
+  Online, the `trajectory-policy` code evaluator fails `trajectory-dispute-lookback`
+  on every 1.5.0 give-up, with no dataset and no judge. Walkthrough:
+  `docs/arcs/trajectory.md`.
 - **Land.** A business leak in the contact centre, traced to a code default two
   services away from the chat window — fixed and measured in one release.
 - **Candour.** Small n. The 1.5.1 agent often shows the charge and asks *"shall I
