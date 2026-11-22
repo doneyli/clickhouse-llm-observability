@@ -37,6 +37,7 @@ class TurnContext:
     user_id: Optional[str]
     trace_name: str = "support-turn"
     environment: Optional[str] = None
+    version: Optional[str] = None  # the prompt versions the turn runs (prompts.version_tag)
 
 
 @contextmanager
@@ -55,7 +56,8 @@ def outbound(mode: str, turn: TurnContext) -> Iterator[tuple[dict, dict]]:
 
         attrs = {k: v for k, v in {"session_id": turn.session_id, "user_id": turn.user_id,
                                    "trace_name": turn.trace_name,
-                                   "environment": turn.environment or config.current_environment()}.items() if v}
+                                   "environment": turn.environment or config.current_environment(),
+                                   "version": turn.version}.items() if v}
         # Never tags: a list in baggage arrives as one garbage string.
         with propagate_attributes(as_baggage=True, **attrs):
             yield config.inject_trace_context(baggage=True), {}
@@ -75,4 +77,4 @@ def turn_from_baggage() -> TurnContext:
     b = baggage.get_all()
     return TurnContext(session_id=b.get("langfuse_session_id"), user_id=b.get("langfuse_user_id"),
                        trace_name=str(b.get("langfuse_trace_name") or "support-turn"),
-                       environment=b.get("langfuse_environment"))
+                       environment=b.get("langfuse_environment"), version=b.get("langfuse_version"))

@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from handoff import config
+from handoff import config, prompts
 from handoff.agents.base import AgentInput, Roster, run_agent
 from handoff.agents.registry import SPECIALISTS
 from handoff.linkage import DEFAULT_MODE, TurnContext
@@ -116,9 +116,13 @@ class Orchestrator:
         if not self._cards:
             self.roster = await Roster.from_cards(SPECIALISTS)
             self._cards = True
-        turn_ctx = TurnContext(session_id=conv.session_id, user_id=conv.customer_id, trace_name="support-turn")
+        version = prompts.version_tag(["single"] if self.topology == "single" else ["concierge", *SPECIALISTS],
+                                      self.prompt_label)
+        turn_ctx = TurnContext(session_id=conv.session_id, user_id=conv.customer_id, trace_name="support-turn",
+                               version=version)
         owner_before = conv.owner
         with propagate_attributes(session_id=conv.session_id, user_id=conv.customer_id, trace_name="support-turn",
+                                  version=version,
                                   tags=[f"topology:{self.topology}", f"scenario:{conv.scenario}"]):
             with self.lf.start_as_current_observation(
                     as_type="agent", name="support-turn", input={"message": message},

@@ -43,7 +43,7 @@ def test_a_correct_hero_run_scores_full_marks():
     s = _scores(GOOD_HERO, HERO)
     assert s == {"handoff-target-correct": 1, "path-match": 1, "path-contains": 1, "handoff-context-complete": 1,
                  "credit-amount-correct": 1, "resolution-correct": 1, "reply-mentions-facts": 1,
-                 "outage-verified-first": 1}
+                 "outage-verified-first": 1, "handoff-loop": 0}
 
 
 def test_f1_misroute_is_caught_by_routing_and_process_but_not_politeness():
@@ -102,3 +102,44 @@ def test_conversation_record_and_shape_scores():
                  "simulated-customer-satisfied": 1.0}
     exp = next(i for i in datasets.conversation_items() if i["id"] == "conversation-conv-02")["expected_output"]
     assert evals.resolution_correct(output=rec, expected_output=exp)[0].value == 1.0
+
+
+def test_loop_rule_matches_the_online_code_evaluator():
+    clean = _scores(GOOD_HERO, HERO)
+    assert clean["handoff-loop"] == 0.0
+    bounce = _run(agent_path=["concierge", "tech-support", "billing", "tech-support", "billing"],
+                  first_handoff="tech-support", hop_cap_hit=True,
+                  handoffs=[{"kind": "transfer", "from": a, "to": b, "payload": {}}
+                            for a, b in [("concierge", "tech-support"), ("tech-support", "billing"),
+                                         ("billing", "tech-support"), ("tech-support", "billing")]])
+    got = [e for e in evals.handoff_loop(output=bounce)]
+    assert got[0].value == 1.0 and "ping-pong" in got[0].comment and "cap" in got[0].comment
+    assert evals.handoff_loop(output={**bounce, "topology": "single"}) == []
+
+
+def test_loop_rate_is_a_run_metric():
+    names = {getattr(f, "__name__", "") for f in evals.RUN_EVALUATORS}
+    assert "loop-rate" in names
+
+
+def test_the_f1_fix_keeps_the_latency_change_and_restores_the_outage_rule():
+    from handoff import faults, prompts
+    fix = faults.F1_FIX_CONCIERGE
+    assert fix != prompts.CONCIERGE and fix != faults.F1_CONCIERGE
+    assert "straight to billing" in fix and "Except outage credits" in fix
+    assert "This includes outage credits." not in fix
+
+
+def test_version_tag_names_every_agent_offline(monkeypatch):
+    from handoff import prompts
+    monkeypatch.setattr(prompts.config, "CAPTURE_DIR", "/tmp/none")
+    assert prompts.version_tag(["concierge", "billing"]) == "concierge code / billing code"
+
+
+def test_an_item_promoted_from_production_is_scored_on_routing_only():
+    promoted = {"first_handoff": "tech-support", "required_fields": ["customer_id", "line_id", "symptom"]}
+    misroute = _run(agent_path=["concierge", "billing", "tech-support"], first_handoff="billing",
+                    handoffs=[{"kind": "transfer", "from": "concierge", "to": "billing", "payload": {}}])
+    s = _scores(misroute, promoted)
+    assert s["handoff-target-correct"] == 0
+    assert "resolution-correct" not in s and "credit-amount-correct" not in s

@@ -3,6 +3,7 @@ Production-like traffic: simulated customers hold whole conversations (SPEC §17
 
     .venv/bin/python scripts/run_traffic.py                       # the 12 conversation goals, a2a
     .venv/bin/python scripts/run_traffic.py --only conv-01 conv-07 --topology local
+    .venv/bin/python scripts/run_traffic.py --repeat 2                # 24 conversations (the loop)
     HANDOFF_SLIM_CONTEXT=1 .venv/bin/python scripts/run_traffic.py --only conv-02   # fault F2
 
 Each customer message is one `support-turn` trace in the `production` environment; a
@@ -50,10 +51,11 @@ async def main() -> None:
     ap.add_argument("--label", default=None, help="prompt label (default: production)")
     ap.add_argument("--only", nargs="*", help="conversation ids, e.g. conv-01 conv-07")
     ap.add_argument("--concurrency", type=int, default=3)
+    ap.add_argument("--repeat", type=int, default=1, help="hold each conversation goal this many times")
     args = ap.parse_args()
 
     items = [i for i in datasets.conversation_items()
-             if not args.only or i["metadata"]["item"] in args.only]
+             if not args.only or i["metadata"]["item"] in args.only] * max(1, args.repeat)
     qid = queue_id()
     if qid is None:
         print(f'(no "{QUEUE}" queue: run scripts/seed_evals.py --queue to send transfers for review)')

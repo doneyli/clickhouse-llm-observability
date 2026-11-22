@@ -68,3 +68,19 @@ PROMPT_FAULTS = {
     "fault-f1": {"concierge": F1_CONCIERGE},
     "fault-f3": {"tech-support": F3_TECH_SUPPORT, "billing": F3_BILLING},
 }
+
+# The F1 fix, as the loop writes it (SPEC §17, step 4): keep the latency win the bad edit was after
+# (plain money questions skip a hop) and make the exception it dropped explicit. Built on the F1 text,
+# so the version diff in Langfuse reads as the fix, not as a revert.
+F1_FIX_CONCIERGE = _swap(
+    F1_CONCIERGE,
+    """- Any request for money back (a refund, a credit, compensation), whatever caused it, goes straight to
+  billing with transfer_to_billing: billing issues credits, and skipping the extra hop is faster for the
+  customer. This includes outage credits.
+- Connectivity, device or line problems where the customer does not ask for money go to tech-support.""",
+    """- Money back for a charge (a refund, a disputed charge, a billing credit) goes straight to billing with
+  transfer_to_billing: billing issues credits, and skipping the extra hop is faster for the customer.
+- Except outage credits. If the customer wants money back because their service was down or degraded,
+  it is an outage credit: transfer_to_tech_support. Only tech-support can confirm the outage, and it asks
+  billing to apply the credit once it has.
+- Connectivity, outages, device or line problems go to tech-support.""")

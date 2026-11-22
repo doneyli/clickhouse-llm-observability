@@ -6,11 +6,13 @@ and as the seed for scripts/seed_prompts.py. Variables use Langfuse's {{name}} s
 from __future__ import annotations
 
 import re
+import time
 from typing import Optional
 
 from handoff import config
 
 LABEL = config.setting("HANDOFF_PROMPT_LABEL", "production")
+_MISSING: dict = {}  # (prompt, label) → when a lookup last found no such version
 
 CONCIERGE = """You are the Northwind Mobile concierge, the first agent a customer reaches in support chat.
 The customer is signed in as {{customer_id}}.
@@ -102,15 +104,31 @@ def get(agent: str, label: Optional[str] = None):
         if wanted != LABEL:
             # A label is per agent: an agent with no version under it (e.g. billing under `fault-f1`)
             # runs its production prompt, so one label can change one agent and leave the rest alone.
-            try:
-                return _served(lf.get_prompt(prompt_name(agent), label=wanted, type="text", cache_ttl_seconds=60))
-            except Exception:  # noqa: BLE001 — not found under this label
-                pass
+            key = (prompt_name(agent), wanted)
+            if time.monotonic() - _MISSING.get(key, -1e9) > 60:  # remember a miss as long as a hit is cached
+                try:
+                    return _served(lf.get_prompt(prompt_name(agent), label=wanted, type="text", cache_ttl_seconds=60))
+                except Exception:  # noqa: BLE001 — not found under this label
+                    _MISSING[key] = time.monotonic()
         client = lf.get_prompt(prompt_name(agent), label=LABEL, type="text", fallback=template,
                                cache_ttl_seconds=60)
         return _served(client, template)
     except Exception:  # noqa: BLE001 — prompts must never take the agent down
         return template, None
+
+
+def version_tag(agents, label: Optional[str] = None) -> str:
+    """The prompt versions a turn runs, e.g. "concierge v3 / tech-support v1 / billing v1".
+
+    Set as the turn's version, so a dashboard can split any score by it: a label move shows
+    up as a new row, and the fix and the bug sit side by side. Remote agents resolve the same
+    label against the same project, so their versions match (each side caches for 60 s).
+    """
+    parts = []
+    for agent in agents:
+        _, client = get(agent, label)
+        parts.append(f"{agent} v{client.version}" if client is not None else f"{agent} code")
+    return " / ".join(parts)
 
 
 def _served(client, template: Optional[str] = None):

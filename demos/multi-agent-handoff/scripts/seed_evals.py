@@ -14,7 +14,8 @@ What it creates:
     handoff-appropriate       on every `handoff`: was this the right agent, given the roster?
     customer-resolved         on every turn root: did the reply resolve or correctly advance the request?
   review (--queue)
-    score configs + the "Transferred conversations" annotation queue (SESSION items)
+    score configs + two annotation queues: "Transferred conversations" (SESSION items, filled by
+    run_traffic.py) and "Flagged handoffs" (handoff observations, filled by flag_handoffs.py)
 
 Every rule is scoped to production `support-turn` traces and selects its observation by
 `metadata.role`, never by name. Experiments (environment `sdk-experiment`) never trigger
@@ -137,7 +138,11 @@ JUDGES = [
 ]
 
 FAILURE_MODES = ["none", "misroute", "context-lost", "ping-pong", "wrong-credit", "unresolved", "other"]
+TARGETS = ["tech-support", "billing", "none"]  # "none": the concierge should have answered itself
 SCORE_CONFIGS = [
+    {"name": "correct-handoff-target", "dataType": "CATEGORICAL",
+     "description": "Reviewer: the agent this handoff should have gone to (none = the concierge answers)",
+     "categories": [{"label": label, "value": i} for i, label in enumerate(TARGETS)]},
     {"name": "reviewer-resolved", "dataType": "BOOLEAN",
      "description": "Reviewer: the conversation ended with the customer's issue resolved (1) or not (0)"},
     {"name": "handoff-failure-mode", "dataType": "CATEGORICAL",
@@ -145,6 +150,7 @@ SCORE_CONFIGS = [
      "categories": [{"label": label, "value": i} for i, label in enumerate(FAILURE_MODES)]},
 ]
 QUEUE = "Transferred conversations"
+FLAGGED_QUEUE = "Flagged handoffs"
 
 
 def _upsert_evaluator(existing: dict, name: str, definition: dict, same) -> dict:
@@ -206,6 +212,19 @@ def seed_judges(evaluators: dict, rules: dict) -> None:
         _upsert_rule(rules, j["name"], j["role"], ev["id"], j["mapping"], j["sampling"])
 
 
+QUEUES = [
+    {"name": QUEUE, "configs": ["reviewer-resolved", "handoff-failure-mode"],
+     "description": ("Conversations where a specialist took over. Review the whole session: did the "
+                     "customer end resolved, and which handoff failed if not. Labels calibrate "
+                     "customer-resolved and handoff-appropriate.")},
+    {"name": FLAGGED_QUEUE, "configs": ["correct-handoff-target"],
+     "description": ("The concierge's first handoff of a turn: the ones the handoff-appropriate judge flagged, "
+                     "plus a sample it passed. Label the agent it should have gone to. Labelled items become "
+                     "handoff-routing test cases (scripts/promote_to_dataset.py) and calibrate the judge "
+                     "(scripts/judge_calibration.py).")},
+]
+
+
 def seed_queue() -> None:
     existing = {c["name"]: c for c in paginate("/api/public/score-configs")}
     ids = {}
@@ -217,16 +236,14 @@ def seed_queue() -> None:
             ids[c["name"]] = api("POST", "/api/public/score-configs", c)["id"]
             print(f"+ score config {c['name']}")
     queues = {q["name"]: q for q in paginate("/api/public/annotation-queues")}
-    if QUEUE in queues:
-        print(f"= annotation queue {QUEUE} ({queues[QUEUE]['id']})")
-        return
-    q = api("POST", "/api/public/annotation-queues", {
-        "name": QUEUE,
-        "description": ("Conversations where a specialist took over. Review the whole session: did the "
-                        "customer end resolved, and which handoff failed if not. Labels calibrate "
-                        "customer-resolved and handoff-appropriate."),
-        "scoreConfigIds": [ids["reviewer-resolved"], ids["handoff-failure-mode"]]})
-    print(f"+ annotation queue {QUEUE} ({q['id']})")
+    for spec in QUEUES:
+        if spec["name"] in queues:
+            print(f"= annotation queue {spec['name']} ({queues[spec['name']]['id']})")
+            continue
+        q = api("POST", "/api/public/annotation-queues", {
+            "name": spec["name"], "description": spec["description"],
+            "scoreConfigIds": [ids[c] for c in spec["configs"]]})
+        print(f"+ annotation queue {spec['name']} ({q['id']})")
 
 
 def main() -> None:

@@ -1,6 +1,14 @@
 # Multi-agent handoff demo (A2A) — design spec
 
-**Status:** Phases 0–4 built and run on Langfuse Cloud: linkage harness (verified live), agents, single/local/A2A topologies, managed prompts, both datasets and experiments, online code evaluators and LLM judges, session scores and the review queue, faults F1–F5 with `verify_demo.py` (all catches verified live), README runbook and DEMO_SCRIPT.md. Not built: dashboards, the prompt CI gate and the loop on one bug (Phase 5), the partner agent (Phase 6). Tracks DON-245.
+**Status:** Phases 0–5 built and run on Langfuse Cloud. Built and verified live:
+- the linkage harness, the agents, and the single, local and A2A topologies;
+- managed prompts, both datasets, and experiments;
+- online code evaluators and LLM judges, session scores, and two review queues;
+- faults F1–F5, with `verify_demo.py` (every catch verified live);
+- two dashboards as code, the prompt gate and its CI workflow, and one full pass of the loop on F1 (§17, [docs/LOOP_RUN.md](docs/LOOP_RUN.md));
+- the README runbook and DEMO_SCRIPT.md.
+
+Not built: the partner agent (Phase 6). The CI workflow has not run on GitHub yet: it fires only from the default branch. Tracks DON-245.
 **Scope size:** Medium. New standalone demo, own venv, three local agent services.
 Customer-agnostic: Northwind Mobile is fictional and all data is synthetic.
 
@@ -572,24 +580,56 @@ What building them taught:
 
 - `scripts/run_experiment.py`: `dataset.run_experiment(...)` with the item evaluators
   and run evaluators from §9. Experiments run with `sample_rate=1.0`.
-- `scripts/prompt_gate.py --prompt concierge --label candidate`: runs `handoff-routing`
-  on the `a2a` topology and **blocks** if `routing-accuracy < 0.9`, `loop-rate > 0`, or
-  `resolution-correct` drops more than 5 points below the `production` label. Copied from
-  the repo's existing prompt-gate pattern (real-estate, bank, claims).
-- `.github/workflows/handoff-prompt-gate.yml`: the same gate on a prompt-update event,
-  following the claims workflow template. The CI services start the two A2A agents
-  locally on the runner.
+- `scripts/prompt_gate.py --prompt concierge --label candidate [--compare production]`:
+  runs `handoff-routing` on the `a2a` topology with the label under review.
+  - **What blocks:** a miss on any hard metric in [`cicd/thresholds.json`](cicd/thresholds.json):
+    `routing-accuracy` ≥ 0.9, `loop-rate` ≤ 0, `resolution-rate` and `credit-accuracy` ≥ 0.9,
+    `outage-verified-rate` ≥ 0.95, `context-complete-rate` ≥ 0.9, and `items-evaluated` equal to
+    the items requested (a crashed task is dropped from the SDK's averages).
+  - **`--compare`:** fails if `routing-accuracy` or `resolution-rate` falls more than 5 points
+    below the compared label.
+  - **Never graded by accident:** a label missing on the gated prompt aborts, rather than letting
+    that agent quietly run its production prompt.
+  - **Deterministic only:** every hard metric comes from code; no judge decides a release.
+- `.github/workflows/handoff-prompt-gate.yml`: the same gate on a prompt-update event (the claims
+  template). It writes the demo `.env` from repo secrets, starts the two A2A agents on the runner,
+  and runs the gate. Setup is in [`cicd/README.md`](cicd/README.md).
+
+**Measured (2026-11-22, Cloud):**
+
+| Label | Items | `routing-accuracy` | `loop-rate` | `resolution-rate` | Verdict |
+|---|---|---|---|---|---|
+| `production` (seeded v1) | 40 | 0.975 | 0.00 | 1.00 | passed |
+| `fault-f1` (v3) | 40 | **0.65** | **0.20** | 1.00 | blocked |
+| `candidate` (the F1 fix, v4), with `--compare production` (v3 at the time) | 56 | **1.00** (v3: 0.61) | 0.00 | 0.975 (v3: 1.00) | passed |
+
+The outcome metric passes the bug, as designed. The `run_experiment.py` task now also records
+`hop_cap_hit`, and `handoff-loop` (the online rule, on the run record) is an item score, which makes
+`loop-rate` a run score.
 
 ## 12. Dashboards (as code)
 
-Seeded with `scripts/seed_dashboards.py` (Metrics API v2) and validated by
-`scripts/check_dashboards.py`, the same pattern as real-estate and claims:
+**Built (2026-11-21).** `scripts/seed_dashboards.py` seeds two dashboards with 24 widgets through
+the unstable dashboards API, and reconciles a drifted widget by name. `--check` runs every widget's
+query through Metrics API v2; this replaced a separate `check_dashboards.py`.
 
-- Cost and p95 latency **per agent**: observations by `metadata.agent`
-- Handoffs by `handoff_kind` and `handoff_to`; handoff success rate (`a2a_state`)
-- `handoff-target-correct`, `handoff-context-complete`, and `handoff-loop` over time
-- Observations without `sessionId` (the F4 tripwire)
-- Single vs. multi: cost per resolved item, by experiment run
+- **Handoffs — quality.** Turns, handoffs, failed handoffs, `customer-resolved`; `handoff-appropriate`
+  as a pivot by prompt versions and over time; `customer-resolved` by prompt versions (the F1 blind
+  spot); handoffs to billing and to tech-support over time; payload complete (F2); turns that looped
+  (F3); handoff answered (F5); spans without a session (the F4 tripwire); handoffs per turn by
+  prompt versions.
+- **Handoffs — agents.** LLM cost, tokens, and p95 latency per agent; p95 agent, handoff and turn
+  latency; LLM spend and spend over time; cost by model; warnings and errors by observation.
+
+Departures from the design, all forced by Metrics API v2:
+- **No metadata dimension.** A widget can't group by `metadata.agent` or `handoff_to`. The per-agent
+  widgets group by observation name (`<agent>-llm`, the agent spans). "Handoffs by target" is one
+  widget per target, using a metadata filter, which does work.
+- **"By prompt version" needs a real field.** It uses the **trace version**. The orchestrator now sets
+  it on every turn to the prompt versions the turn runs (`prompts.version_tag`, for example
+  `concierge v3 / tech-support v1 / billing v1`) and carries it in the scoped baggage, so the remote
+  agents' spans have it too. Verified on all 21 observations of a hero turn and on the scores.
+- **Single vs. multi by experiment** stays in the experiment compare view, not on a dashboard.
 
 ## 13. Reuse
 
@@ -645,8 +685,10 @@ demos/multi-agent-handoff/
     run_traffic.py       # loop step 1: simulated production conversations
     promote_to_dataset.py # loop step 3: labelled queue items → handoff-routing
     linkage_matrix.py    # measures §6 against the live project
-    seed_prompts.py  seed_datasets.py  seed_evaluators.py  seed_dashboards.py
-    run_experiment.py  prompt_gate.py  verify_demo.py  check_dashboards.py
+    seed_prompts.py  seed_datasets.py  seed_evals.py  seed_dashboards.py
+    run_experiment.py  prompt_gate.py  verify_demo.py  compare_runs.py
+    loop.py  flag_handoffs.py  judge_calibration.py   # the loop's label moves, queue, calibration
+  cicd/                  # thresholds.json + CI setup; the workflow is .github/workflows/handoff-prompt-gate.yml
   tests/                 # router, transport (two-process in-memory OTel harness), oracle, evaluators
 ```
 
@@ -661,6 +703,7 @@ demos/multi-agent-handoff/
 | 4. Evals online + faults | Code evaluators, judges, annotation queue, F1–F5 switches, dashboards, `run_traffic.py` | Each fault trips its catching layer in `verify_demo.py` |
 | | *Done (2026-11-20):* code evaluators and judges live; conversation dataset + simulator + session scores; SESSION queue; `run_traffic.py`; F1–F5 switches; `verify_demo.py --faults` passes every catch live (`docs/FAULT_MATRIX.md`). Dashboards moved to Phase 5. | |
 | 5. Loop + gate + script | `promote_to_dataset.py`, `prompt_gate.py`, workflow, `DEMO_SCRIPT.md`, README with measured numbers, repo indexes (demos/README, docs/README, AI_ENGINEERING_LOOP.md, CLAUDE.md layout) | One full pass of §17 runs live: F1 in production → flagged → labelled → fixed → gated → promoted → misroute rate down |
+| | *Done (2026-11-22):* dashboards (§12); `loop.py`, `flag_handoffs.py`, `promote_to_dataset.py`, `judge_calibration.py`, `prompt_gate.py` + `cicd/thresholds.json`, the workflow; DEMO_SCRIPT Act 8. One full pass of §17 ran live ([docs/LOOP_RUN.md](docs/LOOP_RUN.md)): the concierge's flagged first handoffs fell from 13 of 37 turns to 1 of 38, and loops from 8 to 0. | |
 | 6. Optional | device-protection partner (black box), second-framework specialist, chat portal | |
 
 ## 17. The AI engineering loop, end to end
@@ -684,6 +727,33 @@ and the gate adds `handoff-context-complete`) and F3 (the loop check flags it, t
 is the specialist prompts, and the gate adds `loop-rate = 0`). The difference: F1 and
 F3 are prompt changes, shipped by label, while F2 is a code change, shipped by release.
 `HANDOFF_RELEASE` on every trace shows which one fixed what.
+
+### As built and measured (2026-11-22)
+
+The pass is in [docs/LOOP_RUN.md](docs/LOOP_RUN.md); the commands are in the README. Where the
+build departs from the table above:
+- **What the review queue holds.** It holds the concierge's *first* handoff of each flagged turn,
+  as `OBSERVATION` items (queue **Flagged handoffs**), plus an equal sample the judge passed. With
+  flags alone, calibration could only ever confirm the judge.
+- **What the reviewer labels.** A categorical `correct-handoff-target` (tech-support, billing, or
+  none), not a full path. A promoted item's `expected_output` is that first handoff and the target's
+  required fields. It has no outcome, so the outcome evaluators skip it, and it counts toward
+  `routing-accuracy`. Only turn-1 handoffs are promoted, because later turns depend on the
+  conversation before them.
+- **Rehearsing alone.** `flag_handoffs.py --simulate-reviewer` labels turn-1 items from the
+  conversation goal's ground truth, writes the score with `queueId` and a "simulated reviewer"
+  comment, and completes the queue item.
+- **Step 1 traffic.** Simulated conversations (24 per pass), not the 50 the table assumed, and no
+  thumbs-down feedback score.
+- **The fix.** It is written on top of the bug (v3 → v4), keeping the latency idea and adding the
+  exception, so the version diff reads as a fix rather than a revert.
+
+Measured: in production, the concierge's first handoff was flagged in 13 of 37 turns on the bug and
+1 of 38 on the fix, and looped turns fell from 8 to 0. `customer-resolved` (0.82 → 0.77) and the
+ledger outcome (24/24 both times) did not move. In the gate, the fix routed 1.00 against the bug's
+0.61 on the same 56 items, at 22% lower cost per item. The judge agreed with the simulated reviewer
+on 16/16, which is optimistic (easy turn-1 cases). After the fix, the judge still flags some
+specialist → billing hops for not showing the outage confirmation in the payload: the next round.
 
 ## 18. Demo script outline (about 30 minutes)
 

@@ -1,0 +1,146 @@
+# Multi-agent handoff demo — prompt quality gate in CI (DON-245, SPEC §11).
+#
+# WHAT IT DOES
+#   Same template as claims-prompt-gate.yml. A Langfuse prompt automation (Prompts → Automations →
+#   GitHub Repository Dispatch, event type `handoff-prompt-update`) fires on every prompt version or
+#   label change in the multi-agent-handoff project. This workflow reads the prompt and labels from the
+#   payload, starts the two A2A agent services on the runner, and runs handoff-routing on the a2a
+#   topology with that label (demos/multi-agent-handoff/scripts/prompt_gate.py), against
+#   demos/multi-agent-handoff/cicd/thresholds.json. A regression FAILS the job and blocks "Ship it".
+#
+# SETUP (once) — see demos/multi-agent-handoff/cicd/README.md
+#   Repo secrets: HANDOFF_LANGFUSE_BASE_URL, HANDOFF_LANGFUSE_PUBLIC_KEY, HANDOFF_LANGFUSE_SECRET_KEY,
+#   ANTHROPIC_API_KEY. The Langfuse automation is a UI step (no public API).
+#
+# DEMO TIP
+#   Actions → Handoff prompt gate → Run workflow → concierge + `fault-f1` → BLOCKED on routing-accuracy;
+#   concierge + `candidate` (the F1 fix, scripts/loop.py fix) → passes.
+name: Handoff prompt gate
+
+on:
+  repository_dispatch:
+    types: [handoff-prompt-update]
+  workflow_dispatch:
+    inputs:
+      prompt_name:
+        description: Prompt to gate
+        required: true
+        default: concierge
+        type: choice
+        options: [concierge, tech-support, billing]
+      prompt_label:
+        description: Label to gate
+        required: true
+        default: candidate
+        type: choice
+        options: [candidate, production, fault-f1, fault-f3]
+
+concurrency:
+  # One group per prompt VERSION: a promotion can send more than one event; grouping by name alone would
+  # let a housekeeping event cancel the gate of the version that matters.
+  group: handoff-gate-${{ github.event.client_payload.prompt.name || github.event.inputs.prompt_name }}-${{ github.event.client_payload.prompt.version || github.event.inputs.prompt_label }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Evaluate the prompt against the quality bar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      label: ${{ steps.which.outputs.label }}
+      name: ${{ steps.which.outputs.name }}
+      is_production: ${{ steps.which.outputs.is_production }}
+      skip: ${{ steps.which.outputs.skip }}
+    defaults:
+      run:
+        working-directory: demos/multi-agent-handoff
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide which prompt version to gate
+        id: which
+        working-directory: .
+        env:
+          MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
+          MANUAL_NAME: ${{ github.event.inputs.prompt_name }}
+        run: |
+          set -euo pipefail
+          GATED="concierge tech-support billing"; DEPLOYABLE="production candidate fault-f1 fault-f3"; SKIP=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NAME="$MANUAL_NAME"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
+          else
+            NAME=$(jq -r '.client_payload.prompt.name // ""' "$GITHUB_EVENT_PATH")
+            VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
+            LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
+            LABEL=$(jq -r '(.client_payload.prompt.labels // []) | map(select(. != "latest"))
+                           | (map(select(. == "production")) + .) | first // ""' "$GITHUB_EVENT_PATH")
+            if ! printf '%s' " $GATED " | grep -q " $NAME "; then
+              SKIP="\`$NAME\` is not an agent prompt with a routing answer key (gated: $GATED)."
+            elif [ -z "$LABEL" ]; then SKIP="version $VERSION carries no deployable label (has: \`${LABELS:-none}\`)."
+            elif ! printf '%s' " $DEPLOYABLE " | grep -q " $LABEL "; then SKIP="label \`$LABEL\` is not one of: $DEPLOYABLE."
+            fi
+          fi
+          IS_PROD=false; case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"; echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"; echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          { echo "### Prompt change"; echo ""; echo "| field | value |"; echo "|---|---|"
+            echo "| prompt | \`$NAME\` |"; echo "| version | \`$VERSION\` |"; echo "| labels | \`${LABELS:-none}\` |"
+            if [ -n "$SKIP" ]; then echo ""; echo "### ⏭️ Skipped — nothing evaluated"; echo ""; echo "$SKIP"
+            else echo "| gating label | \`$LABEL\` |"; fi; echo ""; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v5
+        if: steps.which.outputs.skip == ''
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: demos/multi-agent-handoff/requirements.txt
+
+      - name: Install
+        if: steps.which.outputs.skip == ''
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+
+      # The agents and run_services.sh read the demo's .env (they ignore shell LANGFUSE_* on purpose).
+      - name: Write the demo .env (from secrets)
+        if: steps.which.outputs.skip == ''
+        run: |
+          umask 077
+          {
+            echo "LANGFUSE_BASE_URL=${{ secrets.HANDOFF_LANGFUSE_BASE_URL }}"
+            echo "LANGFUSE_PUBLIC_KEY=${{ secrets.HANDOFF_LANGFUSE_PUBLIC_KEY }}"
+            echo "LANGFUSE_SECRET_KEY=${{ secrets.HANDOFF_LANGFUSE_SECRET_KEY }}"
+            echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}"
+            echo "HANDOFF_RELEASE=ci-${{ github.run_number }}"
+          } > .env
+
+      - name: Start the A2A agents (billing, tech-support)
+        if: steps.which.outputs.skip == ''
+        run: ./scripts/run_services.sh
+
+      # Non-zero exit on any hard-threshold miss IS the gate.
+      - name: Gate — handoff-routing on the a2a topology
+        if: steps.which.outputs.skip == ''
+        run: |
+          .venv/bin/python scripts/prompt_gate.py --prompt "${{ steps.which.outputs.name }}" \
+            --label "${{ steps.which.outputs.label }}" \
+            --run-name "ci · ${{ steps.which.outputs.name }} ${{ steps.which.outputs.label }} v{version} · #${{ github.run_number }}"
+
+      - name: Agent logs
+        if: always() && steps.which.outputs.skip == ''
+        run: tail -n 50 .run/*.log || true
+
+  deploy:
+    name: Ship it
+    needs: gate
+    runs-on: ubuntu-latest
+    if: needs.gate.outputs.is_production == 'true' && needs.gate.outputs.skip == ''
+    steps:
+      - name: Announce the deploy
+        run: |
+          {
+            echo "### 🚀 Deployed"
+            echo ""
+            echo "\`${{ needs.gate.outputs.name }}\` (label \`${{ needs.gate.outputs.label }}\`) passed the quality bar and carries \`production\`."
+            echo "The agents fetch the production-labelled prompt at runtime (60 s cache): nothing to redeploy. Roll back = move the label back (scripts/loop.py promote --version N)."
+          } >> "$GITHUB_STEP_SUMMARY"

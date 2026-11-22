@@ -97,7 +97,10 @@ def readiness() -> None:
     for ds, want in ((datasets.ROUTING, 40), (datasets.CONVERSATIONS, 12)):
         try:  # the same read the experiments use
             active = [i for i in lf.get_dataset(ds).items if str(i.status).upper().endswith("ACTIVE")]
-            check(len(active) == want, f"dataset {ds}", f"{len(active)} active items (want {want})")
+            promoted = [i for i in active if (i.metadata or {}).get("source") == "production"]
+            seeded = len(active) - len(promoted)
+            check(seeded == want, f"dataset {ds}", f"{seeded} seeded items (want {want})"
+                  + (f" + {len(promoted)} promoted from production" if promoted else ""))
         except Exception as exc:  # noqa: BLE001
             check(False, f"dataset {ds}", f"{type(exc).__name__}: run scripts/seed_datasets.py")
     evaluators = {e["name"]: e for e in api("/api/public/v2/evaluators", limit=100)["data"]}
@@ -110,8 +113,20 @@ def readiness() -> None:
         why = f"{e.get('pausedReason')}: {e.get('pausedMessage')}" if e.get("status") == "paused" else e["type"]
         check(e.get("status") == "active", f"evaluator {name}", why)
         check(bool(rules.get(name, {}).get("enabled")), f"rule {name}", "enabled" if rules.get(name) else "missing")
-    queues = [q for q in api("/api/public/annotation-queues", limit=100)["data"] if q["name"] == "Transferred conversations"]
-    check(bool(queues), "review queue 'Transferred conversations'", "" if queues else "run scripts/seed_evals.py --queue")
+    names = {q["name"] for q in api("/api/public/annotation-queues", limit=100)["data"]}
+    for queue in ("Transferred conversations", "Flagged handoffs"):
+        check(queue in names, f"review queue '{queue}'", "" if queue in names else "run scripts/seed_evals.py --queue")
+    boards = {d["name"] for d in api("/api/public/unstable/dashboards", limit=100)["data"]}
+    for board in ("Handoffs — quality", "Handoffs — agents"):
+        check(board in boards, f"dashboard '{board}'", "" if board in boards else "run scripts/seed_dashboards.py")
+    try:  # the loop moves concierge@production; a rehearsal stopped half-way leaves the F1 bug live
+        live = api("/api/public/v2/prompts/concierge", label="production")
+        bug = live["prompt"] == faults.F1_CONCIERGE
+        check(not bug, "concierge@production is not the F1 bug", f"v{live['version']}"
+              + (": the loop is mid-way. scripts/loop.py promote (the fix) or scripts/loop.py reset" if bug else ""),
+              required=False)
+    except httpx.HTTPStatusError:
+        pass
     for agent in SPECIALISTS:
         try:
             card = httpx.get(f"{config.agent_url(agent)}/.well-known/agent-card.json", timeout=3).json()

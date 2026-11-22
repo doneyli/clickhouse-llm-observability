@@ -47,7 +47,9 @@ def main() -> None:
             lf.create_dataset_item(dataset_name=name, id=it["id"], input=it["input"],
                                    expected_output=it["expected_output"], metadata=it["metadata"])
         wanted = {it["id"] for it in items}
-        retired = [i for i in lf.get_dataset(name).items if i.id not in wanted and i.status != "ARCHIVED"]
+        # Items promoted from production (scripts/promote_to_dataset.py) are not in the code: keep them.
+        retired = [i for i in lf.get_dataset(name).items if i.id not in wanted and i.status != "ARCHIVED"
+                   and (i.metadata or {}).get("source") != "production"]
         for old in retired:  # items dropped from the code are archived, so old runs keep their links
             lf.create_dataset_item(dataset_name=name, id=old.id, input=old.input,
                                    expected_output=old.expected_output, metadata=old.metadata, status="ARCHIVED")

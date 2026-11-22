@@ -16,6 +16,7 @@ B3      unnecessary-handoff        local, a2a (items the concierge should answer
 C1      resolution-correct         all (ledger vs. expected outcome)
 C1'     reply-mentions-facts       all (items with facts)
 P       outage-verified-first      all (a credit decision made only after an outage check)
+B2      handoff-loop               local, a2a (ping-pong, a repeated hop, or the hop cap: 1 = loop)
 """
 
 from __future__ import annotations
@@ -95,7 +96,9 @@ def _amount_in(text: str, amount: float) -> bool:
 
 
 def credit_amount_correct(*, output, expected_output, **_) -> list[Evaluation]:
-    outcome = expected_output["outcome"]
+    outcome = expected_output.get("outcome")
+    if not outcome:  # items promoted from production carry a reviewed route, not an outcome
+        return []
     credits = (output.get("effects") or {}).get("credits") or []
     if outcome.startswith("credit:"):
         _, line, amount = outcome.split(":")
@@ -113,7 +116,9 @@ def credit_amount_correct(*, output, expected_output, **_) -> list[Evaluation]:
 
 def resolution_correct(*, output, expected_output, **_) -> list[Evaluation]:
     """The back office ends in the state the item expects (the ledger, whoever wrote it)."""
-    outcome = expected_output["outcome"]
+    outcome = expected_output.get("outcome")
+    if not outcome:
+        return []
     eff = output.get("effects") or {}
     credits, techs = eff.get("credits") or [], eff.get("technicians") or []
     if outcome.startswith("credit:"):
@@ -166,8 +171,32 @@ def conversation_shape(*, output, **_) -> list[Evaluation]:
             _bool("simulated-customer-satisfied", ended == "customer-done", ended)]
 
 
+MAX_HANDOFFS = 4  # the orchestrator's hop cap
+
+
+def handoff_loop(*, output, **_) -> list[Evaluation]:
+    """The rule of the online `handoff-loop` code evaluator (evaluators/handoff_loop.py), on the run record.
+    1 = the turn looped (bad), so the run-level `loop-rate` gate is `<= 0`."""
+    if not _multi(output):
+        return []
+    path = [p for p in output.get("agent_path") or [] if p]
+    count = len([h for h in output.get("handoffs") or [] if h.get("kind") != "continue"])
+    pairs = list(zip(path, path[1:]))
+    repeated = sorted({f"{a}>{b}" for a, b in pairs if a != b and pairs.count((a, b)) > 1})
+    bounces = sorted({f"{a}>{b}>{a}" for a, b, c in zip(path, path[1:], path[2:]) if a == c and a != b})
+    why = []
+    if output.get("hop_cap_hit") or count > MAX_HANDOFFS:
+        why.append(f"{count} handoffs (cap {MAX_HANDOFFS})")
+    if bounces:
+        why.append("ping-pong " + ", ".join(bounces))
+    if repeated:
+        why.append("repeated hop " + ", ".join(repeated))
+    return [_bool("handoff-loop", bool(why), "; ".join(why) or f"no loop: {'>'.join(path)}")]
+
+
 ITEM_EVALUATORS = [handoff_target_correct, path_match, unnecessary_handoff, handoff_context_complete,
-                   credit_amount_correct, resolution_correct, reply_mentions_facts, outage_verified_first]
+                   credit_amount_correct, resolution_correct, reply_mentions_facts, outage_verified_first,
+                   handoff_loop]
 
 
 # --- run level ----------------------------------------------------------------------------------
@@ -213,6 +242,7 @@ RUN_EVALUATORS: list[Any] = [
     _mean("credit-amount-correct", "credit-accuracy"),
     _mean("outage-verified-first", "outage-verified-rate"),
     _mean("handoff-context-complete", "context-complete-rate"),
+    _mean("handoff-loop", "loop-rate"),
     _latency,
     _handoffs,
 ]
