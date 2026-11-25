@@ -29,7 +29,7 @@ on:
       - 'demos/**/requirements.txt'
       - 'demos/**/langfuse_config.py'
       - 'docker-compose.yaml'
-      - 'demos/langfuse-operations/instance.env.example'
+      - 'demos/langfuse-enterprise-operations/instance.env.example'
       - 'setup.sh'
       - 'scripts/**.sh'
       - '.github/workflows/demo-integrity.yml'

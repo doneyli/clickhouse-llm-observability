@@ -1,4 +1,4 @@
-# Langfuse operations
+# Langfuse Enterprise operations
 
 A local portal for real Langfuse platform operations: application and team onboarding, role changes, key rotation, dashboards, protected prompt labels, native audit evidence, organization provisioning, and reviewed cleanup. Parameters flow from the forms into executable scripts. A completed run can be reopened read-only at `/?run=<run-id>`. The inspector exposes the script, API surface, authentication type, request, response, object IDs, and edition badges. Its main action buttons execute real operations; workflow tiles select a form.
 
@@ -10,7 +10,7 @@ A local portal for real Langfuse platform operations: application and team onboa
 - Native audit/protected-label adapter tested and pinned to **Langfuse 4.76.0**. It refuses other server versions. The root repository stack may pin an older server; this standalone demo does not change that pin or upgrade its databases.
 
 ```bash
-cd demos/langfuse-operations
+cd demos/langfuse-enterprise-operations
 mkdir -p private
 chmod 700 private
 cp org.env.example private/org.env
@@ -28,11 +28,11 @@ The vendored `scripts/langfuse-connect.sh` passes credential paths to the CLI's 
 The instance API uses a separate high-privilege Bearer key. If the instance already has a key, store that value in the portal’s private `instance.env` (mode 0600). For a new instance, generate a key with the command below. Skip this setup if you only need project-level workflows.
 
 ```bash
-# From demos/langfuse-operations. Refuses to overwrite an existing file.
+# From demos/langfuse-enterprise-operations. Refuses to overwrite an existing file.
 python3 scripts/prepare-instance-key.py
 ```
 
-For a deployment using the repository’s root Compose file, set `LANGFUSE_INSTANCE_ENV_FILE=./demos/langfuse-operations/private/instance.env` in the Compose project’s root `.env`. Use an absolute path if your portal uses a separate checkout or a custom `--state-dir`. Keep the credential itself exclusively in the private file. The root Compose file loads it into `langfuse-web` on subsequent recreates, including when other overlays are applied. Other services import the root `.env` in full.
+For a deployment using the repository’s root Compose file, set `LANGFUSE_INSTANCE_ENV_FILE=./demos/langfuse-enterprise-operations/private/instance.env` in the Compose project’s root `.env`. Use an absolute path if your portal uses a separate checkout or a custom `--state-dir`. Keep the credential itself exclusively in the private file. The root Compose file loads it into `langfuse-web` on subsequent recreates, including when other overlays are applied. Other services import the root `.env` in full.
 
 ```bash
 # Check the running image before applying the key to an existing deployment.
