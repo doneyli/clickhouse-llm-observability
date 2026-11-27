@@ -31,8 +31,34 @@ from src.synthetic.query_templates import (
 _BATCH_SIZE = 300  # events per ingestion.batch() call
 
 
+# Deterministic ids for an owned history batch. When a trace id is given, every
+# observation and score id inside that trace is drawn from an RNG seeded by it, so
+# re-ingesting the same batch upserts the same rows instead of appending new ones.
+_ID_RNG: random.Random | None = None
+# Day the batch's timestamps count back from. None means "now" (the old behaviour).
+_ANCHOR: datetime | None = None
+
+
 def _uid() -> str:
+    if _ID_RNG is not None:
+        return str(uuid.UUID(int=_ID_RNG.getrandbits(128), version=4))
     return str(uuid.uuid4())
+
+
+def _eid() -> str:
+    """Ingestion envelope id. Always random: the server may drop an envelope id it has seen,
+    which would turn a retry of a failed batch into a silent no-op."""
+    return str(uuid.uuid4())
+
+
+def _start_trace(trace_id: str | None) -> str:
+    """The trace id to use, switching observation ids to deterministic when one is given."""
+    global _ID_RNG
+    if trace_id is None:
+        _ID_RNG = None
+        return _uid()
+    _ID_RNG = random.Random(trace_id)
+    return trace_id
 
 
 def _ts(dt: datetime) -> str:
@@ -60,7 +86,7 @@ def _mk_trace(
 ) -> IngestionEvent_TraceCreate:
     return IngestionEvent_TraceCreate(
         type="trace-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=TraceBody(
             id=trace_id,
@@ -89,7 +115,7 @@ def _mk_span(
 ) -> IngestionEvent_SpanCreate:
     return IngestionEvent_SpanCreate(
         type="span-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=CreateSpanBody(
             trace_id=trace_id,
@@ -121,7 +147,7 @@ def _mk_gen(
 ) -> IngestionEvent_GenerationCreate:
     return IngestionEvent_GenerationCreate(
         type="generation-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=CreateGenerationBody(
             trace_id=trace_id,
@@ -143,7 +169,7 @@ def _mk_gen(
 def _mk_score(trace_id: str, name: str, value: float, comment: str) -> IngestionEvent_ScoreCreate:
     return IngestionEvent_ScoreCreate(
         type="score-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=ScoreBody(
             id=_uid(),
@@ -173,7 +199,7 @@ def _business_hours_timestamp(
     rng: random.Random,
     business_hours: bool = True,
 ) -> datetime:
-    now = datetime.now(tz=UTC)
+    now = _ANCHOR or datetime.now(tz=UTC)
     day_offset = rng.randint(0, days_back - 1)
     base = now - timedelta(days=day_offset)
     if business_hours and rng.random() < 0.75:
@@ -189,6 +215,7 @@ def _build_promo_planner_events(
     rng: random.Random,
     days_back: int,
     business_hours: bool,
+    trace_id: str | None = None,
 ) -> list[Any]:
     """Build a full PromoPlanner trace event list (no LLM calls)."""
     cfg = load_config()
@@ -198,7 +225,7 @@ def _build_promo_planner_events(
     user_input = build_promo_planner_input(rng)
     final_output = build_promo_planner_output(rng, failure_mode)
 
-    trace_id = _uid()
+    trace_id = _start_trace(trace_id)
     events: list[Any] = []
 
     # classify_intent generation
@@ -408,6 +435,7 @@ def _build_simple_agent_events(
     rng: random.Random,
     days_back: int,
     business_hours: bool,
+    trace_id: str | None = None,
 ) -> list[Any]:
     """Build a simple 2-3 span trace for a fleet agent."""
     cfg = load_config()
@@ -417,7 +445,7 @@ def _build_simple_agent_events(
     user_input = build_simple_agent_input(agent_name, rng)
     output = build_simple_agent_output(agent_name, rng)
 
-    trace_id = _uid()
+    trace_id = _start_trace(trace_id)
     events: list[Any] = []
 
     tool_names = {
@@ -478,12 +506,20 @@ def generate_traces(
     days_back: int,
     business_hours: bool,
     seed: int = 42,
+    anchor: datetime | None = None,
+    trace_id_for: Any = None,
 ) -> list[dict[str, Any]]:
     """Generate and ingest synthetic traces via Langfuse batch ingestion (no LLM calls).
+
+    With `anchor` and `trace_id_for(index)` (see src/synthetic/history_batch.py) the batch
+    is fully deterministic: the same timestamps, trace ids and observation ids on every
+    run, so re-sending it upserts in place. Without them, ids are random and timestamps
+    count back from now.
 
     Callers must ensure LANGFUSE_* env vars are set before calling this function.
     Call load_env() at module/script level, not inside this function.
     """
+    global _ANCHOR, _ID_RNG
     from langfuse import Langfuse
 
     from src.config import load_config
@@ -493,6 +529,7 @@ def generate_traces(
     lf = Langfuse()
 
     rng = random.Random(seed)
+    _ANCHOR = anchor
     results: list[dict[str, Any]] = []
     pending_events: list[Any] = []
 
@@ -527,7 +564,8 @@ def generate_traces(
 
         for i in range(hero_count):
             try:
-                evts = _build_promo_planner_events(rng, days_back, business_hours)
+                tid = trace_id_for(i) if trace_id_for else None
+                evts = _build_promo_planner_events(rng, days_back, business_hours, trace_id=tid)
                 pending_events.extend(evts)
                 results.append({"agent": "PromoPlanner", "failure_mode": "synthetic"})
             except Exception as e:
@@ -541,7 +579,8 @@ def generate_traces(
             agent = rng.choices(fleet_names, weights=fleet_weights, k=1)[0]
             model = cfg.llm.models.research_crew
             try:
-                evts = _build_simple_agent_events(agent, model, rng, days_back, business_hours)
+                tid = trace_id_for(hero_count + i) if trace_id_for else None
+                evts = _build_simple_agent_events(agent, model, rng, days_back, business_hours, trace_id=tid)
                 pending_events.extend(evts)
                 results.append({"agent": agent})
             except Exception as e:
@@ -552,4 +591,5 @@ def generate_traces(
                 flush_pending()
 
     flush_pending()
+    _ANCHOR, _ID_RNG = None, None
     return results

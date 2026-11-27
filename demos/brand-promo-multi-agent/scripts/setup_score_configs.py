@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Register score configs in Langfuse for all PromoPlanner evaluators.
 
-Idempotent - skips configs that already exist. Run before the first experiment.
+Reconciles: a missing config is created, one whose range, categories or archived state
+drifted is patched back, and an identical one is left alone. The data type cannot be
+changed through the API, so a config with the wrong type fails and names the fix.
+Exits 1 when any config could not be read, created or patched. Run before the first
+experiment.
 
 Usage:
     uv run python scripts/setup_score_configs.py
@@ -14,12 +18,9 @@ Environment variables:
 """
 
 import argparse
-import base64
-import json
-import os
 import sys
-import urllib.error
-import urllib.request
+
+from src.langfuse_rest import ApiError, Client, LangfuseEnvError, Tally
 
 SCORE_CONFIGS = [
     # Deterministic item-level
@@ -176,70 +177,81 @@ SCORE_CONFIGS = [
 ]
 
 
-def get_auth_header(public_key: str, secret_key: str) -> str:
-    return base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
+def _same_number(a, b) -> bool:
+    if a is None or b is None:
+        return a is b
+    return float(a) == float(b)
 
 
-def list_existing_configs(host: str, auth: str) -> dict:
-    req = urllib.request.Request(
-        f"{host}/api/public/score-configs?limit=100",
-        headers={"Authorization": f"Basic {auth}"},
-    )
-    resp = urllib.request.urlopen(req, timeout=10)
-    data = json.loads(resp.read())
-    return {cfg["name"]: cfg for cfg in data.get("data", [])}
+def _categories(cats) -> list[tuple[float, str]]:
+    return sorted((float(c["value"]), c["label"]) for c in (cats or []))
 
 
-def create_config(host: str, auth: str, config: dict) -> dict:
-    body = json.dumps(config).encode()
-    req = urllib.request.Request(
-        f"{host}/api/public/score-configs",
-        data=body,
-        headers={
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    resp = urllib.request.urlopen(req, timeout=10)
-    return json.loads(resp.read())
+def config_patch(existing: dict, desired: dict) -> tuple[dict, list[str]]:
+    """The PATCH body that brings `existing` back to `desired`, and what drifted.
+
+    The update API takes range, categories and isArchived only; description cannot be
+    patched, so a description drift is reported but not counted as a change.
+    """
+    patch: dict = {}
+    drift: list[str] = []
+    for key in ("minValue", "maxValue"):
+        if key in desired and not _same_number(existing.get(key), desired[key]):
+            patch[key] = desired[key]
+            drift.append(key)
+    if "categories" in desired and _categories(existing.get("categories")) != _categories(desired["categories"]):
+        patch["categories"] = desired["categories"]
+        drift.append("categories")
+    if existing.get("isArchived"):
+        patch["isArchived"] = False
+        drift.append("archived")
+    return patch, drift
 
 
-def parse_args():
+def reconcile_configs(client: Client) -> Tally:
+    tally = Tally("Score configs")
+    existing = {c["name"]: c for c in client.paged("/api/public/score-configs")}
+    for cfg in SCORE_CONFIGS:
+        name = cfg["name"]
+        have = existing.get(name)
+        try:
+            if have is None:
+                result = client.post("/api/public/score-configs", cfg) or {}
+                tally.add("created")
+                print(f"  [created]   {name} (id: {result.get('id', '?')})", file=sys.stderr)
+                continue
+            if have.get("dataType") != cfg["dataType"]:
+                tally.add("failed", f"{name}: dataType {have.get('dataType')} != {cfg['dataType']}")
+                print(f"  [error]     {name}: dataType is {have.get('dataType')}, want {cfg['dataType']}; "
+                      "the API cannot change it, archive the config in the UI and re-run", file=sys.stderr)
+                continue
+            patch, drift = config_patch(have, cfg)
+            if (have.get("description") or "") != (cfg.get("description") or ""):
+                print(f"  [note]      {name}: description differs; the API cannot update it", file=sys.stderr)
+            if not patch:
+                tally.add("unchanged")
+                print(f"  [unchanged] {name}", file=sys.stderr)
+                continue
+            client.patch(f"/api/public/score-configs/{have['id']}", patch)
+            tally.add("updated")
+            print(f"  [updated]   {name} ({', '.join(drift)})", file=sys.stderr)
+        except ApiError as e:
+            tally.add("failed", f"{name}: {e}")
+            print(f"  [error]     {name}: {e}", file=sys.stderr)
+    return tally
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Register PromoPlanner score configs in Langfuse"
     )
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview configs without creating them")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
-
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(override=True)
-    except ImportError:
-        pass
-
-    from src.config import load_env
-    env = load_env()
-
-    host = env.langfuse_host or os.getenv("LANGFUSE_HOST", "http://localhost:3001")
-    pk = env.langfuse_public_key or ""
-    sk = env.langfuse_secret_key or ""
-
-    if not pk or not sk:
-        print("Error: LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY required", file=sys.stderr)
-        return 1
-
-    auth = get_auth_header(pk, sk)
-
-    print(f"PromoPlanner Score Config Setup", file=sys.stderr)
-    print("=" * 50, file=sys.stderr)
-    print(f"  Target:  {host}", file=sys.stderr)
-    print(f"  Configs: {len(SCORE_CONFIGS)}", file=sys.stderr)
+def main(argv=None, client: Client | None = None) -> int:
+    args = parse_args(argv)
 
     if args.dry_run:
         print("\n  ** DRY RUN - no configs will be created **\n", file=sys.stderr)
@@ -251,36 +263,29 @@ def main() -> int:
             print(f"  {cfg['name']:45s} {dtype}{range_str}", file=sys.stderr)
         return 0
 
-    try:
-        existing = list_existing_configs(host, auth)
-        print(f"  Existing: {len(existing)} configs\n", file=sys.stderr)
-    except Exception as e:
-        print(f"  Warning: could not list existing configs: {e}", file=sys.stderr)
-        existing = {}
-
-    created = 0
-    skipped = 0
-    for cfg in SCORE_CONFIGS:
-        if cfg["name"] in existing:
-            print(f"  [skip]    {cfg['name']}", file=sys.stderr)
-            skipped += 1
-            continue
-
+    if client is None:
+        from src.config import load_env
+        load_env()
         try:
-            result = create_config(host, auth, cfg)
-            print(f"  [created] {cfg['name']} (id: {result.get('id', '?')})", file=sys.stderr)
-            created += 1
-        except urllib.error.HTTPError as e:
-            body = e.read().decode()
-            print(f"  [error]   {cfg['name']}: {e.code} {body[:80]}", file=sys.stderr)
-        except Exception as e:
-            print(f"  [error]   {cfg['name']}: {e}", file=sys.stderr)
+            client = Client.from_env()
+        except LangfuseEnvError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    print("PromoPlanner Score Config Setup", file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
+    print(f"  Target:  {client.base}", file=sys.stderr)
+    print(f"  Configs: {len(SCORE_CONFIGS)}", file=sys.stderr)
+
+    try:
+        tally = reconcile_configs(client)
+    except ApiError as e:
+        print(f"  [error]     could not list existing score configs: {e}", file=sys.stderr)
+        return 1
 
     print(f"\n{'=' * 50}", file=sys.stderr)
-    print(f"  Created: {created}", file=sys.stderr)
-    print(f"  Skipped: {skipped} (already existed)", file=sys.stderr)
-    print(f"\nVerify in Langfuse UI: Settings > Score Configs", file=sys.stderr)
-    return 0
+    print(f"  {tally.line()}", file=sys.stderr)
+    return 1 if tally.failed else 0
 
 
 if __name__ == "__main__":

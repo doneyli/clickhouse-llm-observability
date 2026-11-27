@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Seed all prompts from src/prompts/* into Langfuse Prompt Management."""
+"""Seed all prompts from src/prompts/* into Langfuse Prompt Management.
 
+Reconciles instead of appending: each prompt's `production` version is read back and a new
+version is written only when its text, type, config or label differ from the source here.
+An unchanged re-run writes nothing. Exits 1 when any prompt could not be read or written.
+"""
+
+import importlib
 import sys
 
 from rich.console import Console
 
-from src.config import load_config, load_env
+from src.config import load_env
+from src.langfuse_rest import ApiError, Client, LangfuseEnvError, Tally, quote
 
 console = Console()
 
@@ -26,50 +33,77 @@ PROMPT_REGISTRY = [
 ]
 
 
-def seed_prompts() -> int:
-    env = load_env()
-    cfg = load_config()
+LABEL = "production"
 
-    if not env.langfuse_public_key or not env.langfuse_secret_key:
-        console.print(
-            "[bold yellow]MANUAL: No Langfuse keys found.[/bold yellow]\n"
-            "Add LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY to .env first.\n"
-            "Then re-run this script to push prompts."
-        )
-        return 0
 
-    try:
-        from langfuse import Langfuse
-    except ImportError:
-        console.print("[red]langfuse package not installed[/red]")
-        return 1
-
-    lf = Langfuse()
-
-    success_count = 0
+def desired_prompts() -> list[tuple[str, str | None]]:
+    """(langfuse_name, prompt text or None when the source key is missing)."""
+    out = []
     for module_path, prompt_key, langfuse_name in PROMPT_REGISTRY:
+        prompts_dict = getattr(importlib.import_module(module_path), "PROMPTS", {})
+        out.append((langfuse_name, prompts_dict.get(prompt_key)))
+    return out
+
+
+def prompt_drift(existing: dict, text: str) -> list[str]:
+    """What differs between the stored production version and the desired definition."""
+    drift = []
+    if existing.get("type") != "text":
+        drift.append(f"type {existing.get('type')!r}")
+    if existing.get("prompt") != text:
+        drift.append("text")
+    if (existing.get("config") or {}) != {}:
+        drift.append("config")
+    if LABEL not in (existing.get("labels") or []):
+        drift.append(f"label {LABEL}")
+    return drift
+
+
+def reconcile_prompt(client: Client, name: str, text: str, tally: Tally) -> None:
+    body = {"name": name, "prompt": text, "type": "text", "labels": [LABEL], "config": {}}
+    try:
         try:
-            import importlib
-            module = importlib.import_module(module_path)
-            prompts_dict = getattr(module, "PROMPTS", {})
-            prompt_text = prompts_dict.get(prompt_key)
-            if not prompt_text:
-                console.print(f"[yellow]Skipping {langfuse_name}: key '{prompt_key}' not found[/yellow]")
-                continue
+            existing = client.get(f"/api/public/v2/prompts/{quote(name)}", label=LABEL) or {}
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            created = client.post("/api/public/v2/prompts", body) or {}
+            tally.add("created")
+            console.print(f"[green]created   {name} v{created.get('version')}[/green]")
+            return
+        drift = prompt_drift(existing, text)
+        if not drift:
+            tally.add("unchanged")
+            console.print(f"[dim]unchanged {name} v{existing.get('version')}[/dim]")
+            return
+        updated = client.post("/api/public/v2/prompts", body) or {}
+        tally.add("updated")
+        console.print(f"[yellow]updated   {name} v{existing.get('version')} -> "
+                      f"v{updated.get('version')} ({', '.join(drift)})[/yellow]")
+    except ApiError as e:
+        tally.add("failed", f"{name}: {e}")
+        console.print(f"[red]failed    {name}: {e}[/red]")
 
-            lf.create_prompt(
-                name=langfuse_name,
-                prompt=prompt_text,
-                labels=["production"],
-                type="text",
-            )
-            console.print(f"[green]Pushed: {langfuse_name}[/green]")
-            success_count += 1
-        except Exception as e:
-            console.print(f"[red]Failed to push {langfuse_name}: {e}[/red]")
 
-    console.print(f"\n[bold]Pushed {success_count}/{len(PROMPT_REGISTRY)} prompts[/bold]")
-    return 0
+def seed_prompts(client: Client | None = None) -> int:
+    if client is None:
+        load_env()
+        try:
+            client = Client.from_env()
+        except LangfuseEnvError as e:
+            console.print(f"[red]{e}[/red]")
+            return 1
+
+    tally = Tally("Prompts")
+    for name, text in desired_prompts():
+        if not text:
+            tally.add("failed", f"{name}: no source text in src/prompts")
+            console.print(f"[red]failed    {name}: no source text in src/prompts[/red]")
+            continue
+        reconcile_prompt(client, name, text, tally)
+
+    console.print(f"\n[bold]{tally.line()}[/bold]")
+    return 1 if tally.failed else 0
 
 
 if __name__ == "__main__":
