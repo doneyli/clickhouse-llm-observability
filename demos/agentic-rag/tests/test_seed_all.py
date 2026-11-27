@@ -246,6 +246,19 @@ def test_missing_or_partial_env_fails_before_any_write(seeded, capsys, text):
     assert code == 1 and seeded.requests == [] and seeded.commands == []
 
 
+@pytest.mark.parametrize("damage", ["malformed-url", "not-utf8"])
+def test_a_malformed_or_unreadable_env_fails_before_any_step(seeded, capsys, damage):
+    """The same config guard as verify_demo: exit 1, no request, no seeder run."""
+    if damage == "malformed-url":
+        seeded.env.write_text(ENV_TEXT.replace(LF_BASE, "http://[::gg]"))
+    else:
+        seeded.env.write_bytes(b"LANGFUSE_PUBLIC_KEY=\xff\n")
+    code = s.main([])
+    err = capsys.readouterr().err
+    assert code == 1 and seeded.urls == [] and seeded.commands == []
+    assert ("http://[::gg]" in err) if damage == "malformed-url" else ("not readable" in err)
+
+
 def test_ingest_result_cases():
     assert s.ingest_result("failed", None, None) == "failed"
     assert s.ingest_result("skipped", (28, "a"), (28, "a")) == "skipped"

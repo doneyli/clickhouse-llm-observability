@@ -107,6 +107,8 @@ class FakeServer:
         self.requests: List[tuple] = []                   # (method, path, params)
         self.posts: List[dict] = []
         self.commands: List[list] = []
+        self.urls: List[str] = []                         # every urlopen, any host
+        self.raise_on: Dict[str, BaseException] = {}      # path -> exception urlopen raises (transport faults)
 
     # --- helpers for tests ----------------------------------------------------------------
     def seed_prompt(self, prompt: str, config: dict, versions: int = 2) -> None:
@@ -125,7 +127,10 @@ class FakeServer:
         else:
             url, method, data = req.full_url, req.get_method(), req.data
             headers = {k.lower(): v for k, v in req.header_items()}
-        u = urllib.parse.urlsplit(url)
+        self.urls.append(url)
+        u = urllib.parse.urlsplit(url)  # as urllib does, this raises ValueError on a malformed host
+        if u.path in self.raise_on:
+            raise self.raise_on[u.path]
         params = dict(urllib.parse.parse_qsl(u.query, keep_blank_values=True))
         try:
             if u.netloc == LF_HOST:

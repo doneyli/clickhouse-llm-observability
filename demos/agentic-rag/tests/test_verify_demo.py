@@ -4,6 +4,7 @@ the self-hosted 3.x server), clickhouse-vectors, the services and the Postgres r
 urlopen / subprocess layer. No network, no Langfuse, no Docker, no model calls."""
 from __future__ import annotations
 
+import http.client
 import os
 import urllib.error
 
@@ -231,6 +232,80 @@ def test_missing_env_file_fails_before_any_request(server, capsys):
     server.env.unlink()
     code, out = verdict(capsys)
     assert code == 1 and "FAIL  env loaded" in out and server.requests == []
+
+
+# --- 136-4: every failure reaches a counted verdict, through main() -----------------------
+
+@pytest.mark.parametrize("line, reason", [
+    ("LANGFUSE_BASE_URL=http://[::gg]", "LANGFUSE_BASE_URL 'http://[::gg]'"),  # message differs by Python
+    ("LANGFUSE_BASE_URL=http://localhost:30o1", "Port could not be cast"),
+    ("LANGFUSE_BASE_URL=localhost:3001", "needs an http:// or https:// scheme"),
+    ("CLICKHOUSE_VECTORS_HTTP_PORT=81x5", "CLICKHOUSE_VECTORS_HTTP_PORT='81x5' is not a port"),
+])
+def test_a_malformed_env_value_fails_before_any_request(server, capsys, line, reason):
+    """The .env as written, through main(): a FAIL row, NOT READY with counts, exit 1, no request."""
+    key = line.split("=", 1)[0]
+    kept = [ln for ln in ENV_TEXT.splitlines() if not ln.startswith(key + "=")]
+    server.env.write_text("\n".join(kept + [line]) + "\n")
+    code, out = verdict(capsys)
+    assert code == 1 and server.urls == [] and server.commands == []
+    assert "FAIL  LANGFUSE_BASE_URL and the service ports are well-formed" in out and reason in out
+    assert "PASS  env loaded" in out  # the checks before it are kept and counted
+    assert out.rstrip().splitlines()[-1] == "NOT READY (2/3 checks passed, 1 required failed)"
+
+
+@pytest.mark.parametrize("damage", ["unreadable", "not-utf8"])
+def test_an_unreadable_env_file_fails_with_a_verdict(server, capsys, damage):
+    if damage == "unreadable":
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root reads a mode-000 file")
+        server.env.chmod(0)
+    else:
+        server.env.write_bytes(b"LANGFUSE_PUBLIC_KEY=\xff\xfe\n")
+    try:
+        code, out = verdict(capsys)
+    finally:
+        server.env.chmod(0o600)
+    assert code == 1 and server.urls == [] and "not readable" in out
+    assert not any(k.startswith("LANGFUSE_") for k in os.environ)  # the hostile shell keys are still dropped
+
+
+def test_a_malformed_url_raises_apierror_from_the_real_client_and_ch_reader():
+    with pytest.raises(v.ApiError, match="LANGFUSE_BASE_URL"):
+        v.Langfuse("http://[::gg]", "pk", "sk")
+    with pytest.raises(v.ApiError):  # real urllib.request.Request construction, no fake
+        v.ch_query("http://[::gg]", "u", "p", "SELECT 1")
+    assert v.base_url_error("https://cloud.langfuse.com") is None
+    assert v.base_url_error("http://[::1]:3001") is None
+
+
+def test_a_transport_fault_mid_read_is_a_failed_check(server, capsys):
+    server.raise_on["/api/public/projects"] = http.client.IncompleteRead(b"{")
+    code, out = verdict(capsys)
+    assert code == 1 and "FAIL  keys authenticate" in out and "IncompleteRead" in out
+
+
+def test_an_unexpected_error_keeps_earlier_results_and_still_gives_a_verdict(server, capsys):
+    server.raise_on["/api/public/v2/prompts/agentic-rag-generation"] = LookupError("boom")
+    code, out = verdict(capsys)
+    assert code == 1 and "FAIL  verification stopped on an unexpected error: LookupError: boom" in out
+    passed = sum(1 for s, _, _ in v.RESULTS if s == "PASS")
+    assert passed >= 8 and f"{passed}/{len(v.RESULTS)} checks passed" in out  # earlier rows still count
+
+
+def test_ctrl_c_is_not_swallowed(server):
+    server.raise_on["/api/public/projects"] = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])
+
+
+def test_help_and_usage_errors_behave_as_argparse(capsys):
+    with pytest.raises(SystemExit) as e:
+        v.main(["--help"])
+    assert e.value.code == 0 and "--short" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        v.main(["--nope"])
+    assert e.value.code == 2 and v.RESULTS == []
 
 
 @pytest.mark.parametrize("projects", [[], [{"id": "p9", "name": "someone-elses-project"}]])

@@ -141,7 +141,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     manifest_path = v.DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     env_path = v.env_file(v.manifest_value(manifest, "", "profile"))
-    if not v.load_env(env_path):
+    try:
+        loaded = v.load_env(env_path)
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"env file {env_path} not readable: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    if not loaded:
         print(f"no env file at {env_path}: run ./setup.sh at the repo root", file=sys.stderr)
         return 1
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
@@ -149,6 +154,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not (base and pk and sk):
         print(f"LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL must be set in {env_path}",
               file=sys.stderr)
+        return 1
+    url_error = v.base_url_error(base)
+    if url_error:  # checked before any step, so nothing is half-seeded on a config it would misread
+        print(f"LANGFUSE_BASE_URL {base!r} in {env_path} {url_error}", file=sys.stderr)
         return 1
     lf = v.Langfuse(base, pk, sk)
     cloud = os.environ.get("DEPLOY_MODE") == "cloud"

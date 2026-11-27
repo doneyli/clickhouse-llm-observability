@@ -28,11 +28,17 @@ Read APIs: Observations v2 and Scores v3. The repo's self-hosted server (3.221.1
 Observations v2 with 404, so on that 404 only the observation reads fall back to the
 Observations v1 list endpoint, the read CLAUDE.md names for self-hosted. No legacy trace
 endpoints are used.
+
+Every failure ends in the verdict: a malformed .env value, an unreadable .env, an HTTP,
+network, parsing or subprocess error, or an unexpected exception is recorded as a FAIL,
+and the run still prints NOT READY with its counts and exits 1.
 """
 from __future__ import annotations
 
 import argparse
 import base64
+import http.client
+import ipaddress
 import json
 import os
 import re
@@ -69,6 +75,7 @@ JUDGE_SEED_CMD = "./scripts/seed-agentic-rag-evaluators.sh"
 TIMEOUT_S = 10
 
 RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required, what)
+PORT_VARS = ["CLICKHOUSE_VECTORS_HTTP_PORT", "AGENTIC_RAG_PORT", "MCP_RAG_RETRIEVER_PORT"]  # read by services()
 
 
 def services(env: MutableMapping[str, str]) -> List[Tuple[str, str, bool]]:
@@ -215,11 +222,47 @@ class ApiError(Exception):
         self.status = status
 
 
+def base_url_error(url: str) -> Optional[str]:
+    """Why `url` cannot be a Langfuse base URL, or None when it can.
+
+    Checked before any request, so a malformed .env value (`http://[::gg]`, a non-numeric
+    port, a missing scheme) fails as a config check instead of raising mid-request. The
+    bracketed-host check is explicit because Python 3.9 accepts what 3.11 rejects.
+    """
+    try:
+        u = urllib.parse.urlsplit(url)
+        u.port  # raises ValueError on a non-numeric or out-of-range port
+        if u.netloc.startswith("[") and u.hostname:
+            ipaddress.IPv6Address(u.hostname.split("%", 1)[0])
+    except ValueError as e:
+        return str(e)
+    if u.scheme not in ("http", "https"):
+        return "needs an http:// or https:// scheme"
+    if not u.hostname:
+        return "has no host"
+    if u.query or u.fragment:
+        return "must not carry a query or fragment"
+    return None
+
+
+def port_errors(env: MutableMapping[str, str]) -> List[str]:
+    """The PORT_VARS set to something that is not a TCP port."""
+    bad = []
+    for k in PORT_VARS:
+        val = env.get(k)
+        if val and not (val.isdigit() and 0 < int(val) < 65536):
+            bad.append(f"{k}={val!r} is not a port")
+    return bad
+
+
 class Langfuse:
     """The few public-API calls the demo scripts need, on APIs Langfuse Cloud still serves:
     projects, prompts, Observations API v2 and Scores API v3."""
 
     def __init__(self, base_url: str, public_key: str, secret_key: str, timeout: float = TIMEOUT_S) -> None:
+        err = base_url_error(base_url)
+        if err:
+            raise ApiError(None, f"LANGFUSE_BASE_URL {base_url!r} {err}")
         self.base = base_url.rstrip("/")
         token = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
         self.headers = {"Authorization": f"Basic {token}", "Accept": "application/json",
@@ -233,14 +276,14 @@ class Langfuse:
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
         data = None if body is None else json.dumps(body).encode()
         headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
+        try:  # building the request is inside the boundary: urllib raises ValueError on a bad URL
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
             raise ApiError(e.code, detail or e.reason) from None
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
         try:
             return json.loads(raw) if raw else None
@@ -403,15 +446,15 @@ def self_correcting_traces(scores: Iterable[dict]) -> List[str]:
 
 def ch_query(base: str, user: str, password: str, sql: str, timeout: float = TIMEOUT_S) -> str:
     """Run a read-only query on the ClickHouse HTTP interface and return the raw text."""
-    req = urllib.request.Request(f"{base}/?{urllib.parse.urlencode({'query': sql})}",
-                                 headers={"X-ClickHouse-User": user, "X-ClickHouse-Key": password})
     try:
+        req = urllib.request.Request(f"{base}/?{urllib.parse.urlencode({'query': sql})}",
+                                     headers={"X-ClickHouse-User": user, "X-ClickHouse-Key": password})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode().strip()
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:160] if e.fp else ""
         raise ApiError(e.code, detail.strip() or str(e.reason)) from None
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as e:
         raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
 
 
@@ -477,7 +520,7 @@ def service_checks(env: MutableMapping[str, str], short: bool = False) -> None:
                 check(r.status < 500, f"{name} up at {url} ({r.status})", required=required, hint=hint)
         except urllib.error.HTTPError as e:
             check(e.code < 500, f"{name} up at {url} ({e.code})", required=required, hint=hint)
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as e:
             check(False, f"{name} not reachable at {url}: {type(e).__name__}", required=required,
                   hint="./setup.sh starts LibreChat" if "LibreChat" in name else hint)
 
@@ -602,35 +645,55 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], deploy_mode: 
     return state
 
 
+def run(args: argparse.Namespace) -> None:
+    """Every check, in order. Exceptions are main()'s to record; results recorded so far stay."""
+    manifest_path = DEMO_DIR / "demo.yaml"
+    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    path = env_file(manifest_value(manifest, "", "profile"))
+    print("Config")
+    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
+    hint = "cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root"
+    try:
+        loaded = load_env(path)
+    except (OSError, UnicodeDecodeError) as e:  # there but unreadable: still no shell LANGFUSE_* (dropped first)
+        check(False, f"env file {shown} not readable: {type(e).__name__}: {e}", hint="fix its permissions or encoding")
+        return
+    check(loaded, f"env loaded from {shown}; shell-exported LANGFUSE_* ignored", hint=hint)
+    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
+    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
+    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
+    if not check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
+        return
+    url_error = base_url_error(base)
+    problems = ([f"LANGFUSE_BASE_URL {base!r} {url_error}"] if url_error else []) + port_errors(os.environ)
+    if not check(not problems, "LANGFUSE_BASE_URL and the service ports are well-formed"
+                 + (f": {'; '.join(problems)}" if problems else ""), hint=f"fix {shown}"):
+        return  # nothing below runs on a config it would misread
+    service_checks(os.environ, short=args.short)
+    vector_checks(os.environ)
+    lf = Langfuse(base, pk, sk)
+    state = langfuse_checks(lf, expected, os.environ.get("DEPLOY_MODE") or "self-hosted", short=args.short)
+    if args.links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state):
+            print(f"  {label:<30} {url}")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
     ap.add_argument("--short", action="store_true",
                     help="check the short path only (Opening, Acts 1-3, Close): Act 3b and Act 4 checks only warn")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(argv)  # --help and usage errors exit here, as argparse does
     del RESULTS[:]
-
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
     print(f"{TRACE_NAME} readiness ({'short path' if args.short else 'full presentation'})")
-    print("Config")
-    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-          hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
-    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
-        service_checks(os.environ, short=args.short)
-        vector_checks(os.environ)
-        lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected, os.environ.get("DEPLOY_MODE") or "self-hosted", short=args.short)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<30} {url}")
-
+    try:
+        run(args)
+    except (ApiError, OSError, ValueError, RuntimeError, subprocess.SubprocessError, http.client.HTTPException) as e:
+        check(False, f"verification stopped: {type(e).__name__}: {e}")
+    except Exception as e:  # noqa: BLE001 - not BaseException: Ctrl-C and SystemExit still propagate
+        check(False, f"verification stopped on an unexpected error: {type(e).__name__}: {e}",
+              hint="the checks above still count; this is a bug in verify_demo.py or a response it cannot read")
     line, code = summary()
     print(f"\n{line}")
     return code

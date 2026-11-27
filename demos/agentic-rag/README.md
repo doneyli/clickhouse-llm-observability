@@ -225,6 +225,7 @@ partial `.env` files and staged read and write failures.
 | Symptom | Cause and fix |
 |---|---|
 | `keys map to project '…' (want 'LLM Observability Demo')` or traces "missing" | Shell-exported keys for another project. `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL` and re-run |
+| `LANGFUSE_BASE_URL and the service ports are well-formed` fails, or `env file … not readable` | A malformed value in the root `.env` (a bad host or port, no `http://`), or a file you cannot read. Both scripts stop before any request; fix `.env` and re-run |
 | `agentic_rag.kb_chunks holds 0 chunk(s)` or the table is missing | The index was never built or the volume was wiped: `python demos/agentic-rag/scripts/seed_all.py` |
 | `a scored 'agentic-rag' run` fails | No knowledge-base run in 7 days. Run `main.py`; a direct-route question alone does not count |
 | Empty Graph tab | The trace is still ingesting. Wait about 20 seconds and refresh |
