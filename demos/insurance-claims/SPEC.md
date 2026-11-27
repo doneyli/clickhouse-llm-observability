@@ -45,7 +45,7 @@ Examiner workbench :8095 (portal) ──► LangGraph claims graph (one process)
                                         ├─ correspondence (LLM letter)
                                         └─ examiner gate: LangGraph interrupt → resume on approve/override
                          one OpenTelemetry TracerProvider per process
-                          ├─► Langfuse (Cloud project or self-hosted EE :3100), masked
+                          ├─► Langfuse (Cloud project, the shared local self-hosted EE, or both), masked
                           └─► APM copy, payload-free, same trace ids (Jaeger :16686 as Dynatrace stand-in)
 ```
 
@@ -268,9 +268,10 @@ Notes:
 
 ## 12. Enterprise and self-hosting
 
-- Targets: a Cloud project for building, the self-hosted EE instance at :3100 (the
-  bank-assistant `selfhosted` compose profile) for governance. The claims code only needs
-  a URL and keys, so there is no compose coupling.
+- Targets: a Cloud project for building, the one local self-hosted EE instance shared by
+  the standalone demos (`scripts/langfuse_local.py`, see docs/LANGFUSE_DUAL_INGEST.md) for
+  governance, or both at once. The claims code only needs a URL and keys, so there is no
+  compose coupling.
 - Self-hosted projects: `claims-dev`, `claims-prod` (project per environment).
 - Roles: claims engineer (member on dev, viewer on prod), claims release manager (can
   move the protected `production` label), annuities team (no access to claims), platform

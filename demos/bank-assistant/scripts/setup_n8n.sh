@@ -11,8 +11,9 @@
 #      demo's .env files into n8n's encrypted store via stdin, never onto disk
 #   6. imports + publishes the workflow, restarts n8n so the webhook goes live
 #
-# Target Langfuse = the same one the Python app uses (northwind/config.py):
-# .env.cloud when present (Langfuse Cloud), otherwise the local self-hosted stack.
+# Target Langfuse = the profile's primary target, the same one the Python app uses
+# (northwind/config.py): Langfuse Cloud for `cloud` and `dual`, the shared local instance for
+# `selfhosted`. n8n exports to ONE endpoint, so in `dual` its spans reach Cloud only.
 # Local demo instance only; credentials are demo/test credentials.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -47,8 +48,7 @@ text = env.read_text() if env.exists() else ""
 current = dict(re.findall(r"^([A-Z0-9_]+)=(.*)$", text, flags=re.M))
 
 base = config.LANGFUSE_BASE_URL
-# n8n runs inside the compose network: the self-hosted Langfuse is langfuse-web:3000 there.
-otel_base = base.replace("http://localhost:3100", "http://langfuse-web:3000")
+otel_base = config.container_url(base)  # n8n runs in a container: localhost is the host there
 values = {
     "N8N_OTEL_ENABLED": "true",
     "N8N_OTEL_EXPORTER_OTLP_ENDPOINT": f"{otel_base}/api/public/otel",
@@ -146,7 +146,7 @@ if not config.ANTHROPIC_API_KEY:
     sys.exit("ANTHROPIC_API_KEY not found (.env or repo-root .env)")
 json.dump([
     {"id": "nwLangfuseCred01", "name": "Langfuse (Northwind)", "type": "langfuseApi",
-     "data": {"host": config.LANGFUSE_BASE_URL.replace("http://localhost:3100", "http://langfuse-web:3000"),
+     "data": {"host": config.container_url(config.LANGFUSE_BASE_URL),
               "publicKey": config.LANGFUSE_PUBLIC_KEY, "secretKey": config.LANGFUSE_SECRET_KEY}},
     {"id": "nwAnthropicCred1", "name": "Anthropic (Northwind)", "type": "anthropicApi",
      "data": {"apiKey": config.ANTHROPIC_API_KEY, "url": "https://api.anthropic.com"}},
@@ -161,7 +161,7 @@ say "Importing + publishing workflow '$WORKFLOW_ID'"
 import json, sys
 from northwind import config
 wf = json.load(open(sys.argv[1]))
-base = config.LANGFUSE_BASE_URL.replace("http://localhost:3100", "http://langfuse-web:3000")
+base = config.container_url(config.LANGFUSE_BASE_URL)
 for node in wf["nodes"]:
     if node["name"] == "Send trace to Langfuse":
         node["parameters"]["url"] = f"{base}/api/public/otel/v1/traces"

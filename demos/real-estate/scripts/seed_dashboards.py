@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 import urllib.error
 import urllib.parse
@@ -44,18 +45,28 @@ def load_env() -> tuple[str, str, str]:
     """Read keys from .env only — never from the shell.
 
     A shell-exported LANGFUSE_* key for another project would silently publish
-    these dashboards there; see the note in the repo's CLAUDE.md.
+    these dashboards there; see the note in the repo's CLAUDE.md. The one shell
+    input is the profile: REAL_ESTATE_PROFILE=selfhosted targets the local
+    instance in .env.selfhosted (scripts/seed_targets.sh seeds both).
     """
     env: dict[str, str] = {}
     env_file = REPO_DIR / ".env"
     if not env_file.exists():
         sys.exit(f"missing {env_file}")
-    for line in env_file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        env[k.strip()] = v.strip().strip('"').strip("'")
+    files = [env_file]
+    if os.environ.get("REAL_ESTATE_PROFILE", "").lower() == "selfhosted":
+        files.append(REPO_DIR / ".env.selfhosted")
+        if not files[-1].exists():
+            sys.exit(f"REAL_ESTATE_PROFILE=selfhosted but {files[-1]} is missing")
+    for path in files:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            env[k.strip()] = v.strip().strip('"').strip("'")
+        if env.get("LANGFUSE_BASE_URL") and path.name == ".env.selfhosted":
+            env["LANGFUSE_HOST"] = env["LANGFUSE_BASE_URL"]
 
     host = env.get("LANGFUSE_HOST", "http://localhost:3001").rstrip("/")
     pk, sk = env.get("LANGFUSE_PUBLIC_KEY", ""), env.get("LANGFUSE_SECRET_KEY", "")
