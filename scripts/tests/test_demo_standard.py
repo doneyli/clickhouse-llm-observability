@@ -336,6 +336,14 @@ class AssetRules(Fixture):
         write(self.path, "LABS.md", "l\n")
         self.assertNotIn("DS-ADDON-01", self.errors())
 
+    def test_file_names_are_case_exact(self):
+        # A case-insensitive filesystem (macOS) must not pass what Linux CI fails.
+        self.edit("demo.yaml", "commands:", "addons:\n  - architecture\ncommands:")
+        write(self.path, "docs/architecture.md", "a\n")
+        self.assertIn("DS-ADDON-01", self.errors())
+        self.edit("demo.yaml", "  - architecture\n", "  - architecture: docs/architecture.md\n")
+        self.assertNotIn("DS-ADDON-01", self.errors())
+
     def test_npm_script_resolution(self):
         self.edit("demo.yaml", "verify: .venv/bin/python scripts/verify_demo.py", "verify: npm run verify")
         write(self.path, "package.json", '{"scripts": {"test": "x"}}')

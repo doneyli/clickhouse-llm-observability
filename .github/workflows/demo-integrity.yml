@@ -200,10 +200,13 @@ jobs:
       - name: commands.test (no services, no network to Langfuse or models)
         env:
           CMD: ${{ matrix.demo.test }}
-          # Tests must not reach a real Langfuse; blank keys make any accidental
-          # client a no-op instead of a write to someone's project.
-          LANGFUSE_PUBLIC_KEY: ''
-          LANGFUSE_SECRET_KEY: ''
+          # Tests must not reach a real Langfuse. Some demos validate their keys at
+          # import, so give them obvious placeholders and point any client that
+          # slips through at a closed local port: nothing leaves the runner.
+          LANGFUSE_PUBLIC_KEY: pk-lf-ci-placeholder
+          LANGFUSE_SECRET_KEY: sk-lf-ci-placeholder
+          LANGFUSE_BASE_URL: http://127.0.0.1:9
+          LANGFUSE_HOST: http://127.0.0.1:9
         run: bash -euo pipefail -c "$CMD"
 
   shell-syntax:

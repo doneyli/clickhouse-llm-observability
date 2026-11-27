@@ -16,7 +16,8 @@ commands:
   verify: ./scripts/verify_demo.sh   # to be written
   test: python3 -B -m unittest discover -s tests
   reset: ./scripts/reset-demo.sh
-addons: [architecture]
+addons:
+  - architecture: docs/architecture.md   # existing lower-case name kept (decision D8)
 waivers:
   - rule: DS-ENV-01
     reason: predates the standard

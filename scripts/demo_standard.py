@@ -11,6 +11,7 @@ Python 3.9+ and PyYAML only.
 from __future__ import annotations
 
 import datetime as _dt
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,31 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DEMOS_DIR = REPO_ROOT / "demos"
+
+# ------------------------------------------------------------- case-exact paths
+# macOS and Windows filesystems ignore case, Linux CI does not: `docs/ARCHITECTURE.md`
+# "exists" on a Mac when the file is `docs/architecture.md`, then fails in CI. Every
+# existence check goes through these, so a local run gives the same answer as CI.
+
+def exists(path: Path) -> bool:
+    """True when `path` exists with exactly this spelling, component by component."""
+    full = Path(os.path.normpath(os.path.abspath(path)))
+    if not full.exists():
+        return False
+    parent = Path(full.anchor)
+    for part in full.parts[1:]:
+        try:
+            if part not in os.listdir(parent):
+                return False
+        except OSError:
+            return False
+        parent = parent / part
+    return True
+
+
+def is_file(path: Path) -> bool:
+    return exists(path) and Path(path).is_file()
+
 
 # --------------------------------------------------------------------------- schema
 
@@ -179,7 +205,7 @@ def discover(demos_dir: Path = DEFAULT_DEMOS_DIR) -> list[Demo]:
 
 def load_manifest(demo: Demo) -> None:
     path = demo.path / "demo.yaml"
-    if not path.is_file():
+    if not is_file(path):
         demo.manifest_errors = ["demo.yaml is missing"]
         return
     try:
@@ -444,7 +470,7 @@ def _present_links(demo: Demo, prefix: str) -> str:
             entries.append((label, s["file"]))
     out = []
     for label, file in entries:
-        if (demo.path / file).is_file():
+        if is_file(demo.path / file):
             out.append(f"[{label}]({prefix}{file})")
         else:
             out.append(f"{label} *(not written yet)*")

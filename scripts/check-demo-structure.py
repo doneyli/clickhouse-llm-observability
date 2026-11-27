@@ -64,7 +64,7 @@ class DemoCheck:
 
     def read(self, name: str) -> str | None:
         p = self.demo.path / name
-        return p.read_text(errors="replace") if p.is_file() else None
+        return p.read_text(errors="replace") if ds.is_file(p) else None
 
     @property
     def m(self) -> dict:
@@ -93,7 +93,7 @@ class DemoCheck:
             if "/bin/" in tok or tok.startswith((".venv", "venv/", "node_modules", "-")):
                 continue
             if re.search(r"\.(py|sh|bash|ts|mjs|cjs|js)$", tok) or tok.startswith("./"):
-                return tok, None if (base / tok).exists() else f"`{tok}` does not exist (from {'the repo root' if base == self.root else self.rel(base)})"
+                return tok, None if ds.exists(base / tok) else f"`{tok}` does not exist (from {'the repo root' if base == self.root else self.rel(base)})"
             if tok == "npm" and i + 1 < len(tokens):
                 script = tokens[i + 2] if tokens[i + 1] == "run" and i + 2 < len(tokens) else tokens[i + 1]
                 pkg = self.demo.path / "package.json"
@@ -306,7 +306,7 @@ class DemoCheck:
                 ref, first = m.group(1), int(m.group(2))
                 last = int(m.group(3) or first)
                 cands = [self.demo.path / ref, self.root / ref, path.parent / ref]
-                target = next((c for c in cands if c.is_file()), None)
+                target = next((c for c in cands if ds.is_file(c)), None)
                 where = start_line + off
                 if target is None:
                     self.fail("DS-LINK-02", f"cited file `{ref}` does not exist", path, where, "warning")
@@ -317,7 +317,7 @@ class DemoCheck:
                               path, where, "warning")
 
     def check_env(self) -> None:
-        if self.demo.profile in ("standalone", "workshop") and not (self.demo.path / ".env.example").is_file():
+        if self.demo.profile in ("standalone", "workshop") and not ds.is_file(self.demo.path / ".env.example"):
             self.fail("DS-ENV-01", ".env.example is missing", self.demo.path / ".env.example")
         try:
             out = subprocess.run(["git", "-C", str(self.root), "ls-files", "-z", "--", self.rel(self.demo.path)],
@@ -347,11 +347,11 @@ class DemoCheck:
                       self.demo.path / "tests")
 
     def check_spec_and_addons(self) -> None:
-        if self.demo.profile in ("standalone", "workshop") and not (self.demo.path / "SPEC.md").is_file():
+        if self.demo.profile in ("standalone", "workshop") and not ds.is_file(self.demo.path / "SPEC.md"):
             self.fail("DS-SPEC-01", "SPEC.md is missing", self.demo.path / "SPEC.md")
         for addon, files in self.demo.addon_files().items():
             for f in files:
-                if not (self.demo.path / f).exists():
+                if not ds.exists(self.demo.path / f):
                     self.fail("DS-ADDON-01", f"add-on '{addon}' needs {f}", self.demo.path / "demo.yaml")
 
     def check_links(self) -> None:
@@ -359,13 +359,13 @@ class DemoCheck:
                                  else self.demo.script_files())
         for name in dict.fromkeys(names):
             path = self.demo.path / name
-            if not path.is_file():
+            if not ds.is_file(path):
                 continue
             for line, target in ds.links(path.read_text(errors="replace")):
                 if not ds.is_relative_link(target):
                     continue
                 clean = re.sub(r"%20", " ", target.split("#")[0].split("?")[0])
-                if clean and not (path.parent / clean).exists():
+                if clean and not ds.exists(path.parent / clean):
                     self.fail("DS-LINK-01", f"link target `{target}` does not exist", path, line)
 
 
@@ -451,7 +451,7 @@ def write_waivers(demo: ds.Demo, findings: list[Finding]) -> list[str]:
 
 def check_index(demos_dir: Path, demos: list[ds.Demo], root: Path) -> list[Finding]:
     index = demos_dir / "README.md"
-    if not index.is_file():
+    if not ds.is_file(index):
         return [Finding("DS-INDEX-01", "(index)", "demos/README.md is missing", str(index))]
     text = index.read_text()
     block = ds.read_block(text, ds.INDEX_START, ds.INDEX_END)
