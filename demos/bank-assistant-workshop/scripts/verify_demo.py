@@ -7,8 +7,10 @@
     .venv/bin/python scripts/verify_demo.py --env-file ../../.env   # from a work/<checkpoint> folder
 
 Session readiness means: `workshop.py preflight` passes (packages, model key present,
-Langfuse authentication; no paid model call); the portal and the banking MCP server are
-serving; the keys map to the expected project; both prompt labels serve the text in
+Langfuse authentication; no paid model call); the portal's /health reports tracing on for
+this WORKSHOP_ID; the banking MCP server answers an MCP `initialize` handshake as
+northwind-core-banking (no tool is listed or called; the session is closed again); the
+env file and LANGFUSE_BASE_URL parse before anything is requested; the keys map to the expected project; both prompt labels serve the text in
 src/northwind/prompts.py; every item in data/seed-dataset.json is ACTIVE and matches; a
 recent traced turn has its observations and the three signal scores on its root
 observation; and a prepared experiment run exists for each label's current version
@@ -24,6 +26,7 @@ import argparse
 import ast
 import base64
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -34,7 +37,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, MutableMapping, Optional, Tuple
+from typing import Any, Dict, Iterator, List, MutableMapping, Optional, Tuple
 
 DEMO_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
@@ -55,6 +58,8 @@ EXPERIMENT_LOOKBACK_DAYS = 90                     # how far back to look for the
 FRESH_HOURS = 24                                  # older than this only warns: send a question the day before
 DEFAULT_WORKSHOP_ID = "bank-workshop"             # config.WORKSHOP_ID default
 DEFAULT_PORTAL_PORT, DEFAULT_MCP_PORT = 8090, 8765  # config.PORT, config.MCP_PORT defaults
+MCP_SERVER_NAME = "northwind-core-banking"        # mcp_server.FastMCP(...) name, sent back by initialize
+MCP_PROTOCOL_VERSION = "2025-06-18"               # what the verifier offers; the server answers with its own
 SEED_CMD = ".venv/bin/python scripts/seed_all.py"
 SERVE_CMD = ".venv/bin/python workshop.py serve"
 RUN_CMD = f"{SERVE_CMD}, then ask a question at http://127.0.0.1:8090"
@@ -286,10 +291,12 @@ class Langfuse:
         query = {k: (str(v).lower() if isinstance(v, bool) else v)
                  for k, v in (params or {}).items() if v is not None}
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
-        data = None if body is None else json.dumps(body).encode()
-        headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
+            data = None if body is None else json.dumps(body).encode()
+            headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
+            # Building the request parses the URL: a malformed base such as http://[::gg]
+            # raises ValueError here (http.client.InvalidURL is one too), not at send time.
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
@@ -297,6 +304,8 @@ class Langfuse:
             raise ApiError(e.code, detail or e.reason) from None
         except (urllib.error.URLError, OSError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except ValueError as e:
+            raise ApiError(None, f"cannot build a request to {self.base}{path}: {e}") from None
         try:
             return json.loads(raw) if raw else None
         except ValueError:
@@ -308,26 +317,30 @@ class Langfuse:
     def post(self, path: str, body: Any) -> Any:
         return self.request("POST", path, body=body)
 
-    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.cursor` (Observations v2, Scores v3, experiments). A page may be empty
-        while a cursor is still returned, so stop on a missing cursor, not on an empty page.
-        A repeated cursor or more than `max_pages` pages is an ApiError, not a silent cut."""
-        out: List[dict] = []
+    def rows(self, path: str, params: Dict[str, Any], limit: int = 100, max_pages: int = 20) -> Iterator[dict]:
+        """Yield rows across `meta.cursor` pages (Observations v2, Scores v3, experiments), so a
+        caller can stop at the first row it wants. A page may be empty while a cursor is still
+        returned, so stop on a missing cursor, not on an empty page. A repeated cursor or more
+        than `max_pages` pages is an ApiError, not a silent cut."""
         cur = None
         seen = set()
         for _ in range(max_pages):
-            d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
-            rows = d.get("data") or []
-            if not isinstance(rows, list):
+            d = self.get(path, **dict(params, limit=limit, **({"cursor": cur} if cur else {}))) or {}
+            page = d.get("data") or []
+            if not isinstance(page, list):
                 raise ApiError(None, f"{path}: 'data' is not a list")
-            out += rows
+            yield from page
             cur = (d.get("meta") or {}).get("cursor")
-            if not cur or len(out) >= cap:
-                return out[:cap]
+            if not cur:
+                return
             if cur in seen:
                 raise ApiError(None, f"{path}: the API repeated cursor {cur!r}")
             seen.add(cur)
         raise ApiError(None, f"{path}: still paging after {max_pages} pages")
+
+    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
+        """Every row `rows()` yields, up to `cap`."""
+        return list(itertools.islice(self.rows(path, params, max_pages=max_pages), cap))
 
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -349,16 +362,85 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
 
 # --- Checks -------------------------------------------------------------------------------
 
+def http_request(method: str, url: str, body: Optional[bytes] = None, headers: Optional[Dict[str, str]] = None,
+                 timeout: float = 4) -> Tuple[Optional[int], Dict[str, str], bytes]:
+    """(status, lower-cased headers, body) for a local service; (None, {}, b"") when nothing answers."""
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, {k.lower(): v for k, v in (r.headers or {}).items()}, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, {}, b""
+    except (urllib.error.URLError, OSError, ValueError):
+        return None, {}, b""
+
+
 def http_get(url: str, timeout: float = 4) -> Tuple[Optional[int], bytes]:
     """(status, body) for a local service; (None, b"") when nothing answers."""
+    status, _, body = http_request("GET", url, headers={"Accept": "application/json"}, timeout=timeout)
+    return status, body
+
+
+def mcp_initialize(url: str, timeout: float = 4) -> Tuple[Optional[int], Optional[dict]]:
+    """POST the JSON-RPC `initialize` every MCP client opens with, and return (status, result).
+
+    The handshake lists and calls no tool, so nothing reaches the model or the fictional
+    accounts. FastMCP's streamable HTTP transport answers 200 with one SSE `message` event
+    (or JSON, in json_response mode) and opens a transport session, which is closed again
+    with DELETE. A bare GET only says 406 to any client that will not take an event stream,
+    which an unrelated server can mimic; a server name cannot be mimicked by accident.
+    """
+    req = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+           "params": {"protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {},
+                      "clientInfo": {"name": "demo-verify", "version": "1"}}}
+    status, headers, raw = http_request("POST", url, json.dumps(req).encode(), {
+        "Content-Type": "application/json", "Accept": "application/json, text/event-stream"}, timeout)
+    if status != 200:
+        return status, None
+    text = raw.decode("utf-8", "replace")
+    if headers.get("content-type", "").startswith("text/event-stream"):
+        bodies = [line[5:].strip() for line in text.splitlines() if line.startswith("data:")]
+    else:
+        bodies = [text]
+    result = None
+    for chunk in bodies:
+        try:
+            msg = json.loads(chunk)
+        except ValueError:
+            continue
+        if isinstance(msg, dict) and msg.get("id") == 1 and isinstance(msg.get("result"), dict):
+            result = msg["result"]
+            break
+    session = headers.get("mcp-session-id")
+    if session:
+        http_request("DELETE", url, headers={"mcp-session-id": session,
+                                             "MCP-Protocol-Version": str((result or {}).get("protocolVersion")
+                                                                         or MCP_PROTOCOL_VERSION)}, timeout=timeout)
+    return status, result
+
+
+def local_port(environ: MutableMapping[str, str], key: str, default: int) -> int:
+    """A port from the env file, or ValueError naming the variable."""
+    raw = environ.get(key) or str(default)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}),
-                                    timeout=timeout) as r:
-            return r.status, r.read()
-    except urllib.error.HTTPError as e:
-        return e.code, b""
-    except (urllib.error.URLError, OSError):
-        return None, b""
+        port = int(raw)
+    except ValueError:
+        raise ValueError(f"{key}={raw!r} is not a port number") from None
+    if not 0 < port < 65536:
+        raise ValueError(f"{key}={raw!r} is not a port number")
+    return port
+
+
+def base_url_problem(base: str) -> Optional[str]:
+    """Why LANGFUSE_BASE_URL cannot be requested, or None. Parses it the way urllib will."""
+    try:
+        parts = urllib.parse.urlsplit(base)
+        parts.port  # raises ValueError for a non-numeric or out-of-range port
+    except ValueError as e:
+        return f"{base!r} is not a valid URL: {e}"
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return f"{base!r} is not an http(s) URL with a host"
+    return None
 
 
 def preflight_check(env_path: Path, python: str = sys.executable) -> bool:
@@ -375,25 +457,34 @@ def preflight_check(env_path: Path, python: str = sys.executable) -> bool:
                  hint="read the error above; run with .venv/bin/python after commands.install")
 
 
-def service_checks(names: Dict[str, str], environ: Optional[MutableMapping[str, str]] = None) -> None:
+def service_checks(names: Dict[str, str], ports: Dict[str, int]) -> None:
     """The facilitator's portal and banking MCP server, started by `workshop.py serve`."""
-    env = os.environ if environ is None else environ
     print("Services")
-    port = int(env.get("WORKSHOP_PORT") or DEFAULT_PORTAL_PORT)
+    port = ports["portal"]
     status, body = http_get(f"http://127.0.0.1:{port}/health")
     try:
         health = json.loads(body) if status == 200 else {}
     except ValueError:
         health = {}
+    health = health if isinstance(health, dict) else {}
     ok = status == 200 and health.get("status") == "ok" and health.get("tracing") is True \
         and health.get("workshop") == names["workshop_id"]
     check(ok, f"portal on 127.0.0.1:{port}/health: HTTP {status}, tracing {health.get('tracing')}, "
               f"workshop {health.get('workshop')} (want {names['workshop_id']})",
           hint=f"{SERVE_CMD} from the reference root with this .env")
-    mcp = int(env.get("NORTHWIND_MCP_PORT") or DEFAULT_MCP_PORT)
-    status, _ = http_get(f"http://127.0.0.1:{mcp}/mcp")
-    check(status is not None and status < 500, f"banking MCP server on 127.0.0.1:{mcp}/mcp: HTTP {status}",
-          hint=SERVE_CMD)
+    mcp = ports["mcp"]
+    status, result = mcp_initialize(f"http://127.0.0.1:{mcp}/mcp")
+    server = ((result or {}).get("serverInfo") or {}).get("name") if isinstance(result, dict) else None
+    protocol = (result or {}).get("protocolVersion") if isinstance(result, dict) else None
+    if status != 200:
+        detail = f"initialize got HTTP {status}"
+    elif result is None:
+        detail = "initialize got HTTP 200 but no MCP result"
+    else:
+        detail = f"initialize HTTP 200, server {server}, protocol {protocol}"
+    check(status == 200 and server == MCP_SERVER_NAME and bool(protocol),
+          f"banking MCP server on 127.0.0.1:{mcp}/mcp: {detail} (want {MCP_SERVER_NAME})",
+          hint=f"{SERVE_CMD}; another process may hold port {mcp} (NORTHWIND_MCP_PORT)")
 
 
 def dataset_items(lf: Langfuse, name: str, max_pages: int = 20) -> List[dict]:
@@ -461,12 +552,16 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], names: Dict[s
 
         print("Latest traced turn")
         window = {"fromStartTime": iso(now - timedelta(days=LOOKBACK_DAYS)), "toStartTime": iso(now + timedelta(minutes=5))}
-        roots = (lf.get("/api/public/v2/observations", name=ROOT_NAME, isRootObservation=True,
-                        environment=ENVIRONMENT, fields="core,basic", limit=1, **window)
-                 or {}).get("data") or []  # newest first
-        if check(bool(roots), f"a '{ROOT_NAME}' turn in environment '{ENVIRONMENT}' in the last {LOOKBACK_DAYS} days",
+        # Newest first. Follow the cursor to the first eligible root: a page can come back
+        # empty with a continuation cursor, and the prepared turn is then on a later page.
+        roots = lf.rows("/api/public/v2/observations", dict(
+            name=ROOT_NAME, isRootObservation=True, environment=ENVIRONMENT, fields="core,basic", **window),
+            limit=10)
+        latest = next((r for r in roots if r.get("name") == ROOT_NAME and r.get("environment") == ENVIRONMENT
+                       and r.get("isRootObservation") is True), None)
+        if check(latest is not None,
+                 f"a '{ROOT_NAME}' turn in environment '{ENVIRONMENT}' in the last {LOOKBACK_DAYS} days",
                  hint=RUN_CMD):
-            latest = roots[0]
             state["trace_id"] = trace_id = latest["traceId"]
             root_id = latest["id"]
             started = parse_time(latest["startTime"])
@@ -508,27 +603,40 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], names: Dict[s
     return state
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--links", action="store_true", help="print the link each module opens")
-    ap.add_argument("--env-file", type=Path, help="the private .env to read (default: the demo folder's .env)")
-    ap.add_argument("--prep", action="store_true",
-                    help="preparation only: skip the portal and MCP checks; the verdict says so")
-    args = ap.parse_args(argv)
-    del RESULTS[:]
-
+def readiness(args: argparse.Namespace) -> None:
+    """Every check, in order. Expected failures become FAIL lines here; main() catches the rest."""
     manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = args.env_file.resolve() if args.env_file else env_file(manifest_value(manifest, "", "profile"))
-    print("bank-assistant-workshop readiness" + (" (preparation only)" if args.prep else ""))
     print("Config")
+    try:
+        manifest = manifest_path.read_text()
+    except OSError as e:
+        manifest = ""
+        check(False, f"demo.yaml unreadable: {type(e).__name__}: {e}")
+    path = args.env_file.resolve() if args.env_file else env_file(manifest_value(manifest, "", "profile"))
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-          hint="cp .env.example .env and fill it in")
+    try:
+        loaded = load_env(path)
+    except (OSError, UnicodeDecodeError) as e:
+        loaded = False
+        check(False, f"env file {shown} unreadable: {type(e).__name__}: {e}")
+    else:
+        check(loaded, f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
+              hint="cp .env.example .env and fill it in")
     expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
     keys_ok = check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set")
+    if keys_ok:
+        problem = base_url_problem(base)
+        keys_ok = check(problem is None, f"LANGFUSE_BASE_URL is an http(s) URL" + (f": {problem}" if problem else ""),
+                        hint="e.g. https://us.cloud.langfuse.com")
+    ports: Dict[str, int] = {}
+    for key, name, default in (("WORKSHOP_PORT", "portal", DEFAULT_PORTAL_PORT),
+                               ("NORTHWIND_MCP_PORT", "mcp", DEFAULT_MCP_PORT)):
+        try:
+            ports[name] = local_port(os.environ, key, default)
+        except ValueError as e:
+            check(False, str(e), hint="set a number from 1 to 65535, or remove the line for the default")
 
     print("Local definitions")
     prompts: Dict[str, str] = {}
@@ -544,11 +652,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (OSError, KeyError, TypeError, ValueError) as e:
         check(False, f"data/seed-dataset.json: {type(e).__name__}: {e}")
 
-    if keys_ok and path.is_file():
+    if keys_ok and loaded:
         preflight_check(path)
         names = workshop_names()
-        if not args.prep:
-            service_checks(names)
+        if not args.prep and len(ports) == 2:
+            service_checks(names, ports)
         if prompts and items:
             lf = Langfuse(base, pk, sk)
             state = langfuse_checks(lf, expected, names, prompts, items)
@@ -557,6 +665,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 for label, url in act_links(lf.base, state):
                     print(f"  {label:<32} {url}")
 
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--links", action="store_true", help="print the link each module opens")
+    ap.add_argument("--env-file", type=Path, help="the private .env to read (default: the demo folder's .env)")
+    ap.add_argument("--prep", action="store_true",
+                    help="preparation only: skip the portal and MCP checks; the verdict says so")
+    args = ap.parse_args(argv)  # --help and usage errors exit here, as usual
+    del RESULTS[:]
+    print("bank-assistant-workshop readiness" + (" (preparation only)" if args.prep else ""))
+    try:
+        readiness(args)
+    except Exception as e:  # noqa: BLE001  an unexpected error is a failed check; the verdict still prints
+        check(False, f"verifier stopped early: {type(e).__name__}: {e}",
+              hint="the checks above ran; the rest did not")
     line, code = summary()
     if args.prep:
         line += " · preparation only: portal and MCP server not checked, run without --prep once serve is up"

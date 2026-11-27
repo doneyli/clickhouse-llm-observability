@@ -196,7 +196,34 @@ class VerdictTests(Base):
     def test_stopped_services_are_not_ready(self):
         self.api.portal, self.api.mcp = None, None
         text = self.assertNotReady("FAIL  portal on 127.0.0.1:8090/health: HTTP None")
-        self.assertIn("FAIL  banking MCP server on 127.0.0.1:8765/mcp: HTTP None", text)
+        self.assertIn("FAIL  banking MCP server on 127.0.0.1:8765/mcp: initialize got HTTP None", text)
+
+    # 129-4: only the workshop's own MCP server passes, by its initialize answer
+    def test_unrelated_server_answering_404_on_mcp_is_not_ready(self):
+        self.api.mcp = "not-found"              # the portal is valid; something else holds :8765
+        self.assertNotReady("FAIL  banking MCP server on 127.0.0.1:8765/mcp: initialize got HTTP 404")
+
+    def test_auth_or_refusing_server_on_the_mcp_port_is_not_ready(self):
+        for answer in (401, 403, 406):
+            self.api.mcp = answer
+            self.assertNotReady(f"FAIL  banking MCP server on 127.0.0.1:8765/mcp: initialize got HTTP {answer}")
+
+    def test_another_mcp_server_or_an_empty_answer_is_not_ready(self):
+        self.api.mcp = "other-mcp"
+        self.assertNotReady("server some-other-server, protocol 2025-06-18 (want northwind-core-banking)")
+        self.api.mcp = "no-result"
+        self.assertNotReady("initialize got HTTP 200 but no MCP result")
+
+    def test_json_response_mode_is_accepted(self):
+        self.api.mcp = "json"
+        text = self.assertReady()
+        self.assertIn("PASS  banking MCP server on 127.0.0.1:8765/mcp: initialize HTTP 200, "
+                      "server northwind-core-banking", text)
+
+    def test_mcp_check_only_initializes_and_closes_its_session(self):
+        self.assertReady()
+        self.assertEqual(self.api.mcp_calls, [("POST", "initialize", None), ("DELETE", None, "sess1")])
+        self.assertEqual(self.api.mcp_sessions, set())
 
     def test_stopped_mcp_server_alone_is_not_ready(self):
         self.api.mcp = None
@@ -281,6 +308,20 @@ class VerdictTests(Base):
         self.api.roots = []
         self.assertNotReady("FAIL  a 'northwind-assistant' turn in environment 'workshop'")
 
+    # 129-5: latest-turn discovery follows the root listing's cursor
+    def test_latest_turn_after_an_empty_first_root_page_is_found(self):
+        self.api.root_empty_pages = 1           # page 1: data [] with a cursor; page 2: the prepared turn
+        self.assertReady()
+        roots = [p for e, p in self.api.calls if e == "observations" and "traceId" not in p]
+        self.assertEqual([p.get("cursor") for p in roots], [None, "c1"])
+        self.assertIn("basic", roots[0]["fields"])
+
+    def test_root_paging_is_bounded_and_detects_a_repeated_cursor(self):
+        self.api.root_empty_pages = 25
+        self.assertNotReady("Langfuse read failed: /api/public/v2/observations: still paging after 20 pages")
+        self.api.root_empty_pages, self.api.repeat_cursor = 3, True
+        self.assertNotReady("Langfuse read failed: /api/public/v2/observations: the API repeated cursor")
+
     def test_experiment_turns_do_not_count_as_a_served_turn(self):
         self.api.roots[0]["environment"] = "sdk-experiment"
         self.assertNotReady("FAIL  a 'northwind-assistant' turn")
@@ -334,6 +375,91 @@ class VerdictTests(Base):
             self.assertNotReady("FAIL  data/seed-dataset.json")
         with patch.object(v.local_prompts, "__defaults__", (Path(self.tmp.name) / "missing.py",)):
             self.assertNotReady("FAIL  prompt text in src/northwind/prompts.py")
+
+
+
+class FailureBoundaryTests(Base):
+    """129-6: every configuration, construction and runtime failure reaches a counted verdict."""
+
+    def assertCounted(self, text):
+        self.assertRegex(text, r"\nNOT READY \(\d+/\d+ checks passed, \d+ required failed")
+
+    def test_malformed_base_url_fails_through_main_without_api_use(self):
+        text = self.assertNotReady("FAIL  LANGFUSE_BASE_URL is an http(s) URL: 'http://[::gg]' is not a valid URL",
+                                   env_text=ENV.replace("https://lf.example", "http://[::gg]"))
+        self.assertCounted(text)
+        self.assertIn("PASS  env loaded from", text)   # results already recorded are kept
+        self.assertEqual((self.api.calls, self.subprocess_calls), ([], []))
+
+    def test_malformed_url_reaching_the_client_is_an_api_error(self):
+        with self.assertRaises(v.ApiError) as e:
+            v.Langfuse("http://[::gg]", "pk", "sk").get("/api/public/projects")
+        self.assertIn("cannot build a request", str(e.exception))
+
+    def test_non_http_base_url_fails(self):
+        self.assertNotReady("is not an http(s) URL with a host", env_text=ENV.replace("https://lf.example", "lf.example"))
+
+    def test_unreadable_env_file_fails(self):
+        self.env.write_bytes(b"LANGFUSE_PUBLIC_KEY=\xff\xfe\n")
+        text = self.assertNotReady("FAIL  env file")
+        self.assertIn("unreadable: UnicodeDecodeError", text)
+        self.assertCounted(text)
+        if os.geteuid() != 0:
+            self.env.write_text(ENV)
+            self.env.chmod(0)
+            try:
+                self.assertNotReady("unreadable: PermissionError")
+            finally:
+                self.env.chmod(0o600)
+
+    def test_unreadable_manifest_fails(self):
+        fake_demo = Path(self.tmp.name) / "demo"
+        (fake_demo / "demo.yaml").mkdir(parents=True)      # a directory where the manifest should be
+        with patch.object(v, "DEMO_DIR", fake_demo):
+            self.assertNotReady("FAIL  demo.yaml unreadable: IsADirectoryError")
+
+    def test_invalid_port_fails(self):
+        text = self.assertNotReady("FAIL  NORTHWIND_MCP_PORT='mcp' is not a port number",
+                                   env_text=ENV + "NORTHWIND_MCP_PORT=mcp\n")
+        self.assertNotIn("Services", text)
+
+    def test_unexpected_transport_error_reaches_the_verdict(self):
+        real = self.api.urlopen
+
+        def flaky(req, timeout=None):
+            if "/v2/prompts/" in req.full_url:
+                raise RuntimeError("socket layer exploded")
+            return real(req, timeout)
+        self.api.urlopen = flaky
+        text = self.assertNotReady("FAIL  verifier stopped early: RuntimeError: socket layer exploded")
+        self.assertIn("PASS  keys map to project", text)
+        self.assertCounted(text)
+
+    def test_unexpected_subprocess_error_reaches_the_verdict(self):
+        import subprocess
+        with patch.object(v.urllib.request, "urlopen", self.api.urlopen), \
+                patch.object(v.subprocess, "run", side_effect=subprocess.SubprocessError("fork failed")), \
+                redirect_stdout(io.StringIO()) as out:
+            code = v.main(["--env-file", str(self.env)])
+        text = out.getvalue()
+        self.assertEqual(code, 1, text)
+        self.assertIn("FAIL  verifier stopped early: SubprocessError: fork failed", text)
+        self.assertIn("PASS  8 dataset items read", text)
+        self.assertCounted(text)
+
+    def test_keyboard_interrupt_is_not_swallowed(self):
+        def interrupt(req, timeout=None):
+            raise KeyboardInterrupt
+        self.api.urlopen = interrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_main()
+
+    def test_help_and_usage_errors_keep_argparse_behaviour(self):
+        for argv, code in ((["--help"], 0), (["--no-such-flag"], 2)):
+            with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()), \
+                    self.assertRaises(SystemExit) as e:
+                v.main(argv)
+            self.assertEqual(e.exception.code, code)
 
 
 if __name__ == "__main__":

@@ -38,8 +38,8 @@ OBS_FIELDS = {"core": {"id", "traceId", "startTime", "type", "parentObservationI
 
 
 class Response:
-    def __init__(self, status, body):
-        self.status, self._body = status, body
+    def __init__(self, status, body, headers=None):
+        self.status, self._body, self.headers = status, body, dict(headers or {})
 
     def read(self):
         return self._body
@@ -79,9 +79,17 @@ class FakeAPI:
                              "metadata": {"prompt_label": label, "prompt_version": str(p["version"])}}
                             for label, p in self.prompts.items()]
         self.portal = (200, {"status": "ok", "tracing": True, "workshop": workshop_id})
-        self.mcp = 406                     # streamable HTTP answers a bare GET with a 4xx
+        # What answers on 127.0.0.1:8765. "banking" behaves like FastMCP's streamable HTTP
+        # transport as probed on 2026-11-27 (mcp 1.30.0); "json" is its json_response mode;
+        # "not-found" an unrelated server; 401/403 an auth proxy; "other-mcp" another MCP
+        # server; "no-result" a 200 with no JSON-RPC result; None nothing listening.
+        self.mcp = "banking"
+        self.mcp_name = "northwind-core-banking"
+        self.mcp_calls = []                # (method, JSON-RPC method or None, session header)
+        self.mcp_sessions = set()
         self.page_size = 100
         self.empty_pages = 0               # cursor pages with no rows before the first real page
+        self.root_empty_pages = 0          # the same, only for the latest-turn (root) listing
         self.repeat_cursor = False
         self.fail = {}                     # endpoint -> HTTP status to return
         self.calls = []                    # (endpoint, params)
@@ -92,7 +100,7 @@ class FakeAPI:
         url = req.full_url if hasattr(req, "full_url") else req
         parts = urllib.parse.urlsplit(url)
         if parts.hostname == "127.0.0.1":
-            return self._service(parts)
+            return self._service(req, parts)
         params = {k: v[0] for k, v in urllib.parse.parse_qs(parts.query).items()}
         endpoint, arg = self._route(parts.path)
         self.calls.append((endpoint, params))
@@ -112,15 +120,51 @@ class FakeAPI:
     def _error(self, url, status, body):
         raise urllib.error.HTTPError(url, status, "error", {}, io.BytesIO(json.dumps(body).encode()))
 
-    def _service(self, parts):
+    def _service(self, req, parts):
         if parts.port == 8090 and parts.path == "/health" and self.portal:
             status, body = self.portal
             if status != 200:
                 raise urllib.error.HTTPError(parts.geturl(), status, "error", {}, io.BytesIO(b""))
             return Response(200, json.dumps(body).encode())
-        if parts.port == 8765 and parts.path == "/mcp" and self.mcp:
-            raise urllib.error.HTTPError(parts.geturl(), self.mcp, "Not Acceptable", {}, io.BytesIO(b""))
+        if parts.port == 8765 and self.mcp:
+            return self._mcp(req, parts)
         raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    def _mcp(self, req, parts):
+        def fail(status):
+            raise urllib.error.HTTPError(parts.geturl(), status, "error", {}, io.BytesIO(b""))
+        method = req.get_method() if hasattr(req, "get_method") else "GET"
+        session = req.get_header("Mcp-session-id") if hasattr(req, "get_header") else None
+        body = json.loads(req.data) if getattr(req, "data", None) else None
+        self.mcp_calls.append((method, (body or {}).get("method"), session))
+        if self.mcp in (401, 403, 406) or self.mcp == "not-found":
+            fail(404 if self.mcp == "not-found" else self.mcp)
+        if parts.path != "/mcp":
+            fail(404)
+        if method == "DELETE":
+            if session not in self.mcp_sessions:
+                fail(404)
+            self.mcp_sessions.discard(session)
+            return Response(200, b"")
+        accept = req.get_header("Accept") or ""
+        if "text/event-stream" not in accept or (method == "POST" and "application/json" not in accept):
+            fail(406)                      # what a bare GET or a POST without both types gets
+        if method != "POST" or (req.get_header("Content-type") or "") != "application/json":
+            fail(400)
+        if body.get("jsonrpc") != "2.0" or body.get("method") != "initialize" or "id" not in body:
+            fail(400)                      # without a session only initialize is accepted
+        if self.mcp == "no-result":
+            return Response(200, b"", {"content-type": "text/event-stream"})
+        sid = f"sess{len(self.mcp_sessions) + 1}"
+        self.mcp_sessions.add(sid)
+        msg = {"jsonrpc": "2.0", "id": body["id"], "result": {
+            "protocolVersion": body["params"]["protocolVersion"], "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": self.mcp_name if self.mcp != "other-mcp" else "some-other-server",
+                           "version": "1.30.0"}}}
+        if self.mcp == "json":
+            return Response(200, json.dumps(msg).encode(), {"content-type": "application/json", "mcp-session-id": sid})
+        return Response(200, f"event: message\ndata: {json.dumps(msg)}\n\n".encode(),
+                        {"content-type": "text/event-stream", "mcp-session-id": sid})
 
     def _route(self, path):
         if path == "/api/public/projects":
@@ -156,11 +200,12 @@ class FakeAPI:
         return 200, {"data": rows[(page - 1) * size: page * size],
                      "meta": {"page": page, "limit": size, "totalItems": len(rows), "totalPages": total}}
 
-    def _paged(self, rows, params):
+    def _paged(self, rows, params, extra_empty=0):
         """Cursor paging: optional empty pages first, then page_size rows per page."""
         cur = params.get("cursor")
         n = int(cur[1:]) if cur else 0
-        pages = [[]] * self.empty_pages + [rows[i:i + self.page_size] for i in range(0, len(rows), self.page_size)]
+        size = min(self.page_size, int(params.get("limit", 50)))
+        pages = [[]] * (self.empty_pages + extra_empty) + [rows[i:i + size] for i in range(0, len(rows), size)]
         pages = pages or [[]]
         data = pages[n] if n < len(pages) else []
         meta = {}
@@ -177,8 +222,8 @@ class FakeAPI:
             rows = [r for r in self.roots if r.get("name") == params.get("name")
                     and r.get("environment") == params.get("environment")
                     and str(r.get("isRootObservation")).lower() == params.get("isRootObservation", "true")]
-            rows = rows[: int(params.get("limit", 50))]
-            return 200, {"data": [{k: v for k, v in r.items() if k in keep} for r in rows], "meta": {}}
+            rows = sorted(rows, key=lambda r: r["startTime"], reverse=True)
+            return self._paged([{k: v for k, v in r.items() if k in keep} for r in rows], params, self.root_empty_pages)
         return self._paged([{k: v for k, v in r.items() if k in keep} for r in rows], params)
 
     def _scores(self, arg, params, groups):

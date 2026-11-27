@@ -88,8 +88,9 @@ cp .env.example .env              # then set WORKSHOP_ID, the model key and the 
 .venv/bin/python scripts/verify_demo.py               # with serve still up: should print READY
 ```
 
-`verify_demo.py` checks what the full session needs: preflight, the portal and MCP server
-answering, the keys mapping to `langfuse.project` (`bank-workshop`, or
+`verify_demo.py` checks what the full session needs: preflight, the portal's `/health`
+reporting tracing on for this `WORKSHOP_ID`, the banking MCP server answering an MCP
+`initialize` handshake as `northwind-core-banking` (no tool is listed or called), the keys mapping to `langfuse.project` (`bank-workshop`, or
 `DEMO_LANGFUSE_PROJECT` from the `.env`), both labels serving the text in `prompts.py`,
 every dataset item ACTIVE and matching, a turn from the last 7 days with its three signals
 on the root observation, and a prepared run of each label's current version. `--prep`
@@ -239,6 +240,8 @@ and the two services (`tests/fake_langfuse.py`).
 |---|---|
 | `keys map to project '…' (want 'bank-workshop')` | Another project's keys, or a project with another name. Put the right keys in `.env`, or set `DEMO_LANGFUSE_PROJECT` to the project's name |
 | `portal on 127.0.0.1:8090/health: HTTP None` | `workshop.py serve` is not running, or runs on other ports. Start it in another terminal; use `--prep` only while preparing |
+| `banking MCP server ... initialize got HTTP 404` (or 401, 403, another server name) | Another process holds the MCP port, often another demo. Stop it, or set `NORTHWIND_MCP_PORT` in the `.env` and restart `serve` |
+| `LANGFUSE_BASE_URL is an http(s) URL: ... is not a valid URL` | Fix the URL in the `.env`, for example `https://us.cloud.langfuse.com`; nothing is requested until it parses |
 | `a run of workshop-candidate v<N>` fails | No experiment ran on the label's current version: `workshop.py experiment --prompt-label workshop-candidate` |
 | `Langfuse authentication failed` in preflight | Wrong key pair, or `LANGFUSE_BASE_URL` is another region |
 | `Set OPENAI_API_KEY in the workshop .env.` | `AGENT_MODEL` picks the provider. A key can be present but lack access to the model; the first question proves it works |
