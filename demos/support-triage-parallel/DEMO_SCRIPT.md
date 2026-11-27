@@ -422,7 +422,7 @@ def observe(name, as_type="span", ...):
         yield _NullObs(); return           # obs.update(...) is always safe
 ```
 
-**7 · Readiness counts real rows — `scripts/verify_demo.py:468`**
+**7 · Readiness counts real rows — `scripts/verify_demo.py:491`**
 It finds the latest `triage-support-ticket` root (Observations v2, or v1 on the v3
 server), checks that trace has every stage observation, and reads its scores through
 Scores API v3. An HTTP 200 alone is not proof.

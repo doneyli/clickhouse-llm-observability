@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
+import ipaddress
 import json
 import os
 import re
@@ -201,7 +203,7 @@ def load_env(path: Path, environ: Optional[MutableMapping[str, str]] = None) -> 
         del env[k]
     if not path.is_file():
         return False
-    env.update(parse_env(path.read_text()))
+    env.update(parse_env(path.read_text(encoding="utf-8")))
     return True
 
 
@@ -242,20 +244,22 @@ class Langfuse:
 
     def request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
                 body: Optional[Any] = None) -> Any:
-        query = {k: (str(v).lower() if isinstance(v, bool) else v)
-                 for k, v in (params or {}).items() if v is not None}
-        url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
         data = None if body is None else json.dumps(body).encode()
         headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
+        try:  # building the request is inside the boundary: a malformed URL raises ValueError
+            query = {k: (str(v).lower() if isinstance(v, bool) else v)
+                     for k, v in (params or {}).items() if v is not None}
+            url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
             raise ApiError(e.code, detail or e.reason) from None
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except ValueError as e:  # urlsplit, Request, or http.client.InvalidURL
+            raise ApiError(None, f"invalid request URL {self.base}{path}: {e}") from None
         try:
             return json.loads(raw) if raw else None
         except ValueError:
@@ -397,6 +401,25 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
 
 # --- Checks -------------------------------------------------------------------------------
 
+def base_url_problem(url: str) -> Optional[str]:
+    """Why `url` cannot be the Langfuse base URL, or None. Checked before any request, so a
+    typo in the env file is a FAIL with a reason instead of a traceback: urlsplit raises
+    ValueError on a bad IPv6 literal (http://[::gg]) or port, on some Pythons only later."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+        parts.port  # noqa: B018  (raises ValueError on a non-numeric or out-of-range port)
+        if host and ":" in host:
+            ipaddress.IPv6Address(host.split("%")[0])
+    except ValueError as e:
+        return f"{type(e).__name__}: {e}"
+    if parts.scheme not in ("http", "https"):
+        return f"scheme must be http or https, got '{parts.scheme or 'none'}'"
+    if not host:
+        return "no host"
+    return None
+
+
 def playground_check(host: str) -> None:
     """The voter validates and executes every SQL candidate against this playground."""
     print("Services")
@@ -406,9 +429,9 @@ def playground_check(host: str) -> None:
             check(r.status < 500, f"ClickHouse playground answers at {url} ({r.status})")
     except urllib.error.HTTPError as e:
         check(e.code < 500, f"ClickHouse playground answers at {url} ({e.code})")
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as e:
         check(False, f"ClickHouse playground not reachable at {url}: {type(e).__name__}",
-              hint="every candidate fails closed without it: check outbound HTTPS")
+              hint="every candidate fails closed without it: check PUBLIC_CH_HOST and outbound HTTPS")
 
 
 def expected_prompts() -> Dict[str, Tuple[str, Dict[str, Any]]]:
@@ -497,7 +520,8 @@ def latest_run_checks(lf: Langfuse, obs: Observations, state: Dict[str, Any]) ->
 
 def is_split_vote(scores: List[dict]) -> bool:
     """A trace's consensus_confidence shows a split vote under result-signature voting: below
-    1, with the strategy tally_votes writes into the comment (sql_voting.py:251-253)."""
+    1, with the strategy tally_votes writes into the comment (sql_voting.py:251-253). The
+    rows must come from a Scores v3 read with `fields=details`, which carries `comment`."""
     for s in scores:
         if s.get("name") != "consensus_confidence":
             continue
@@ -518,7 +542,10 @@ def tie_checks(lf: Langfuse, obs: "Observations", state: Dict[str, Any], demo_tr
             if t.get("traceId") in demo_traces and t.get("startTime")]
     ties.sort(key=lambda t: parse_time(t["startTime"]), reverse=True)
     for t in ties[:10]:
-        if is_split_vote(lf.cursor("/api/public/v3/scores", {"traceId": t["traceId"]})):
+        # `comment` is in the Scores v3 `details` group: without it the strategy is unreadable.
+        scores = lf.cursor("/api/public/v3/scores",
+                           {"traceId": t["traceId"], "name": "consensus_confidence", "fields": "details"})
+        if is_split_vote(scores):
             state["tie_trace_id"] = t["traceId"]
             break
     found = bool(state.get("tie_trace_id"))
@@ -595,6 +622,46 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], short: bool =
     return state
 
 
+def run_checks(short: bool, links: bool) -> None:
+    """Config first (no request until the env file, keys and URL are valid), then the reads.
+    A read failure is a FAIL inside langfuse_checks; anything else reaches main()."""
+    print("Config")
+    manifest_path = DEMO_DIR / "demo.yaml"
+    try:
+        manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    except (OSError, UnicodeDecodeError) as e:
+        check(False, f"cannot read {manifest_path.name}: {type(e).__name__}: {e}", hint="restore it from git")
+        return
+    path = env_file(manifest_value(manifest, "", "profile"))
+    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
+    try:
+        loaded = load_env(path)          # shell LANGFUSE_* are dropped before the file is read
+    except (OSError, UnicodeDecodeError) as e:
+        check(False, f"cannot read {shown}: {type(e).__name__}: {e}",
+              hint="fix the file's permissions or encoding (UTF-8 text)")
+        return
+    check(loaded, f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
+          hint="run ./setup.sh at the repo root")
+    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
+    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
+    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
+    check(bool(os.environ.get("ANTHROPIC_API_KEY")), "ANTHROPIC_API_KEY set (every branch, sample and judge)",
+          hint="add it to the root .env, or ANTHROPIC_API_KEY=sk-... ./setup.sh")
+    if not check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
+        return
+    problem = base_url_problem(base)
+    if not check(problem is None, "LANGFUSE_BASE_URL is an http(s) URL" + (f": {base!r} ({problem})" if problem else ""),
+                 hint="fix it in the env file, e.g. LANGFUSE_BASE_URL=http://localhost:3001"):
+        return
+    playground_check(os.environ.get("PUBLIC_CH_HOST") or PLAYGROUND_DEFAULT)
+    lf = Langfuse(base, pk, sk)
+    state = langfuse_checks(lf, expected, short=short)
+    if links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state):
+            print(f"  {label:<28} {url}")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
@@ -603,27 +670,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
     del RESULTS[:]
 
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
     print("support-triage-parallel readiness: " + ("short path (Acts 1-3)" if args.short else "full script (Acts 1-7)"))
-    print("Config")
-    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-          hint="run ./setup.sh at the repo root")
-    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    check(bool(os.environ.get("ANTHROPIC_API_KEY")), "ANTHROPIC_API_KEY set (every branch, sample and judge)",
-          hint="add it to the root .env, or ANTHROPIC_API_KEY=sk-... ./setup.sh")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
-        playground_check(os.environ.get("PUBLIC_CH_HOST") or PLAYGROUND_DEFAULT)
-        lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected, short=args.short)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<28} {url}")
+    try:
+        run_checks(args.short, args.links)
+    except Exception as e:  # noqa: BLE001  (any failure must still reach the counted verdict)
+        check(False, f"verification stopped: {type(e).__name__}: {e}",
+              hint="the results above stand; this is an unexpected response or a bug in this check")
 
     line, code = summary()
     print(f"\n{line}")

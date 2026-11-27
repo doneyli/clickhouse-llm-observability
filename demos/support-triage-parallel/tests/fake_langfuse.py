@@ -4,7 +4,8 @@ Install it with `server.install(monkeypatch)`: it replaces `urllib.request.urlop
 scripts build their real URLs, query strings, headers and bodies, and parse real JSON. It
 rejects query parameters an endpoint does not take, enforces the documented limits and
 required parameters, honours field projection (Observations v2 `basic` carries `name`;
-Scores v3 takes only the `subject` group) and paginates: cursor pages for v2/v3 and
+Scores v3 returns its core fields plus only the `details`, `subject` and `annotation` groups
+requested, so `comment` is absent unless `details` is asked for) and paginates: cursor pages for v2/v3 and
 experiments, with an optional empty page in the middle, page numbers for the rest.
 
 No network: every URL is answered here or raises.
@@ -23,8 +24,9 @@ PAGE_V2_OBS = {"name", "userId", "sessionId", "type", "traceId", "level", "paren
                "limit", "cursor", "filter"}
 PAGE_V1_OBS = {"name", "userId", "type", "traceId", "level", "parentObservationId", "environment",
                "fromStartTime", "toStartTime", "version", "page", "limit"}
-SCORES_V3 = {"name", "traceId", "sessionId", "fromTimestamp", "toTimestamp", "environment", "source",
-             "dataType", "fields", "limit", "cursor"}
+SCORES_V3 = {"limit", "cursor", "fields", "id", "name", "source", "dataType", "environment", "configId",
+             "queueId", "authorUserId", "value", "valueMin", "valueMax", "traceId", "sessionId",
+             "observationId", "experimentId", "fromTimestamp", "toTimestamp"}
 EXPERIMENTS = {"datasetId", "name", "fromStartTime", "toStartTime", "fields", "limit", "cursor"}
 PAGED = {"page", "limit"}
 ITEMS = {"datasetName", "sourceTraceId", "sourceObservationId", "version", "page", "limit"}
@@ -33,6 +35,11 @@ PROMPT_GET = {"label", "version"}
 OBS_CORE = {"id", "traceId", "startTime", "endTime", "projectId", "parentObservationId", "type"}
 OBS_BASIC = {"name", "level", "statusMessage", "version", "environment", "isRootObservation"}
 V2_GROUPS = {"core", "basic", "time", "io", "metadata", "model", "usage", "prompt", "metrics", "trace_context"}
+# Scores v3 (openapi.yml, scores_getMany): core fields always; `fields` adds groups, unknown -> 400.
+SCORE_CORE = {"id", "projectId", "name", "value", "dataType", "source", "timestamp", "environment",
+              "createdAt", "updatedAt"}
+SCORE_GROUPS = {"details": {"comment", "configId", "metadata"}, "subject": {"subject"},
+                "annotation": {"authorUserId", "queueId"}}
 
 
 class _Response(io.BytesIO):
@@ -165,13 +172,14 @@ class FakeLangfuse:
             return 200, self._numbered_page(rows, params)
         if path == "/api/public/v3/scores":
             self._allow(params, SCORES_V3)
-            fields = set(filter(None, (params.get("fields") or "").split(",")))
-            assert fields <= {"subject", "metadata"}, f"Scores v3 core fields are automatic, got {fields}"
+            groups = set(filter(None, (params.get("fields") or "").split(",")))
+            assert groups <= set(SCORE_GROUPS), f"Scores v3 groups are {sorted(SCORE_GROUPS)}, got {sorted(groups)}"
+            keep = SCORE_CORE.union(*(SCORE_GROUPS[g] for g in groups))
             rows = [s for s in self.scores
-                    if (not params.get("traceId") or s["subject"]["traceId"] == params["traceId"])
+                    if (not params.get("traceId") or self.score_trace(s) == params["traceId"])
                     and (not params.get("name") or s["name"] in params["name"].split(","))
                     and (not params.get("fromTimestamp") or s["timestamp"] >= params["fromTimestamp"])]
-            out = [{k: v for k, v in s.items() if k != "subject" or "subject" in fields} for s in rows]
+            out = [{k: v for k, v in s.items() if k in keep} for s in rows]
             return 200, self._cursor_page(out, params, 100)
         if path == "/api/public/experiments":
             if not self.experiments_api:
@@ -192,6 +200,13 @@ class FakeLangfuse:
                 if (not params.get("name") or o["name"] == params["name"])
                 and (not params.get("traceId") or o["traceId"] == params["traceId"])
                 and self._in_window(o, params)]
+
+    @staticmethod
+    def score_trace(s: dict) -> Optional[str]:
+        """The trace a stored score belongs to: a trace subject is the trace itself, an
+        observation subject names its parent trace (ScoreSubjectV3)."""
+        sub = s["subject"]
+        return sub["id"] if sub["kind"] == "trace" else sub.get("traceId")
 
     @staticmethod
     def _v2_row(o: dict) -> dict:

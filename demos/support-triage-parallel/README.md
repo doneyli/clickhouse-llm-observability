@@ -243,16 +243,19 @@ python -m pytest -q          # no services, no model calls, a few seconds
 They cover the vote tally and the synthesis aggregator (`compute_tally`,
 `build_synthesis_input`). `verify_demo.py` and `seed_all.py` run against a fake Langfuse
 at the urllib level (`tests/fake_langfuse.py`), which rejects unknown query parameters,
-honours field projection and paginates with empty cursor pages: every READY / NOT READY
-state, the v2 → v1 fallback, archived items, missing tie and experiment evidence, a
-missing or partial `.env` with hostile shell keys, unchanged reseeding, config-only drift,
-and partial and total write failures.
+honours field projection (a Scores v3 `comment` only with `fields=details`) and paginates
+with empty cursor pages: every READY / NOT READY state, the v2 → v1 fallback, archived
+items, missing tie and experiment evidence, a missing, partial, unreadable or malformed
+`.env` (including a bad `LANGFUSE_BASE_URL`) with hostile shell keys, an unexpected
+response shape, unchanged reseeding, config-only drift, and partial and total write
+failures.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
 | No traces, or no scores | The keys did not reach the container, or a shell `LANGFUSE_*` export overrides `.env`. `unset` them and run again; `verify_demo.py` names the project the keys map to |
+| `LANGFUSE_BASE_URL is an http(s) URL` fails, or `cannot read …/.env` | The root `.env` has a malformed URL (for example a bad IPv6 literal or port) or cannot be read as UTF-8 text. Fix it; `verify_demo.py` makes no request until it parses |
 | `keys map to project '…' (want 'LLM Observability Demo')` | The root `.env` holds another project's keys. Re-run `./setup.sh` or fix the keys |
 | `Observations v2 answered 404 … read through v1` | Expected on the self-hosted stack: compose pins a v3 Langfuse server, which has no Observations v2 |
 | All candidates invalid (`sql_validity_rate = 0`) | No outbound access to `sql-clickhouse.clickhouse.com`; the validator fails candidates closed on any connection error |

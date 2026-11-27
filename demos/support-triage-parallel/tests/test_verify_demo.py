@@ -40,9 +40,17 @@ def run_rows(trace_id, start, *, tie=False, root=v.TRACE_NAME):
              "parentObservationId": None if i == 0 else f"{trace_id}-0"} for i, n in enumerate(names)]
 
 
+TRACE_SCORES = {"consensus_confidence"}   # score_current_trace (sql_voting.py:251); the rest are span scores
+
+
 def score(trace_id, name, value=1.0, comment="", ts=NOW):
-    return {"id": f"{trace_id}-{name}", "name": name, "value": value, "comment": comment, "timestamp": ts,
-            "subject": {"kind": "observation", "id": f"{trace_id}-x", "traceId": trace_id}}
+    """A stored score with every field group; the fake returns only the groups requested."""
+    subject = ({"kind": "trace", "id": trace_id} if name in TRACE_SCORES
+               else {"kind": "observation", "id": f"{trace_id}-x", "traceId": trace_id})
+    return {"id": f"{trace_id}-{name}", "projectId": "p1", "name": name, "value": value, "dataType": "NUMERIC",
+            "source": "API", "timestamp": ts, "environment": "default", "createdAt": ts, "updatedAt": ts,
+            "comment": comment, "configId": None, "metadata": {}, "authorUserId": None, "queueId": None,
+            "subject": subject}
 
 
 def ready_project() -> FakeLangfuse:
@@ -231,7 +239,7 @@ def test_missing_stage_is_not_ready(project, capsys):
 
 
 def test_missing_score_is_not_ready(project, capsys):
-    project.scores = [s for s in project.scores if not (s["subject"]["traceId"] == "t1" and s["name"] != "consensus_confidence")]
+    project.scores = [s for s in project.scores if not (FakeLangfuse.score_trace(s) == "t1" and s["name"] != "consensus_confidence")]
     assert run()[0] == 1 and "missing sql_validity_rate, policy_flagged" in capsys.readouterr().out
 
 
@@ -249,7 +257,7 @@ def test_a_tie_in_an_experiment_trace_does_not_count(project):
 
 def test_a_judge_consensus_run_is_not_a_split_vote(project):
     for s in project.scores:
-        if s["subject"]["traceId"] == "t2":
+        if FakeLangfuse.score_trace(s) == "t2":
             s["comment"] = "2/5 valid samples agreed; strategy=judge-consensus"
     assert run()[0] == 1 and statuses("Act 3 tie trace") == ["FAIL"]
 
@@ -353,3 +361,124 @@ def test_links_cover_every_act():
                                "experiment_dataset_id": "d1"})
     assert [label.split(" ·")[0] for label, _ in links] == ["Act 1-2", "Act 3-4", "Act 5", "Act 6", "Act 7",
                                                            "Show me the code"]
+
+
+# --- Scores v3 projection (134-5) ---------------------------------------------------------
+
+def test_scores_v3_projection_follows_the_published_contract(monkeypatch):
+    lf = FakeLangfuse().install(monkeypatch)
+    lf.scores = [score("t9", "consensus_confidence", 0.4, "2/5 valid samples agreed; strategy=result-signature")]
+    client = v.Langfuse(BASE, "pk", "sk")
+    core = client.get("/api/public/v3/scores")["data"][0]
+    assert {"id", "name", "value", "dataType", "timestamp"} <= set(core)
+    assert not {"comment", "configId", "metadata", "subject", "authorUserId", "queueId"} & set(core)
+    details = client.get("/api/public/v3/scores", fields="details")["data"][0]
+    assert details["comment"].endswith("strategy=result-signature") and "subject" not in details
+    assert client.get("/api/public/v3/scores", fields="subject")["data"][0]["subject"] == {"kind": "trace", "id": "t9"}
+    for bad in ("metadata", "core"):          # not Scores v3 groups: the server answers 400
+        with pytest.raises(AssertionError, match="groups"):
+            client.get("/api/public/v3/scores", fields=bad)
+
+
+def test_the_tie_check_reads_the_comment_through_the_details_group(project):
+    assert run()[0] == 0 and statuses("Act 3 tie trace") == ["PASS"]
+    tie_reads = [r for r in project.requests if "/v3/scores?" in r and "traceId=t2" in r]
+    assert tie_reads and all("fields=details" in r for r in tie_reads)
+
+
+def test_without_the_details_group_the_split_vote_is_unreadable(project, monkeypatch):
+    """The same ready project, read the way 134-5 found it (no `fields`): the comment is
+    absent from a contract response, so the tie cannot be proven and the verdict is NOT READY."""
+    real = v.Langfuse.cursor
+
+    def without_fields(self, path, params, **kw):
+        return real(self, path, {k: x for k, x in params.items() if k != "fields"}, **kw)
+
+    monkeypatch.setattr(v.Langfuse, "cursor", without_fields)
+    assert run()[0] == 1 and statuses("Act 3 tie trace") == ["FAIL"]
+
+
+# --- the failure boundary, through main() (134-6) -----------------------------------------
+
+def write_env(tmp_path, monkeypatch, text):
+    env = tmp_path / ".env"
+    env.write_bytes(text if isinstance(text, bytes) else text.encode())
+    monkeypatch.setattr(v, "env_file", lambda profile: env)
+    return env
+
+
+def test_a_malformed_base_url_is_a_counted_failure_with_no_request(tmp_path, monkeypatch, capsys):
+    lf = FakeLangfuse().install(monkeypatch)
+    write_env(tmp_path, monkeypatch, "LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\n"
+                                     "LANGFUSE_BASE_URL=http://[::gg]\nANTHROPIC_API_KEY=x\n")
+    code = v.main([])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "FAIL  LANGFUSE_BASE_URL is an http(s) URL: 'http://[::gg]'" in out
+    assert "PASS  env loaded from" in out                     # results before the failure stand
+    assert "\nNOT READY (3/4 checks passed, 1 required failed)" in out
+    assert lf.requests == []
+
+
+@pytest.mark.parametrize("bad", ["ftp://lf.test", "http://lf.test:99999", "lf.test"])
+def test_other_unusable_base_urls_fail_before_any_request(tmp_path, monkeypatch, bad):
+    lf = FakeLangfuse().install(monkeypatch)
+    write_env(tmp_path, monkeypatch, f"LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL={bad}\n")
+    assert run()[0] == 1 and statuses("LANGFUSE_BASE_URL is an http(s) URL") == ["FAIL"]
+    assert lf.requests == []
+
+
+def test_request_construction_errors_become_api_errors(monkeypatch):
+    FakeLangfuse().install(monkeypatch)
+    with pytest.raises(v.ApiError):
+        v.Langfuse("http://[::gg]", "pk", "sk").get("/api/public/projects")
+
+
+def test_an_undecodable_env_file_is_a_counted_failure(tmp_path, monkeypatch, capsys):
+    lf = FakeLangfuse().install(monkeypatch)
+    write_env(tmp_path, monkeypatch, b"LANGFUSE_PUBLIC_KEY=pk\xff\xfe\nLANGFUSE_SECRET_KEY=sk\n")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-shell")
+    code = v.main([])
+    out = capsys.readouterr().out
+    assert code == 1 and "FAIL  cannot read" in out and "UnicodeDecodeError" in out
+    assert "\nNOT READY (0/1 checks passed, 1 required failed)" in out
+    assert lf.requests == [] and "LANGFUSE_PUBLIC_KEY" not in os.environ
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_env_file_is_a_counted_failure(tmp_path, monkeypatch, capsys):
+    lf = FakeLangfuse().install(monkeypatch)
+    env = write_env(tmp_path, monkeypatch, "LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\n")
+    env.chmod(0)
+    try:
+        code = v.main([])
+    finally:
+        env.chmod(0o600)
+    out = capsys.readouterr().out
+    assert code == 1 and "PermissionError" in out and "\nNOT READY (" in out and lf.requests == []
+
+
+def test_an_unexpected_response_shape_still_reaches_the_verdict(project, capsys):
+    project.project = "not-an-object"          # /projects answers {"data": ["not-an-object"]}
+    code = v.main([])
+    out = capsys.readouterr().out
+    assert code == 1 and "FAIL  verification stopped: AttributeError" in out
+    assert statuses("env loaded from") == ["PASS"]             # earlier results kept and counted
+    assert "\nNOT READY (" in out and "required failed" in out
+
+
+def test_help_and_usage_errors_keep_argparse_behaviour(capsys):
+    with pytest.raises(SystemExit) as ok:
+        v.main(["--help"])
+    assert ok.value.code == 0 and "--short" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as bad:
+        v.main(["--no-such-flag"])
+    assert bad.value.code == 2
+
+
+def test_keyboard_interrupt_is_not_swallowed(project, monkeypatch):
+    def interrupted(*a, **kw):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(v, "playground_check", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])
