@@ -14,6 +14,7 @@
 import "../src/env.js";
 
 import { LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY } from "../src/env.js";
+import { cursorAll, type Get } from "../src/readback.js";
 import {
   quotedTotalForEmptyCart,
   readbackRequestUnanswered,
@@ -29,33 +30,22 @@ const REPLAYABLE: Record<string, (ctx: EvalContext) => Verdict> = {
   readback_request_unanswered: readbackRequestUnanswered,
 };
 
-async function get(path: string, params: Record<string, string> = {}): Promise<any> {
-  const url = new URL(`${LANGFUSE_BASE_URL}/api/public/${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+/** `get` as src/readback.ts expects it: the path already carries its query string. */
+const readGet: Get = async <T>(pathWithQuery: string) => {
+  const url = `${LANGFUSE_BASE_URL}${pathWithQuery}`;
   const res = await fetch(url, { headers: { authorization: AUTH } });
-  if (!res.ok) throw new Error(`${res.status} ${path}: ${(await res.text()).slice(0, 200)}`);
-  return res.json();
-}
+  if (!res.ok) throw new Error(`${res.status} ${pathWithQuery}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()) as T;
+};
 
 async function getAllObservations(environment: string, from: string): Promise<any[]> {
-  const out: any[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await get("v2/observations", {
-      environment,
-      fromStartTime: from,
-      fields: "core,basic,io,trace_context,metadata",
-      limit: "1000",
-      ...(cursor ? { cursor } : {}),
-    });
-    out.push(...(page.data ?? []));
-    // `v3/scores` returns the continuation as `meta.cursor`; other paginated
-    // endpoints use `meta.nextCursor`. Accepting either is cheaper than being
-    // wrong, and being wrong here is silent — you simply compare fewer labels
-    // than you think and the agreement number looks fine.
-    cursor = page.meta?.nextCursor ?? page.meta?.cursor ?? undefined;
-  } while (cursor);
-  return out;
+  // Bounded cursor walk that keeps going through empty pages (src/readback.ts).
+  return cursorAll<any>(
+    readGet,
+    "/api/public/v2/observations",
+    { environment, fromStartTime: from, fields: "core,basic,io,trace_context,metadata" },
+    { limit: 1000 },
+  );
 }
 
 const asText = (v: unknown): string => (v == null ? "" : typeof v === "string" ? v : JSON.stringify(v));
@@ -118,19 +108,12 @@ async function main(): Promise<void> {
     });
 
   // Human labels already in the project, keyed by observation id + score name.
+  // Scores v3 always returns its core fields; `subject` is the only group needed.
   const human = new Map<string, number>();
-  let cursor: string | undefined;
-  do {
-    const page = await get("v3/scores", { limit: "100", fields: "core,subject", ...(cursor ? { cursor } : {}) });
-    for (const s of page.data ?? []) {
-      if (names.includes(s.name) && s.subject?.id) human.set(`${s.subject.id}|${s.name}`, Number(s.value));
-    }
-    // `v3/scores` returns the continuation as `meta.cursor`; other paginated
-    // endpoints use `meta.nextCursor`. Accepting either is cheaper than being
-    // wrong, and being wrong here is silent — you simply compare fewer labels
-    // than you think and the agreement number looks fine.
-    cursor = page.meta?.nextCursor ?? page.meta?.cursor ?? undefined;
-  } while (cursor);
+  const scores = await cursorAll<any>(readGet, "/api/public/v3/scores", { name: names.join(","), fields: "subject" }, { limit: 100 });
+  for (const s of scores) {
+    if (names.includes(s.name) && s.subject?.id) human.set(`${s.subject.id}|${s.name}`, Number(s.value));
+  }
 
   console.log(`cohort ${tag}: ${roots.length} turns, ${human.size} human labels for ${names.join(", ")}\n`);
 
