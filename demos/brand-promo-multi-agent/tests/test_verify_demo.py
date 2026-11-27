@@ -451,3 +451,114 @@ def test_links_cover_every_act():
     links = v.act_links("https://lf.example", state)
     assert sorted({label.split(" ·")[0] for label, _ in links}) == [f"Act {n}" for n in range(1, 7)]
     assert all(url.startswith("https://lf.example/project/p1/") for _, url in links)
+
+
+# --- failure boundary: the real main() path, no stubbed client --------------------------
+
+@pytest.fixture
+def demo_copy(tmp_path, monkeypatch):
+    """A copy of this demo's manifest and config in tmp_path, with main() reading it."""
+    for name in ("demo.yaml", "demo.config.example.yaml"):
+        (tmp_path / name).write_bytes((v.DEMO_DIR / name).read_bytes())
+    monkeypatch.setattr(v, "DEMO_DIR", tmp_path)
+    opened = []
+
+    def urlopen(req, timeout):
+        opened.append(req.full_url)
+        raise AssertionError("no request expected")
+
+    monkeypatch.setattr(v.urllib.request, "urlopen", urlopen)
+    return tmp_path, opened
+
+
+ENV_OK = 'LANGFUSE_PUBLIC_KEY="pk-lf-x"\nLANGFUSE_SECRET_KEY="sk-lf-x"\n'
+
+
+def _verdict(out):
+    last = out.strip().splitlines()[-1]
+    assert last.startswith("NOT READY (") and "required failed" in last, last
+    return last
+
+
+def test_malformed_local_url_is_a_failed_check_and_a_counted_verdict(demo_copy, capsys):
+    """132-8: http://[::gg] used to raise ValueError while the request was being built."""
+    tmp, opened = demo_copy
+    (tmp / ".env").write_text(ENV_OK + "LANGFUSE_BASE_URL=http://[::gg]\n")
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  LANGFUSE_HOST unusable: 'http://[::gg]'" in out
+    _verdict(out)
+    assert opened == []  # rejected before any request
+    assert [s for s, _, w in v.RESULTS if w.startswith("env loaded")] == ["PASS"]  # earlier results kept
+
+
+@pytest.mark.parametrize("url", ["http://[::gg]", "http://host:99999", "ftp://lf.example", "lf.example:3000"])
+def test_base_url_problem_names_each_bad_url(url):
+    assert v.base_url_problem(url)
+    assert v.base_url_problem("https://us.cloud.langfuse.com") is None
+    assert v.base_url_problem("http://[::1]:3001") is None
+
+
+def test_request_construction_errors_are_api_errors(monkeypatch):
+    """Inside the client too: a URL that slips past validation still fails as an ApiError."""
+    monkeypatch.setattr(v.urllib.request, "urlopen", lambda req, timeout: (_ for _ in ()).throw(
+        ValueError("unknown url type")))
+    with pytest.raises(v.ApiError, match="invalid request URL"):
+        v.Langfuse("http://[::gg]", "pk", "sk").get("/api/public/projects")
+    with pytest.raises(v.ApiError, match="invalid request URL"):
+        v.Langfuse("https://lf.example", "pk", "sk").get("/api/public/projects")
+
+
+@pytest.mark.parametrize("unreadable", [".env", "demo.config.example.yaml", "demo.yaml"])
+def test_unreadable_local_configuration_is_not_ready(demo_copy, capsys, unreadable):
+    tmp, opened = demo_copy
+    (tmp / ".env").write_text(ENV_OK + "LANGFUSE_BASE_URL=https://lf.example\n")
+    (tmp / unreadable).write_bytes(b"\xff\xfe not utf-8 \xff")
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "unreadable" in out and "UnicodeDecodeError" in out
+    assert "unexpected error" not in out and opened == []  # failed config: no request at all
+    _verdict(out)
+
+
+def test_an_unexpected_error_mid_run_keeps_results_and_reaches_the_verdict(demo_copy, monkeypatch, capsys):
+    tmp, _ = demo_copy
+    (tmp / ".env").write_text(ENV_OK + "LANGFUSE_BASE_URL=https://lf.example\n")
+
+    def explode(req, timeout):
+        raise RuntimeError("socket layer exploded")
+
+    monkeypatch.setattr(v.urllib.request, "urlopen", explode)
+    assert v.main(["--short-path"]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  verification stopped by an unexpected error: RuntimeError: socket layer exploded" in out
+    assert _verdict(out).endswith("for the short path (Acts 1-3)")
+    assert sum(1 for s, _, _ in v.RESULTS if s == "PASS") >= 3  # the config checks before it stand
+
+
+def test_unexpected_response_shape_is_a_failed_check(demo_copy, monkeypatch, capsys):
+    tmp, _ = demo_copy
+    (tmp / ".env").write_text(ENV_OK + "LANGFUSE_BASE_URL=https://lf.example\n")
+    monkeypatch.setattr(v.Langfuse, "request", lambda self, m, p, params=None, body=None: ["not", "an", "object"])
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "AttributeError" in out
+    _verdict(out)
+
+
+def test_interrupts_and_usage_are_not_swallowed(demo_copy, monkeypatch, capsys):
+    tmp, _ = demo_copy
+    (tmp / ".env").write_text(ENV_OK + "LANGFUSE_BASE_URL=https://lf.example\n")
+
+    def interrupt(req, timeout):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(v.urllib.request, "urlopen", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])
+    with pytest.raises(SystemExit) as e:
+        v.main(["--help"])
+    assert e.value.code == 0 and "--short-path" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        v.main(["--no-such-flag"])
+    assert e.value.code == 2

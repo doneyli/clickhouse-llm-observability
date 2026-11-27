@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import re
@@ -246,8 +247,10 @@ class Langfuse:
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
         data = None if body is None else json.dumps(body).encode()
         headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
+            # Building the request is inside the boundary: a malformed URL raises ValueError
+            # here (or http.client.InvalidURL, also a ValueError, on open), not an HTTP error.
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
@@ -255,6 +258,8 @@ class Langfuse:
             raise ApiError(e.code, detail or e.reason) from None
         except (urllib.error.URLError, OSError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except ValueError as e:
+            raise ApiError(None, f"invalid request URL {url}: {e}") from None
         try:
             return json.loads(raw) if raw else None
         except ValueError:
@@ -281,6 +286,35 @@ class Langfuse:
                 raise ApiError(None, f"{path}: the server repeated a cursor")
             seen.add(cur)
         raise ApiError(None, f"{path}: more than {max_pages} pages")
+
+
+def base_url_problem(base: str) -> Optional[str]:
+    """Why LANGFUSE_BASE_URL cannot be used for requests, or None. Checked before any read."""
+    try:
+        parts = urllib.parse.urlsplit(base)
+        host, _ = parts.hostname, parts.port  # .port raises on an out-of-range port
+    except ValueError as e:  # Python 3.11+ rejects an invalid bracketed host here
+        return f"{base!r} is not a valid URL: {e}"
+    if parts.scheme not in ("http", "https"):
+        return f"{base!r} must start with http:// or https://"
+    if not host:
+        return f"{base!r} has no host"
+    if "[" in parts.netloc:
+        try:
+            ipaddress.ip_address(host)  # Python 3.9 and 3.10 do not check bracketed hosts
+        except ValueError:
+            return f"{base!r} has an invalid IPv6 host [{host}]"
+    return None
+
+
+def read_local(path: Path) -> Tuple[str, Optional[str]]:
+    """(text, error) of a local file: ("", None) when it is absent, the error when unreadable."""
+    if not path.is_file():
+        return "", None
+    try:
+        return path.read_text(), None
+    except (OSError, UnicodeDecodeError) as e:
+        return "", f"{type(e).__name__}: {e}"
 
 
 # --- Demo-specific reads -------------------------------------------------------------------
@@ -557,38 +591,49 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], agents: List[
         check(False, f"Langfuse read failed: {e}",
               hint="a 404 on /api/public/v2/observations means a self-hosted v3 server: see Known limits"
               if e.status == 404 else "")
+    except (ValueError, KeyError, TypeError, AttributeError) as e:  # a response in an unexpected shape
+        check(False, f"Langfuse response not understood: {type(e).__name__}: {e}",
+              hint="the server may be a different version than this check expects")
     return state
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--links", action="store_true", help="print the link each act opens")
-    ap.add_argument("--short-path", action="store_true",
-                    help="readiness for Acts 1-3 only; skips the Act 4 judges and the Act 5-6 evidence")
-    args = ap.parse_args(argv)
-    del RESULTS[:]
-
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
-    print(f"{TRACE_NAME} readiness" + (" (short path: Acts 1-3)" if args.short_path else " (full script)"))
+def run_checks(args: argparse.Namespace) -> None:
+    """Every check, in order. main() owns the failure boundary around it."""
     print("Config")
+    manifest, err = read_local(DEMO_DIR / "demo.yaml")
+    manifest_ok = not err or check(False, f"demo.yaml unreadable: {err}")
+    path = env_file(manifest_value(manifest, "", "profile"))
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
+    try:
+        loaded, detail = load_env(path), ""
+    except (OSError, UnicodeDecodeError) as e:  # load_env has already dropped the shell's LANGFUSE_*
+        loaded, detail = False, f": unreadable, {type(e).__name__}: {e}"
+    check(loaded, f"env loaded from {shown}{detail}; shell-exported LANGFUSE_* ignored",
           hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
     cfg_path = demo_config_path()
-    cfg_text = cfg_path.read_text() if cfg_path.is_file() else ""
+    cfg_text, err = read_local(cfg_path)
     agents = fleet_agents(cfg_text)
     days_raw = manifest_value(cfg_text, "synthetic_history", "days_back") or ""
     days = int(days_raw) if days_raw.isdigit() and int(days_raw) > 0 else 0
-    config_ok = check(bool(agents) and days > 0,
+    config_ok = check(not err and bool(agents) and days > 0,
+                      f"{cfg_path.name}: unreadable, {err}" if err else
                       f"{cfg_path.name}: {len(agents)} fleet agent(s), history window {days or '?'} days",
                       hint="agent_fleet.other_agents and synthetic_history.days_back must be set")
-    expected = expected_project(manifest)
+    try:
+        expected = expected_project(manifest)
+    except (OSError, UnicodeDecodeError) as e:
+        expected = None
+        check(False, f"project name unreadable from demo.config.yaml: {type(e).__name__}: {e}")
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
     keys_ok = check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST set")
-    if keys_ok and config_ok:
+    url_ok = False
+    if base:
+        problem = base_url_problem(base)
+        url_ok = check(problem is None, f"LANGFUSE_HOST {base} is an http(s) URL" if problem is None
+                       else f"LANGFUSE_HOST unusable: {problem}",
+                       hint="fix it in .env, for example https://us.cloud.langfuse.com")
+    if keys_ok and url_ok and config_ok and manifest_ok:  # no API use on a configuration that failed
         service_checks()
         lf = Langfuse(base, pk, sk)
         state = langfuse_checks(lf, expected, agents, days, short_path=args.short_path)
@@ -596,6 +641,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("\nLinks")
             for label, url in act_links(lf.base, state):
                 print(f"  {label:<34} {url}")
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--links", action="store_true", help="print the link each act opens")
+    ap.add_argument("--short-path", action="store_true",
+                    help="readiness for Acts 1-3 only; skips the Act 4 judges and the Act 5-6 evidence")
+    args = ap.parse_args(argv)  # outside the boundary: --help and usage errors exit as usual
+    del RESULTS[:]
+    print(f"{TRACE_NAME} readiness" + (" (short path: Acts 1-3)" if args.short_path else " (full script)"))
+    try:
+        run_checks(args)
+    except Exception as e:  # not BaseException: Ctrl-C still stops the run
+        check(False, f"verification stopped by an unexpected error: {type(e).__name__}: {e}",
+              hint="the checks above still stand; fix the cause and re-run")
 
     line, code = summary()
     if args.short_path:
