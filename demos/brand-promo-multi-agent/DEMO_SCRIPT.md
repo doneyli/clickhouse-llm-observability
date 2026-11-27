@@ -11,15 +11,17 @@ dataset with a certification gate** fit for CI.
   strategy crew (2 agents) → compliance checks → compose brief`
 - **Frameworks:** LangGraph (orchestration) + CrewAI (crews) — deliberately
   multi-framework, because real agent estates are mixed
-- **Models, tiered by job:** Sonnet for research, **Opus for strategy**, Haiku
+- **Models:** tiered by job — Sonnet for research, **Opus for strategy**, Haiku
   on compliance, Opus as judge — cost-per-role is part of the story
-- **Observability backend:** Langfuse (`http://localhost:3001`), standalone
-  project — own `uv` env + `.env`
+- **Observability:** Langfuse (Cloud or self-hosted, from the demo's own `.env`),
+  project `brand-promo-demo`; live traces are `PromoPlanner`, seeded history is
+  `promo_planner_run` plus one `<agent>_run` per fleet agent
 - **Re-themeable:** every brand/region/retailer/query comes from
   `demo.config.yaml` — rebrand it to the prospect in minutes
 - **Run length:** 25–30 min full; 10–12 min short path (Acts 1–3)
 
-> Everything lives in `demos/brand-promo-multi-agent/`. The deep reference is
+> Everything lives in `demos/brand-promo-multi-agent/`. Setup, configuration and
+> troubleshooting are in the [README](README.md). The deep reference is
 > [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) (60-min segment-by-segment) and
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); this script is the
 > customer-facing conversation layered on top.
@@ -48,6 +50,7 @@ rooms that own evaluation, release gates, or human review.
 Standalone demo — own dependencies, own `.env` (never the repo root one):
 
 ```bash
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 cd demos/brand-promo-multi-agent
 cp .env.example .env                      # ANTHROPIC_API_KEY + LANGFUSE_* keys
 cp demo.config.example.yaml demo.config.yaml
@@ -64,7 +67,16 @@ stage):
 uv run scripts/run_live_demo.py play-all                                        # the 5 scripted queries
 uv run python scripts/run_experiment.py --run-name rehearsal --sample 10 \
   --evaluators deterministic                                                    # ~30s, no judge cost
+uv run python scripts/verify_demo.py --links                                    # READY, plus the link each act opens
 ```
+
+`verify_demo.py` reads the project back: the prompts, score configs and
+dataset, the seeded history for every fleet agent in your `demo.config.yaml`
+(it ages out after 30 days — re-run `generate_history.py`), the three
+dashboards, a live run from the last 7 days, the three online judges, the
+`baseline` run the rehearsal above writes (Act 5 compares against it), and
+PENDING items in the review queue. Presenting only the short path? Run it
+with `--short-path`: it checks Acts 1–3 and says so in its verdict.
 
 **Checklist (from the runbook):** Traces list shows ~50k; the 3 dashboards
 render; Prompts shows ~12 under `promo-planner/`; dataset
@@ -187,12 +199,12 @@ Haiku on compliance."
 — and could you prove today that the cheap one is good enough everywhere else?"
 
 > **Presenter note — know your own trace.** Live runs attach the Langfuse
-> callback to the LangGraph layer, so they show the orchestrator nodes and its
-> generations; the CrewAI crews' *internal* spans are fully modeled in the
-> seeded history (which is why you demo the tree on a seeded trace). If someone
-> asks: instrumenting CrewAI's LLM layer (litellm) is a known integration gap
-> called out in the code — `research_crew.py:22` — and a fair "roadmap for this
-> demo" admission. Don't present a live trace as having depth it doesn't.
+> callback to the LangGraph layer, and an OpenInference CrewAI instrumentor
+> turns the crews' own LLM and tool calls into spans under `research_node` and
+> `strategy_node` — so a live trace shows the crews' agents, tasks, tools and
+> generations too (`src/observability.py:36`). The seeded history models the
+> same steps as synthetic spans with the `classify_intent` → `compose_brief`
+> names above; it is the one to open when you want a guaranteed full tree.
 
 ---
 
@@ -343,17 +355,17 @@ public; clone it and re-theme it."
 
 ---
 
-## Under the hood — how it's instrumented (for the "show me the code" moment)
+## Show me the code — how it's instrumented
 
 All in `demos/brand-promo-multi-agent/src/`. The interesting part is how *both*
 frameworks land in one trace, and how the eval layers connect to the gate.
 
-**1 · One handler + reserved metadata keys — `src/observability.py`**
+**1 · One handler + reserved metadata keys — `src/observability.py:84`**
 ```python
-# observability.py:48   make_observability_callbacks() → the whole tracing integration
-return [CallbackHandler()]                                       # :77
-# observability.py:80   make_observability_run_metadata() — v4 reserved keys
-md["langfuse_user_id"] = user_id   # + langfuse_session_id, langfuse_tags   :100
+# observability.py:84   make_observability_callbacks() → the whole tracing integration
+handlers = [CallbackHandler()]                                   # :113
+# observability.py:118  make_observability_run_metadata() — v4 reserved keys
+md["langfuse_user_id"] = user_id   # + langfuse_session_id, langfuse_tags   :139
 ```
 *Why it matters:* attach `{callbacks, metadata, tags}` once at the orchestrator
 root and LangGraph propagates it to every nested LLM call — session, user and
@@ -364,14 +376,19 @@ tags with no per-node code.
 return _orchestrator.invoke(initial_state, config=config)   # config carries callbacks
 ```
 
-**3 · The honest seam — CrewAI's LLM layer — `src/agents/research_crew.py:22`**
+**3 · The CrewAI seam, closed — `src/observability.py:62`, `src/agents/research_crew.py:23`**
 ```python
-del callbacks   # "LangChain callbacks do not attach to crewai.LLM" (litellm-based)
+del callbacks   # research_crew.py:23 — LangChain callbacks do not attach to crewai.LLM
+CrewAIInstrumentor().instrument(use_event_listener=True, create_llm_spans=True,
+                                skip_dep_check=True)               # observability.py:62
 ```
-*Why it matters:* this is the Act 2 presenter note in source form — the CrewAI
-crews run under the orchestrator but their internal LLM calls aren't captured
-live; the seeded history models them explicitly. Good faith beats hand-waving
-when a sharp audience reads the trace.
+*Why it matters:* this is the Act 2 presenter note in source form. CrewAI calls
+the model through its own LLM wrapper, which LangChain callbacks never see, so
+the crews' LLM calls are captured by OpenInference's event listener instead and
+nest under the LangGraph node that launched the crew. Tools invoked through the
+crew pass `callbacks=[]` (`src/agents/research_crew.py:49`) so they are recorded
+once, and `run_live_demo.py` drains the CrewAI event bus before the SDK flush
+(`scripts/run_live_demo.py:71`).
 
 **4 · Fault injection with an off-switch — `src/tools/error_injection.py:35`**
 ```python
@@ -390,7 +407,7 @@ gate never grades an injected failure.
 share one call path; the gate is ~60 readable lines — the thing that blocks CI
 is code your team can review.
 
-**6 · Prompt A/B mechanism — `src/agents/strategy_crew.py:39`**
+**6 · Prompt A/B mechanism — `src/agents/strategy_crew.py:40`**
 ```python
 prompt_override = os.getenv("PROMO_SYSTEM_PROMPT_OVERRIDE", "").strip()   # set from --system-prompt-file
 ```
@@ -412,8 +429,9 @@ prompt_override = os.getenv("PROMO_SYSTEM_PROMPT_OVERRIDE", "").strip()   # set 
   distribution.
 - **"Two frameworks — gimmick or real?"** Real estates are mixed; that's the
   point. LangGraph orchestrates, CrewAI runs the crews, one trace shows both —
-  and the one seam (CrewAI's internal LLM calls on live runs) is called out in
-  the code rather than papered over.
+  including the crews' own LLM calls, which need a second instrumentor because
+  CrewAI does not use LangChain's callbacks. That seam is in the code, in plain
+  sight.
 - **"Our compliance rules are more complex than keywords."** Good — the
   architecture is the point, not the regex: a deterministic, fail-closed gate
   *inside the agent graph*, whose verdict and evidence land in the trace. Swap
@@ -430,7 +448,7 @@ prompt_override = os.getenv("PROMO_SYSTEM_PROMPT_OVERRIDE", "").strip()   # set 
   your industry is an edit, not a rewrite.
 - **"Why is this standalone?"** It manages its own `uv` env and Langfuse
   project so it can't disturb the shared stack — same pattern as the
-  real-estate demo. It points at the same local Langfuse.
+  real-estate demo. It can point at the shared local Langfuse or at Cloud.
 - **"Where does all this data live?"** Langfuse stores traces and scores in
   **ClickHouse** — which is why the fleet-scale filtering and the persona
   dashboards hold up, and why your observability data sits in an engine you can
@@ -438,16 +456,36 @@ prompt_override = os.getenv("PROMO_SYSTEM_PROMPT_OVERRIDE", "").strip()   # set 
 
 ---
 
+## Known limits
+
+Say these as beats, not footnotes. The full list is in the
+[README](README.md#known-limits).
+
+- **The 50k history is synthetic, and it ages.** Say so unprompted. It is
+  backdated 30 days from when it was written, so regenerate it before a demo.
+- **Dashboards and online judges were built by hand in the UI.** The seed
+  scripts print the checklist; the API cannot create them on this setup.
+- **The compliance gate is keyword and regex rules.** It shows the shape —
+  deterministic, fail-closed, in the trace — not a policy engine.
+- **Market data is canned** unless a Tavily key is set; sales and inventory
+  are mock files.
+- **The experiment timings and the ~$10–15 judged run are estimates**, not
+  numbers from a recorded rehearsal.
+
+---
+
 ## Reset / re-run
 
 ```bash
-uv run scripts/seed_all.py                    # re-seed everything (dataset upserts by hash; prompt seeding mints a new version each run)
-uv run scripts/generate_history.py            # append more synthetic history (--total N --seed 42)
+uv run scripts/seed_all.py                    # reconcile everything: writes only what is missing or drifted
+uv run scripts/generate_history.py            # no-op while a batch from the last 7 days is complete; re-sends one with rows missing
 uv run scripts/run_live_demo.py play-all      # regenerate the 5 live traces
 uv run python scripts/run_experiment.py --run-name fresh --sample 10 --evaluators deterministic
-PYTHONPATH=. uv run --with pytest pytest tests/   # regression tests (evaluators, fault injection)
+uv run pytest -q                              # regression tests: no services, no model calls
+uv run python scripts/verify_demo.py          # READY before the next demo
 ```
 
-No teardown script ships — "reset" is re-seeding (safe to repeat, though each
-run adds prompt versions) or clearing the Langfuse project in the UI. Health
-check: `curl http://localhost:3001/api/public/health`.
+No teardown script ships — "reset" is re-seeding, which is safe to repeat:
+an unchanged re-run adds no prompt versions, dataset items, history or queue
+items. It restores prompts, score configs and dataset items that were edited
+or archived. Health check: `curl http://localhost:3001/api/public/health`.

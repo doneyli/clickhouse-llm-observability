@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import random
 import uuid
+from collections import Counter
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -31,8 +33,43 @@ from src.synthetic.query_templates import (
 _BATCH_SIZE = 300  # events per ingestion.batch() call
 
 
+# Deterministic ids for an owned history batch. When a trace id is given, every
+# observation and score id inside that trace is drawn from an RNG seeded by it, so
+# re-ingesting the same batch upserts the same rows instead of appending new ones.
+_ID_RNG: random.Random | None = None
+# Day the batch's timestamps count back from. None means "now" (the old behaviour).
+_ANCHOR: datetime | None = None
+# Version stamped on every trace and observation of an owned batch, so a read-back can
+# count that batch's rows apart from any other data (src/synthetic/history_batch.py).
+_VERSION: str | None = None
+# Config pinned for one batch: the builders would otherwise re-read the YAML per trace.
+_CFG: Any = None
+
+
+def _cfg() -> Any:
+    return _CFG or load_config()
+
+
 def _uid() -> str:
+    if _ID_RNG is not None:
+        return str(uuid.UUID(int=_ID_RNG.getrandbits(128), version=4))
     return str(uuid.uuid4())
+
+
+def _eid() -> str:
+    """Ingestion envelope id. Always random: the server may drop an envelope id it has seen,
+    which would turn a retry of a failed batch into a silent no-op."""
+    return str(uuid.uuid4())
+
+
+def _start_trace(trace_id: str | None) -> str:
+    """The trace id to use, switching observation ids to deterministic when one is given."""
+    global _ID_RNG
+    if trace_id is None:
+        _ID_RNG = None
+        return _uid()
+    _ID_RNG = random.Random(trace_id)
+    return trace_id
 
 
 def _ts(dt: datetime) -> str:
@@ -60,7 +97,7 @@ def _mk_trace(
 ) -> IngestionEvent_TraceCreate:
     return IngestionEvent_TraceCreate(
         type="trace-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=TraceBody(
             id=trace_id,
@@ -72,6 +109,7 @@ def _mk_trace(
             tags=tags,
             user_id=user_id,
             session_id=session_id,
+            version=_VERSION,
         ),
     )
 
@@ -89,7 +127,7 @@ def _mk_span(
 ) -> IngestionEvent_SpanCreate:
     return IngestionEvent_SpanCreate(
         type="span-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=CreateSpanBody(
             trace_id=trace_id,
@@ -101,6 +139,7 @@ def _mk_span(
             metadata=metadata,
             input=inp,
             output=out,
+            version=_VERSION,
         ),
     )
 
@@ -121,7 +160,7 @@ def _mk_gen(
 ) -> IngestionEvent_GenerationCreate:
     return IngestionEvent_GenerationCreate(
         type="generation-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=CreateGenerationBody(
             trace_id=trace_id,
@@ -136,6 +175,7 @@ def _mk_gen(
             start_time=_ts(start),
             end_time=_ts(end),
             metadata=metadata,
+            version=_VERSION,
         ),
     )
 
@@ -143,7 +183,7 @@ def _mk_gen(
 def _mk_score(trace_id: str, name: str, value: float, comment: str) -> IngestionEvent_ScoreCreate:
     return IngestionEvent_ScoreCreate(
         type="score-create",
-        id=_uid(),
+        id=_eid(),
         timestamp=_now_ts(),
         body=ScoreBody(
             id=_uid(),
@@ -157,7 +197,7 @@ def _mk_score(trace_id: str, name: str, value: float, comment: str) -> Ingestion
 
 
 def _pick_failure_mode(rng: random.Random) -> str | None:
-    cfg = load_config()
+    cfg = _cfg()
     dist = cfg.synthetic_history.failure_mode_distribution
     roll = rng.random()
     cumulative = 0.0
@@ -173,7 +213,7 @@ def _business_hours_timestamp(
     rng: random.Random,
     business_hours: bool = True,
 ) -> datetime:
-    now = datetime.now(tz=UTC)
+    now = _ANCHOR or datetime.now(tz=UTC)
     day_offset = rng.randint(0, days_back - 1)
     base = now - timedelta(days=day_offset)
     if business_hours and rng.random() < 0.75:
@@ -189,16 +229,17 @@ def _build_promo_planner_events(
     rng: random.Random,
     days_back: int,
     business_hours: bool,
+    trace_id: str | None = None,
 ) -> list[Any]:
     """Build a full PromoPlanner trace event list (no LLM calls)."""
-    cfg = load_config()
+    cfg = _cfg()
     failure_mode = _pick_failure_mode(rng)
     start_ts = _business_hours_timestamp(days_back, rng, business_hours)
     t = start_ts
-    user_input = build_promo_planner_input(rng)
-    final_output = build_promo_planner_output(rng, failure_mode)
+    user_input = build_promo_planner_input(rng, cfg)
+    final_output = build_promo_planner_output(rng, failure_mode, cfg)
 
-    trace_id = _uid()
+    trace_id = _start_trace(trace_id)
     events: list[Any] = []
 
     # classify_intent generation
@@ -408,16 +449,17 @@ def _build_simple_agent_events(
     rng: random.Random,
     days_back: int,
     business_hours: bool,
+    trace_id: str | None = None,
 ) -> list[Any]:
     """Build a simple 2-3 span trace for a fleet agent."""
-    cfg = load_config()
+    cfg = _cfg()
     failure_mode = _pick_failure_mode(rng)
     start_ts = _business_hours_timestamp(days_back, rng, business_hours)
     t = start_ts
-    user_input = build_simple_agent_input(agent_name, rng)
+    user_input = build_simple_agent_input(agent_name, rng, cfg)
     output = build_simple_agent_output(agent_name, rng)
 
-    trace_id = _uid()
+    trace_id = _start_trace(trace_id)
     events: list[Any] = []
 
     tool_names = {
@@ -472,38 +514,111 @@ def _build_simple_agent_events(
     return events
 
 
+def iter_batch(
+    total: int,
+    hero_share: float,
+    days_back: int,
+    business_hours: bool,
+    seed: int = 42,
+    anchor: datetime | None = None,
+    trace_id_for: Any = None,
+    version: str | None = None,
+    cfg: Any = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield every trace of a batch in order, without sending anything.
+
+    Each item is {"index", "agent", "events"}, or {"index", "agent", "error"} when a builder
+    raised. With `anchor`, `trace_id_for(index)` and the same config the batch is fully
+    deterministic, so it can be planned (counted) first and sent second, and re-sending it
+    upserts the same rows. `version` is stamped on every trace and observation.
+    """
+    global _ANCHOR, _ID_RNG, _VERSION, _CFG
+    cfg = cfg or load_config()
+    _ANCHOR, _VERSION, _CFG = anchor, version, cfg
+    try:
+        rng = random.Random(seed)
+        fleet_agents = cfg.agent_fleet.other_agents
+        fleet_names = [a.name for a in fleet_agents]
+        fleet_weights = [a.trace_share for a in fleet_agents]
+        total_fleet = sum(fleet_weights)
+        fleet_weights = [w / total_fleet for w in fleet_weights]
+        hero_count = int(total * hero_share)
+
+        for i in range(hero_count):
+            try:
+                tid = trace_id_for(i) if trace_id_for else None
+                events = _build_promo_planner_events(rng, days_back, business_hours, trace_id=tid)
+                yield {"index": i, "agent": "PromoPlanner", "events": events}
+            except Exception as e:
+                yield {"index": i, "agent": "PromoPlanner", "error": str(e)}
+
+        for i in range(total - hero_count):
+            agent = rng.choices(fleet_names, weights=fleet_weights, k=1)[0]
+            model = cfg.llm.models.research_crew
+            try:
+                tid = trace_id_for(hero_count + i) if trace_id_for else None
+                events = _build_simple_agent_events(agent, model, rng, days_back, business_hours, trace_id=tid)
+                yield {"index": hero_count + i, "agent": agent, "events": events}
+            except Exception as e:
+                yield {"index": hero_count + i, "agent": agent, "error": str(e)}
+    finally:
+        _ANCHOR, _ID_RNG, _VERSION, _CFG = None, None, None, None
+
+
+def batch_counts(items: Any) -> dict[str, Any]:
+    """What a batch contains, counted the way history_batch.read_counts reads it back:
+    observations per (trace name, observation name), scores per name, traces, and the
+    builder errors (a batch with errors cannot be complete)."""
+    obs: Counter = Counter()
+    scores: Counter = Counter()
+    traces, errors = 0, []
+    for item in items:
+        if "error" in item:
+            errors.append(item)
+            continue
+        trace_name = None
+        for e in item["events"]:
+            if e.type == "trace-create":
+                traces += 1
+                trace_name = e.body.name
+            elif e.type in ("span-create", "generation-create"):
+                obs[(trace_name, e.body.name)] += 1
+            elif e.type == "score-create":
+                scores[e.body.name] += 1
+    return {"observations": dict(obs), "scores": dict(scores), "traces": traces, "errors": errors}
+
+
 def generate_traces(
     total: int,
     hero_share: float,
     days_back: int,
     business_hours: bool,
     seed: int = 42,
+    anchor: datetime | None = None,
+    trace_id_for: Any = None,
+    version: str | None = None,
+    cfg: Any = None,
+    ingest: Any = None,
 ) -> list[dict[str, Any]]:
     """Generate and ingest synthetic traces via Langfuse batch ingestion (no LLM calls).
+
+    The traces come from `iter_batch` (see there for determinism and the version stamp).
+    `ingest(chunk)` sends one chunk of events and returns its per-event errors; by default
+    it is the SDK's `ingestion.batch`. Returns one result per trace, plus one per error.
 
     Callers must ensure LANGFUSE_* env vars are set before calling this function.
     Call load_env() at module/script level, not inside this function.
     """
-    from langfuse import Langfuse
+    if ingest is None:
+        from langfuse import Langfuse
 
-    from src.config import load_config
+        lf = Langfuse()
 
-    cfg = load_config()
+        def ingest(chunk: list[Any]) -> list[Any]:
+            return list(lf.api.ingestion.batch(batch=chunk).errors or [])
 
-    lf = Langfuse()
-
-    rng = random.Random(seed)
     results: list[dict[str, Any]] = []
     pending_events: list[Any] = []
-
-    fleet_agents = cfg.agent_fleet.other_agents
-    fleet_names = [a.name for a in fleet_agents]
-    fleet_weights = [a.trace_share for a in fleet_agents]
-    total_fleet = sum(fleet_weights)
-    fleet_weights = [w / total_fleet for w in fleet_weights]
-
-    hero_count = int(total * hero_share)
-    fleet_count = total - hero_count
 
     def flush_pending() -> None:
         if not pending_events:
@@ -512,10 +627,8 @@ def generate_traces(
         for i in range(0, len(pending_events), _BATCH_SIZE):
             chunk = pending_events[i : i + _BATCH_SIZE]
             try:
-                resp = lf.api.ingestion.batch(batch=chunk)
-                if resp.errors:
-                    for err in resp.errors:
-                        results.append({"error": str(err), "agent": "batch"})
+                for err in ingest(chunk):
+                    results.append({"error": str(err), "agent": "batch"})
             except Exception as e:
                 results.append({"error": str(e), "agent": "batch_flush"})
         pending_events.clear()
@@ -524,30 +637,15 @@ def generate_traces(
 
     with Progress() as progress:
         task = progress.add_task("[cyan]Generating traces...", total=total)
-
-        for i in range(hero_count):
-            try:
-                evts = _build_promo_planner_events(rng, days_back, business_hours)
-                pending_events.extend(evts)
-                results.append({"agent": "PromoPlanner", "failure_mode": "synthetic"})
-            except Exception as e:
-                results.append({"error": str(e), "agent": "PromoPlanner"})
+        for item in iter_batch(total, hero_share, days_back, business_hours, seed=seed, anchor=anchor,
+                               trace_id_for=trace_id_for, version=version, cfg=cfg):
+            if "error" in item:
+                results.append({"error": item["error"], "agent": item["agent"]})
+            else:
+                pending_events.extend(item["events"])
+                results.append({"agent": item["agent"]}
+                               | ({"failure_mode": "synthetic"} if item["agent"] == "PromoPlanner" else {}))
             progress.advance(task)
-
-            if len(pending_events) >= _BATCH_SIZE * 5:
-                flush_pending()
-
-        for i in range(fleet_count):
-            agent = rng.choices(fleet_names, weights=fleet_weights, k=1)[0]
-            model = cfg.llm.models.research_crew
-            try:
-                evts = _build_simple_agent_events(agent, model, rng, days_back, business_hours)
-                pending_events.extend(evts)
-                results.append({"agent": agent})
-            except Exception as e:
-                results.append({"error": str(e), "agent": agent})
-            progress.advance(task)
-
             if len(pending_events) >= _BATCH_SIZE * 5:
                 flush_pending()
 

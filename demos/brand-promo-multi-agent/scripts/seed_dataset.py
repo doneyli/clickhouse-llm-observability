@@ -7,9 +7,11 @@ Dataset composition:
   Total: ~75 items
 
 Idempotency: each item gets a deterministic id derived from its input + dataset
-name. Langfuse `create_dataset_item` upserts by id, so re-running the script
-overwrites in place instead of appending duplicates (which previously turned
-75 into 150 on a second run).
+name, and the script reads the dataset back before writing. An item is upserted
+(by that id, with status ACTIVE) only when it is missing, its input, expected
+output or metadata drifted, or it was archived. Items this script does not own
+are left alone. An unchanged re-run writes nothing. Exits 1 on any failed read
+or write, or when the item builder fails.
 """
 
 import hashlib
@@ -18,7 +20,8 @@ import sys
 
 from rich.console import Console
 
-from src.config import load_config, load_env
+from src.config import load_env
+from src.langfuse_rest import ApiError, Client, LangfuseEnvError, Tally, quote
 
 console = Console()
 
@@ -264,73 +267,91 @@ def _stable_item_id(dataset_name: str, input_payload: dict) -> str:
     return f"{dataset_name}::{digest}"
 
 
-def seed_dataset() -> int:
-    env = load_env()
-    cfg = load_config()
+DATASET_NAME = "promo-planner-golden-v1"
 
-    if not env.langfuse_public_key or not env.langfuse_secret_key:
-        console.print(
-            "[bold yellow]MANUAL: No Langfuse keys found.[/bold yellow]\n"
-            "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY in .env first."
-        )
-        return 0
 
+def desired_items(generated: list[dict]) -> list[dict]:
+    """The owned items as API bodies, each with its stable id and status ACTIVE."""
+    out = []
+    for item in GOLDEN_ITEMS + generated:
+        out.append({
+            "datasetName": DATASET_NAME,
+            "id": _stable_item_id(DATASET_NAME, item["input"]),
+            "input": item["input"],
+            "expectedOutput": item["expected_output"],
+            "metadata": item.get("metadata"),
+            "status": "ACTIVE",
+        })
+    return out
+
+
+def item_drift(existing: dict, desired: dict) -> list[str]:
+    drift = [k for k in ("input", "expectedOutput", "metadata") if existing.get(k) != desired[k]]
+    if existing.get("status") != "ACTIVE":
+        drift.append(f"status {existing.get('status')}")
+    return drift
+
+
+def reconcile_dataset(client: Client, items: list[dict]) -> Tally:
+    tally = Tally("Dataset items")
+    description = (f"Golden evaluation dataset for PromoPlanner: {len(GOLDEN_ITEMS)} hand-authored + "
+                   f"{len(items) - len(GOLDEN_ITEMS)} generated = {len(items)} total")
     try:
-        from langfuse import Langfuse
-    except ImportError:
-        console.print("[red]langfuse package not installed[/red]")
-        return 1
+        client.get(f"/api/public/v2/datasets/{quote(DATASET_NAME)}")
+        console.print(f"[dim]Dataset exists: {DATASET_NAME}[/dim]")
+    except ApiError as e:
+        if e.status != 404:
+            raise
+        client.post("/api/public/v2/datasets", {"name": DATASET_NAME, "description": description})
+        console.print(f"[green]Dataset created: {DATASET_NAME}[/green]")
 
-    # Load generated items from the slot-based builder
+    existing = {it["id"]: it for it in client.paged("/api/public/dataset-items", {"datasetName": DATASET_NAME})}
+    for body in items:
+        have = existing.get(body["id"])
+        drift = ["missing"] if have is None else item_drift(have, body)
+        if not drift:
+            tally.add("unchanged")
+            continue
+        try:
+            client.post("/api/public/dataset-items", body)
+            tally.add("created" if have is None else "updated")
+            if have is not None:
+                console.print(f"[yellow]updated {body['id']} ({', '.join(drift)})[/yellow]")
+        except ApiError as e:
+            tally.add("failed", f"{body['id']}: {e}")
+            console.print(f"[red]failed {body['id']}: {e}[/red]")
+    return tally
+
+
+def seed_dataset(client: Client | None = None) -> int:
+    if client is None:
+        load_env()
+        try:
+            client = Client.from_env()
+        except LangfuseEnvError as e:
+            console.print(f"[red]{e}[/red]")
+            return 1
+
     try:
         from src.evals.dataset_builder import build_generated_items
         generated_items = build_generated_items(seed=42)
         console.print(f"[cyan]Generated {len(generated_items)} slot-based items[/cyan]")
     except Exception as e:
-        console.print(f"[yellow]dataset_builder failed, using hand-authored only: {e}[/yellow]")
-        generated_items = []
+        console.print(f"[red]dataset_builder failed: {e}[/red]")
+        return 1
 
-    all_items = GOLDEN_ITEMS + generated_items
-    total = len(all_items)
-
-    lf = Langfuse()
-
-    dataset_name = "promo-planner-golden-v1"
-    console.print(f"[cyan]Creating dataset: {dataset_name} ({total} items)[/cyan]")
-
+    items = desired_items(generated_items)
+    console.print(f"[cyan]Reconciling dataset: {DATASET_NAME} ({len(items)} items)[/cyan]")
     try:
-        lf.create_dataset(
-            name=dataset_name,
-            description=f"Golden evaluation dataset for PromoPlanner: {len(GOLDEN_ITEMS)} hand-authored + {len(generated_items)} generated = {total} total",
-        )
-        console.print(f"[green]Dataset created: {dataset_name}[/green]")
-    except Exception as e:
-        console.print(f"[yellow]Dataset may already exist: {e}[/yellow]")
+        tally = reconcile_dataset(client, items)
+    except ApiError as e:
+        console.print(f"[red]Dataset read failed: {e}[/red]")
+        return 1
 
-    success = 0
-    for i, item in enumerate(all_items):
-        try:
-            item_id = _stable_item_id(dataset_name, item["input"])
-            lf.create_dataset_item(
-                dataset_name=dataset_name,
-                id=item_id,
-                input=item["input"],
-                expected_output=item["expected_output"],
-                metadata=item.get("metadata"),
-            )
-            console.print(f"[green]Upserted item {i + 1}/{total}[/green]")
-            success += 1
-        except Exception as e:
-            console.print(f"[red]Failed item {i + 1}: {e}[/red]")
-
-    console.print(f"\n[bold]Seeded {success}/{total} dataset items[/bold]")
-    console.print(
-        f"[dim]  {len(GOLDEN_ITEMS)} hand-authored core items[/dim]\n"
-        f"[dim]  {len(generated_items)} slot-generated items[/dim]\n"
-        f"[dim]  Run experiments: uv run python scripts/run_experiment.py --sample 10[/dim]"
-    )
-
-    return 0
+    console.print(f"\n[bold]{tally.line()}[/bold]")
+    console.print(f"[dim]  {len(GOLDEN_ITEMS)} hand-authored core items, "
+                  f"{len(generated_items)} slot-generated items[/dim]")
+    return 1 if tally.failed else 0
 
 
 if __name__ == "__main__":

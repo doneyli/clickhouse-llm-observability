@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
-"""Seed three persona dashboards in Langfuse."""
+"""Check the three persona dashboards in Langfuse, and print how to build any that are missing.
+
+The dashboards are built by hand in the UI: their widgets need the dashboard-widget API,
+which this demo does not seed. This script reads the dashboards back by name through the
+unstable dashboards API and prints the manual checklist for the missing ones.
+
+Exit codes: 0 all three exist; 2 one or more still need the manual step (or the server
+has no dashboards API to read them back); 1 the read failed or no keys are set.
+"""
 
 import sys
 
 from rich.console import Console
 from rich.panel import Panel
 
-from src.config import load_config, load_env
+from src.config import load_env
+from src.langfuse_rest import ApiError, Client, LangfuseEnvError
+
+MANUAL = 2
 
 console = Console()
 
@@ -82,50 +93,33 @@ def _emit_manual_dashboards() -> None:
     )
 
 
-def seed_dashboards() -> int:
-    env = load_env()
-    cfg = load_config()
-
-    if not env.langfuse_public_key or not env.langfuse_secret_key:
-        console.print("[yellow]No Langfuse keys - emitting manual checklist[/yellow]")
-        _emit_manual_dashboards()
-        return 0
+def seed_dashboards(client: Client | None = None) -> int:
+    if client is None:
+        load_env()
+        try:
+            client = Client.from_env()
+        except LangfuseEnvError as e:
+            console.print(f"[red]{e}[/red]")
+            return 1
 
     try:
-        import httpx
-    except ImportError:
-        console.print("[red]httpx not installed[/red]")
+        names = {d.get("name") for d in client.paged("/api/public/unstable/dashboards")}
+    except ApiError as e:
+        if e.status == 404:
+            console.print("[yellow]This server has no dashboards API; check the dashboards in the UI.[/yellow]")
+            _emit_manual_dashboards()
+            return MANUAL
+        console.print(f"[red]Dashboard read failed: {e}[/red]")
         return 1
 
-    host = env.langfuse_host or cfg.langfuse.host
-
-    # Attempt programmatic dashboard creation via Langfuse API
-    # If endpoint not available, emit manual instructions
-    success_count = 0
-    for dash in DASHBOARDS:
-        try:
-            resp = httpx.post(
-                f"{host}/api/public/dashboards",
-                auth=(env.langfuse_public_key, env.langfuse_secret_key),
-                json={"name": dash["name"], "description": dash["description"]},
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                console.print(f"[green]Dashboard created: {dash['name']}[/green]")
-                success_count += 1
-            elif resp.status_code == 409:
-                console.print(f"[yellow]Dashboard already exists: {dash['name']}[/yellow]")
-                success_count += 1
-            else:
-                console.print(f"[yellow]Dashboard API returned {resp.status_code} for '{dash['name']}' - needs manual setup[/yellow]")
-        except Exception as e:
-            console.print(f"[yellow]Dashboard API failed: {e}[/yellow]")
-
-    if success_count < len(DASHBOARDS):
-        console.print("\n[yellow]Dashboard API not available. Emitting manual instructions:[/yellow]")
+    missing = [d["name"] for d in DASHBOARDS if d["name"] not in names]
+    for d in DASHBOARDS:
+        state = "missing (manual)" if d["name"] in missing else "present"
+        console.print(f"  {d['name']}: {state}")
+    console.print(f"\n[bold]Dashboards: {len(DASHBOARDS) - len(missing)}/{len(DASHBOARDS)} present[/bold]")
+    if missing:
         _emit_manual_dashboards()
-
-    console.print(f"\n[bold]Dashboards: {success_count}/{len(DASHBOARDS)} via API[/bold]")
+        return MANUAL
     return 0
 
 

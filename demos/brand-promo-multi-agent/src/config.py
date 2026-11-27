@@ -185,24 +185,29 @@ def load_env() -> EnvConfig:
     stale BACKEND value in .env silently flips the backend out from under the
     operator.
 
-    Key-isolation exception: the Langfuse project keys must come from THIS demo's
+    Key-isolation exception: every Langfuse setting must come from THIS demo's
     .env, never an ambient shell export. With plain `override=False`, a stray
-    shell-exported `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` (a documented
-    footgun in this dev environment) would shadow the file and silently send this
-    demo's seeding/traffic into the wrong project. So we hard-set the Langfuse
-    keys from the .env file when it defines them (mirroring the guard in
-    demos/real-estate/agent/config.py, which calls this "the #1 landmine").
+    shell-exported `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`/`LANGFUSE_BASE_URL`
+    (a documented footgun in this dev environment) would shadow the file and
+    silently send this demo's seeding/traffic into the wrong project. So all
+    inherited `LANGFUSE_*` are dropped and set again from the .env file alone
+    (mirroring the guard in demos/real-estate/agent/config.py, which calls this
+    "the #1 landmine").
     """
     project_root = Path(__file__).parent.parent
     env_file = project_root / ".env"
+    # Every inherited LANGFUSE_* goes first, not only the keys the file happens to set:
+    # a shell-exported LANGFUSE_BASE_URL outranks LANGFUSE_HOST in the SDK, so leaving
+    # it would point this demo's .env keys at another host. With no .env there are no
+    # Langfuse settings at all, and the seeders fail before any request.
+    for key in [k for k in os.environ if k.startswith("LANGFUSE_")]:
+        del os.environ[key]
     if env_file.exists():
         load_dotenv(env_file, override=False)
         file_vals = dotenv_values(env_file)
-        for key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST"):
-            if file_vals.get(key):
-                os.environ[key] = file_vals[key]  # .env wins for project keys
-    else:
-        load_dotenv(override=False)
+        for key, value in file_vals.items():
+            if key.startswith("LANGFUSE_") and value:
+                os.environ[key] = value  # .env is the only source of Langfuse settings
     backend_env = os.getenv("BACKEND")
     backend: Backend | None = None
     if backend_env == "langfuse":
