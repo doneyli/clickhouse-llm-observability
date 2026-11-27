@@ -3,19 +3,24 @@
  *
  *   npx tsx scripts/verify_demo.ts           # one PASS / FAIL / WARN line per check; exit 1 when a required one fails
  *   npx tsx scripts/verify_demo.ts --links   # also print the link each act opens
+ *   npx tsx scripts/verify_demo.ts --quick   # readiness after `npm run demo -- --quick`: Act 3's dataset run only warns
  *
  * The TypeScript port of demos/_template/scripts/verify_demo.py, with the same output
  * contract. An HTTP 200 proves little on its own (a trace can exist before its
- * observations land), so every check counts real rows. Node built-ins only (global
- * fetch, fs, path): it does not import src/env.ts, which throws at import without keys,
- * and it needs none of the demo's dependencies. No model calls; a handful of Langfuse
- * reads, done in seconds.
+ * observations land), so every check counts real rows. Node built-ins plus the demo's own
+ * key-free modules (src/conversations.ts, src/dataset.ts, src/readback.ts): it does not
+ * import src/env.ts, which refuses to load without a .env, and it needs none of the
+ * demo's dependencies. No model calls; a handful of Langfuse reads, done in seconds.
  *
- * Read APIs: Observations API v2 and Scores API v3, never the legacy trace endpoints.
- * A self-hosted Langfuse v3 server answers Observations v2 with 404, so on a 3.x server
- * (read from /api/public/health, the same switch scripts/compare-traces.ts uses) the
- * observation reads fall back to the v1 observations list and the dataset-run read to
- * /datasets/{name}/runs. Scores v3 and /v2/datasets work on both.
+ * Read APIs: projects, Observations API v2, Scores API v3 and the experiments API, never
+ * the legacy trace endpoints. A self-hosted Langfuse v3 server answers Observations v2
+ * and the experiments API with 404, so on a 3.x server (read from /api/public/health,
+ * the same switch scripts/compare-traces.ts uses) — and only there — observation reads
+ * fall back to the v1 observation list and the dataset-run read to /datasets/{name}/runs.
+ * Scores v3, /v2/datasets and /dataset-items work on both.
+ *
+ * Each act's reads are isolated: a failed read is a FAIL for a required act and a WARN
+ * for an optional one, and the other acts still run.
  *
  * tests/verify_demo.test.ts covers the logic against a fake Langfuse.
  */
@@ -23,7 +28,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { CONVERSATIONS } from "../src/conversations.js";
+import { DATASET_NAME, canonical, desiredItems, type ItemDefinition } from "../src/dataset.js";
+import { apiFlavourFor, cursorAll, pagesAll, sessionOf, type ApiFlavour, type Get } from "../src/readback.js";
 
 export const DEMO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const REPO_ROOT = resolve(DEMO_DIR, "..", "..");
@@ -31,8 +37,10 @@ export const REPO_ROOT = resolve(DEMO_DIR, "..", "..");
 // --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with the scripts named.
 export const TRACE_NAME = "handle-chat-message"; // src/assistant.ts TRACE_NAME (good and collapsed roots)
 export const BROKEN_NAME_PREFIX = "chat: "; // broken roots are named after the shopper's message
-export const DATASET_NAME = "grocery-conversations"; // scripts/seed-dataset.ts DATASET_NAME
-export const EXPECTED_ITEM_IDS = CONVERSATIONS.map((c) => `grocery-${c.id}`); // seed-dataset.ts datasetItemId()
+export { DATASET_NAME };
+export const EXPECTED_ITEMS = desiredItems(); // what npm run seed:dataset writes (src/dataset.ts)
+export const EXPECTED_ITEM_IDS = EXPECTED_ITEMS.map((i) => i.id);
+export const EXPERIMENTS_SINCE = "2026-01-01T00:00:00Z"; // the experiments API needs a lower bound; predates the demo
 export const EXPERIMENT_PREFIX = "deterministic-board-"; // scripts/run-experiment.ts runName
 export const SESSION_SCORE = "conversation-cart-integrity"; // scripts/score-live-sessions.ts SCORE_NAME
 export const SESSION_PREFIX = { good: "cmp-good-", broken: "cmp-broken-", collapsed: "cmp-collapsed-" }; // compare-traces.ts
@@ -166,7 +174,6 @@ export type FetchLike = (url: string, init: { headers: Record<string, string>; s
 }>;
 
 type Params = Record<string, string | number | boolean | undefined>;
-type Page = { data?: unknown[]; meta?: { cursor?: string | null; nextCursor?: string | null; totalPages?: number } };
 
 /** The few public-API calls this check needs. `fetchImpl` is injectable for the tests. */
 export class Langfuse {
@@ -207,37 +214,25 @@ export class Langfuse {
     }
   }
 
-  /** Follow `meta.cursor` (Observations v2, Scores v3). Stop on a missing cursor, not an empty page. */
-  async cursor(path: string, params: Params, opts: { limit?: number; cap?: number; maxPages?: number } = {}) {
-    const { limit = 100, cap = 1000, maxPages = 20 } = opts;
-    const out: unknown[] = [];
-    let cur: string | undefined;
-    for (let i = 0; i < maxPages; i += 1) {
-      const d = (await this.get<Page>(path, { ...params, limit, ...(cur ? { cursor: cur } : {}) })) ?? {};
-      out.push(...(d.data ?? []));
-      cur = d.meta?.cursor ?? d.meta?.nextCursor ?? undefined;
-      if (!cur || out.length >= cap) break;
-    }
-    return out.slice(0, cap);
+  /** `get` for src/readback.ts: the path carries its query string, and every non-2xx throws. */
+  readonly getPath: Get = async <T>(pathWithQuery: string): Promise<T> => {
+    const [path = "", qs = ""] = pathWithQuery.split("?", 2);
+    return this.get<T>(path, Object.fromEntries(new URLSearchParams(qs)));
+  };
+
+  /** Follow `meta.cursor` (Observations v2, Scores v3, experiments), bounded, through empty pages. */
+  cursor<T = unknown>(path: string, params: Params, opts: { limit?: number; cap?: number; maxPages?: number; sample?: boolean } = {}) {
+    return cursorAll<T>(this.getPath, path, params, { maxPages: 20, ...opts });
   }
 
   /** Follow `meta.totalPages` (v1 observations, dataset items, legacy dataset runs). */
-  async pages(path: string, params: Params, opts: { limit?: number; maxPages?: number } = {}) {
-    const { limit = 100, maxPages = 20 } = opts;
-    const out: unknown[] = [];
-    for (let page = 1; page <= maxPages; page += 1) {
-      const d = (await this.get<Page>(path, { ...params, limit, page })) ?? {};
-      out.push(...(d.data ?? []));
-      if (page >= (d.meta?.totalPages ?? 1) || (d.data ?? []).length === 0) break;
-    }
-    return out;
+  pages<T = unknown>(path: string, params: Params, opts: { limit?: number; maxPages?: number } = {}) {
+    return pagesAll<T>(this.getPath, path, params, { maxPages: 20, ...opts });
   }
 }
 
 /** Observations API v2 exists from server 4.x on (and on Cloud); a 3.x server needs the v1 list. */
-export function apiFlavour(serverVersion: string | undefined): "v2" | "v1" {
-  return serverVersion?.startsWith("3.") ? "v1" : "v2";
-}
+export const apiFlavour = apiFlavourFor;
 
 export type RawObservation = {
   id?: string;
@@ -255,13 +250,7 @@ export type RawObservation = {
 
 export type Root = { traceId: string; name: string; sessionId?: string; tags: string[]; startTime: string };
 
-/** The observation's session: a column on v4, the propagated OTel attribute in metadata on v3. */
-export function sessionOf(o: RawObservation): string | undefined {
-  if (typeof o.sessionId === "string" && o.sessionId) return o.sessionId;
-  const attrs = (o.metadata as { attributes?: Record<string, unknown> } | null | undefined)?.attributes;
-  const value = attrs?.["session.id"];
-  return typeof value === "string" && value ? value : undefined;
-}
+export { sessionOf };
 
 export function toRoot(o: RawObservation): Root | undefined {
   const isRoot = o.isRootObservation ?? o.parentObservationId == null;
@@ -307,10 +296,27 @@ export function classifyRoots(roots: Root[]): { good?: Run; collapsed?: Run; bro
   };
 }
 
+export type ItemRow = { id?: string; status?: string; input?: unknown; expectedOutput?: unknown };
+
+/** Compare the dataset's items with the fixtures: what is missing, archived, or differs. */
+export function itemProblems(rows: ItemRow[], expected: ItemDefinition[] = EXPECTED_ITEMS): string[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const problems: string[] = [];
+  for (const want of expected) {
+    const have = byId.get(want.id);
+    if (!have) problems.push(`${want.id} missing`);
+    else if ((have.status ?? "ACTIVE") !== "ACTIVE") problems.push(`${want.id} ${have.status}`);
+    else if (canonical(have.input) !== canonical(want.input) || canonical(have.expectedOutput) !== canonical(want.expectedOutput))
+      problems.push(`${want.id} differs from src/conversations.ts`);
+  }
+  return problems;
+}
+
 export type State = {
   projectId?: string;
-  flavour?: "v2" | "v1";
+  flavour?: ApiFlavour;
   datasetId?: string;
+  experimentName?: string;
   good?: Run;
   collapsed?: Run;
   broken?: Run;
@@ -332,114 +338,154 @@ export function actLinks(base: string, state: State): Array<[string, string]> {
 
 // --- Checks -------------------------------------------------------------------------------
 
-async function listRoots(lf: Langfuse, flavour: "v2" | "v1", from: Date, to: Date): Promise<Root[]> {
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Run one act's checks. A read that throws becomes a failed check for that act, with
+ * the act's own weight: a FAIL for a required act, a WARN for an optional one. The
+ * other acts still run, and every failure reaches the verdict.
+ */
+async function section(title: string, required: boolean, body: () => Promise<void>): Promise<void> {
+  console.log(title);
+  try {
+    await body();
+  } catch (e) {
+    check(false, `read failed: ${msg(e)}`, { required });
+  }
+}
+
+async function listRoots(lf: Langfuse, flavour: ApiFlavour, from: Date, to: Date): Promise<Root[]> {
   const window = { fromStartTime: iso(from), toStartTime: iso(to) };
   const raw =
     flavour === "v2"
-      ? await lf.cursor(
+      ? // `basic` carries name, sessionId and isRootObservation; `trace_context` the tags.
+        await lf.cursor<RawObservation>(
           "/api/public/v2/observations",
           { ...window, isRootObservation: true, fields: "core,basic,trace_context" },
-          { limit: 1000, cap: 5000, maxPages: 5 },
+          { limit: 1000, cap: 5000, maxPages: 5, sample: true },
         )
       : // v1 has no root filter; roots are spans with no parent.
-        await lf.pages("/api/public/observations", { ...window, type: "SPAN" }, { maxPages: 20 });
-  return (raw as RawObservation[]).map(toRoot).filter((r): r is Root => r !== undefined);
+        await lf.pages<RawObservation>("/api/public/observations", { ...window, type: "SPAN" }, { maxPages: 20 });
+  return raw.map(toRoot).filter((r): r is Root => r !== undefined);
 }
 
-async function traceObservations(lf: Langfuse, flavour: "v2" | "v1", traceId: string): Promise<RawObservation[]> {
-  const raw =
-    flavour === "v2"
-      ? await lf.cursor("/api/public/v2/observations", { traceId, fields: "core,basic,io" }, { limit: 1000 })
-      : await lf.pages("/api/public/observations", { traceId });
-  return raw as RawObservation[];
+async function traceObservations(lf: Langfuse, flavour: ApiFlavour, traceId: string): Promise<RawObservation[]> {
+  return flavour === "v2"
+    ? lf.cursor<RawObservation>("/api/public/v2/observations", { traceId, fields: "core,io" }, { limit: 1000 })
+    : lf.pages<RawObservation>("/api/public/observations", { traceId });
 }
 
 async function datasetChecks(lf: Langfuse, state: State): Promise<void> {
-  const enc = encodeURIComponent(DATASET_NAME);
   let dataset: { id?: string } | undefined;
   try {
-    dataset = await lf.get<{ id?: string }>(`/api/public/v2/datasets/${enc}`);
+    dataset = await lf.get<{ id?: string }>(`/api/public/v2/datasets/${encodeURIComponent(DATASET_NAME)}`);
   } catch (e) {
-    check(false, `dataset ${DATASET_NAME}: ${(e as Error).message}`, { hint: `run ${SEED_CMD}` });
+    if (!(e instanceof ApiError && e.status === 404)) throw e;
+    check(false, `dataset ${DATASET_NAME} not found`, { hint: `run ${SEED_CMD}` });
     return;
   }
   state.datasetId = dataset?.id;
-  const items = (await lf.pages("/api/public/dataset-items", { datasetName: DATASET_NAME })) as Array<{
-    id?: string;
-    status?: string;
-  }>;
-  const active = new Set(items.filter((i) => (i.status ?? "ACTIVE") === "ACTIVE").map((i) => i.id));
-  const missing = EXPECTED_ITEM_IDS.filter((id) => !active.has(id));
+  const rows = await lf.pages<ItemRow>("/api/public/dataset-items", { datasetName: DATASET_NAME });
+  const problems = itemProblems(rows);
   check(
-    missing.length === 0,
-    `dataset ${DATASET_NAME}: ${EXPECTED_ITEM_IDS.length - missing.length}/${EXPECTED_ITEM_IDS.length} ` +
-      `conversation items (${items.length} in total)` + (missing.length ? `; missing ${missing.join(", ")}` : ""),
+    problems.length === 0,
+    `dataset ${DATASET_NAME}: ${EXPECTED_ITEMS.length - problems.length}/${EXPECTED_ITEMS.length} conversation items ` +
+      `active and matching src/conversations.ts (${rows.length} in total)` +
+      (problems.length ? `; ${problems.join("; ")}` : ""),
     { hint: `run ${SEED_CMD}` },
   );
 }
 
-async function experimentNames(lf: Langfuse, flavour: "v2" | "v1", datasetId: string | undefined): Promise<string[]> {
+type Experiment = { id: string; name: string; startTime: string; itemCount?: number };
+
+/** The newest dataset run, its distinct items, and (on v2) how many scores they carry. */
+async function newestExperiment(
+  lf: Langfuse,
+  flavour: ApiFlavour,
+  datasetId: string | undefined,
+): Promise<{ name: string; itemIds: Set<string>; scores?: number } | undefined> {
   if (flavour === "v1") {
-    const runs = await lf.pages(`/api/public/datasets/${encodeURIComponent(DATASET_NAME)}/runs`, {});
-    return (runs as Array<{ name?: string }>).map((r) => r.name ?? "");
+    // A 3.x server has no experiments API; its dataset runs are the same objects.
+    const enc = encodeURIComponent(DATASET_NAME);
+    const runs = (await lf.pages<{ name?: string; createdAt?: string }>(`/api/public/datasets/${enc}/runs`, {}))
+      .filter((r) => r.name?.startsWith(EXPERIMENT_PREFIX))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const newest = runs[0]?.name;
+    if (!newest) return undefined;
+    const run = await lf.get<{ datasetRunItems?: Array<{ datasetItemId?: string }> }>(
+      `/api/public/datasets/${enc}/runs/${encodeURIComponent(newest)}`,
+    );
+    return { name: newest, itemIds: new Set((run?.datasetRunItems ?? []).map((i) => i.datasetItemId ?? "")) };
   }
-  if (!datasetId) return [];
-  const rows = await lf.cursor("/api/public/experiments", {
-    datasetId,
-    fromStartTime: "2026-01-01T00:00:00Z", // required lower bound; predates the demo
-    fields: "core",
-  });
-  return (rows as Array<{ name?: string }>).map((r) => r.name ?? "");
+  if (!datasetId) return undefined; // no dataset, so no run on it (the seeded-artifacts check says why)
+  const experiments = (
+    await lf.cursor<Experiment>(
+      "/api/public/experiments",
+      { datasetId, fromStartTime: EXPERIMENTS_SINCE, fields: "core" },
+      { limit: 100 },
+    )
+  )
+    .filter((e) => e.name.startsWith(EXPERIMENT_PREFIX))
+    .sort((a, b) => b.startTime.localeCompare(a.startTime));
+  const newest = experiments[0];
+  if (!newest) return undefined;
+  const since = new Date(Date.parse(newest.startTime) - 3_600_000);
+  const items = await lf.cursor<{ experimentItemId?: string; scores?: unknown[] | null }>(
+    "/api/public/experiment-items",
+    { experimentId: newest.id, fromStartTime: iso(since), fields: "core,scores" },
+    { limit: 100 },
+  );
+  return {
+    name: newest.name,
+    itemIds: new Set(items.map((i) => i.experimentItemId ?? "")),
+    scores: items.reduce((n, i) => n + (i.scores?.length ?? 0), 0),
+  };
 }
 
-async function sessionScoreNames(lf: Langfuse, sessionId: string, since: Date): Promise<boolean> {
-  const rows = (await lf.cursor(
-    "/api/public/v3/scores",
-    { name: SESSION_SCORE, fromTimestamp: iso(since), fields: "core,subject" },
-    { cap: 500 },
-  )) as Array<{ subject?: { kind?: string; id?: string } }>;
-  return rows.some((s) => s.subject?.kind === "session" && s.subject.id === sessionId);
-}
-
-export async function langfuseChecks(lf: Langfuse, expectedProject: string | undefined, now = new Date()): Promise<State> {
+export async function langfuseChecks(
+  lf: Langfuse,
+  expectedProject: string | undefined,
+  now = new Date(),
+  opts: { quick?: boolean } = {},
+): Promise<State> {
   const state: State = {};
   console.log("Langfuse");
   let projects: Array<{ id?: string; name?: string }>;
   try {
     projects = (await lf.get<{ data?: Array<{ id?: string; name?: string }> }>("/api/public/projects"))?.data ?? [];
   } catch (e) {
-    check(false, `keys authenticate against ${lf.base}: ${(e as Error).message}`, {
+    check(false, `keys authenticate against ${lf.base}: ${msg(e)}`, {
       hint: "401: wrong keys or wrong LANGFUSE_BASE_URL; network error: is Langfuse up?",
     });
     return state;
   }
   const proj = projects[0] ?? {};
   state.projectId = proj.id;
-  let version: string | undefined;
-  try {
-    version = (await lf.get<{ version?: string }>("/api/public/health"))?.version;
-  } catch {
-    version = undefined; // Cloud and v4 both serve Observations v2; health only decides the v3 fallback.
-  }
-  const flavour = (state.flavour = apiFlavour(version));
   if (
-    !check(
-      Boolean(expectedProject) && proj.name === expectedProject,
-      `keys map to project '${proj.name}' (want '${expectedProject}') on Langfuse ${version ?? "?"}, ` +
-        `reading Observations ${flavour === "v2" ? "API v2" : "v1 (3.x server has no v2)"}`,
-      { hint: "use this project's keys in .env, or set LANGFUSE_PROJECT_NAME" },
-    )
+    !check(Boolean(expectedProject) && proj.name === expectedProject, `keys map to project '${proj.name ?? "(none)"}' (want '${expectedProject}')`, {
+      hint: "use this project's keys in .env, or set LANGFUSE_PROJECT_NAME",
+    })
   ) {
     return state;
   }
-
+  let version: string | undefined;
   try {
-    console.log("Seeded artifacts");
-    await datasetChecks(lf, state);
+    version = (await lf.get<{ version?: string }>("/api/public/health"))?.version;
+  } catch (e) {
+    // Only the v3 fallback depends on it; Cloud and v4 serve Observations v2.
+    check(false, `server version unknown (${msg(e)}); reading Observations API v2`, { required: false });
+  }
+  const flavour = (state.flavour = apiFlavour(version));
+  if (version) {
+    check(true, `Langfuse ${version}: reading Observations ${flavour === "v2" ? "API v2" : "v1 (a 3.x server has no v2)"}`);
+  }
 
-    console.log("Act 1 · trace shape (npm run compare)");
+  await section("Seeded artifacts", true, () => datasetChecks(lf, state));
+
+  let runs: ReturnType<typeof classifyRoots> = {};
+  await section("Act 1 · trace shape (npm run compare)", true, async () => {
     const roots = await listRoots(lf, flavour, new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000), new Date(now.getTime() + 300_000));
-    const runs = classifyRoots(roots);
+    runs = classifyRoots(roots);
     state.good = runs.good;
     state.broken = runs.broken;
     state.collapsed = runs.collapsed;
@@ -482,8 +528,9 @@ export async function langfuseChecks(lf: Langfuse, expectedProject: string | und
         hint: gens.length ? "broken mode is recording inputs: check src/assistant.ts recordInputs" : "wait 30 s and re-run",
       });
     }
+  });
 
-    console.log("Act 2 · the collapsed loop (optional, npm run compare:loop)");
+  await section("Act 2 · the collapsed loop (optional, npm run compare:loop)", false, async () => {
     check(
       Boolean(runs.collapsed),
       runs.collapsed
@@ -491,42 +538,68 @@ export async function langfuseChecks(lf: Langfuse, expectedProject: string | und
         : `a '${SESSION_PREFIX.collapsed}*' session in the last ${LOOKBACK_DAYS} days`,
       { required: false, hint: "run npm run compare:loop before presenting Act 2" },
     );
+  });
 
-    console.log("Act 3 · evaluators (dataset run)");
-    const names = await experimentNames(lf, flavour, state.datasetId);
-    const runsFound = names.filter((n) => n.startsWith(EXPERIMENT_PREFIX)).sort();
+  // Full prep (`npm run demo`) runs the experiment; quick prep skips it, and says so.
+  const actThreeRequired = !opts.quick;
+  await section(`Act 3 · evaluators (dataset run${opts.quick ? ", optional with --quick" : ""})`, actThreeRequired, async () => {
+    const run = await newestExperiment(lf, flavour, state.datasetId);
+    const covered = EXPECTED_ITEMS.filter((i) => run?.itemIds.has(i.id)).length;
+    const scored = run?.scores === undefined || run.scores > 0;
     check(
-      runsFound.length > 0,
-      runsFound.length
-        ? `${runsFound.length} ${EXPERIMENT_PREFIX}* run(s) on ${DATASET_NAME}; newest ${runsFound[runsFound.length - 1]}`
+      Boolean(run) && covered === EXPECTED_ITEMS.length && scored,
+      run
+        ? `newest run ${run.name}: ${covered}/${EXPECTED_ITEMS.length} conversation items` +
+            (run.scores === undefined ? " (scores not read on a 3.x server)" : `, ${run.scores} score(s) (want 1+)`)
         : `a ${EXPERIMENT_PREFIX}* run on ${DATASET_NAME}`,
-      { required: false, hint: "run npm run experiment (npm run demo without --quick runs it)" },
+      {
+        required: actThreeRequired,
+        hint: opts.quick
+          ? "quick prep skips it; run npm run experiment for the dataset-run fallback"
+          : "run npm run experiment (npm run demo runs it; --quick skips it)",
+      },
     );
+  });
 
-    console.log("Act 4 · session score (optional, npm run evaluate:live)");
-    if (good?.sessionId) {
-      const scored = await sessionScoreNames(lf, good.sessionId, new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000));
-      check(scored, `${SESSION_SCORE} on session ${good.sessionId}`, {
-        required: false,
-        hint: "run npm run evaluate:live after the comparison",
-      });
-    } else {
+  await section("Act 4 · session score (optional, npm run evaluate:live)", false, async () => {
+    const sessionId = runs.good?.sessionId;
+    if (!sessionId) {
       check(false, `${SESSION_SCORE} on the good session (no good session found)`, { required: false, hint: `run ${PREP_CMD}` });
+      return;
     }
-  } catch (e) {
-    check(false, `Langfuse read failed: ${(e as Error).message}`);
-  }
+    // Scores v3 returns its core fields always; `subject` is the only group needed.
+    const scores = await lf.cursor<{ subject?: { kind?: string; id?: string } }>(
+      "/api/public/v3/scores",
+      { sessionId, name: SESSION_SCORE, fields: "subject" },
+      { limit: 100, maxPages: 5 },
+    );
+    const onSession = scores.filter((s) => s.subject?.kind === "session" && s.subject.id === sessionId).length;
+    check(onSession > 0, `${SESSION_SCORE} on session ${sessionId}: ${onSession} score(s)`, {
+      required: false,
+      hint: "run npm run evaluate:live after the comparison",
+    });
+  });
   return state;
 }
 
 export type MainDeps = { fetchImpl?: FetchLike; env?: NodeJS.ProcessEnv; demoDir?: string; now?: Date; nodeVersion?: string };
 
+export const USAGE = `usage: npx tsx scripts/verify_demo.ts [--links] [--quick]
+  --links   also print the link each act opens
+  --quick   readiness for quick prep (npm run demo -- --quick): the Act 3 dataset run only warns`;
+
 export async function main(argv: string[] = process.argv.slice(2), deps: MainDeps = {}): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
-    console.log("usage: npx tsx scripts/verify_demo.ts [--links]");
+    console.log(USAGE);
     return 0;
   }
+  const unknown = argv.filter((a) => !["--links", "--quick"].includes(a));
+  if (unknown.length) {
+    console.log(`unknown option(s): ${unknown.join(" ")}\n${USAGE}`);
+    return 2;
+  }
   const links = argv.includes("--links");
+  const quick = argv.includes("--quick");
   const env = deps.env ?? process.env;
   const demoDir = deps.demoDir ?? DEMO_DIR;
   RESULTS.length = 0;
@@ -535,16 +608,23 @@ export async function main(argv: string[] = process.argv.slice(2), deps: MainDep
   const manifest = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : "";
   const envPath = resolve(demoDir, ".env");
   console.log("grocery-assistant readiness");
+  console.log(
+    quick
+      ? "Scope: quick prep (npm run demo -- --quick); the Act 3 dataset run is optional"
+      : "Scope: full prep (npm run demo); every core act is required",
+  );
   console.log("Config");
   const shown = relative(REPO_ROOT, envPath).startsWith("..") ? envPath : relative(REPO_ROOT, envPath);
-  check(loadEnv(envPath, env), `env loaded from ${shown}; shell-exported LANGFUSE_* ignored`, {
+  const loaded = check(loadEnv(envPath, env), `env loaded from ${shown}; shell-exported LANGFUSE_* ignored`, {
     hint: "run ./scripts/provision-project.sh, or cp .env.example .env and fill it in",
   });
   const expected = env["DEMO_LANGFUSE_PROJECT"] || env["LANGFUSE_PROJECT_NAME"] || manifestValue(manifest, "langfuse", "project");
   const base = env["LANGFUSE_BASE_URL"] || DEFAULT_BASE_URL;
   const pk = env["LANGFUSE_PUBLIC_KEY"] ?? "";
   const sk = env["LANGFUSE_SECRET_KEY"] ?? "";
-  const keysSet = check(Boolean(pk && sk), `LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY set (base URL ${base})`);
+  const keysSet = check(Boolean(pk && sk), `LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY set (base URL ${base})`, {
+    hint: "add both to .env",
+  });
   check(Boolean(env["ANTHROPIC_API_KEY"]), "ANTHROPIC_API_KEY set (the acts run conversations live)", {
     hint: "add it to .env",
   });
@@ -556,9 +636,10 @@ export async function main(argv: string[] = process.argv.slice(2), deps: MainDep
     hint: "run npm ci",
   });
 
-  if (keysSet) {
+  // No API call without this demo's own .env and both keys.
+  if (loaded && keysSet) {
     const lf = new Langfuse(base, pk, sk, deps.fetchImpl);
-    const state = await langfuseChecks(lf, expected, deps.now);
+    const state = await langfuseChecks(lf, expected, deps.now, { quick });
     if (links && state.projectId) {
       console.log("\nLinks");
       for (const [label, url] of actLinks(lf.base, state)) console.log(`  ${label.padEnd(36)} ${url}`);

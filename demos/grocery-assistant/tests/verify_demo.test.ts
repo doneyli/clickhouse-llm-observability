@@ -1,7 +1,8 @@
 /**
  * verify_demo.ts offline: results, summary and exit code, the .env rule, the manifest
- * parse, run classification, and full runs against a fake Langfuse (v4 and a 3.x server).
- * No network, no Langfuse, no model calls, no keys.
+ * parse, run classification, and full runs against a contract-strict fake Langfuse
+ * (tests/fake-langfuse.ts) on a v4 and a 3.x server. No network, no Langfuse, no
+ * model calls, no keys.
  */
 import { strict as assert } from "node:assert";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -10,6 +11,19 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
 import * as v from "../scripts/verify_demo.js";
+import {
+  DATASET_ITEMS_PARAMS,
+  EXPERIMENTS_PARAMS,
+  EXPERIMENT_ITEMS_PARAMS,
+  SCORES_V3_PARAMS,
+  V1_OBS_PARAMS,
+  V2_OBS_PARAMS,
+  fakeLangfuse,
+  projectObservation,
+  projectScore,
+  type FakeOptions,
+  type Spec,
+} from "./fake-langfuse.js";
 
 // ---------------------------------------------------------------- helpers ---
 let logged: string[] = [];
@@ -23,51 +37,119 @@ afterEach(() => {
   console.log = realLog;
   v.RESULTS.length = 0;
 });
+const out = () => logged.join("\n");
 
 const NOW = new Date("2026-11-27T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
-const ITEM_IDS = v.EXPECTED_ITEM_IDS;
+const ITEMS = v.EXPECTED_ITEMS;
 
-type Route = (url: URL) => unknown;
+type Row = Record<string, unknown>;
 
-/** A fake fetch: each route maps a pathname to a JSON body; unknown paths are 404. */
-function fakeFetch(routes: Record<string, Route>, seen: string[] = []): v.FetchLike {
-  return async (raw) => {
-    const url = new URL(raw);
-    seen.push(url.pathname + url.search);
-    const route = routes[url.pathname];
-    if (!route) return { ok: false, status: 404, text: async () => '{"message":"not found"}' };
-    const body = route(url);
-    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+function goodRoot(i: number, session = "cmp-good-1", h = 2): Row {
+  return {
+    id: `og${i}-${session}`, traceId: `g${i}-${session}`, type: "SPAN", name: v.TRACE_NAME, sessionId: session,
+    isRootObservation: true, parentObservationId: null, startTime: hoursAgo(h + i / 100), tags: ["grocery-assistant", "compare:good"],
+  };
+}
+function brokenRoot(i: number, h = 2.1): Row {
+  return {
+    id: `ob${i}`, traceId: `b${i}`, type: "SPAN", name: `chat: hello ${i}`, sessionId: null,
+    isRootObservation: true, parentObservationId: null, startTime: hoursAgo(h + i / 100), tags: ["grocery-assistant", "compare:broken"],
   };
 }
 
-function goodRoot(i: number, session = "cmp-good-1", h = 2) {
-  return { traceId: `g${i}`, name: v.TRACE_NAME, sessionId: session, isRootObservation: true, startTime: hoursAgo(h + i / 100), tags: ["grocery-assistant", "compare:good"] };
-}
-function brokenRoot(i: number, h = 2.1) {
-  return { traceId: `b${i}`, name: `chat: hello ${i}`, sessionId: null, isRootObservation: true, startTime: hoursAgo(h + i / 100), tags: ["grocery-assistant", "compare:broken"] };
+type World = {
+  version: string;
+  projects: Row[];
+  datasetItems: Row[];
+  roots: Row[];
+  traceObs: (traceId: string) => Row[];
+  experiments: Row[];
+  experimentItems: Row[];
+  scores: Row[];
+  v1Runs: Row[];
+  v1RunItems: Row[];
+};
+
+function readyWorld(over: Partial<World> = {}): World {
+  return {
+    version: "4.88.0",
+    projects: [{ id: "proj1", name: "grocery-assistant" }],
+    datasetItems: ITEMS.map((i) => ({ ...i, status: "ACTIVE" })),
+    roots: [goodRoot(0), goodRoot(1), brokenRoot(0), brokenRoot(1), goodRoot(0, "cmp-collapsed-1", 3)],
+    traceObs: (traceId) =>
+      traceId.startsWith("g")
+        ? [{ id: "s", traceId, type: "SPAN", input: '{"message":"hi"}' }, { id: "gen", traceId, type: "GENERATION", input: '{"x":1}' }]
+        : [{ id: "s", traceId, type: "SPAN" }, { id: "gen", traceId, type: "GENERATION", input: "null" }],
+    experiments: [
+      { id: "exp-old", name: "deterministic-board-2026-11-20", startTime: hoursAgo(200), itemCount: 5, datasetId: "ds1" },
+      { id: "exp1", name: "deterministic-board-2026-11-27", startTime: hoursAgo(5), itemCount: 5, datasetId: "ds1" },
+      { id: "other", name: "someone-elses-run", startTime: hoursAgo(1), itemCount: 1, datasetId: "ds1" },
+    ],
+    experimentItems: ITEMS.map((i, n) => ({ id: `ei${n}`, traceId: `t${n}`, experimentId: "exp1", experimentItemId: i.id, scores: [{ name: "unverified-cart-claim" }] })),
+    scores: [{ id: "sc1", name: v.SESSION_SCORE, value: 1, dataType: "NUMERIC", subject: { kind: "session", id: "cmp-good-1" } }],
+    v1Runs: [{ name: "deterministic-board-x", createdAt: hoursAgo(5) }],
+    v1RunItems: ITEMS.map((i) => ({ datasetItemId: i.id })),
+    ...over,
+  };
 }
 
-/** A v4 project where everything the acts need is in place. */
-function readyRoutes(overrides: Record<string, Route> = {}): Record<string, Route> {
+function routes(w: World): Record<string, Spec> {
   return {
-    "/api/public/projects": () => ({ data: [{ id: "proj1", name: "grocery-assistant" }] }),
-    "/api/public/health": () => ({ status: "OK", version: "4.88.0" }),
-    [`/api/public/v2/datasets/${v.DATASET_NAME}`]: () => ({ id: "ds1", name: v.DATASET_NAME }),
-    "/api/public/dataset-items": () => ({ data: ITEM_IDS.map((id) => ({ id, status: "ACTIVE" })), meta: { totalPages: 1 } }),
-    "/api/public/v2/observations": (url) => {
-      const traceId = url.searchParams.get("traceId");
-      if (traceId?.startsWith("g")) return { data: [{ type: "SPAN" }, { type: "GENERATION", input: '{"x":1}' }], meta: {} };
-      if (traceId?.startsWith("b")) return { data: [{ type: "SPAN" }, { type: "GENERATION", input: "null" }], meta: {} };
-      return {
-        data: [goodRoot(0), goodRoot(1), brokenRoot(0), brokenRoot(1), goodRoot(0, "cmp-collapsed-1", 3)],
-        meta: {},
-      };
+    "/api/public/projects": { params: [], rows: () => ({ data: w.projects }) },
+    "/api/public/health": { params: [], rows: () => ({ status: "OK", version: w.version }) },
+    "/api/public/v2/datasets/{name}": {
+      params: [],
+      rows: (_q, path) => (path.endsWith(`/${v.DATASET_NAME}`) ? { id: "ds1", name: v.DATASET_NAME } : undefined),
     },
-    "/api/public/experiments": () => ({ data: [{ name: "deterministic-board-2026-11-27T10-00-00-000Z" }], meta: {} }),
-    "/api/public/v3/scores": () => ({ data: [{ name: v.SESSION_SCORE, subject: { kind: "session", id: "cmp-good-1" } }], meta: {} }),
-    ...overrides,
+    "/api/public/dataset-items": { params: DATASET_ITEMS_PARAMS, required: ["datasetName"], paging: "page", rows: () => w.datasetItems },
+    "/api/public/v2/observations": {
+      params: V2_OBS_PARAMS,
+      maxLimit: 1000,
+      fieldGroups: ["core", "basic", "time", "io", "metadata", "model", "usage", "prompt", "metrics", "trace_context"],
+      paging: "cursor",
+      project: projectObservation,
+      rows: (q) => {
+        if (w.version.startsWith("3.")) return undefined; // "only available in a Langfuse v4 write mode"
+        const traceId = q.get("traceId");
+        if (traceId) return w.traceObs(traceId);
+        return w.roots.filter((r) => q.get("isRootObservation") !== "true" || r.isRootObservation);
+      },
+    },
+    "/api/public/experiments": {
+      params: EXPERIMENTS_PARAMS, required: ["fromStartTime"], maxLimit: 100, fieldGroups: ["core", "metadata", "scores"], paging: "cursor",
+      rows: (q) => (w.version.startsWith("3.") ? undefined : w.experiments.filter((e) => !q.get("datasetId") || e.datasetId === q.get("datasetId"))),
+    },
+    "/api/public/experiment-items": {
+      params: EXPERIMENT_ITEMS_PARAMS, required: ["fromStartTime"], maxLimit: 100,
+      fieldGroups: ["core", "dataset", "io", "metadata", "itemMetadata", "experimentMetadata", "scores"], paging: "cursor",
+      project: (row, groups) => (groups.has("scores") ? row : { ...row, scores: undefined }),
+      rows: (q) => w.experimentItems.filter((i) => i.experimentId === q.get("experimentId")),
+    },
+    "/api/public/v3/scores": {
+      params: SCORES_V3_PARAMS, maxLimit: 100, fieldGroups: ["details", "subject", "annotation"], paging: "cursor", project: projectScore,
+      rows: (q) =>
+        w.scores.filter(
+          (s) =>
+            (!q.get("name") || q.get("name")!.split(",").includes(String(s.name))) &&
+            (!q.get("sessionId") || (s.subject as { id?: string } | undefined)?.id === q.get("sessionId")),
+        ),
+    },
+    // 3.x server only
+    "/api/public/observations": {
+      params: V1_OBS_PARAMS, paging: "page",
+      rows: (q) => {
+        if (!w.version.startsWith("3.")) return [];
+        const traceId = q.get("traceId");
+        if (traceId) return w.traceObs(traceId);
+        return w.roots.map((r) => ({
+          ...r, sessionId: undefined, tags: undefined, isRootObservation: undefined,
+          metadata: r.sessionId ? { attributes: { "session.id": r.sessionId } } : {},
+        }));
+      },
+    },
+    "/api/public/datasets/{name}/runs": { params: ["page", "limit"], paging: "page", rows: () => w.v1Runs },
+    "/api/public/datasets/{name}/runs/{run}": { params: [], rows: () => ({ name: "deterministic-board-x", datasetRunItems: w.v1RunItems }) },
   };
 }
 
@@ -80,15 +162,19 @@ function demoDir(env = "LANGFUSE_PUBLIC_KEY=pk-file\nLANGFUSE_SECRET_KEY=sk-file
   return dir;
 }
 
-// ------------------------------------------------------------------ tests ---
+async function run(w: World, argv: string[] = [], opts: FakeOptions = {}, env: NodeJS.ProcessEnv = {}) {
+  const fake = fakeLangfuse(routes(w), opts);
+  const code = await v.main(argv, { fetchImpl: fake.fetch, env, demoDir: demoDir(), now: NOW, nodeVersion: "22.11.0" });
+  return { code, fake };
+}
+
+// ------------------------------------------------------- unit: helpers ---
 test("check records PASS, FAIL and WARN and prints one line each", () => {
   assert.equal(v.check(true, "a"), true);
   assert.equal(v.check(false, "b"), false);
   assert.equal(v.check(false, "c", { required: false, hint: "do x" }), false);
   assert.deepEqual(v.RESULTS.map((r) => r.status), ["PASS", "FAIL", "WARN"]);
-  assert.equal(logged[0], "  PASS  a");
-  assert.equal(logged[1], "  FAIL  b");
-  assert.equal(logged[2], "  WARN  c  ->  do x");
+  assert.deepEqual(logged, ["  PASS  a", "  FAIL  b", "  WARN  c  ->  do x"]);
 });
 
 test("summary is READY when only optional checks fail, NOT READY otherwise", () => {
@@ -126,22 +212,22 @@ test("manifestValue reads nested and top-level keys", () => {
   assert.equal(v.manifestValue(text, "langfuse", "missing"), undefined);
 });
 
-test("expected dataset items follow seed-dataset.ts: one per conversation", () => {
-  assert.equal(ITEM_IDS.length, 5);
-  assert.ok(ITEM_IDS.every((id) => id.startsWith("grocery-")));
-  assert.ok(ITEM_IDS.includes("grocery-unverified-cart-claim"));
+test("expected dataset items are the seeder's: one per conversation, on stable ids", () => {
+  assert.equal(ITEMS.length, 5);
+  assert.ok(v.EXPECTED_ITEM_IDS.includes("grocery-unverified-cart-claim"));
 });
 
-test("apiFlavour falls back to v1 observations on a 3.x server only", () => {
-  assert.equal(v.apiFlavour("3.221.1"), "v1");
-  assert.equal(v.apiFlavour("4.88.0"), "v2");
-  assert.equal(v.apiFlavour(undefined), "v2");
-});
-
-test("sessionOf reads the v4 column first, then the v3 OTel attribute", () => {
-  assert.equal(v.sessionOf({ sessionId: "s4" }), "s4");
-  assert.equal(v.sessionOf({ metadata: { attributes: { "session.id": "s3" } } }), "s3");
-  assert.equal(v.sessionOf({ sessionId: "", metadata: { attributes: {} } }), undefined);
+test("itemProblems flags missing, archived and drifted items", () => {
+  const rows: v.ItemRow[] = ITEMS.map((i) => ({ ...i }));
+  assert.deepEqual(v.itemProblems(rows), []);
+  rows[0] = { ...rows[0]!, status: "ARCHIVED" };
+  rows[1] = { ...rows[1]!, input: { turns: ["changed"] } };
+  rows.pop();
+  assert.deepEqual(v.itemProblems(rows), [
+    `${ITEMS[0]!.id} ARCHIVED`,
+    `${ITEMS[1]!.id} differs from src/conversations.ts`,
+    `${ITEMS[4]!.id} missing`,
+  ]);
 });
 
 test("isPresent treats JSON-string null and empty as absent", () => {
@@ -150,14 +236,12 @@ test("isPresent treats JSON-string null and empty as absent", () => {
   assert.equal(v.isPresent("  "), false);
   assert.equal(v.isPresent('{"a":1}'), true);
   assert.equal(v.isPresent("plain answer"), true);
-  assert.equal(v.isPresent({ a: 1 }), true);
 });
 
 test("classifyRoots finds the newest good, collapsed and broken runs", () => {
   const roots = [
     goodRoot(0, "cmp-good-old", 30), goodRoot(1, "cmp-good-new", 1), goodRoot(2, "cmp-good-new", 1),
-    goodRoot(0, "cmp-collapsed-new", 1), brokenRoot(0), brokenRoot(1),
-    { ...goodRoot(9, "chat-session", 0.5) }, // a standalone `npm run chat`: not a comparison
+    goodRoot(0, "cmp-collapsed-new", 1), brokenRoot(0), brokenRoot(1), goodRoot(9, "chat-session", 0.5),
   ].map((o) => v.toRoot(o)!);
   const runs = v.classifyRoots(roots);
   assert.equal(runs.good?.sessionId, "cmp-good-new");
@@ -167,103 +251,173 @@ test("classifyRoots finds the newest good, collapsed and broken runs", () => {
   assert.equal(runs.broken?.latest.traceId, "b0");
 });
 
-test("classifyRoots finds broken roots by name on a v3 server, where roots carry no tags", () => {
-  const v1Rows = [
-    { traceId: "b1", name: "chat: what do I usually buy", parentObservationId: null, startTime: hoursAgo(1) },
-    { traceId: "g1", name: v.TRACE_NAME, parentObservationId: null, startTime: hoursAgo(1), metadata: { attributes: { "session.id": "cmp-good-9" } } },
-    { traceId: "g1", name: "ai.generateText", parentObservationId: "x", startTime: hoursAgo(1) },
-  ];
-  const roots = v1Rows.map(v.toRoot).filter((r): r is v.Root => r !== undefined);
-  assert.equal(roots.length, 2);
-  const runs = v.classifyRoots(roots);
-  assert.equal(runs.broken?.latest.traceId, "b1");
-  assert.equal(runs.good?.sessionId, "cmp-good-9");
-});
-
+// ------------------------------------------------------- full runs: v4 ---
 test("a ready v4 project prints READY, exits 0 and prints a link per act", async () => {
-  const seen: string[] = [];
-  const env: NodeJS.ProcessEnv = { LANGFUSE_PUBLIC_KEY: "pk-shell-other-project" };
-  const code = await v.main(["--links"], { fetchImpl: fakeFetch(readyRoutes(), seen), env, demoDir: demoDir(), now: NOW, nodeVersion: "22.11.0" });
-  const out = logged.join("\n");
-  assert.equal(code, 0, out);
-  assert.match(out, /READY \(\d+\/\d+ checks passed\)$/);
+  const env: NodeJS.ProcessEnv = { LANGFUSE_PUBLIC_KEY: "pk-shell-other-project", LANGFUSE_BASE_URL: "https://shell.example" };
+  const { code, fake } = await run(readyWorld(), ["--links"], {}, env);
+  assert.equal(code, 0, out());
+  assert.match(out(), /READY \(\d+\/\d+ checks passed\)$/);
   assert.equal(env["LANGFUSE_PUBLIC_KEY"], "pk-file", "the shell key must not win");
-  assert.match(out, /Act 1 · the good session\s+https:\/\/lf\.example\/project\/proj1\/sessions\/cmp-good-1/);
-  assert.match(out, /Act 3 · grocery-conversations\s+https:\/\/lf\.example\/project\/proj1\/datasets\/ds1/);
-  assert.ok(seen.every((p) => !p.startsWith("/api/public/traces")), "no legacy trace endpoints");
-  assert.ok(seen.some((p) => p.startsWith("/api/public/v2/observations")));
-  assert.ok(seen.some((p) => p.startsWith("/api/public/v3/scores")));
+  assert.deepEqual(fake.rejected, [], "every request honours the API contract");
+  assert.ok(fake.seen.every((p) => !p.includes("shell.example")));
+  assert.match(out(), /PASS {2}newest run deterministic-board-2026-11-27: 5\/5 conversation items, 5 score\(s\)/);
+  assert.match(out(), /PASS {2}conversation-cart-integrity on session cmp-good-1: 1 score\(s\)/);
+  assert.match(out(), /Act 1 · the good session\s+https:\/\/lf\.example\/project\/proj1\/sessions\/cmp-good-1/);
+  assert.match(out(), /Act 3 · grocery-conversations\s+https:\/\/lf\.example\/project\/proj1\/datasets\/ds1/);
+  assert.ok(fake.seen.every((p) => !p.startsWith("/api/public/traces")), "no legacy trace endpoints");
 });
 
-test("a missing dataset item or comparison run is NOT READY", async () => {
-  const routes = readyRoutes({
-    "/api/public/dataset-items": () => ({ data: ITEM_IDS.slice(1).map((id) => ({ id })), meta: { totalPages: 1 } }),
-    "/api/public/v2/observations": () => ({ data: [], meta: {} }),
-  });
-  const code = await v.main([], { fetchImpl: fakeFetch(routes), env: {}, demoDir: demoDir(), now: NOW, nodeVersion: "22.0.0" });
-  const out = logged.join("\n");
+test("Scores v3 is read with fields=subject and the session filter (135-1)", async () => {
+  const { fake } = await run(readyWorld());
+  const scoreReads = fake.seen.filter((p) => p.startsWith("/api/public/v3/scores"));
+  assert.equal(scoreReads.length, 1);
+  const q = new URL(`http://x${scoreReads[0]}`).searchParams;
+  assert.equal(q.get("fields"), "subject");
+  assert.equal(q.get("sessionId"), "cmp-good-1");
+  assert.equal(q.get("name"), v.SESSION_SCORE);
+});
+
+test("the fake rejects the old fields=core,subject, as the real API does", async () => {
+  const fake = fakeLangfuse(routes(readyWorld()));
+  const res = await fake.fetch("https://lf.example/api/public/v3/scores?fields=core,subject", { headers: {} });
+  assert.equal(res.status, 400);
+});
+
+test("an optional read that fails is a WARN, and the verdict stays READY (135-1)", async () => {
+  const { code } = await run(readyWorld(), [], { fail: { "/api/public/v3/scores": 500 } });
+  assert.equal(code, 0, out());
+  assert.match(out(), /Act 4 · session score[^\n]*\n {2}WARN {2}read failed: HTTP 500/);
+});
+
+test("a required read that fails is a FAIL, and the other acts still run", async () => {
+  const { code } = await run(readyWorld(), [], { fail: { "/api/public/v2/observations": 500 } });
   assert.equal(code, 1);
-  assert.match(out, /FAIL {2}dataset grocery-conversations: 4\/5 conversation items .*missing grocery-unverified-cart-claim/);
-  assert.match(out, /FAIL {2}a 'cmp-good-\*' session/);
-  assert.match(out, /FAIL {2}a compare:broken run/);
-  assert.match(out, /WARN {2}a 'cmp-collapsed-\*' session/);
+  assert.match(out(), /Act 1 · trace shape[^\n]*\n {2}FAIL {2}read failed: HTTP 500/);
+  assert.match(out(), /PASS {2}newest run deterministic-board/, "Act 3 still ran");
+  assert.match(out(), /NOT READY/);
+});
+
+test("no dataset run is NOT READY on full prep, and only warns with --quick (135-3)", async () => {
+  const world = readyWorld({ experiments: [] });
+  const full = await run(world);
+  assert.equal(full.code, 1);
+  assert.match(out(), /Scope: full prep/);
+  assert.match(out(), /FAIL {2}a deterministic-board-\* run on grocery-conversations/);
+  logged = [];
+  v.RESULTS.length = 0;
+  const quick = await run(world, ["--quick"]);
+  assert.equal(quick.code, 0, out());
+  assert.match(out(), /Scope: quick prep/);
+  assert.match(out(), /WARN {2}a deterministic-board-\* run/);
+});
+
+test("a dataset run missing an item, or with no scores, is NOT READY", async () => {
+  const partial = readyWorld();
+  partial.experimentItems = partial.experimentItems.slice(1);
+  assert.equal((await run(partial)).code, 1);
+  assert.match(out(), /FAIL {2}newest run deterministic-board-2026-11-27: 4\/5 conversation items/);
+  logged = [];
+  const unscored = readyWorld();
+  unscored.experimentItems = unscored.experimentItems.map((i) => ({ ...i, scores: [] }));
+  assert.equal((await run(unscored)).code, 1);
+  assert.match(out(), /FAIL {2}newest run [^\n]*, 0 score\(s\)/);
+});
+
+test("an archived-only dataset is NOT READY", async () => {
+  const { code } = await run(readyWorld({ datasetItems: ITEMS.map((i) => ({ ...i, status: "ARCHIVED" })) }));
+  assert.equal(code, 1);
+  assert.match(out(), /FAIL {2}dataset grocery-conversations: 0\/5 conversation items active/);
+});
+
+test("a missing dataset names the seed command, and Act 3 then has no run", async () => {
+  const fake = fakeLangfuse(routes(readyWorld()), { fail: { [`/api/public/v2/datasets/${v.DATASET_NAME}`]: 404 } });
+  const code = await v.main([], { fetchImpl: fake.fetch, env: {}, demoDir: demoDir(), now: NOW, nodeVersion: "22.0.0" });
+  assert.equal(code, 1);
+  assert.match(out(), /FAIL {2}dataset grocery-conversations not found {2}->  run npm run seed:dataset/);
+  assert.match(out(), /FAIL {2}a deterministic-board-\* run on grocery-conversations/);
+});
+
+test("empty cursor pages are followed, not taken for the end", async () => {
+  const { code, fake } = await run(readyWorld(), [], { emptyPagesFirst: 2, pageSize: 1 });
+  assert.equal(code, 0, out());
+  assert.ok(fake.seen.some((p) => p.includes("cursor=e1")) && fake.seen.some((p) => p.includes("cursor=c0")));
+});
+
+test("a repeated cursor is a failed read, not an endless loop", async () => {
+  const { code } = await run(readyWorld(), [], { repeatCursor: true });
+  assert.equal(code, 1);
+  assert.match(out(), /read failed: [^\n]*returned cursor same twice/);
+});
+
+test("a missing comparison run is NOT READY", async () => {
+  const { code } = await run(readyWorld({ roots: [] }));
+  assert.equal(code, 1);
+  assert.match(out(), /FAIL {2}a 'cmp-good-\*' session/);
+  assert.match(out(), /FAIL {2}a compare:broken run/);
+  assert.match(out(), /WARN {2}a 'cmp-collapsed-\*' session/);
 });
 
 test("a broken run that records inputs fails: Act 1 would have nothing to show", async () => {
-  const routes = readyRoutes();
-  const obs = routes["/api/public/v2/observations"]!;
-  routes["/api/public/v2/observations"] = (url) =>
-    url.searchParams.get("traceId")?.startsWith("b") ? { data: [{ type: "GENERATION", input: '{"messages":[]}' }], meta: {} } : obs(url);
-  const code = await v.main([], { fetchImpl: fakeFetch(routes), env: {}, demoDir: demoDir(), now: NOW, nodeVersion: "22.0.0" });
-  assert.equal(code, 1);
-  assert.match(logged.join("\n"), /FAIL {2}its latest turn has 1 generation\(s\), 0 with null input/);
+  const world = readyWorld();
+  const good = world.traceObs;
+  world.traceObs = (id) => (id.startsWith("b") ? [{ id: "gen", traceId: id, type: "GENERATION", input: '{"messages":[]}' }] : good(id));
+  assert.equal((await run(world)).code, 1);
+  assert.match(out(), /FAIL {2}its latest turn has 1 generation\(s\), 0 with null input/);
 });
 
-test("keys for another project stop the run before any data read", async () => {
-  const seen: string[] = [];
-  const routes = readyRoutes({ "/api/public/projects": () => ({ data: [{ id: "p2", name: "real-estate" }] }) });
-  const code = await v.main([], { fetchImpl: fakeFetch(routes, seen), env: {}, demoDir: demoDir(), now: NOW, nodeVersion: "22.0.0" });
-  assert.equal(code, 1);
-  assert.match(logged.join("\n"), /FAIL {2}keys map to project 'real-estate' \(want 'grocery-assistant'\)/);
-  assert.ok(!seen.some((p) => p.includes("observations")));
+test("keys for another project, or for no project, stop before any data read", async () => {
+  for (const projects of [[{ id: "p2", name: "real-estate" }], []]) {
+    logged = [];
+    v.RESULTS.length = 0;
+    const { code, fake } = await run(readyWorld({ projects }));
+    assert.equal(code, 1);
+    assert.match(out(), /FAIL {2}keys map to project '(real-estate|\(none\))' \(want 'grocery-assistant'\)/);
+    assert.ok(!fake.seen.some((p) => p.includes("observations") || p.includes("dataset")));
+  }
 });
 
-test("a 3.x server reads v1 observations and dataset runs, never /traces", async () => {
-  const seen: string[] = [];
-  const routes: Record<string, Route> = {
-    ...readyRoutes(),
-    "/api/public/health": () => ({ version: "3.221.1" }),
-    "/api/public/observations": (url) => {
-      const traceId = url.searchParams.get("traceId");
-      if (traceId === "g1") return { data: [{ type: "SPAN" }, { type: "GENERATION", input: { a: 1 } }], meta: { totalPages: 1 } };
-      if (traceId === "b1") return { data: [{ type: "GENERATION", input: null }], meta: { totalPages: 1 } };
-      return {
-        data: [
-          { traceId: "g1", name: v.TRACE_NAME, parentObservationId: null, startTime: hoursAgo(1), metadata: { attributes: { "session.id": "cmp-good-7" } } },
-          { traceId: "b1", name: "chat: hi", parentObservationId: null, startTime: hoursAgo(1.1) },
-        ],
-        meta: { totalPages: 1 },
-      };
-    },
-    [`/api/public/datasets/${v.DATASET_NAME}/runs`]: () => ({ data: [{ name: "deterministic-board-x" }], meta: { totalPages: 1 } }),
-    "/api/public/v3/scores": () => ({ data: [], meta: {} }),
-  };
-  delete routes["/api/public/v2/observations"];
-  const code = await v.main([], { fetchImpl: fakeFetch(routes, seen), env: {}, demoDir: demoDir(), now: NOW, nodeVersion: "22.0.0" });
-  const out = logged.join("\n");
-  assert.equal(code, 0, out);
-  assert.match(out, /reading Observations v1/);
-  assert.match(out, /WARN {2}conversation-cart-integrity on session cmp-good-7/);
-  assert.ok(seen.every((p) => !p.startsWith("/api/public/traces")), "no legacy trace endpoints");
-  assert.ok(!seen.some((p) => p.startsWith("/api/public/v2/observations")));
+test("a failed health read warns and reads Observations v2", async () => {
+  const { code } = await run(readyWorld(), [], { fail: { "/api/public/health": 503 } });
+  assert.equal(code, 0, out());
+  assert.match(out(), /WARN {2}server version unknown \(HTTP 503/);
 });
 
-test("no .env and an old Node each fail with a fix", async () => {
-  const dir = demoDir("");
-  const code = await v.main([], { fetchImpl: fakeFetch({}), env: { LANGFUSE_PUBLIC_KEY: "pk-shell" }, demoDir: dir, now: NOW, nodeVersion: "20.9.0" });
-  const out = logged.join("\n");
+// ------------------------------------------------------ full runs: 3.x ---
+test("a 3.x server reads v1 observations and dataset runs, never /traces or v2", async () => {
+  const world = readyWorld({ version: "3.221.1", scores: [] });
+  const { code, fake } = await run(world);
+  assert.equal(code, 0, out());
+  assert.deepEqual(fake.rejected, []);
+  assert.match(out(), /reading Observations v1/);
+  assert.match(out(), /PASS {2}newest run deterministic-board-x: 5\/5 conversation items \(scores not read on a 3\.x server\)/);
+  assert.match(out(), /WARN {2}conversation-cart-integrity on session cmp-good-1: 0 score\(s\)/);
+  assert.ok(fake.seen.every((p) => !p.startsWith("/api/public/traces")));
+  assert.ok(!fake.seen.some((p) => p.startsWith("/api/public/v2/observations") || p.startsWith("/api/public/experiments")));
+});
+
+// ------------------------------------------------------- config failures ---
+test("a partial .env with hostile shell exports fails before any API call", async () => {
+  const fake = fakeLangfuse(routes(readyWorld()));
+  const env: NodeJS.ProcessEnv = { LANGFUSE_SECRET_KEY: "sk-shell", LANGFUSE_BASE_URL: "https://shell.example" };
+  const code = await v.main([], { fetchImpl: fake.fetch, env, demoDir: demoDir("LANGFUSE_PUBLIC_KEY=pk-file\n"), now: NOW, nodeVersion: "22.0.0" });
   assert.equal(code, 1);
-  assert.match(out, /FAIL {2}env loaded from .*->  run \.\/scripts\/provision-project\.sh, or cp \.env\.example \.env/);
-  assert.match(out, /FAIL {2}LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY set/);
-  assert.match(out, /FAIL {2}Node 20\.9\.0 \(want 22\+\)/);
+  assert.match(out(), /FAIL {2}LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY set/);
+  assert.deepEqual(fake.seen, []);
+});
+
+test("no .env and an old Node each fail with a fix, and nothing is read", async () => {
+  const fake = fakeLangfuse(routes(readyWorld()));
+  const code = await v.main([], {
+    fetchImpl: fake.fetch, env: { LANGFUSE_PUBLIC_KEY: "pk-shell", LANGFUSE_SECRET_KEY: "sk-shell" },
+    demoDir: demoDir(""), now: NOW, nodeVersion: "20.9.0",
+  });
+  assert.equal(code, 1);
+  assert.match(out(), /FAIL {2}env loaded from .*->  run \.\/scripts\/provision-project\.sh, or cp \.env\.example \.env/);
+  assert.match(out(), /FAIL {2}Node 20\.9\.0 \(want 22\+\)/);
+  assert.deepEqual(fake.seen, []);
+});
+
+test("an unknown option exits 2 with the usage", async () => {
+  assert.equal(await v.main(["--linkz"], { env: {}, demoDir: demoDir() }), 2);
+  assert.match(out(), /unknown option\(s\): --linkz/);
 });
