@@ -12,13 +12,15 @@
 # Mechanism mirrors scripts/seed-llm-judge-evaluators.sh: Postgres upsert into
 # job_configurations (schema-coupled to the langfuse:3 image). time_scope=NEW so
 # only NEW traces are scored — regenerate agentic-rag traffic to see them.
-# Idempotent. Self-hosted only (prints UI guidance in cloud mode).
+# Idempotent. Self-hosted only (prints UI guidance in cloud mode). Exits 1 when a judge
+# could not be seeded or has no default eval model to run on, after seeding the rest.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; cd "$SCRIPT_DIR/.."
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 ok(){ echo -e "  ${GREEN}✓${NC} $1"; }; warn(){ echo -e "  ${YELLOW}⚠${NC} $1"; }; fail(){ echo -e "  ${RED}✗${NC} $1"; exit 1; }
 [ -f .env ] && set -a && source .env && set +a
 
+PROBLEMS=0
 PG="${LANGFUSE_POSTGRES_CONTAINER:-langfuse-postgres}"
 REDIS="${LANGFUSE_REDIS_CONTAINER:-langfuse-redis}"
 EVAL_MODEL="${LANGFUSE_EVAL_MODEL:-claude-haiku-4-5-20251001}"
@@ -52,6 +54,7 @@ if [ "$(echo "SELECT count(*) FROM default_llm_models WHERE project_id='${PID}';
     ok "Default eval model set (${EVAL_MODEL})"
   else
     warn "No Anthropic LLM connection — run ./setup.sh first; judges stay blocked until a default eval model exists"
+    PROBLEMS=$((PROBLEMS + 1))
   fi
 else
   ok "Default eval model already configured"
@@ -70,7 +73,7 @@ FILTER='[{"type":"stringOptions","value":["GENERATION"],"column":"type","operato
 seed(){ # <config_id> <template_name> <required_var> <score_name> <mapping_json>
   local cid="$1" tname="$2" rvar="$3" sname="$4" map="$5" tid
   tid=$(tmpl "$tname" "$rvar")
-  if [ -z "$tid" ]; then warn "template '${tname}' ({${rvar}}) not found — skipped"; return; fi
+  if [ -z "$tid" ]; then warn "template '${tname}' ({${rvar}}) not found — skipped"; PROBLEMS=$((PROBLEMS + 1)); return; fi
   echo "INSERT INTO job_configurations (id, project_id, job_type, eval_template_id, score_name, filter, target_object, variable_mapping, sampling, delay, status, time_scope, created_at, updated_at)
         VALUES ('${cid}','${PID}','EVAL','${tid}','${sname}','${FILTER}'::jsonb,'event','${map}'::jsonb,1.0,0,'ACTIVE',ARRAY['NEW'],now(),now())
         ON CONFLICT (id) DO UPDATE SET eval_template_id=EXCLUDED.eval_template_id, score_name=EXCLUDED.score_name, filter=EXCLUDED.filter, variable_mapping=EXCLUDED.variable_mapping, status='ACTIVE', blocked_at=NULL, block_reason=NULL, block_message=NULL, updated_at=now();" | pg >/dev/null
@@ -95,6 +98,10 @@ if docker ps --format '{{.Names}}' | grep -q "^${REDIS}$"; then
 fi
 
 echo ""
+if [ "$PROBLEMS" -gt 0 ]; then
+  echo -e "  ${RED}✗${NC} ${PROBLEMS} problem(s) above: the agentic-rag judges are not all ready"
+  exit 1
+fi
 ok "Independent judges seeded (time_scope=NEW). Regenerate agentic-rag traffic, then compare:"
 echo "     self (in-graph)  vs  independent (managed)"
 echo "     groundedness      ↔  faithfulness"
