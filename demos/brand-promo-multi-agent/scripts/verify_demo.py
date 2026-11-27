@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 """Readiness check for brand-promo-multi-agent: reads Langfuse back and says READY or NOT READY.
 
-    uv run python scripts/verify_demo.py            # one PASS / FAIL / WARN line per check; exit 1 when a required one fails
-    uv run python scripts/verify_demo.py --links    # also print the link each act opens
+    uv run python scripts/verify_demo.py               # the full script: every act; exit 1 when a required check fails
+    uv run python scripts/verify_demo.py --links       # also print the link each act opens
+    uv run python scripts/verify_demo.py --short-path  # Acts 1-3 only: skips the Act 4-6 evidence checks
 
 An HTTP 200 proves little on its own (a trace can exist before its observations land), so
 every check counts real rows. Standard library only, so it runs in any Python 3.9+ without
 the demo's dependencies. No model calls; about twenty Langfuse reads, done in seconds.
 
 What it checks, act by act (DEMO_SCRIPT.md):
-  Act 1  synthetic fleet history (`<agent>_run` traces from generate_history.py) and the
-         three persona dashboards, which are created by hand from seed_dashboards.py's checklist
+  Act 1  synthetic fleet history (one `<agent>_run` per fleet agent in the resolved
+         demo.config.yaml, within its `synthetic_history.days_back`) and the three persona
+         dashboards, which are created by hand from seed_dashboards.py's checklist
   Act 2  a seeded `promo_planner_run` trace to open as the full multi-agent tree
   Act 3  a recent live `PromoPlanner` run with its observations
-  Act 4  the 12 production prompts, 20 score configs and the 75-item golden dataset
-  Act 5  experiment runs on the dataset (warn only)
-  Act 6  the `PromoPlanner Human Review` queue with items (warn only)
+  Act 4  the 12 production prompts, 20 score configs, 75+ ACTIVE golden-dataset items, and
+         the three online judges enabled
+  Act 5  a `baseline`-labelled experiment run on the dataset to compare the candidate with
+  Act 6  the `PromoPlanner Human Review` queue with PENDING items
+
+Every check is required for the full script. `--short-path` (Acts 1-3, the 10-12 minute
+path) skips the Act 4 judges and the Act 5 and 6 evidence, and says so in its verdict.
 
 Uses Observations API v2, Scores API v3, the experiments API and the unstable dashboards
 API, which Langfuse Cloud serves. A self-hosted v3 server answers the v2 observation reads
@@ -42,8 +48,8 @@ REPO_ROOT = DEMO_DIR.parent.parent
 # --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with the seeders named below.
 TRACE_NAME = "PromoPlanner"                     # live runs: langfuse_trace_name from scripts/run_live_demo.py
 HERO_HISTORY_TRACE = "promo_planner_run"        # seeded hero traces: src/synthetic/trace_generator.py
-FLEET_AGENTS = ["CustomerCareBot", "SupplyChainPlanner", "ShelfImageAnalyzer",
-                "InternalKBSearch", "FinanceCloseBot"]  # agent_fleet.other_agents; traces are `<name lower>_run`
+# The fleet and the history window come from the same config the generator reads:
+# demo.config.yaml, else demo.config.example.yaml (src/config.py load_config).
 EXPECTED_PROMPTS = {name: "production" for name in [  # scripts/seed_prompts.py PROMPT_REGISTRY
     "promo-planner/orchestrator/system",
     "promo-planner/orchestrator/classify-intent",
@@ -68,21 +74,25 @@ EXPECTED_SCORE_CONFIGS = [                      # scripts/setup_score_configs.py
 DATASET_NAME = "promo-planner-golden-v1"        # scripts/seed_dataset.py, scripts/run_experiment.py
 DATASET_MIN_ITEMS = 75                          # 25 hand-authored + 50 slot-generated
 QUEUE_NAME = "PromoPlanner Human Review"        # scripts/seed_annotation_queue.py, run_experiment.py
+JUDGE_RULES = ["tool-call-correctness", "response-factuality",
+               "compliance-adherence"]          # scripts/seed_evaluators.py EVALUATORS, created in the UI
+BASELINE_LABEL = "baseline"                     # run_experiment.py's default --label, stored in run metadata
 DASHBOARDS = ["Executive - Agent Fleet", "Ops - Agent Health",
               "Engineer - PromoPlanner Deep Dive"]  # scripts/seed_dashboards.py DASHBOARDS
 EXPECTED_SCORES: List[str] = []                 # online judges sample 10% of runs, so no score is required per run
 MIN_OBSERVATIONS = 3                            # root chain, classify_intent and its generation, at the least
 MIN_GENERATIONS = 3                             # a full plan run: orchestrator calls plus the crews' own LLM calls
 LOOKBACK_DAYS = 7                               # how far back to look for a live run
-HISTORY_DAYS = 30                               # synthetic_history.days_back in demo.config.example.yaml
 FRESH_HOURS = 24                                # older than this only warns: re-run the day before
 EXPERIMENTS_SINCE = "2026-01-01T00:00:00Z"      # the experiments API needs a start-time lower bound
 SERVICES: List[Tuple[str, str]] = []            # no local services: the demo is a CLI against Langfuse
 SEED_CMD = "uv run scripts/seed_all.py"
 HISTORY_CMD = "uv run scripts/generate_history.py"
+QUEUE_CMD = "uv run scripts/seed_annotation_queue.py"
 RUN_CMD = "uv run scripts/run_live_demo.py play-all"
 EXPERIMENT_CMD = "uv run python scripts/run_experiment.py --run-name rehearsal --sample 10 --evaluators deterministic"
 TIMEOUT_S = 10
+MAX_PAGES = 20
 
 RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required, what)
 
@@ -260,17 +270,61 @@ class Langfuse:
         """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
         is still returned, so stop on a missing cursor, not on an empty page."""
         out: List[dict] = []
-        cur = None
+        cur, seen = None, set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
             out += d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+            if cur in seen:  # a server that repeats a cursor would otherwise loop to max_pages
+                raise ApiError(None, f"{path}: the server repeated a cursor")
+            seen.add(cur)
+        raise ApiError(None, f"{path}: more than {max_pages} pages")
 
 
 # --- Demo-specific reads -------------------------------------------------------------------
+
+def demo_config_path() -> Path:
+    """The config the app and generator load: demo.config.yaml, else the committed example."""
+    own = DEMO_DIR / "demo.config.yaml"
+    return own if own.is_file() else DEMO_DIR / "demo.config.example.yaml"
+
+
+def fleet_agents(config_text: str) -> List[str]:
+    """`agent_fleet.other_agents[].name` from demo.config.yaml, without PyYAML.
+
+    Reads the block form the config uses (`- name: "X"` items under `other_agents:`).
+    tests/test_verify_demo.py checks the result against src.config.load_config().
+    """
+    names: List[str] = []
+    in_fleet = in_others = False
+    others_indent = 0
+    for raw in config_text.splitlines():
+        line = _strip_comment(raw)
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            in_fleet, in_others = line.startswith("agent_fleet:"), False
+            continue
+        if not in_fleet:
+            continue
+        if re.match(r"\s*other_agents:\s*$", line):
+            in_others, others_indent = True, indent
+            continue
+        if in_others and indent <= others_indent and not line.lstrip().startswith("-"):
+            in_others = False
+        m = re.match(r"\s*-\s*name:\s*(.+)$", line)
+        if in_others and m:
+            names.append(_unquote(m.group(1).strip()))
+    return names
+
+
+def history_trace_names(agents: List[str]) -> List[str]:
+    """The trace names generate_history.py gives fleet agents: `<name lower>_run`."""
+    return [f"{a.lower()}_run" for a in agents]
+
 
 def expected_project(manifest: str, environ: Optional[MutableMapping[str, str]] = None) -> Optional[str]:
     """The project the keys must map to: DEMO_LANGFUSE_PROJECT, else `langfuse.project_name`
@@ -298,21 +352,22 @@ def obs_filter(*, trace_name: Optional[str] = None, root: bool = False) -> str:
 
 
 def newest(lf: Langfuse, trace_name: str, since: datetime, now: datetime, *, root: bool) -> List[dict]:
-    """The newest observation of a trace with this name in the window, as a list of 0 or 1."""
+    """The newest observation of a trace with this name in the window, as a list of 0 or 1.
+    `basic` carries the observation name; `core` the trace id and start time."""
     return (lf.get("/api/public/v2/observations", filter=obs_filter(trace_name=trace_name, root=root),
                    fromStartTime=iso(since), toStartTime=iso(now + timedelta(minutes=5)),
                    fields="core,basic", limit=1) or {}).get("data") or []
 
 
-def paged(lf: Langfuse, path: str, params: Optional[Dict[str, Any]] = None, max_pages: int = 20) -> List[dict]:
-    """Follow page/totalPages (score configs, annotation queues and their items, dataset items)."""
+def paged(lf: Langfuse, path: str, params: Optional[Dict[str, Any]] = None, max_pages: int = MAX_PAGES) -> List[dict]:
+    """Follow page/totalPages (score configs, dashboards, queues and their items, dataset items)."""
     out: List[dict] = []
     for page in range(1, max_pages + 1):
         d = lf.get(path, **dict(params or {}, limit=100, page=page)) or {}
         out += d.get("data") or []
-        if page >= ((d.get("meta") or {}).get("totalPages") or 1):
-            break
-    return out
+        if page >= int((d.get("meta") or {}).get("totalPages") or 1):
+            return out
+    raise ApiError(None, f"{path}: more than {max_pages} pages")
 
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -362,10 +417,11 @@ def seeded_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
           f"prompts under promo-planner/ with label production"
           + (f"; missing {', '.join(missing_prompts)}" if missing_prompts else ""), hint=f"run {SEED_CMD}")
 
-    have = {c.get("name") for c in paged(lf, "/api/public/score-configs")}
+    configs = paged(lf, "/api/public/score-configs")
+    have = {c.get("name") for c in configs if not c.get("isArchived")}
     missing = [n for n in EXPECTED_SCORE_CONFIGS if n not in have]
     check(not missing, f"{len(EXPECTED_SCORE_CONFIGS) - len(missing)}/{len(EXPECTED_SCORE_CONFIGS)} score configs"
-          + (f"; missing {', '.join(missing)}" if missing else ""), hint=f"run {SEED_CMD}")
+          + (f"; missing or archived {', '.join(missing)}" if missing else ""), hint=f"run {SEED_CMD}")
 
     try:
         ds = lf.get(f"/api/public/v2/datasets/{urllib.parse.quote(DATASET_NAME, safe='')}") or {}
@@ -375,30 +431,33 @@ def seeded_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
         check(False, f"dataset {DATASET_NAME} exists", hint=f"run {SEED_CMD}")
         return
     state["dataset_id"] = ds.get("id")
-    meta = (lf.get("/api/public/dataset-items", datasetName=DATASET_NAME, limit=1) or {}).get("meta") or {}
-    n = int(meta.get("totalItems") or 0)
-    check(n >= DATASET_MIN_ITEMS, f"dataset {DATASET_NAME}: {n} items (want {DATASET_MIN_ITEMS}+)",
-          hint=f"run {SEED_CMD}")
+    items = paged(lf, "/api/public/dataset-items", {"datasetName": DATASET_NAME})
+    active = sum(1 for it in items if it.get("status") == "ACTIVE")
+    check(active >= DATASET_MIN_ITEMS,
+          f"dataset {DATASET_NAME}: {active} ACTIVE item(s) of {len(items)} (want {DATASET_MIN_ITEMS}+)",
+          hint=f"run {SEED_CMD}; it restores archived items it owns")
 
 
-def history_checks(lf: Langfuse, now: datetime, state: Dict[str, Any]) -> None:
+def history_checks(lf: Langfuse, now: datetime, state: Dict[str, Any], agents: List[str], days: int) -> None:
     """Acts 1 and 2: the synthetic fleet history and dashboards over it."""
     print("Fleet history and dashboards")
-    since = now - timedelta(days=HISTORY_DAYS)
+    since = now - timedelta(days=days)
     hero = newest(lf, HERO_HISTORY_TRACE, since, now, root=False)
     if hero:
         state["history_trace_id"] = hero[0].get("traceId")
-    check(bool(hero), f"seeded '{HERO_HISTORY_TRACE}' traces in the last {HISTORY_DAYS} days",
-          hint=f"run {HISTORY_CMD} (50k traces, several minutes, no model calls); history ages out after {HISTORY_DAYS} days")
-    found = [a for a in FLEET_AGENTS if newest(lf, f"{a.lower()}_run", since, now, root=False)]
-    check(len(found) == len(FLEET_AGENTS), f"{len(found)}/{len(FLEET_AGENTS)} fleet agents in the seeded history",
-          hint=f"run {HISTORY_CMD}")
+    check(bool(hero), f"seeded '{HERO_HISTORY_TRACE}' traces in the last {days} days",
+          hint=f"run {HISTORY_CMD} (50k traces, several minutes, no model calls); history ages out after {days} days")
+    names = history_trace_names(agents)
+    missing = [n for n in names if not newest(lf, n, since, now, root=False)]
+    check(bool(names) and not missing, f"{len(names) - len(missing)}/{len(names)} fleet agents in the seeded history"
+          + (f"; missing {', '.join(missing)}" if missing else ""),
+          hint=f"run {HISTORY_CMD} after changing agent_fleet in demo.config.yaml")
     try:
-        names = {d.get("name") for d in paged(lf, "/api/public/unstable/dashboards")}
+        dash_names = {d.get("name") for d in paged(lf, "/api/public/unstable/dashboards")}
     except ApiError as e:
-        check(False, f"dashboards readable: {e}", required=False, hint="check the three persona dashboards in the UI")
+        check(False, f"dashboards readable: {e}", hint="the three persona dashboards cannot be confirmed")
         return
-    missing = [d for d in DASHBOARDS if d not in names]
+    missing = [d for d in DASHBOARDS if d not in dash_names]
     check(not missing, f"{len(DASHBOARDS) - len(missing)}/{len(DASHBOARDS)} persona dashboards"
           + (f"; missing {', '.join(repr(m) for m in missing)}" if missing else ""),
           hint="create them in the UI from the checklist uv run scripts/seed_dashboards.py prints, named exactly")
@@ -431,38 +490,45 @@ def live_run_checks(lf: Langfuse, now: datetime, state: Dict[str, Any]) -> None:
           required=False, hint=f"run {RUN_CMD} the day before")
 
 
-def optional_act_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
-    """Acts 4 to 6 extras that only warn: online judges, experiment runs, the review queue."""
-    print("Evaluation extras (warn only)")
+def full_script_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
+    """Acts 4 to 6 evidence the full script needs: online judges, a baseline run, the queue."""
+    print("Acts 4-6")
     try:
-        rules = (lf.get("/api/public/v2/evaluation-rules", limit=50) or {}).get("data") or []
-        on = [r for r in rules if r.get("enabled")]
-        check(bool(on), f"{len(on)} enabled online evaluator rule(s)", required=False,
-              hint="create the three judges from the checklist uv run scripts/seed_evaluators.py prints")
+        rules = lf.cursor("/api/public/v2/evaluation-rules", {})
+        enabled = {r.get("name") for r in rules if r.get("enabled")}
+        missing = [n for n in JUDGE_RULES if n not in enabled]
+        check(not missing, f"{len(JUDGE_RULES) - len(missing)}/{len(JUDGE_RULES)} online judges enabled"
+              + (f"; missing or disabled {', '.join(missing)}" if missing else ""),
+              hint="create them in the UI from the checklist uv run scripts/seed_evaluators.py prints")
     except ApiError as e:
-        check(False, f"evaluator rules readable: {e}", required=False)
+        check(False, f"evaluation rules readable: {e}", hint="the online judges cannot be confirmed")
+
     if state.get("dataset_id"):
         try:
             runs = lf.cursor("/api/public/experiments", {"datasetId": state["dataset_id"],
-                                                          "fromStartTime": EXPERIMENTS_SINCE, "fields": "core"})
-            check(bool(runs), f"{len(runs)} experiment run(s) on {DATASET_NAME}", required=False,
-                  hint=f"run {EXPERIMENT_CMD} (~30 s, no judge cost)")
+                                                          "fromStartTime": EXPERIMENTS_SINCE, "fields": "core,metadata"})
+            baseline = [r for r in runs if (r.get("metadata") or {}).get("label") == BASELINE_LABEL]
+            check(bool(baseline), f"{len(baseline)} '{BASELINE_LABEL}' experiment run(s) of {len(runs)} "
+                  f"on {DATASET_NAME}", hint=f"run {EXPERIMENT_CMD} (~30 s by estimate, no judge cost)")
         except ApiError as e:
-            check(False, f"experiment runs readable: {e}", required=False)
+            check(False, f"experiment runs readable: {e}")
+    else:
+        check(False, f"a '{BASELINE_LABEL}' experiment run needs the dataset", hint=f"run {SEED_CMD}")
+
     try:
         queue = next((q for q in paged(lf, "/api/public/annotation-queues") if q.get("name") == QUEUE_NAME), None)
-        if not check(bool(queue), f"annotation queue '{QUEUE_NAME}' exists", required=False,
-                     hint="run uv run scripts/seed_annotation_queue.py, which creates it"):
+        if not check(bool(queue), f"annotation queue '{QUEUE_NAME}' exists", hint=f"run {QUEUE_CMD}, which creates it"):
             return
         state["queue_id"] = queue["id"]
-        items = paged(lf, f"/api/public/annotation-queues/{queue['id']}/items")
-        check(bool(items), f"annotation queue has {len(items)} item(s)", required=False,
-              hint=f"run {EXPERIMENT_CMD} --queue-failures (routes low scorers in)")
+        pending = paged(lf, f"/api/public/annotation-queues/{queue['id']}/items", {"status": "PENDING"})
+        check(bool(pending), f"annotation queue has {len(pending)} PENDING item(s)",
+              hint=f"run {QUEUE_CMD}, or {EXPERIMENT_CMD} --queue-failures")
     except ApiError as e:
-        check(False, f"annotation queues readable: {e}", required=False)
+        check(False, f"annotation queues readable: {e}")
 
 
-def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, Any]:
+def langfuse_checks(lf: Langfuse, expected_project: Optional[str], agents: List[str], days: int,
+                    short_path: bool = False) -> Dict[str, Any]:
     state: Dict[str, Any] = {}
     print("Langfuse")
     try:
@@ -481,9 +547,12 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
     now = datetime.now(timezone.utc)
     try:
         seeded_checks(lf, state)
-        history_checks(lf, now, state)
+        history_checks(lf, now, state, agents, days)
         live_run_checks(lf, now, state)
-        optional_act_checks(lf, state)
+        if short_path:
+            print("Acts 4-6\n  SKIP  online judges, baseline experiment run, review queue (--short-path)")
+        else:
+            full_script_checks(lf, state)
     except ApiError as e:
         check(False, f"Langfuse read failed: {e}",
               hint="a 404 on /api/public/v2/observations means a self-hosted v3 server: see Known limits"
@@ -494,30 +563,43 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
+    ap.add_argument("--short-path", action="store_true",
+                    help="readiness for Acts 1-3 only; skips the Act 4 judges and the Act 5-6 evidence")
     args = ap.parse_args(argv)
     del RESULTS[:]
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     path = env_file(manifest_value(manifest, "", "profile"))
-    print(f"{TRACE_NAME} readiness")
+    print(f"{TRACE_NAME} readiness" + (" (short path: Acts 1-3)" if args.short_path else " (full script)"))
     print("Config")
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
     check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
           hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
+    cfg_path = demo_config_path()
+    cfg_text = cfg_path.read_text() if cfg_path.is_file() else ""
+    agents = fleet_agents(cfg_text)
+    days_raw = manifest_value(cfg_text, "synthetic_history", "days_back") or ""
+    days = int(days_raw) if days_raw.isdigit() and int(days_raw) > 0 else 0
+    config_ok = check(bool(agents) and days > 0,
+                      f"{cfg_path.name}: {len(agents)} fleet agent(s), history window {days or '?'} days",
+                      hint="agent_fleet.other_agents and synthetic_history.days_back must be set")
     expected = expected_project(manifest)
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST set"):
+    keys_ok = check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST set")
+    if keys_ok and config_ok:
         service_checks()
         lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected)
+        state = langfuse_checks(lf, expected, agents, days, short_path=args.short_path)
         if args.links and state.get("project_id"):
             print("\nLinks")
             for label, url in act_links(lf.base, state):
                 print(f"  {label:<34} {url}")
 
     line, code = summary()
+    if args.short_path:
+        line += " for the short path (Acts 1-3)"
     print(f"\n{line}")
     return code
 

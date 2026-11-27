@@ -116,6 +116,10 @@ def test_network_failure_is_an_api_error_not_a_traceback(monkeypatch):
 
 # --- demo-specific logic -----------------------------------------------------------------
 
+EXAMPLE = (v.DEMO_DIR / "demo.config.example.yaml").read_text()
+EXAMPLE_FLEET = ["CustomerCareBot", "SupplyChainPlanner", "ShelfImageAnalyzer", "InternalKBSearch", "FinanceCloseBot"]
+
+
 def test_expected_project_prefers_env_then_overlay_then_manifest(tmp_path, monkeypatch):
     manifest = "langfuse:\n  project: brand-promo-demo\n"
     monkeypatch.setattr(v, "DEMO_DIR", tmp_path)
@@ -127,6 +131,28 @@ def test_expected_project_prefers_env_then_overlay_then_manifest(tmp_path, monke
     assert v.expected_project(manifest, {"DEMO_LANGFUSE_PROJECT": "other"}) == "other"
 
 
+def test_fleet_parse_matches_the_apps_config_loader(tmp_path):
+    """The stdlib parse gives the same fleet as src.config.load_config, for the example and a re-theme."""
+    from src.config import load_config
+
+    assert v.fleet_agents(EXAMPLE) == [a.name for a in load_config(str(v.DEMO_DIR / "demo.config.example.yaml"))
+                                       .agent_fleet.other_agents] == EXAMPLE_FLEET
+    renamed = tmp_path / "demo.config.yaml"
+    renamed.write_text(EXAMPLE.replace('name: "CustomerCareBot"', 'name: "CareDesk"  # renamed')
+                       .replace("days_back: 30", "days_back: 14"))
+    text = renamed.read_text()
+    assert v.fleet_agents(text) == [a.name for a in load_config(str(renamed)).agent_fleet.other_agents]
+    assert v.history_trace_names(v.fleet_agents(text))[0] == "caredesk_run"
+    assert v.manifest_value(text, "synthetic_history", "days_back") == "14"
+
+
+def test_demo_config_path_prefers_the_overlay(tmp_path, monkeypatch):
+    monkeypatch.setattr(v, "DEMO_DIR", tmp_path)
+    assert v.demo_config_path() == tmp_path / "demo.config.example.yaml"
+    (tmp_path / "demo.config.yaml").write_text("x: 1\n")
+    assert v.demo_config_path() == tmp_path / "demo.config.yaml"
+
+
 def test_expected_lists_match_the_seeders():
     """The names verify_demo expects are the names the seeders write."""
     text = (v.DEMO_DIR / "scripts" / "seed_prompts.py").read_text()
@@ -135,78 +161,140 @@ def test_expected_lists_match_the_seeders():
     assert sorted(v.EXPECTED_SCORE_CONFIGS) == sorted(re.findall(r'"name": "([^"]+)"', text))
     text = (v.DEMO_DIR / "scripts" / "seed_dashboards.py").read_text()
     assert all(f'"name": "{d}"' in text for d in v.DASHBOARDS)
+    text = (v.DEMO_DIR / "scripts" / "seed_evaluators.py").read_text()
+    assert all(f'"name": "{r}"' in text for r in v.JUDGE_RULES)
     text = (v.DEMO_DIR / "scripts" / "run_experiment.py").read_text()
     assert f'DATASET_NAME = "{v.DATASET_NAME}"' in text and f'REVIEW_QUEUE_NAME = "{v.QUEUE_NAME}"' in text
-    text = (v.DEMO_DIR / "demo.config.example.yaml").read_text()
-    assert all(f'name: "{a}"' in text for a in v.FLEET_AGENTS)
+    assert f'label or "{v.BASELINE_LABEL}"' in text
+    text = (v.DEMO_DIR / "scripts" / "seed_annotation_queue.py").read_text()
+    assert f'QUEUE_NAME = "{v.QUEUE_NAME}"' in text
 
 
 def test_obs_filter_puts_trace_name_and_root_in_the_filter():
     f = json.loads(v.obs_filter(trace_name="PromoPlanner", root=True))
     assert {"type": "string", "column": "traceName", "operator": "=", "value": "PromoPlanner"} in f
     assert {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True} in f
-    assert json.loads(v.obs_filter(trace_name="x")) == [
-        {"type": "string", "column": "traceName", "operator": "=", "value": "x"}]
 
 
-def test_paged_follows_total_pages():
+def test_paged_follows_total_pages_and_is_bounded():
     class Pages:
+        def __init__(self, total):
+            self.total = total
+
         def get(self, path, **params):
-            return {"data": [{"n": params["page"]}], "meta": {"totalPages": 3}}
+            return {"data": [{"n": params["page"]}], "meta": {"totalPages": self.total}}
 
-    assert [d["n"] for d in v.paged(Pages(), "/x")] == [1, 2, 3]
+    assert [d["n"] for d in v.paged(Pages(3), "/x")] == [1, 2, 3]
+    with pytest.raises(v.ApiError):
+        v.paged(Pages(10 ** 6), "/x")
 
 
-class FakeLangfuse:
-    """Answers the reads verify_demo makes, from canned rows."""
+OBS_FIELDS = {"core", "basic", "time", "io", "metadata", "model", "usage", "prompt", "metrics", "trace_context"}
+OBS_PARAMS = {"limit", "cursor", "fields", "name", "traceId", "type", "isRootObservation", "fromStartTime",
+              "toStartTime", "filter"}
+SCORE_FIELDS = {"details", "subject", "annotation"}
+EXP_FIELDS = {"core", "metadata", "scores"}
 
-    project = "unused"
+
+class FakeLangfuse(v.Langfuse):
+    """The real client with `get` answered from canned rows, so its cursor logic runs.
+    Each endpoint rejects parameters and field groups the real API rejects, and returns
+    only the field groups that were asked for."""
+
+    project = "brand-promo-demo"
+    projects = None                 # override the whole /projects list
     missing_prompt = None
-    dataset_items = 75
-    history = True
+    items = [{"status": "ACTIVE"}] * 75
+    history = set(["promo_planner_run"] + [f"{a.lower()}_run" for a in EXAMPLE_FLEET])
     dashboards = list(v.DASHBOARDS)
-    live = [{"traceId": "t1", "startTime": NOW}]
+    live = [{"id": "r1", "traceId": "t1", "startTime": NOW, "name": "PromoPlanner"}]
     observation_types = ["CHAIN", "GENERATION", "GENERATION", "GENERATION", "AGENT"]
-    queue_items = [{"id": "i1"}]
-
-    def __init__(self, base, pk, sk):
-        self.base = base
+    rules = [{"name": n, "enabled": True} for n in v.JUDGE_RULES]
+    experiments = [{"id": "e1", "name": "rehearsal", "metadata": {"label": "baseline"}}]
+    queues = [{"id": "q1", "name": v.QUEUE_NAME}]
+    queue_items = [{"id": "i1", "status": "PENDING"}]
+    fail = {}                       # path prefix -> ApiError
+    page_size = 2
 
     def get(self, path, **params):
+        for prefix, err in self.fail.items():
+            if path.startswith(prefix):
+                raise err
         if path == "/api/public/projects":
-            return {"data": [{"id": "p1", "name": self.project}]}
+            return {"data": self.projects if self.projects is not None else [{"id": "p1", "name": self.project}]}
         if path.startswith("/api/public/v2/prompts/"):
             if self.missing_prompt and path.endswith(self.missing_prompt.replace("/", "%2F")):
                 raise v.ApiError(404, "not found")
+            assert params == {"label": "production"}
             return {"version": 1}
         if path == "/api/public/score-configs":
-            return {"data": [{"name": n} for n in v.EXPECTED_SCORE_CONFIGS], "meta": {"totalPages": 1}}
+            return self._paged([{"name": n} for n in v.EXPECTED_SCORE_CONFIGS], params)
         if path.startswith("/api/public/v2/datasets/"):
             return {"id": "d1", "name": v.DATASET_NAME}
         if path == "/api/public/dataset-items":
-            return {"data": [], "meta": {"totalItems": self.dataset_items}}
+            assert params["datasetName"] == v.DATASET_NAME
+            return self._paged(list(self.items), params)
         if path == "/api/public/v2/observations":
-            assert params["fromStartTime"] and params["toStartTime"]  # every read is time-bounded
-            name = next(f["value"] for f in json.loads(params["filter"]) if f["column"] == "traceName")
-            if name == v.TRACE_NAME:
-                return {"data": self.live}
-            return {"data": [{"traceId": f"h-{name}", "startTime": NOW}] if self.history else []}
+            return self._observations(params)
         if path == "/api/public/unstable/dashboards":
-            return {"data": [{"name": n} for n in self.dashboards], "meta": {"totalPages": 1}}
+            return self._paged([{"name": n} for n in self.dashboards], params)
         if path == "/api/public/v2/evaluation-rules":
-            return {"data": [{"name": "response-factuality", "enabled": True}]}
+            return self._cursor(list(self.rules), params)
+        if path == "/api/public/experiments":
+            return self._experiments(params)
         if path == "/api/public/annotation-queues":
-            return {"data": [{"id": "q1", "name": v.QUEUE_NAME}], "meta": {"totalPages": 1}}
+            return self._paged(list(self.queues), params)
         if path == "/api/public/annotation-queues/q1/items":
-            return {"data": self.queue_items, "meta": {"totalPages": 1}}
+            rows = [i for i in self.queue_items if not params.get("status") or i["status"] == params["status"]]
+            return self._paged(rows, params)
         raise AssertionError(path)
 
-    def cursor(self, path, params, cap=1000):
-        if path == "/api/public/v2/observations":
-            return [{"id": f"o{i}", "type": t} for i, t in enumerate(self.observation_types)]
-        if path == "/api/public/experiments":
-            return [{"name": "rehearsal"}]
-        raise AssertionError(path)
+    def _paged(self, rows, params):
+        """Honours limit, capped at 50 rows so 75 dataset items still span two pages."""
+        page, size = int(params.get("page", 1)), min(int(params.get("limit", 50)), 50)
+        return {"data": rows[(page - 1) * size: page * size],
+                "meta": {"page": page, "totalPages": max(1, -(-len(rows) // size))}}
+
+    def _cursor(self, rows, params):
+        """Pages of page_size with an empty page (still carrying a cursor) between them."""
+        cur = int(params.get("cursor") or 0)
+        if cur < 0:
+            return {"data": [], "meta": {"cursor": str(-cur)}}
+        nxt = cur + self.page_size
+        return {"data": rows[cur:nxt], "meta": {"cursor": str(-nxt) if nxt < len(rows) else None}}
+
+    def _observations(self, params):
+        if set(params) - OBS_PARAMS:
+            raise v.ApiError(400, f"unknown parameters {set(params) - OBS_PARAMS}")
+        groups = set(params.get("fields", "core,basic").split(","))
+        if groups - OBS_FIELDS:
+            raise v.ApiError(400, "unknown field group")
+        assert params["fromStartTime"] and params["toStartTime"]  # every read is time-bounded
+        if "traceId" in params:
+            rows = [{"id": f"o{i}", "traceId": params["traceId"], "type": t, "name": f"n{i}", "startTime": NOW}
+                    for i, t in enumerate(self.observation_types)]
+        else:
+            name = next(f["value"] for f in json.loads(params["filter"]) if f["column"] == "traceName")
+            if name == v.TRACE_NAME:
+                rows = list(self.live)
+            else:
+                rows = [{"id": "h", "traceId": f"h-{name}", "startTime": NOW, "name": "x"}] if name in self.history else []
+        out = []
+        for r in rows:
+            o = {k: r[k] for k in ("id", "traceId", "startTime", "type") if k in r}
+            if "basic" in groups:
+                o["name"] = r["name"]
+            out.append(o)
+        return self._cursor(out, params)
+
+    def _experiments(self, params):
+        if not params.get("fromStartTime"):
+            raise v.ApiError(400, "fromStartTime is required")
+        groups = set(params.get("fields", "core").split(","))
+        if groups - EXP_FIELDS:
+            raise v.ApiError(400, "unknown field group")
+        rows = [{k: e[k] for k in e if k != "metadata" or "metadata" in groups} for e in self.experiments]
+        return self._cursor(rows, params)
 
 
 @pytest.fixture
@@ -214,72 +302,148 @@ def fake(tmp_path, monkeypatch):
     env = tmp_path / ".env"
     env.write_text('LANGFUSE_PUBLIC_KEY="pk"\nLANGFUSE_SECRET_KEY="sk"\nLANGFUSE_HOST="https://lf.example"\n')
     monkeypatch.setattr(v, "env_file", lambda profile: env)
-    monkeypatch.setenv("DEMO_LANGFUSE_PROJECT", "brand-promo-demo")
+    monkeypatch.delenv("DEMO_LANGFUSE_PROJECT", raising=False)
+    monkeypatch.setattr(v, "demo_config_path", lambda: v.DEMO_DIR / "demo.config.example.yaml")
+    monkeypatch.setattr(v, "expected_project", lambda manifest: "brand-promo-demo")
     monkeypatch.setattr(v, "Langfuse", FakeLangfuse)
-    monkeypatch.setattr(FakeLangfuse, "project", "brand-promo-demo")
+    monkeypatch.setattr(FakeLangfuse, "fail", {})
     return FakeLangfuse
 
 
+def run(argv, capsys):
+    code = v.main(argv)
+    return code, capsys.readouterr().out
+
+
 def test_ready_against_a_fake_langfuse(fake, capsys):
-    assert v.main(["--links"]) == 0
-    out = capsys.readouterr().out
-    assert "READY (" in out and "NOT READY" not in out and "WARN" not in out
+    code, out = run(["--links"], capsys)
+    assert code == 0 and "READY (" in out and "NOT READY" not in out and "WARN" not in out
     assert "https://lf.example/project/p1/traces/t1" in out
     assert "https://lf.example/project/p1/traces/h-promo_planner_run" in out
+    assert "https://lf.example/project/p1/annotation-queues/q1" in out
 
 
-def test_wrong_project_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "project", "someone-elses-project")
-    assert v.main([]) == 1
-    assert "NOT READY" in capsys.readouterr().out
+@pytest.mark.parametrize("setup, expect", [
+    (lambda f, m: m.setattr(f, "project", "someone-elses-project"), "keys map to project 'someone-elses-project'"),
+    (lambda f, m: m.setattr(f, "projects", []), "keys map to project 'None'"),
+    (lambda f, m: m.setattr(f, "missing_prompt", "promo-planner/judge/compliance-adherence"), "11/12 prompts"),
+    (lambda f, m: m.setattr(f, "items", [{"status": "ACTIVE"}] * 25), "25 ACTIVE item(s) of 25"),
+    (lambda f, m: m.setattr(f, "items", [{"status": "ARCHIVED"}] * 75), "0 ACTIVE item(s) of 75"),
+    (lambda f, m: m.setattr(f, "history", set()), "FAIL  seeded 'promo_planner_run' traces"),
+    (lambda f, m: m.setattr(f, "history", {"promo_planner_run", "customercarebot_run"}), "1/5 fleet agents"),
+    (lambda f, m: m.setattr(f, "dashboards", v.DASHBOARDS[:2]), "2/3 persona dashboards"),
+    (lambda f, m: m.setattr(f, "live", []), "FAIL  a 'PromoPlanner' run"),
+    (lambda f, m: m.setattr(f, "rules", [{"name": n, "enabled": n != "response-factuality"} for n in v.JUDGE_RULES]),
+     "2/3 online judges enabled"),
+    (lambda f, m: m.setattr(f, "experiments", []), "0 'baseline' experiment run(s) of 0"),
+    (lambda f, m: m.setattr(f, "experiments", [{"id": "e", "name": "v2", "metadata": {"label": "strategy-v2"}}]),
+     "0 'baseline' experiment run(s) of 1"),
+    (lambda f, m: m.setattr(f, "queues", []), "FAIL  annotation queue 'PromoPlanner Human Review' exists"),
+    (lambda f, m: m.setattr(f, "queue_items", [{"id": "i", "status": "COMPLETED"}]), "0 PENDING item(s)"),
+    (lambda f, m: m.setattr(f, "fail", {"/api/public/score-configs": v.ApiError(500, "boom")}), "Langfuse read failed"),
+    (lambda f, m: m.setattr(f, "fail", {"/api/public/experiments": v.ApiError(None, "timeout")}),
+     "experiment runs readable"),
+    (lambda f, m: m.setattr(f, "fail", {"/api/public/unstable/dashboards": v.ApiError(404, "nf")}),
+     "dashboards readable"),
+])
+def test_each_missing_asset_is_not_ready(fake, monkeypatch, capsys, setup, expect):
+    setup(fake, monkeypatch)
+    code, out = run([], capsys)
+    assert code == 1 and "NOT READY" in out
+    assert expect in out
 
 
-def test_missing_prompt_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "missing_prompt", "promo-planner/judge/compliance-adherence")
-    assert v.main([]) == 1
-    assert "11/12 prompts" in capsys.readouterr().out
+def test_short_path_skips_acts_4_to_6_and_says_so(fake, monkeypatch, capsys):
+    monkeypatch.setattr(fake, "experiments", [])
+    monkeypatch.setattr(fake, "queues", [])
+    monkeypatch.setattr(fake, "rules", [])
+    code, out = run(["--short-path"], capsys)
+    assert code == 0 and out.rstrip().endswith("for the short path (Acts 1-3)")
+    assert "SKIP" in out
+    code, out = run([], capsys)
+    assert code == 1  # the same project is not ready for the full script
 
 
-def test_short_dataset_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "dataset_items", 25)
-    assert v.main([]) == 1
-    assert "25 items (want 75+)" in capsys.readouterr().out
-
-
-def test_aged_out_history_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "history", False)
-    assert v.main([]) == 1
-    out = capsys.readouterr().out
-    assert "FAIL  seeded 'promo_planner_run' traces" in out and "0/5 fleet agents" in out
-
-
-def test_missing_dashboard_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "dashboards", v.DASHBOARDS[:2])
-    assert v.main([]) == 1
-    assert "2/3 persona dashboards" in capsys.readouterr().out
-
-
-def test_no_live_run_is_not_ready(fake, monkeypatch, capsys):
+def test_short_path_still_needs_acts_1_to_3(fake, monkeypatch, capsys):
     monkeypatch.setattr(fake, "live", [])
-    assert v.main([]) == 1
-    assert f"FAIL  a '{v.TRACE_NAME}' run" in capsys.readouterr().out
+    code, out = run(["--short-path"], capsys)
+    assert code == 1 and "NOT READY" in out
 
 
-def test_thin_run_and_empty_queue_only_warn(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "observation_types", ["CHAIN", "CHAIN", "GENERATION"])
-    monkeypatch.setattr(fake, "queue_items", [])
-    assert v.main([]) == 0
-    out = capsys.readouterr().out
-    assert "READY (" in out and "2 warnings" in out
+def test_renamed_fleet_is_what_verify_expects(fake, tmp_path, monkeypatch, capsys):
+    cfg = tmp_path / "demo.config.yaml"
+    cfg.write_text(EXAMPLE.replace('name: "CustomerCareBot"', 'name: "CareDesk"'))
+    monkeypatch.setattr(v, "demo_config_path", lambda: cfg)
+    code, out = run([], capsys)  # the fake's history still has customercarebot_run, not caredesk_run
+    assert code == 1 and "missing caredesk_run" in out
+    monkeypatch.setattr(fake, "history", fake.history | {"caredesk_run"})
+    code, out = run([], capsys)
+    assert code == 0
 
 
-def test_no_keys_is_not_ready_without_any_request(tmp_path, monkeypatch, capsys):
-    empty = tmp_path / ".env"
-    empty.write_text("# nothing yet\n")
-    monkeypatch.setattr(v, "env_file", lambda profile: empty)
+def test_config_without_a_fleet_fails_before_any_request(fake, tmp_path, monkeypatch, capsys):
+    cfg = tmp_path / "demo.config.yaml"
+    cfg.write_text("customer:\n  display_name: x\n")
+    monkeypatch.setattr(v, "demo_config_path", lambda: cfg)
     monkeypatch.setattr(v, "Langfuse", None)  # any request would raise
-    assert v.main([]) == 1
-    assert "NOT READY" in capsys.readouterr().out
+    code, out = run([], capsys)
+    assert code == 1 and "0 fleet agent(s)" in out
+
+
+def test_thin_run_only_warns(fake, monkeypatch, capsys):
+    monkeypatch.setattr(fake, "observation_types", ["CHAIN", "CHAIN", "GENERATION"])
+    code, out = run([], capsys)
+    assert code == 0 and "1 warning" in out
+
+
+def test_repeated_cursor_is_a_failure_not_a_hang(fake, monkeypatch, capsys):
+    def loop(self, rows, params):
+        return {"data": [], "meta": {"cursor": "same"}}
+
+    monkeypatch.setattr(fake, "_cursor", loop)
+    code, out = run([], capsys)
+    assert code == 1 and "repeated a cursor" in out
+
+
+def test_missing_env_with_hostile_shell_exports_is_not_ready_without_a_request(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-other")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-other")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://other.example")
+    monkeypatch.setattr(v, "env_file", lambda profile: tmp_path / "missing.env")
+    monkeypatch.setattr(v, "Langfuse", None)
+    code, out = run([], capsys)
+    assert code == 1 and "FAIL  env loaded" in out and "NOT READY" in out
+
+
+def test_partial_env_is_not_ready_without_a_request(tmp_path, monkeypatch, capsys):
+    env = tmp_path / ".env"
+    env.write_text('LANGFUSE_PUBLIC_KEY="pk"\nLANGFUSE_SECRET_KEY="sk"\n')  # no host
+    monkeypatch.setenv("LANGFUSE_HOST", "https://shell.example")
+    monkeypatch.setattr(v, "env_file", lambda profile: env)
+    monkeypatch.setattr(v, "Langfuse", None)
+    code, out = run([], capsys)
+    assert code == 1 and "FAIL  LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST set" in out
+
+
+def test_request_builds_query_strings(monkeypatch):
+    seen = {}
+
+    class Resp:
+        def read(self):
+            return b'{"data": []}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(v.urllib.request, "urlopen", lambda req, timeout: seen.update(url=req.full_url) or Resp())
+    v.Langfuse("https://lf.example/", "pk", "sk").get("/api/public/v2/observations", isRootObservation=True,
+                                                         filter=v.obs_filter(trace_name="PromoPlanner"), cursor=None)
+    assert seen["url"].startswith("https://lf.example/api/public/v2/observations?")
+    assert "isRootObservation=true" in seen["url"] and "cursor=" not in seen["url"]
+    assert "%22traceName%22" in seen["url"]
 
 
 def test_links_cover_every_act():
