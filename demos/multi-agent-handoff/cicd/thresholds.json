@@ -1,0 +1,22 @@
+{
+  "_doc": "Release gate for the agents' prompts (scripts/prompt_gate.py). Runs handoff-routing on the a2a topology with the label under review. HARD metrics are deterministic: routing and trajectory from the run record, outcomes from the back-office ledger against the credit oracle; a miss blocks the release. SOFT metrics warn. A missing metric fails. 'compare' (with --compare production) bounds how far a metric may fall below the production label in the same gate run. Thresholds sit below the production baseline (SPEC §9: routing 0.97, context 0.97, resolution 1.00) so run-to-run noise does not fail a good prompt.",
+  "dataset": "handoff-routing",
+  "topology": "a2a",
+  "hard": {
+    "routing-accuracy": {"min": 0.9},
+    "loop-rate": {"max": 0.0},
+    "resolution-rate": {"min": 0.9},
+    "credit-accuracy": {"min": 0.9},
+    "outage-verified-rate": {"min": 0.95},
+    "context-complete-rate": {"min": 0.9}
+  },
+  "soft": {
+    "path-match-rate": {"min": 0.85},
+    "mean-handoffs": {"max": 1.5},
+    "p95-latency-s": {"max": 30}
+  },
+  "compare": {
+    "routing-accuracy": 0.05,
+    "resolution-rate": 0.05
+  }
+}
