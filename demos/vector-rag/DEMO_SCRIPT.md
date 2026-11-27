@@ -303,9 +303,9 @@ with propagate_attributes(trace_name="vector-rag", tags=["vector-rag", "demo"]):
 LANGFUSE_ENABLED = bool(PUBLIC_KEY and SECRET_KEY)   # no keys → app runs untraced
 ```
 
-**7 · Readiness reads real rows — `scripts/verify_demo.py:328`**
+**7 · Readiness reads real rows — `scripts/verify_demo.py:331`**
 ```python
-roots = lf.get("/api/public/v2/observations", filter=trace_name_filter(...))  # newest vector-rag root
+roots = lf.cursor("/api/public/v2/observations", {..., "filter": trace_name_filter(...)}, cap=1)  # newest vector-rag root
 # 404 on the stack's v3 server → v1 observations: the newest generation linked to the prompt
 ```
 *Why it matters:* "ready" means the prompt `production` serves matches the seeded

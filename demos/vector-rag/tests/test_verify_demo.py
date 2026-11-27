@@ -140,12 +140,15 @@ def test_constants_match_the_app_and_its_seeders():
         assert f'name: "{name}"' in ts, name
 
 
-def test_trace_name_filter_carries_the_trace_name_and_the_time_bound():
+def test_trace_name_filter_carries_the_trace_name_and_both_time_bounds():
     since = datetime(2026, 11, 1, tzinfo=timezone.utc)
-    f = json.loads(v.trace_name_filter(since, {"column": "type", "value": "GENERATION"}))
+    until = datetime(2026, 11, 2, tzinfo=timezone.utc)
+    f = json.loads(v.trace_name_filter(since, until, {"column": "type", "value": "GENERATION"}))
     assert f[0] == {"type": "string", "column": "traceName", "operator": "=", "value": "vector-rag"}
-    assert f[1]["column"] == "startTime" and f[1]["value"] == "2026-11-01T00:00:00Z"
-    assert f[2]["value"] == "GENERATION"
+    # a startTime condition replaces BOTH query bounds, so the filter must carry both
+    assert f[1] == {"type": "datetime", "column": "startTime", "operator": ">=", "value": "2026-11-01T00:00:00Z"}
+    assert f[2] == {"type": "datetime", "column": "startTime", "operator": "<=", "value": "2026-11-02T00:00:00Z"}
+    assert f[3]["value"] == "GENERATION"
 
 
 def test_linked_generations_keeps_only_generations_stamped_with_the_prompt():
@@ -173,7 +176,8 @@ def test_newest_ignores_api_order():
 SEED = v.seeded_definitions()[("vector-rag-generation", "production")]
 V2_GROUPS = {"core": {"id", "traceId", "startTime", "endTime", "projectId", "parentObservationId", "type"},
              "basic": {"name", "level", "statusMessage", "version", "environment", "isRootObservation"},
-             "prompt": {"promptId", "promptName", "promptVersion"}}
+             "prompt": {"promptId", "promptName", "promptVersion"},
+             "trace_context": {"traceName", "tags", "release"}}
 V2_PARAMS = {"fields", "limit", "cursor", "filter", "fromStartTime", "toStartTime", "traceId", "type",
              "name", "parentObservationId", "level", "environment", "version", "userId", "expandMetadata"}
 V1_PARAMS = {"page", "limit", "name", "userId", "type", "traceId", "level", "parentObservationId",
@@ -185,15 +189,37 @@ def recent(minutes=10):
     return v.iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
 
 
-def obs_rows(trace="t1", linked=True, start=None):
+def obs_rows(trace="t1", linked=True, start=None, trace_name="vector-rag"):
     start = start or recent()
     return [
-        {"id": "root", "traceId": trace, "type": "CHAIN", "name": "RunnableSequence", "startTime": start,
-         "parentObservationId": None, "isRootObservation": True, "promptName": None},
-        {"id": "gen", "traceId": trace, "type": "GENERATION", "name": "ChatAnthropic", "startTime": start,
-         "parentObservationId": "root", "isRootObservation": False,
+        {"id": f"{trace}-root", "traceId": trace, "type": "CHAIN", "name": "RunnableSequence", "startTime": start,
+         "parentObservationId": None, "isRootObservation": True, "promptName": None, "traceName": trace_name},
+        {"id": f"{trace}-gen", "traceId": trace, "type": "GENERATION", "name": "ChatAnthropic", "startTime": start,
+         "parentObservationId": f"{trace}-root", "isRootObservation": False, "traceName": trace_name,
          "promptName": "vector-rag-generation" if linked else None, "promptVersion": 3 if linked else None},
     ]
+
+
+def matches(o, cond):
+    """One structured filter condition, as the server evaluates it."""
+    value = o.get(cond["column"])
+    if cond["type"] == "datetime":
+        if value is None:
+            return False
+        a, b = v.parse_time(value), v.parse_time(cond["value"])
+        return {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[cond["operator"]]
+    assert cond["operator"] == "=", cond
+    return value == cond["value"]
+
+
+def in_window(o, q, conditions, whole_filter_replaces):
+    """The time bounds the server applies. v2 (published contract): a structured startTime
+    condition replaces BOTH fromStartTime and toStartTime; other fields' query bounds still
+    apply. Older v1: any filter replaces every query-parameter filter."""
+    if conditions and (whole_filter_replaces or any(c["column"] == "startTime" for c in conditions)):
+        return True  # the query bounds are replaced; the filter's own conditions decide
+    t = v.parse_time(o["startTime"])
+    return v.parse_time(q["fromStartTime"]) <= t <= v.parse_time(q["toStartTime"])
 
 
 class _Resp(io.BytesIO):
@@ -214,6 +240,9 @@ class FakeServer:
         self.scores = list(v.EXPECTED_SCORES)
         self.v2 = True           # False: a self-hosted v3 server, which 404s Observations v2
         self.fail = {}           # path -> HTTP status
+        self.empty_root_pages = 0   # empty v2 pages, each with a cursor, before the roots
+        self.empty_trace_pages = 1  # the same for the per-trace read
+        self.repeat_cursor = False  # True: every empty page returns the same cursor
         self.calls = []
 
     def __call__(self, req, timeout=None):
@@ -247,30 +276,33 @@ class FakeServer:
             assert set(q) <= V2_PARAMS, set(q) - V2_PARAMS
             assert q.get("fromStartTime") and q.get("toStartTime")
             assert "traceName" not in q  # not a query parameter: must go in `filter`
-            rows = self.observations
-            if "traceId" in q:
-                rows = [o for o in rows if o["traceId"] == q["traceId"]]
-            if "filter" in q:
-                f = json.loads(q["filter"])
-                assert {"column": "traceName", "operator": "=", "value": "vector-rag", "type": "string"} in f
-                if any(c["column"] == "isRootObservation" for c in f):
-                    rows = [o for o in rows if o["isRootObservation"]]
+            conditions = json.loads(q["filter"]) if "filter" in q else []
+            rows = [o for o in self.observations
+                    if ("traceId" not in q or o["traceId"] == q["traceId"])
+                    and in_window(o, q, conditions, whole_filter_replaces=False)
+                    and all(matches(o, c) for c in conditions)]
+            rows.sort(key=lambda o: v.parse_time(o["startTime"]), reverse=True)  # newest first
             keep = set().union(*(V2_GROUPS[g] for g in q.get("fields", "core,basic").split(",")))
             rows = [{k: o[k] for k in o if k in keep} for o in rows]
-            # cursor paging, with an empty page before the data when a cursor is followed
-            if "traceId" in q and q.get("cursor") is None:
-                return {"data": [], "meta": {"cursor": "c1"}}
+            # cursor paging, with empty pages before the data while a cursor is followed
+            empty = self.empty_trace_pages if "traceId" in q else self.empty_root_pages
+            n = int(q["cursor"][1:]) if q.get("cursor") else 0
+            if n < empty:
+                return {"data": [], "meta": {"cursor": "c1" if self.repeat_cursor else f"c{n + 1}"}}
             return {"data": rows[: int(q["limit"])], "meta": {}}
         if path == "/api/public/observations":
             assert not self.v2
             assert set(q) <= V1_PARAMS, set(q) - V1_PARAMS
-            rows = self.observations  # v1 returns every field, and no traceName or root flag
-            rows = [{k: val for k, val in o.items() if k != "isRootObservation"} for o in rows]
-            if "traceId" in q:
-                rows = [o for o in rows if o["traceId"] == q["traceId"]]
-            else:
+            # v1 returns every field, and no traceName or root flag
+            if "traceId" not in q:
                 assert q["type"] == "GENERATION" and q["fromStartTime"]
-                rows = [o for o in rows if o["type"] == "GENERATION"]
+            conditions = [c for c in json.loads(q.get("filter", "[]")) if c["column"] != "traceName"]
+            rows = [o for o in self.observations
+                    if ("traceId" not in q or o["traceId"] == q["traceId"])
+                    and ("type" not in q or "filter" in q or o["type"] == q["type"])
+                    and ("traceId" in q or in_window(o, q, conditions, whole_filter_replaces=True))
+                    and all(matches(o, c) for c in conditions)]
+            rows = [{k: val for k, val in o.items() if k not in ("isRootObservation", "traceName")} for o in rows]
             return {"data": rows, "meta": {"page": int(q["page"]), "totalPages": 1}}
         if path == "/api/public/v3/scores":
             assert set(q) <= SCORE_PARAMS, set(q) - SCORE_PARAMS
@@ -446,6 +478,74 @@ def test_broken_helper_fails_the_prompt_check(server, monkeypatch, capsys):
     monkeypatch.setattr(v, "seeded_definitions", lambda: (_ for _ in ()).throw(FileNotFoundError("gone")))
     code, out = run(capsys)
     assert code == 1 and "FAIL  read the seeded definitions" in out
+
+
+# --- Root discovery and time bounds, through main() -----------------------------------------
+
+def root_requests(server):
+    return [q for path, q in server.calls
+            if path == "/api/public/v2/observations" and "traceId" not in q]
+
+
+def test_root_discovery_follows_the_cursor_through_empty_pages(server, capsys):
+    server.empty_root_pages = 3  # three empty pages, each with a cursor, before the root
+    code, out = run(capsys, "--links")
+    assert code == 0, out
+    assert "https://lf.example/project/p1/traces/t1" in out
+    assert [q.get("cursor") for q in root_requests(server)] == [None, "c1", "c2", "c3"]
+
+
+def test_repeated_root_cursor_is_not_ready_not_a_loop(server, capsys):
+    server.empty_root_pages, server.repeat_cursor = 5, True
+    code, out = run(capsys)
+    assert code == 1 and "returned the same cursor twice" in out and "NOT READY" in out
+    assert len(root_requests(server)) == 2
+
+
+def test_root_discovery_is_bounded(server, capsys):
+    server.empty_root_pages = 1000  # a cursor forever, never a root
+    code, out = run(capsys)
+    assert code == 1 and f"FAIL  a '{v.TRACE_NAME}' run in the last" in out
+    assert len(root_requests(server)) == 20  # Langfuse.cursor's max_pages
+
+
+@pytest.mark.parametrize("api", ["v2", "v1"])
+def test_a_trace_stamped_after_the_upper_bound_is_never_chosen(server, capsys, api):
+    server.v2 = api == "v2"
+    future = v.iso(datetime.now(timezone.utc) + timedelta(hours=2))  # beyond until = now + 5 min
+    server.observations = obs_rows("t-future", start=future) + obs_rows("t1")
+    code, out = run(capsys, "--links")
+    assert code == 0, out
+    assert "/traces/t1" in out and "t-future" not in out
+    assert f"read with observations {api}" in out
+
+
+def test_a_trace_from_another_app_is_never_chosen(server, capsys):
+    server.observations = obs_rows("t-other", trace_name="text-to-sql") + obs_rows("t1", start=recent(30))
+    code, out = run(capsys, "--links")
+    assert code == 0, out
+    assert "/traces/t1" in out and "t-other" not in out
+
+
+def test_the_fake_applies_the_published_time_bound_precedence(server):
+    """The fake is only a fair test if it models the contract: a startTime condition in
+    `filter` replaces both query bounds, so a lower bound alone lets a future trace through."""
+    lf = v.Langfuse("https://lf.example", "pk", "sk")
+    now = datetime.now(timezone.utc)
+    future = v.iso(now + timedelta(hours=2))
+    server.observations = obs_rows("t-future", start=future)
+    server.empty_root_pages = 0
+    lower_only = json.dumps([{"type": "string", "column": "traceName", "operator": "=", "value": "vector-rag"},
+                             {"type": "datetime", "column": "startTime", "operator": ">=",
+                              "value": v.iso(now - timedelta(days=1))}])
+    window = {"fromStartTime": v.iso(now - timedelta(days=1)), "toStartTime": v.iso(now)}
+    got = lf.get("/api/public/v2/observations", fields="core", limit=10, filter=lower_only, **window)
+    assert [o["traceId"] for o in got["data"]] == ["t-future", "t-future"]  # the upper bound was dropped
+    both = v.trace_name_filter(now - timedelta(days=1), now)
+    got = lf.get("/api/public/v2/observations", fields="core", limit=10, filter=both, **window)
+    assert got["data"] == []
+    got = lf.get("/api/public/v2/observations", fields="core", limit=10, **window)  # query bounds alone
+    assert got["data"] == []
 
 
 # --- Cursor traversal ---------------------------------------------------------------------

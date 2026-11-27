@@ -182,8 +182,10 @@ They cover the corpus and its metadata, the inline fallback matching the seeded 
 text, prompt choice (managed, missing, unusable), chunking and indexing, retrieval and the
 chain plumbing, and the Langfuse on/off switch and trace naming. `verify_demo.py` runs
 against a fake Langfuse behind the real HTTP client, on both the v2 and the v1 observations
-path, with missing or partial `.env` files, hostile shell exports, drifted prompts and
-failed reads. `seed_all.py` is tested for its `.env` handling and failure propagation, once
+path, with missing or partial `.env` files, hostile shell exports, drifted prompts,
+failed reads, empty cursor pages and repeated cursors during root discovery, and a trace
+stamped after the time window (the fake applies the published rule that a `startTime`
+condition in `filter` replaces both query time bounds). `seed_all.py` is tested for its `.env` handling and failure propagation, once
 with the real root helper behind a fake Prompts API. LangChain, ChromaDB and the SDK are
 replaced by small fakes, so nothing heavier than pytest is installed. The root helper's own
 tests are in `scripts/tests/test_seed_app_prompts.py`.

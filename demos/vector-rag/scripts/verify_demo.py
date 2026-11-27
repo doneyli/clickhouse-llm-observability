@@ -290,15 +290,18 @@ def prompt_drift(served: Dict[str, Any], want: Dict[str, Any], label: str) -> Li
 
 # --- Finding the latest run -------------------------------------------------------------
 
-def trace_name_filter(since: datetime, *extra: dict) -> str:
-    """The `filter` JSON for observations of vector-rag traces since `since`.
+def trace_name_filter(since: datetime, until: datetime, *extra: dict) -> str:
+    """The `filter` JSON for observations of vector-rag traces started in [since, until].
 
     traceName is not a query parameter: passed as one it is silently ignored, so it goes
-    in the filter. A filter takes precedence over the query-parameter filters, so the time
-    bound goes in it too; callers still send fromStartTime / toStartTime for servers that
-    ignore `filter`."""
+    in the filter. Under the published Observations v2 contract a `startTime` condition in
+    the filter replaces BOTH fromStartTime and toStartTime, so a filter carrying only a lower
+    bound would drop the upper one; the filter therefore carries both bounds. Older servers
+    let any filter replace every query-parameter filter, which the two bounds also survive.
+    Callers still send fromStartTime / toStartTime for servers that ignore `filter`."""
     return json.dumps([{"type": "string", "column": "traceName", "operator": "=", "value": TRACE_NAME},
                        {"type": "datetime", "column": "startTime", "operator": ">=", "value": iso(since)},
+                       {"type": "datetime", "column": "startTime", "operator": "<=", "value": iso(until)},
                        *extra])
 
 
@@ -336,10 +339,12 @@ def latest_run(lf: "Langfuse", since: datetime, until: datetime) -> Optional[Dic
     """
     window = {"fromStartTime": iso(since), "toStartTime": iso(until)}
     try:
-        roots = (lf.get("/api/public/v2/observations", fields="core,basic", limit=1,
-                        filter=trace_name_filter(since, {"type": "boolean", "column": "isRootObservation",
-                                                  "operator": "=", "value": True}), **window)
-                 or {}).get("data") or []  # newest first
+        # Newest first. A page can be empty while a cursor is still returned, so follow the
+        # cursor (bounded, repeated-cursor safe) until the first root turns up.
+        roots = lf.cursor("/api/public/v2/observations", dict(
+            window, fields="core,basic",
+            filter=trace_name_filter(since, until, {"type": "boolean", "column": "isRootObservation",
+                                                    "operator": "=", "value": True})), cap=1)
         if not roots:
             return None
         root = roots[0]
@@ -351,7 +356,7 @@ def latest_run(lf: "Langfuse", since: datetime, until: datetime) -> Optional[Dic
         if e.status != 404:
             raise
     gens = pages_v1(lf, dict(window, type="GENERATION", filter=trace_name_filter(
-        since, {"type": "string", "column": "type", "operator": "=", "value": "GENERATION"})))
+        since, until, {"type": "string", "column": "type", "operator": "=", "value": "GENERATION"})))
     gen = newest(linked_generations(gens))
     if gen is None:
         return None
