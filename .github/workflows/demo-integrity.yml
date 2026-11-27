@@ -29,7 +29,7 @@ on:
       - 'demos/**/requirements.txt'
       - 'demos/**/langfuse_config.py'
       - 'docker-compose.yaml'
-      - 'demos/langfuse-operations/instance.env.example'
+      - 'demos/langfuse-enterprise-operations/**'
       - 'setup.sh'
       - 'scripts/**.sh'
       - '.github/workflows/demo-integrity.yml'
@@ -38,6 +38,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  enterprise-operations:
+    name: enterprise operations unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test portal workflows and state migration without live services
+        run: python -B -m unittest discover -s demos/langfuse-enterprise-operations/tests -v
+
   deps-resolve:
     name: requirements.txt resolves
     runs-on: ubuntu-latest
