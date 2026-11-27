@@ -150,6 +150,20 @@ answers: thumbs-down answers, the lowest judge scores and P1-P5 violations or
 unknowns are queued first, however deep in the listing. If there are too few
 unqueued answers, the command exits non-zero; generate fresh traffic and rerun.
 
+Separately, every thumbs-down clicked in the portal goes straight into
+**Negative feedback — thumbs down** (trace items, for the product owner), at the
+moment it is clicked: `northwind/feedback_queue.py`, called from
+`/api/feedback`. `scripts/seed_evals.py` creates that queue and its `pm-action`
+score config; the portal also creates them on first use if they are missing.
+Both setup paths provision `sme-failure-mode` and `pm-action` before creating the
+queue. If an older version already created the queue without `sme-failure-mode`,
+add that score config to the existing queue in Langfuse; the public API cannot
+change a queue's score fields, and seeding preserves existing queues and reviews.
+
+If queue delivery fails after feedback is saved, use **Retry review queue** next
+to the answer. The retry remains available after reloading the portal and sends
+only the queue item, without recording another feedback score.
+
 Label and complete 8-10 answers in **SME review**, then run
 `.venv/bin/python scripts/judge_calibration.py` to compare judge and human scores.
 Leave at least one item pending for live annotation. Refill after rehearsals;
@@ -206,6 +220,18 @@ for label state and rehearsal.
 
 Stop the portal with `./scripts/run_portal.sh --stop` (MCP stays running).
 Stop this demo's containers with `docker compose --profile selfhosted stop`.
+
+## Offline Tests
+
+Run the offline regression tests from this demo directory:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -t .
+node --test tests/test_portal_feedback_ui.cjs
+```
+
+These tests do not start services or call a Langfuse project. Node.js is required
+for the portal feedback UI tests.
 
 ## Reference
 

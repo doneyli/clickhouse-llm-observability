@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from northwind import config  # noqa: E402
 from northwind.compliance import (COVERAGE_NAME, LEGACY_COMPLIANCE, OVERALL_NAME,
                                  POLICIES, STATUS_NAME)  # noqa: E402
+from northwind import feedback_queue  # noqa: E402
 
 TRACE_NAME = "northwind-assistant"
 JUDGE = {"provider": "anthropic", "model": config.JUDGE_MODEL}
@@ -132,11 +133,7 @@ SCORE_CONFIGS = [
      "description": "SME label: 1 = every factual claim supported, 0.5 = minor issue, 0 = material error"},
     {"name": "sme-compliance", "dataType": "NUMERIC", "minValue": 0, "maxValue": 1,
      "description": "SME label against conduct policy P1-P5 (1 = compliant)"},
-    {"name": "sme-failure-mode", "dataType": "CATEGORICAL", "description": "Open-coded failure category",
-     "categories": [{"label": "none", "value": 0}, {"label": "wrong-number", "value": 1},
-                    {"label": "missing-citation", "value": 2}, {"label": "unsafe-advice", "value": 3},
-                    {"label": "upsell", "value": 4}, {"label": "tool-misuse", "value": 5},
-                    {"label": "should-have-escalated", "value": 6}]},
+    *feedback_queue.QUEUE_SCORE_CONFIGS,
 ]
 
 
@@ -247,6 +244,15 @@ def main():
             "name": policy_queue, "description": "Review the individual P1-P5 conduct verdicts; unknown requires evidence.",
             "scoreConfigIds": [cfg_ids["sme-" + p.name] for p in POLICIES]})
         print(f"+ annotation queue {policy_queue}")
+    # Filled by the portal at the moment a customer clicks thumbs-down (northwind/feedback_queue.py).
+    if feedback_queue.QUEUE_NAME not in queues:
+        config.api("POST", "/api/public/annotation-queues", {
+            "name": feedback_queue.QUEUE_NAME, "description": feedback_queue.QUEUE_DESCRIPTION,
+            "scoreConfigIds": [cfg_ids[feedback_queue.FAILURE_MODE_CONFIG],
+                               cfg_ids[feedback_queue.PM_ACTION_CONFIG["name"]]]})
+        print(f"+ annotation queue {feedback_queue.QUEUE_NAME}")
+    else:
+        print(f"= annotation queue {feedback_queue.QUEUE_NAME}")
     print(f"Evaluators: {config.LANGFUSE_BASE_URL}/project/{config.project_id()}/evals")
 
 
