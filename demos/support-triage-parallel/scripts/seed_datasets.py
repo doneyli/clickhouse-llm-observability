@@ -20,7 +20,13 @@ Per the parallelization field-guide's two dataset types:
    ``langfuse.run_experiment(...)`` so only traces are created. Doubles as the CI
    target for the *aggregation-logic-bug* failure mode. Printed at the end.
 
-Idempotent: datasets are created if missing; items are upserted by a stable id.
+Idempotent and drift-reconciling: a dataset is created if missing (its description
+updated if it drifted), and an item is written only when it is missing, ARCHIVED, or
+its input / expected output differ from what is checked in here, always as ACTIVE
+under a stable id. An unchanged project gets no writes, so no new dataset versions.
+A playground outage never erases a signature pinned earlier. Each dataset prints
+created / updated / unchanged counts; failed writes and unpinned signatures are
+reported, the rest still run, and ``main()`` exits non-zero if any occurred.
 
 Usage (from repo root, after sourcing .env):
     python demos/support-triage-parallel/scripts/seed_datasets.py
@@ -106,49 +112,123 @@ LOCAL_AGGREGATOR_CASES = [
 ]
 
 
+DESCRIPTIONS = {
+    CATEGORY_DATASET: "Per-branch: ticket body -> expected category label",
+    SQL_VOTING_DATASET: "E2E voter: NL question -> pinned result signature + canonical SQL",
+}
+
+
+def category_items():
+    """The desired (id, input, expected_output) rows of the category-branch dataset."""
+    return [(f"cat-{i:02d}", {"ticket_body": body}, {"category": category})
+            for i, (body, category) in enumerate(CATEGORY_ITEMS)]
+
+
+def sql_voting_items():
+    """The desired (id, input, canonical_sql) rows of the sql-voting dataset; the pinned
+    signature is computed at seed time."""
+    return [(f"vote-{i:02d}", {"question": q}, ref_sql) for i, (q, ref_sql) in enumerate(SQL_VOTING_ITEMS)]
+
+
 def _client():
     from langfuse import get_client
     return get_client()
 
 
-def _ensure_dataset(lf, name, description):
+def _status(item) -> str:
+    status = getattr(item, "status", None)
+    return str(getattr(status, "value", status) or "ACTIVE").upper()
+
+
+def _is_not_found(exc) -> bool:
+    return getattr(exc, "status_code", None) == 404 or type(exc).__name__ == "NotFoundError"
+
+
+def reconcile_dataset(lf, name) -> str:
+    """Return "created", "updated" or "unchanged" for the dataset itself."""
     try:
-        lf.create_dataset(name=name, description=description)
-        print(f"  + dataset '{name}' created")
-    except Exception:
-        print(f"  ✓ dataset '{name}' exists")
+        current = lf.api.datasets.get(name)
+    except Exception as e:  # noqa: BLE001 - only a 404 means "missing"
+        if not _is_not_found(e):
+            raise
+        current = None
+    if current is not None and (current.description or "") == DESCRIPTIONS[name]:
+        return "unchanged"
+    lf.create_dataset(name=name, description=DESCRIPTIONS[name])  # upserts by name
+    return "created" if current is None else "updated"
 
 
-def _upsert_item(lf, dataset_name, item_id, input, expected_output):
-    lf.create_dataset_item(dataset_name=dataset_name, id=item_id,
-                           input=input, expected_output=expected_output)
+def existing_items(lf, name) -> dict:
+    """Every item of the dataset (ACTIVE and ARCHIVED), by id. Follows the page count."""
+    out, page = {}, 1
+    while True:
+        res = lf.api.dataset_items.list(dataset_name=name, page=page, limit=100)
+        for item in res.data or []:
+            out[item.id] = item
+        if page >= (getattr(res.meta, "total_pages", 1) or 1) or page >= 50:
+            return out
+        page += 1
 
 
-def seed_category(lf):
-    _ensure_dataset(lf, CATEGORY_DATASET, "Per-branch: ticket body -> expected category label")
-    for i, (body, category) in enumerate(CATEGORY_ITEMS):
-        _upsert_item(lf, CATEGORY_DATASET, f"cat-{i:02d}",
-                     {"ticket_body": body}, {"category": category})
-    print(f"  ✓ {len(CATEGORY_ITEMS)} category-branch items seeded")
+def item_matches(current, input, expected_output) -> bool:
+    return (current is not None and _status(current) == "ACTIVE"
+            and current.input == input and current.expected_output == expected_output)
 
 
-def seed_sql_voting(lf):
-    from sql_voting import _result_signature
-    _ensure_dataset(lf, SQL_VOTING_DATASET,
-                    "E2E voter: NL question -> pinned result signature + canonical SQL")
-    pinned = 0
-    for i, (question, ref_sql) in enumerate(SQL_VOTING_ITEMS):
-        sig = None
+def reconcile_items(lf, name, desired, counts) -> None:
+    """Write each (id, input, expected_output) that is missing, archived or changed."""
+    from langfuse.api import DatasetStatus
+    current = existing_items(lf, name)
+    for item_id, input, expected_output in desired:
+        have = current.get(item_id)
+        if item_matches(have, input, expected_output):
+            counts["unchanged"] += 1
+            continue
         try:
-            sig = _result_signature(ref_sql)   # execute once against the playground + hash
-        except Exception as e:
-            print(f"    ! could not pin signature for item {i}: {e}")
-        if sig:
-            pinned += 1
-        _upsert_item(lf, SQL_VOTING_DATASET, f"vote-{i:02d}",
-                     {"question": question},
-                     {"result_signature": sig, "canonical_sql": ref_sql})
-    print(f"  ✓ {len(SQL_VOTING_ITEMS)} sql-voting items seeded ({pinned} with pinned signatures)")
+            lf.create_dataset_item(dataset_name=name, id=item_id, input=input,
+                                   expected_output=expected_output, status=DatasetStatus.ACTIVE)
+        except Exception as e:  # noqa: BLE001 - report, keep going, fail at the end
+            counts["failed"] += 1
+            print(f"    failed  {name} {item_id}: {type(e).__name__}: {str(e)[:160]}")
+        else:
+            counts["created" if have is None else "updated"] += 1
+
+
+def pinned_signature(ref_sql, previous):
+    """Execute the reference query once and hash its rows. On failure keep the signature
+    pinned earlier for the same query, so an outage never erases it."""
+    from sql_voting import _result_signature
+    try:
+        sig = _result_signature(ref_sql)
+    except Exception as e:  # noqa: BLE001 - network / driver errors
+        print(f"    ! could not execute reference SQL: {type(e).__name__}: {e}")
+        sig = None
+    if sig is None and previous and previous.get("canonical_sql") == ref_sql:
+        return previous.get("result_signature")
+    return sig
+
+
+def seed_category(lf) -> dict:
+    counts = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "unpinned": 0}
+    print(f"  dataset {CATEGORY_DATASET}: {reconcile_dataset(lf, CATEGORY_DATASET)}")
+    reconcile_items(lf, CATEGORY_DATASET, category_items(), counts)
+    return counts
+
+
+def seed_sql_voting(lf) -> dict:
+    counts = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0, "unpinned": 0}
+    print(f"  dataset {SQL_VOTING_DATASET}: {reconcile_dataset(lf, SQL_VOTING_DATASET)}")
+    current = existing_items(lf, SQL_VOTING_DATASET)
+    desired = []
+    for item_id, input, ref_sql in sql_voting_items():
+        have = current.get(item_id)
+        sig = pinned_signature(ref_sql, have.expected_output if have is not None else None)
+        if not sig:
+            counts["unpinned"] += 1
+            print(f"    ! {item_id}: no pinned result signature (is the playground reachable?)")
+        desired.append((item_id, input, {"result_signature": sig, "canonical_sql": ref_sql}))
+    reconcile_items(lf, SQL_VOTING_DATASET, desired, counts)
+    return counts
 
 
 def main():
@@ -156,13 +236,23 @@ def main():
         raise SystemExit("LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set (source .env first).")
     lf = _client()
     print("Seeding support-triage datasets ...")
-    seed_category(lf)
-    seed_sql_voting(lf)
+    problems = 0
+    for name, seed in ((CATEGORY_DATASET, seed_category), (SQL_VOTING_DATASET, seed_sql_voting)):
+        try:
+            counts = seed(lf)
+        except Exception as e:  # noqa: BLE001 - a failed read or dataset write
+            problems += 1
+            print(f"  failed  dataset {name}: {type(e).__name__}: {str(e)[:200]}")
+            continue
+        print(f"  items {name}: " + ", ".join(f"{n} {k}" for k, n in counts.items()))
+        problems += counts["failed"] + counts["unpinned"]
     lf.flush()
     print(f"\nLocal aggregator cases (run via scripts/run_experiment.py --local-aggregator): "
           f"{len(LOCAL_AGGREGATOR_CASES)} cases")
     for c in LOCAL_AGGREGATOR_CASES:
         print(f"  - expects {c['expected_output']}")
+    if problems:
+        raise SystemExit(f"{problems} dataset problem(s): see the lines above")
     print("\nDone. View: Langfuse → Datasets.")
 
 

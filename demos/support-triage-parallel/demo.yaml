@@ -16,18 +16,5 @@ commands:
   install: pip install -r requirements.txt pytest
   seed: python demos/support-triage-parallel/scripts/seed_all.py
   run: docker compose --profile demo run --rm support-triage-parallel python main.py
-  verify: python demos/support-triage-parallel/scripts/verify_demo.py   # to be written
+  verify: python demos/support-triage-parallel/scripts/verify_demo.py
   test: python -m pytest -q
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-05
-    reason: predates the standard
-  - rule: DS-VERIFY-01
-    reason: predates the standard

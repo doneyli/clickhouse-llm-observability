@@ -14,5 +14,8 @@ import sys
 for _k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
     os.environ.pop(_k, None)
 
-# Make the demo package root importable (parent of this tests/ dir).
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Make the demo package root importable (parent of this tests/ dir), and scripts/
+# for the stdlib-only verify_demo.py and seed_all.py.
+_DEMO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _DEMO)
+sys.path.insert(0, os.path.join(_DEMO, "scripts"))

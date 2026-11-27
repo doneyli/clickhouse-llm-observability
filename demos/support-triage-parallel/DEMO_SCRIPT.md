@@ -6,12 +6,13 @@ embedded data question is answered by **5 SQL samples majority-voted by
 ClickHouse** (*voting*). Every branch is a sibling observation in **Langfuse**;
 the vote tally is metadata; consensus is a score.
 
-- **Fan-out engine:** raw Anthropic async API + `asyncio.gather` (`triage_pipeline.py`, `sql_voting.py`)
-- **Vote counter:** the ClickHouse public playground (`sql.clickhouse.com`) — candidates are *executed*, not string-matched (`ch_validator.py`)
-- **Observability backend:** Langfuse (`http://localhost:3001`), trace tag `support-triage-parallel`
+- **App:** `main.py` in the `support-triage-parallel` container, a CLI in a terminal. Fan-out engine: raw Anthropic async API + `asyncio.gather` (`triage_pipeline.py`, `sql_voting.py`)
+- **Observability:** Langfuse self-hosted (`http://localhost:3001`), project `LLM Observability Demo`, trace `triage-support-ticket`, tag `support-triage-parallel`
+- **Models:** Haiku for the 4 branches, Sonnet for the synthesis and the 5 SQL samples, Opus for the tie-break judge
+- **Data:** the ClickHouse public playground (`sql.clickhouse.com`) is the vote counter — candidates are *executed*, not string-matched (`ch_validator.py`)
 - **Run length:** ~15–20 min full; Acts 1–3 = 8-min short path
 
-> All code lives in `demos/support-triage-parallel/`. The trace shape and env
+> All code lives in `demos/support-triage-parallel/`. Setup, the trace shape and env
 > knobs are in [`README.md`](README.md).
 
 ---
@@ -31,9 +32,11 @@ The short path is Acts 1–3; add 4–7 when there's appetite. Don't rush the **
 
 ## 0 · Pre-flight (do this BEFORE the meeting)
 
+From the repo root:
+
 ```bash
 # CRITICAL: clear leaked Langfuse keys — exported shell vars override .env and 401 silently.
-unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 
 # Langfuse (+ its ClickHouse) up; build the demo image.
 docker compose --profile langfuse up -d
@@ -49,11 +52,24 @@ FAULT= docker compose --profile demo run --rm support-triage-parallel python mai
 #   → confirm the step log shows "tie_break=True"; open that trace in Langfuse and pin the tab.
 #   If needed later, filter Traces by score consensus_confidence < 1.
 
+# Pre-run the Act 6 comparison, so its three runs are there even if the live run is slow
+# (reads keys from the environment; calls models: 3 strategies x 10 items x 5 samples):
+(set -a && source .env && set +a && python demos/support-triage-parallel/scripts/run_experiment.py --strategy all)
+
 # Create the two Monitors (Langfuse → Monitors → New) — settings in Act 5.
+
+# 30 minutes before: READY, plus the link for every act (incl. the tie trace).
+python demos/support-triage-parallel/scripts/verify_demo.py --links
 ```
 
-**Browser tabs ready:** Langfuse Traces (`:3001`, `demo@example.com` / `demodemo1!`),
-the pinned TCK-002 tie trace, a terminal, and Langfuse → Dashboards.
+`verify_demo.py` exits 1 when a required check fails; fix what it names before the
+meeting. It checks the full script: the tie trace (Act 3), all three aggregator runs (Act 6)
+and both evaluator scores are required. For the short path run it with `--short`: the tie
+trace is still required, Act 6 and the evaluator scores only warn.
+
+**Browser tabs ready:** the links `--links` printed — the latest run, the TCK-002 tie
+trace, Dashboards, the `sql-voting` dataset runs — plus Langfuse Traces (`:3001`,
+`demo@example.com` / `demodemo1!`) and a terminal.
 
 > **Tip:** for a snappier fault demo (Act 7) export `BRANCH_TIMEOUT_S=8` so the
 > dropped branch resolves in ~8s instead of 30s.
@@ -266,6 +282,10 @@ willing to pay for, and you can *see* when someone changes that decision."
 **Ask.** "What's your ceiling — how much extra would you spend to move a decision
 from 'one guess' to 'five-sample consensus'? And would you set that per use case?"
 
+> **Fallback:** the self-hosted stack runs a v3 Langfuse server, where
+> `/api/public/v2/metrics` returns 404. Send the same query to `/api/public/metrics`, and
+> set `fromTimestamp` / `toTimestamp` to the window you actually ran in.
+
 ---
 
 ## Act 6 · Which aggregator wins? (Experiment) (4 min)
@@ -296,6 +316,10 @@ helped — vibes, or a run-level metric on a fixed dataset?"
 > **Bonus (one flag):** `--vary-n-samples 1,3,5` charts the diminishing-returns
 > asymptote — voting gains flatten fast.
 
+> **Fallback:** `LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set` means the pre-flight
+> `unset` cleared them; the script reads the environment, not a file. Run
+> `set -a && source .env && set +a` to load the root `.env`'s own keys, then run it again.
+
 ---
 
 ## Act 7 · When a branch dies (fault injection) (3 min)
@@ -323,7 +347,7 @@ system notice — and does the final answer admit what's missing?"
 
 ---
 
-## Closing · Why this matters (1 min)
+## Close · Why this matters (1 min)
 
 **Land three takeaways:**
 1. **Parallel = the latency of the slowest branch**, visible as overlap in the
@@ -340,26 +364,28 @@ datasets, and this is your prototype."
 
 ---
 
-## Under the hood — how it's instrumented (for the "show me the code" moment)
+## Show me the code
 
-All in `demos/support-triage-parallel/`.
+How it's instrumented, for the "show me the code" moment. All paths are relative to
+`demos/support-triage-parallel/`.
 
-**1 · Concurrent siblings via `asyncio.gather` inside a parent span — `triage_pipeline.py`**
+**1 · Concurrent siblings via `asyncio.gather` inside a parent span — `triage_pipeline.py:186`**
 ```python
 with lf.observe("analyze-sections", metadata={"branch_count": 4, "mode": "parallel"}) as parent:
     results = await asyncio.gather(*(run_branch(*b, ticket) for b in BRANCHES))
 ```
+The gather itself is at `triage_pipeline.py:194`.
 *Why it matters:* opening the branches inside the parent's context makes OTel
 propagate the parent into each asyncio task — the branches auto-nest as siblings
 with overlapping Timeline spans. No manual span-passing.
 
-**2 · Low-cardinality names, index in metadata — `sql_voting.py`**
+**2 · Low-cardinality names, index in metadata — `sql_voting.py:142`**
 ```python
 with lf.observe("vote-candidate", as_type="generation", input=question,
                 metadata={"sample_index": index}, **gen_kwargs) as gen:  # same name on all N
 ```
 
-**3 · The tally lives on the aggregator — `sql_voting.py` (`tally_votes`)**
+**3 · The tally lives on the aggregator — `sql_voting.py:188`**
 ```python
 with lf.observe("tally-votes",
         input={"candidates": [...]},            # every sample, one place
@@ -368,30 +394,38 @@ with lf.observe("tally-votes",
                          "margin": ..., "tie_break_used": ...})
     lf.score_current_trace("consensus_confidence", confidence)
 ```
+The tally update and the `consensus_confidence` score are at `sql_voting.py:249` and
+`sql_voting.py:251`.
 *Why it matters:* branch outputs on the aggregator's **input** are what let an
 observation-level evaluator (the `correlated-vote-risk` judge) score the whole
 vote — it cannot auto-pull the N child observations.
 
-**4 · ClickHouse is the vote counter — `sql_voting.py` / `ch_validator.py`**
+**4 · ClickHouse is the vote counter — `sql_voting.py:85`**
 ```python
 def _result_signature(sql):                       # execute + hash sorted rows
     rows = ch_validator.execute_readonly(sql)
     return "sig-" + hashlib.sha1(repr(sorted(...)).encode()).hexdigest()[:8]
 ```
+The read-only, LIMIT-enforced execution is `execute_readonly` at `ch_validator.py:113`.
 
-**5 · Graceful degradation — `triage_pipeline.py` (`run_branch`)**
+**5 · Graceful degradation — `triage_pipeline.py:126`**
 ```python
 except (asyncio.TimeoutError, Exception) as e:
     obs.update(level="WARNING", status_message=f"branch dropped: {e}")
     return {"branch": name, "ok": False, "output": None}
 ```
 
-**6 · No-op without keys — `langfuse_config.py`**
+**6 · No-op without keys — `langfuse_config.py:114`**
 ```python
 def observe(name, as_type="span", ...):
     if get_langfuse_client() is None:
         yield _NullObs(); return           # obs.update(...) is always safe
 ```
+
+**7 · Readiness counts real rows — `scripts/verify_demo.py:491`**
+It finds the latest `triage-support-ticket` root (Observations v2, or v1 on the v3
+server), checks that trace has every stage observation, and reads its scores through
+Scores API v3. An HTTP 200 alone is not proof.
 
 > One-liner for the room: *"Each branch is a typed `with`-block gathered
 > concurrently; the tally is one `update`; consensus is one score; and it all
@@ -419,6 +453,23 @@ def observe(name, as_type="span", ...):
 
 ---
 
+## Known limits
+
+- **The split vote is not guaranteed live.** At temperature 0.9 TCK-002 usually splits but
+  can come back 5–0; that is why the tie trace is pinned in pre-flight.
+- **The playground is a dependency.** If `sql.clickhouse.com` is unreachable every
+  candidate fails closed and consensus reads 0 — say so and use the pinned traces.
+- **We don't quote a cost per trace.** Nothing here measures it; set the Monitor threshold
+  from a run in their own project.
+- **The Monitors and the dashboard in Act 5 are built by hand** before the meeting; nothing
+  seeds them.
+- **The CI gate is a command, not a pipeline yet.** `run_experiment.py --ci` exits 1 under
+  0.8 accuracy, but no workflow runs it.
+
+The full list is in the README's [Known limits](README.md#known-limits).
+
+---
+
 ## Reset / re-run
 
 ```bash
@@ -427,9 +478,12 @@ docker compose --profile demo run --rm support-triage-parallel python main.py
 docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-002
 docker compose --profile demo run --rm support-triage-parallel python main.py --interactive
 
-# Re-seed (idempotent)
+# Re-seed (idempotent) — also puts a rehearsal-edited prompt back to the seeded text
 python demos/support-triage-parallel/scripts/seed_all.py
 ./scripts/seed-support-triage-evaluators.sh
+
+# READY again (and a fresh tie-trace link)
+python demos/support-triage-parallel/scripts/verify_demo.py --links
 
 # Try a different aggregation strategy live
 VOTE_STRATEGY=majority-exact docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-002
