@@ -8,10 +8,16 @@ Seed the two Langfuse Monitors for the tuner (the load-bearing Monitor stage).
      instrumentation, because "turns" is not a native measure). The
      self-assessment-failed / backstop-did-the-stopping fleet signal.
 
-Monitors are a Langfuse v4+ feature. This stack pins Langfuse v3, which has NO
-Monitors API — so this script attempts the API opportunistically and otherwise
-PRINTS THE EXACT UI FIELD VALUES to paste into Monitors → New Monitor. Either
-path leaves you with the same two monitors. Idempotent, non-fatal.
+Monitors are a Langfuse v4+ feature, and the current public API reference documents no
+Monitors endpoint. This script reads the server version from /api/public/health first:
+
+  * v3 (this stack pins 3.221.1): there are no Monitors to create. It says so, prints the
+    field values for a v4+ server, and exits 0. Act 4 runs on its trace-cost Fallback.
+  * v4+: it probes /api/public/monitors. With an API it creates the missing monitors by
+    name and reports the existing ones unchanged (by name only; their definitions are not
+    compared). Without one (404) it prints the UI fields to paste into Monitors → New Monitor.
+
+Exit 1 when the keys are missing, the health read fails, or a monitor write fails.
 
     python scripts/seed_monitors.py
 
@@ -83,7 +89,7 @@ def _api(method: str, path: str, body=None):
 
 
 def _print_ui_fields() -> None:
-    print("\nCreate these two Monitors in the Langfuse UI (Monitors → New Monitor):")
+    print("\nMonitors → New Monitor fields (Langfuse v4+ only):")
     for m in MONITORS:
         print(f"\n  ── {m['name']} ──")
         print(f"     Data source     : {m['dataSource']}")
@@ -97,33 +103,61 @@ def _print_ui_fields() -> None:
         print(f"     Renotify        : {m['renotify']}")
 
 
+def server_major(version: str) -> int:
+    """Major version from a health response such as '3.221.1' or 'v4.30.0'; 0 if unknown."""
+    digits = (version or "").lstrip("vV").split(".")[0]
+    return int(digits) if digits.isdigit() else 0
+
+
 def main() -> int:
     if not lf.is_langfuse_enabled():
-        print("Langfuse keys not set — skipping monitor seeding.")
+        print("ERROR: Langfuse keys not set — monitors not checked.")
+        return 1
+
+    status, body = _api("GET", "/api/public/health")
+    try:
+        version = json.loads(body).get("version", "") if status == 200 else ""
+    except ValueError:
+        version = ""
+    if status != 200 or not version:
+        print(f"ERROR: could not read the Langfuse version from {HOST}/api/public/health (status={status}).")
+        return 1
+    if server_major(version) < 4:
+        print(f"Langfuse {version} at {HOST} has no Monitors (a v4+ feature): nothing to create. "
+              "Act 4 runs on its trace-cost Fallback on this server.")
+        print("For a v4+ server, these are the two monitors:")
         _print_ui_fields()
         return 0
 
-    # Monitors have no documented public write API and are v4+ only. Probe, then
-    # fall back to printing UI fields (the reliable path on this v3 stack).
-    status, _ = _api("GET", "/api/public/monitors")
-    if status == 200:
-        print("Monitors API detected — creating monitors idempotently by name…")
-        for m in MONITORS:
-            st, body = _api("POST", "/api/public/monitors", m)
-            if st in (200, 201):
-                print(f"  + {m['name']} created")
-            elif st in (409,):
-                print(f"  = {m['name']} already exists")
-            else:
-                print(f"  ! {m['name']} not created via API (status={st}); use the UI fields below.")
-                _print_ui_fields()
-                break
-    else:
-        print(f"No Monitors write API on this Langfuse ({HOST}, status={status}). "
-              "Monitors are a v4+ feature; this stack pins v3.")
+    status, body = _api("GET", "/api/public/monitors")
+    if status == 404:
+        print(f"Langfuse {version} has no public Monitors API: create them by hand.")
+        _print_ui_fields()
+        return 0
+    if status != 200:
+        print(f"ERROR: GET /api/public/monitors returned status={status}: {body[:200]!r}")
+        return 1
+    try:
+        data = json.loads(body)
+        have = {m.get("name") for m in (data.get("data") if isinstance(data, dict) else data) or []}
+    except (ValueError, AttributeError):
+        print("ERROR: unreadable Monitors list response.")
+        return 1
+    rc = 0
+    for m in MONITORS:
+        if m["name"] in have:
+            print(f"  = {m['name']} unchanged (exists by name; definition not compared)")
+            continue
+        st, out = _api("POST", "/api/public/monitors", m)
+        if st in (200, 201):
+            print(f"  + {m['name']} created")
+        else:
+            print(f"  ! {m['name']} create FAILED (status={st}): {out[:200]!r}")
+            rc = 1
+    if rc:
         _print_ui_fields()
     print("\n(Once created, --runaway will cross 'query-tuner runaway cost' → alert.)")
-    return 0
+    return rc
 
 
 if __name__ == "__main__":

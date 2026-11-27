@@ -14,3 +14,5 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
 
 # Make the demo package importable (parent of this tests/ dir).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ...and its scripts/ dir, so the tests can import verify_demo and seed_all.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
