@@ -2,7 +2,7 @@
   "name": "langfuse-rls",
   "version": "0.1.0",
   "private": true,
-  "description": "Langfuse RLS Demo — simulates attribute-based row-level security using trace metadata and a client-side policy engine.",
+  "description": "Langfuse RLS Demo \u2014 simulates attribute-based row-level security using trace metadata and a client-side policy engine.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "seed": "npx tsx scripts/seed-traces.ts",
+    "verify": "bash scripts/verify.sh",
     "test": "vitest run"
   },
   "dependencies": {
