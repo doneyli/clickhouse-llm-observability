@@ -4,36 +4,28 @@
  * Key isolation is the landmine that costs the most time in a repo with several
  * Langfuse projects: a stray `LANGFUSE_*` export in your shell silently sends
  * every trace to a different project, and then your queries return 404 against
- * the project you *thought* you were using. So this module loads THIS folder's
- * .env with `override: true` and hard-sets the values, and `verifyProject()`
- * confirms the keys resolve to the project we expect before anything is written.
+ * the project you *thought* you were using. So this module clears every inherited
+ * `LANGFUSE_*`, loads THIS folder's .env (required) over the shell, and refuses to
+ * continue without the keys (see src/env-file.ts). `verifyProject()` then confirms
+ * the keys resolve to the project we expect before anything is written.
  */
-import { config as loadEnv } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { loadDemoEnv } from "./env-file.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(here, "..", ".env");
 
-// override: true — the .env file wins over whatever is already exported.
-loadEnv({ path: envPath, override: true, quiet: true });
+// Clears inherited LANGFUSE_*, applies .env over the shell, throws when the file or a key is missing.
+loadDemoEnv(envPath);
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(
-      `Missing ${name}. Run ./scripts/provision-project.sh, then add your model key to .env`,
-    );
-  }
-  return value;
-}
-
-export const LANGFUSE_PUBLIC_KEY = required("LANGFUSE_PUBLIC_KEY");
-export const LANGFUSE_SECRET_KEY = required("LANGFUSE_SECRET_KEY");
+export const LANGFUSE_PUBLIC_KEY = process.env["LANGFUSE_PUBLIC_KEY"] as string;
+export const LANGFUSE_SECRET_KEY = process.env["LANGFUSE_SECRET_KEY"] as string;
 export const LANGFUSE_BASE_URL =
-  process.env["LANGFUSE_BASE_URL"] ?? "http://localhost:3001";
+  process.env["LANGFUSE_BASE_URL"] || "http://localhost:3001";
 export const EXPECTED_PROJECT =
-  process.env["LANGFUSE_PROJECT_NAME"] ?? "grocery-assistant";
+  process.env["LANGFUSE_PROJECT_NAME"] || "grocery-assistant";
 
 // The SDK reads these from the environment; pin them so nothing inherited can win.
 process.env["LANGFUSE_PUBLIC_KEY"] = LANGFUSE_PUBLIC_KEY;

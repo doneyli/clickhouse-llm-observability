@@ -33,7 +33,7 @@ import {
   getProduct,
   type Product,
 } from "../catalog.js";
-import { extractSkus } from "../assistant.js";
+import { extractSkus } from "../skus.js";
 
 export type Verdict = {
   name: string;
