@@ -1,5 +1,5 @@
 # Manifest for the litellm-gateway container demo (see docs/DEMO_STANDARD_SPEC.md §6)
-# Nothing needs seeding; run_demo.sh is the existing readiness + trace check (spec D8).
+# Nothing needs seeding; run_demo.sh is the readiness check (spec D8): it prints READY / NOT READY.
 name: litellm-gateway
 title: LiteLLM Gateway
 pitch: Centralized observability at the AI gateway, where a LiteLLM proxy exports every call to Langfuse over OTLP, with no SDK in the client
@@ -16,14 +16,3 @@ commands:
   run: ./demos/litellm-gateway/run_demo.sh
   verify: ./demos/litellm-gateway/run_demo.sh
   test: python -m unittest discover -s tests -v
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-README-05
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-04
-    reason: predates the standard

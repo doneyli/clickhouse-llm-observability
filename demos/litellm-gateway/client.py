@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Send one OpenAI-compatible request through LiteLLM and verify its trace."""
+"""Send one OpenAI-compatible request through LiteLLM and verify its trace.
+
+This is the second half of `run_demo.sh`, which is also the demo's readiness
+check: one PASS / FAIL / WARN line per check, then READY or NOT READY. Exit 0
+when no required check failed, else 1. `--links` also prints the link each act
+opens. Standard library only.
+
+The trace check reads Observations API v2 on a v4 server (Langfuse Cloud). The
+repo's self-hosted server is v3, which has no Observations v2, so there it reads
+the v3 trace list — the only session-filtered read a v3 server offers.
+"""
 
 import argparse
 import base64
@@ -10,7 +20,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlencode
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -158,21 +168,28 @@ def session_read_url(langfuse_url: str, session_id: str, api_major: int) -> str:
 
 
 def pick_trace(rows: list, session_id: str, api_major: int) -> Optional[Dict[str, Any]]:
-    """The session's trace as `{"id", "name"}`, or None if it has not landed.
+    """The session's trace as `{"id", "name", "observations"}`, or None if it has not landed.
 
-    v3 rows are already traces. v4 rows are observations, several per trace, so
-    this collapses them: prefer the row flagged `isRootObservation` (whose name
-    is the trace name), but fall back to any row rather than requiring the flag
-    — the gateway's OTLP export owns this trace's shape, and demanding a flag it
-    may not set would turn a delivered trace into a verification failure.
+    v3 rows are already traces, and a trace row can exist before its observations
+    land, so `observations` counts the ids the row lists rather than trusting the
+    row itself. v4 rows are observations, several per trace, so this collapses
+    them: prefer the row flagged `isRootObservation` (whose name is the trace
+    name), but fall back to any row rather than requiring the flag — the
+    gateway's OTLP export owns this trace's shape, and demanding a flag it may not
+    set would turn a delivered trace into a verification failure.
     """
     if api_major <= 3:
-        return next((r for r in rows if r.get("sessionId") == session_id), None)
+        row = next((r for r in rows if r.get("sessionId") == session_id), None)
+        if row is None:
+            return None
+        return {"id": row.get("id"), "name": row.get("name"),
+                "observations": len(row.get("observations") or [])}
     matching = [r for r in rows if r.get("sessionId") == session_id]
     if not matching:
         return None
     row = next((r for r in matching if r.get("isRootObservation")), matching[-1])
-    return {"id": row.get("traceId"), "name": row.get("traceName") or row.get("name")}
+    return {"id": row.get("traceId"), "name": row.get("traceName") or row.get("name"),
+            "observations": len(matching)}
 
 
 def wait_for_trace(
@@ -196,9 +213,14 @@ def wait_for_trace(
                 timeout=min(5, max(1, timeout)),
             )
             trace = pick_trace(result.get("data", []), session_id, api_major)
-            if trace:
+            # An HTTP 200 with the trace row is not proof: the row can land before
+            # its observations do, so keep polling until there is at least one.
+            if trace and trace["observations"] > 0:
                 return trace
-            last_error = "session is not indexed yet"
+            last_error = (
+                "trace exists but has no observations yet" if trace
+                else "session is not indexed yet"
+            )
         except DemoError as exc:
             last_error = str(exc)
             if "HTTP 401" in last_error or "HTTP 403" in last_error:
@@ -214,7 +236,86 @@ def wait_for_trace(
     )
 
 
-def parse_args() -> argparse.Namespace:
+# Project the stack-wide keys belong to. Keep in sync with `langfuse.project` in
+# demo.yaml and LANGFUSE_INIT_PROJECT_NAME in the root docker-compose.yaml.
+STACK_PROJECT = "LLM Observability Demo"
+
+
+class Readiness:
+    """PASS / FAIL / WARN lines and the closing READY or NOT READY verdict.
+
+    `run_demo.sh` prints its own preflight lines first and passes how many passed
+    in `GATEWAY_PREFLIGHT_PASSED`, so the closing count covers the whole run.
+    A failed optional check is a WARN and does not make the demo NOT READY.
+    """
+
+    def __init__(self, prior_passed: int = 0) -> None:
+        self.results = [("PASS", True, "preflight")] * max(0, prior_passed)
+
+    def check(self, ok: bool, what: str, *, required: bool = True, hint: str = "") -> bool:
+        status = "PASS" if ok else ("FAIL" if required else "WARN")
+        self.results.append((status, required, what))
+        print(f"  {status}  {what}" + (f"  ->  {hint}" if hint and not ok else ""))
+        return ok
+
+    def summary(self) -> Tuple[str, int]:
+        passed = sum(1 for s, _, _ in self.results if s == "PASS")
+        failed = sum(1 for s, _, _ in self.results if s == "FAIL")
+        warned = sum(1 for s, _, _ in self.results if s == "WARN")
+        detail = f"{passed}/{len(self.results)} checks passed"
+        if failed:
+            detail += f", {failed} required failed"
+        if warned:
+            detail += f", {warned} warning{'s' if warned != 1 else ''}"
+        return (f"NOT READY ({detail})", 1) if failed else (f"READY ({detail})", 0)
+
+
+def prior_passed(environ: Dict[str, str]) -> int:
+    try:
+        return max(0, int(environ.get("GATEWAY_PREFLIGHT_PASSED", "0") or 0))
+    except ValueError:
+        return 0
+
+
+def expected_project(environ: Dict[str, str]) -> Optional[str]:
+    """The project name the keys must map to, or None when any project is fine.
+
+    `DEMO_LANGFUSE_PROJECT` pins it explicitly. Otherwise only the self-hosted
+    stack-wide keys have a known project: dedicated `LITELLM_LANGFUSE_*` keys and
+    cloud mode point at a project the presenter chose, so the check only reports it.
+    """
+    if environ.get("DEMO_LANGFUSE_PROJECT"):
+        return environ["DEMO_LANGFUSE_PROJECT"]
+    if environ.get("LITELLM_LANGFUSE_PUBLIC_KEY") or environ.get("DEPLOY_MODE") == "cloud":
+        return None
+    return STACK_PROJECT
+
+
+def project_of(langfuse_url: str, auth: str) -> Dict[str, Any]:
+    """The project these keys belong to (`GET /api/public/projects`, on v3 and v4)."""
+    result = request_json(
+        f"{langfuse_url.rstrip('/')}/api/public/projects",
+        headers={"Authorization": f"Basic {auth}"},
+        timeout=10,
+    )
+    data = result.get("data") or []
+    return data[0] if data else {}
+
+
+def act_links(
+    langfuse_url: str, project_id: str, trace_id: Optional[str], session_id: str, gateway_url: str
+) -> List[Tuple[str, str]]:
+    """One (label, url) per act of DEMO_SCRIPT.md, in act order."""
+    p = f"{langfuse_url.rstrip('/')}/project/{project_id}"
+    links = []
+    if trace_id:
+        links.append(("Act 1 · this run's trace", f"{p}/traces/{trace_id}"))
+    links.append(("Act 1 · this run's session", f"{p}/sessions/{quote(session_id, safe='')}"))
+    links.append(("Act 2 · LiteLLM admin UI", f"{gateway_url.rstrip('/')}/ui/"))
+    return links
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", nargs="?", default=DEFAULT_PROMPT)
     parser.add_argument(
@@ -233,64 +334,102 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Return after the gateway response without polling Langfuse",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--links",
+        action="store_true",
+        help="Also print the link each act of DEMO_SCRIPT.md opens",
+    )
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
-    gateway_url = os.getenv("LITELLM_BASE_URL", "http://localhost:4000")
-    gateway_key = os.getenv("LITELLM_MASTER_KEY", "sk-litellm-demo")
+def run_checks(args: argparse.Namespace, ready: Readiness, environ: Dict[str, str]) -> None:
+    """The gateway call, then the Langfuse read-back. Each step records its own check."""
+    gateway_url = environ.get("LITELLM_BASE_URL", "http://localhost:4000")
+    gateway_key = environ.get("LITELLM_MASTER_KEY", "sk-litellm-demo")
     request_id = uuid.uuid4().hex
     payload = build_payload(args.prompt, request_id, args.session_id)
 
-    response = call_gateway(gateway_url, gateway_key, payload)
+    print("Gateway call")
     try:
+        response = call_gateway(gateway_url, gateway_key, payload)
         answer = response["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise DemoError(f"Gateway returned an unexpected response: {response}") from exc
-
+    except DemoError as exc:
+        ready.check(False, f"gateway call: {exc}",
+                    hint="docker compose --profile demo logs --tail 50 litellm-proxy")
+        return
+    except (KeyError, IndexError, TypeError):
+        ready.check(False, f"gateway returned an unexpected response: {response}")
+        return
+    ready.check(True, f"gateway answered on {gateway_url} (model alias {payload['model']})")
     print(f"Model response: {answer}")
     print(f"Request ID:    {request_id}")
     print(f"Session ID:    {args.session_id}")
 
+    print("Langfuse")
     if args.skip_trace_check:
-        print("Trace check:   skipped")
-        return 0
+        ready.check(False, "trace check skipped (--skip-trace-check)", required=False)
+        return
 
-    public_key = os.getenv("LITELLM_LANGFUSE_PUBLIC_KEY") or os.getenv(
-        "LANGFUSE_PUBLIC_KEY"
-    )
-    secret_key = os.getenv("LITELLM_LANGFUSE_SECRET_KEY") or os.getenv(
-        "LANGFUSE_SECRET_KEY"
-    )
-    langfuse_url = os.getenv(
+    public_key = environ.get("LITELLM_LANGFUSE_PUBLIC_KEY") or environ.get("LANGFUSE_PUBLIC_KEY")
+    secret_key = environ.get("LITELLM_LANGFUSE_SECRET_KEY") or environ.get("LANGFUSE_SECRET_KEY")
+    langfuse_url = environ.get(
         "LITELLM_LANGFUSE_BASE_URL",
-        os.getenv("LANGFUSE_BASE_URL", os.getenv("LANGFUSE_HOST", "http://localhost:3001")),
+        environ.get("LANGFUSE_BASE_URL", environ.get("LANGFUSE_HOST", "http://localhost:3001")),
     )
-    if not public_key or not secret_key:
-        raise DemoError(
-            "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required for trace verification"
-        )
+    if not ready.check(bool(public_key and secret_key),
+                       "Langfuse keys set (LITELLM_LANGFUSE_* or LANGFUSE_*)",
+                       hint="run ./setup.sh, or set them in the root .env"):
+        return
+    auth = basic_auth(public_key, secret_key)
 
-    api_major = detect_api_major(langfuse_url, basic_auth(public_key, secret_key))
-    trace = wait_for_trace(
-        langfuse_url,
-        public_key,
-        secret_key,
-        args.session_id,
-        args.trace_timeout,
-        api_major,
-    )
-    trace_name = trace.get("name") or "unnamed trace"
-    print(f"Trace check:   captured by Langfuse ({trace_name})")
+    want = expected_project(environ)
+    try:
+        project = project_of(langfuse_url, auth)
+    except DemoError as exc:
+        ready.check(False, f"keys authenticate against {langfuse_url}: {exc}",
+                    hint="401: wrong key pair, or the base URL points at another host or region")
+        return
+    name = project.get("name")
+    if not ready.check(want is None or name == want,
+                       f"keys map to project '{name}'" + (f" (want '{want}')" if want else ""),
+                       hint="use that project's keys in the root .env, or set DEMO_LANGFUSE_PROJECT"):
+        return
+
+    api_major = detect_api_major(langfuse_url, auth)
+    endpoint = "/api/public/traces" if api_major <= 3 else "/api/public/v2/observations"
+    try:
+        trace = wait_for_trace(
+            langfuse_url, public_key, secret_key, args.session_id, args.trace_timeout, api_major
+        )
+    except DemoError as exc:
+        ready.check(False, f"trace for session {args.session_id}: {exc}",
+                    hint="the proxy may export to another project or host; "
+                         "docker compose --profile demo logs --tail 50 litellm-proxy")
+        return
+    ready.check(True, (
+        f"session {args.session_id} landed as trace '{trace.get('name') or 'unnamed'}' "
+        f"with {trace['observations']} observation(s) (server v{api_major}, {endpoint})"
+    ))
     print(f"Trace ID:      {trace.get('id')}")
     print(f"Langfuse UI:   {langfuse_url.rstrip('/')} (filter by session {args.session_id})")
-    return 0
+
+    if args.links and project.get("id"):
+        print("\nLinks")
+        for label, url in act_links(
+            langfuse_url, project["id"], trace.get("id"), args.session_id, gateway_url
+        ):
+            print(f"  {label:<28} {url}")
+
+
+def main(argv: Optional[List[str]] = None, environ: Optional[Dict[str, str]] = None) -> int:
+    args = parse_args(argv)
+    env = dict(os.environ if environ is None else environ)
+    ready = Readiness(prior_passed(env))
+    run_checks(args, ready, env)
+    line, code = ready.summary()
+    print(f"\n{line}")
+    return code
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except DemoError as exc:
-        print(f"Demo failed: {exc}", file=sys.stderr)
-        sys.exit(1)
+    sys.exit(main())
