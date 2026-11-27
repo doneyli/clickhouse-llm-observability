@@ -13,6 +13,8 @@
 #
 # Prerequisites: jq, running LibreChat instance
 # Usage: ./scripts/seed-librechat-agents.sh
+# Exits 1 when an agent could not be created or updated, or was left without its full
+# MCP tool set (re-run once the MCP servers are healthy).
 # ==============================================================================
 
 set -e
@@ -246,6 +248,7 @@ ALL_TOOLS=$(jq -n \
 CREATED=0
 UPDATED=0
 SKIPPED=0
+INCOMPLETE=0  # agents left failed or without their full MCP tool set -> exit 1
 
 create_agent() {
     local name="$1"
@@ -321,15 +324,20 @@ create_agent() {
                 local summary
                 summary=$(printf '%s; ' "${changes[@]}"); summary=${summary%; }
                 echo -e "  ${GREEN}↻${NC} ${name} (${summary})"
-                [ -n "$note" ] && echo -e "      ${YELLOW}!${NC} ${note}; re-run once healthy"
+                if [ -n "$note" ]; then
+                    echo -e "      ${YELLOW}!${NC} ${note}; re-run once healthy"
+                    INCOMPLETE=$((INCOMPLETE + 1))
+                fi
                 UPDATED=$((UPDATED + 1))
             else
                 echo -e "  ${YELLOW}⤳${NC} ${name} (exists; update failed — update manually in agent settings)"
                 SKIPPED=$((SKIPPED + 1))
+                INCOMPLETE=$((INCOMPLETE + 1))
             fi
         elif [ -n "$note" ]; then
             echo -e "  ${YELLOW}!${NC} ${name} — ${note}. Re-run once MCP servers are healthy."
             SKIPPED=$((SKIPPED + 1))
+            INCOMPLETE=$((INCOMPLETE + 1))
         else
             echo -e "  ${YELLOW}⤳${NC} ${name} (already exists, up to date)"
             SKIPPED=$((SKIPPED + 1))
@@ -367,16 +375,19 @@ create_agent() {
             # missing server until re-synced.
             echo -e "  ${YELLOW}!${NC} ${name} — created with PARTIAL tools; server(s) not ready: ${incomplete_servers}."
             echo -e "      Re-run ${GREEN}./scripts/seed-librechat-agents.sh${NC} once MCP servers are healthy to bind them."
+            INCOMPLETE=$((INCOMPLETE + 1))
         else
             # Created with only a server-level stub — MCP tools weren't live yet.
             # The agent may emit raw tool-call XML until re-synced.
             echo -e "  ${YELLOW}!${NC} ${name} — created with NO individual MCP tools (server still initializing?)."
             echo -e "      Re-run ${GREEN}./scripts/seed-librechat-agents.sh${NC} once MCP servers are healthy to bind them."
+            INCOMPLETE=$((INCOMPLETE + 1))
         fi
         CREATED=$((CREATED + 1))
     else
         echo -e "  ${RED}✗${NC} ${name} — failed to create"
         echo "    Response: ${response}"
+        INCOMPLETE=$((INCOMPLETE + 1))
     fi
 }
 
@@ -528,3 +539,9 @@ echo ""
 echo -e "  Open LibreChat: ${GREEN}${LIBRECHAT_URL}${NC}"
 echo "  Select an agent from the dropdown to start chatting."
 echo ""
+
+if [ "${INCOMPLETE}" -gt 0 ]; then
+    echo -e "${RED}${INCOMPLETE} agent(s) failed or are missing MCP tools (see above).${NC}"
+    echo "  Re-run once LibreChat and the MCP servers are healthy: ./scripts/seed-librechat-agents.sh"
+    exit 1
+fi

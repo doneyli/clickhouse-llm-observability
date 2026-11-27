@@ -5,17 +5,22 @@ A ready-to-run demo of a **self-correcting (CRAG) RAG agent** that runs on
 same graph drives a **CLI/HTTP service** and a **no-code LibreChat agent**, and
 both emit the same fully-scored trace.
 
-- **Vector store + engine:** a dedicated **ClickHouse 26.3** container
-  (`clickhouse-vectors`) with a native HNSW index — no separate vector database
-- **Agent:** a LangGraph CRAG loop — `route → retrieve → grade → (rewrite →
-  retrieve)* → generate → reflect` (`graph.py`)
-- **Observability backend:** Langfuse (`http://localhost:3001`), trace tag `agentic-rag`
-- **Chat surface:** LibreChat (`http://localhost:3080`) → **Agentic RAG Assistant** agent
-- **HTTP:** `POST http://localhost:8006/query`
+- **App:** a LangGraph CRAG loop — `route → retrieve → grade → (rewrite →
+  retrieve)* → generate → reflect` (`graph.py`) — driven from the CLI
+  (`docker compose … run --rm agentic-rag`), over HTTP (`POST http://localhost:8006/query`)
+  and from LibreChat (`http://localhost:3080`) → **Agentic RAG Assistant** agent
+- **Data:** a dedicated **ClickHouse 26.3** container (`clickhouse-vectors`) with a native
+  HNSW index — no separate vector database — holding the vector-rag demo's corpus
+- **Observability:** Langfuse self-hosted (`http://localhost:3001`), project
+  `LLM Observability Demo`, trace `agentic-rag`, tags `agentic-rag` and `demo`
+- **Models:** `ANTHROPIC_MODEL` (default `claude-sonnet-4-6`) for every graph node;
+  `all-MiniLM-L6-v2` embeddings; managed judges on `LANGFUSE_EVAL_MODEL` (default
+  `claude-haiku-4-5-20251001`)
+- **Prompts:** `agentic-rag-generation` (label `production`)
 - **Run length:** ~20–25 min full; 8–10 min short path (Acts 1–3)
 
-> The graph, ClickHouse store, and Langfuse instrumentation all live in
-> `demos/agentic-rag/`. The deep screen-by-screen reference is
+> Setup lives in [README.md](README.md). The graph, ClickHouse store, and Langfuse
+> instrumentation all live in `demos/agentic-rag/`. The deep screen-by-screen reference is
 > [`docs/AGENTIC_RAG_DEMO_RUNBOOK.md`](../../docs/AGENTIC_RAG_DEMO_RUNBOOK.md);
 > the question catalog + the reliable self-correction trigger is
 > [`DEMO_QUESTIONS.md`](DEMO_QUESTIONS.md); the architecture diagram is
@@ -45,25 +50,20 @@ proof-of-concept. The short path is Acts 1–3; add 3b/4 when there's appetite.
 
 ```bash
 # CRITICAL: clear leaked Langfuse keys — exported shell vars override .env and 401 silently.
-unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 
-# Langfuse (+ its ClickHouse 25.8) and the dedicated vector ClickHouse 26.3
+# Langfuse (+ its ClickHouse 25.8), the dedicated vector ClickHouse 26.3, and the Act 4 services
 docker compose --profile langfuse up -d
-docker compose --profile demo up -d clickhouse-vectors
 docker compose --profile demo build agentic-rag mcp-rag-retriever
+docker compose --profile demo up -d clickhouse-vectors agentic-rag mcp-rag-retriever
 
-# Build the vector index (one-time, idempotent) — expect "Inserted 28 chunks."
-docker compose --profile demo run --rm agentic-rag python ingest.py
+# Seed everything, idempotently: the vector index (ingest.py — expect "Inserted 28 chunks."),
+# the generation prompt for Act 3b (baseline + production), the independent managed judges
+# for Acts 3-4, and the LibreChat agent for Act 4. No model calls.
+python demos/agentic-rag/scripts/seed_all.py
 
-# Langfuse-managed generation prompt (for Act 3b): v1 + v2(production)
-python scripts/seed-langfuse-prompt.py
-
-# Independent managed judges (for Act 3 / Act 4): faithfulness/context-relevance/answer-relevance
-./scripts/seed-agentic-rag-evaluators.sh
-
-# LibreChat agent (for Act 4)
-docker compose --profile demo up -d mcp-rag-retriever
-./scripts/seed-librechat-agents.sh
+# Readiness: READY / NOT READY, plus the link each act opens (add --short for Acts 1-3 only)
+python demos/agentic-rag/scripts/verify_demo.py --links
 ```
 
 **Pre-run the money trace:** run Act 2's self-correction command once *now* (the
@@ -311,7 +311,7 @@ need the same quality guarantees, or do they diverge today?"
 
 ---
 
-## Closing · Why this matters (1 min)
+## Close · Why this matters (1 min)
 
 **Land three takeaways:**
 1. **One engine.** ClickHouse is your vector database *and* your analytics warehouse
@@ -328,16 +328,16 @@ your own docs, and this is your prototype."
 
 ---
 
-## Under the hood — how it's instrumented (for the "show me the code" moment)
+## Show me the code
 
 All of it lives in `demos/agentic-rag/`. Open these when someone asks *how* the graph
 becomes a scored trace.
 
-**1 · Two layers of instrumentation — `langfuse_config.py`**
+**1 · Two layers of instrumentation — `langfuse_config.py:42`**
 ```python
 # langfuse_config.py:42  the LangChain/LangGraph callback handler — drives the auto Agent Graph
 def get_handler(): return CallbackHandler()
-# langfuse_config.py:79  a CUSTOM typed-observation context manager (this is the app's helper,
+# langfuse_config.py:89  a CUSTOM typed-observation context manager (this is the app's helper,
 # NOT the stock @observe decorator) wrapping the low-level SDK with null-safety + a typed as_type
 @contextmanager
 def observe(name, as_type="span", input=None):
@@ -348,7 +348,7 @@ def observe(name, as_type="span", input=None):
 explicit `observe()` calls add the *typed* semantics on top. The whole thing degrades
 to a no-op when Langfuse keys are absent — the agent still runs.
 
-**2 · Typed observations are what make it an agent graph — `graph.py`**
+**2 · Typed observations are what make it an agent graph — `graph.py:89`**
 ```python
 with lf.observe("route",   as_type="agent")     as obs: ...   # :89
 with lf.observe("retrieve",as_type="retriever", input=query) as obs: ...   # :115
@@ -360,7 +360,7 @@ with lf.observe("reflect-groundedness", as_type="evaluator") as obs: ...   # :22
 are what tell Langfuse to draw the RAG-aware graph you showed in Act 3, instead of a
 flat list.
 
-**3 · The two scores — span-level vs trace-level — `graph.py`**
+**3 · The two scores — span-level vs trace-level — `graph.py:139`**
 ```python
 # grade_node — span-level, so it can fire MORE THAN ONCE per run (the double 0→1 in Act 3)
 lf.score_current_span("retrieval_relevance", 1.0 if relevant else 0.0,
@@ -372,7 +372,7 @@ lf.score_current_trace("groundedness", 1.0 if grounded else 0.0, comment="agent 
 to log `retrieval_relevance` on the *span*, so each self-correction attempt carries its
 own score.
 
-**4 · Prompt management + linking (Act 3b) — `graph.py` (`generate_node`)**
+**4 · Prompt management + linking (Act 3b) — `graph.py:193`**
 ```python
 prompt_obj = lf.get_prompt(GEN_PROMPT_NAME, label="production")   # :193  fetch by label
 text = prompt_obj.compile(context=context, question=state["question"])
@@ -381,7 +381,7 @@ obs.update(prompt=prompt_obj)                                     # :199  link v
 *Why it matters:* the prompt is versioned data in Langfuse, with a local fallback — same
 Deploy-node story as prompt promotion, no redeploy.
 
-**5 · Feeding the independent judges — `graph.py` (`generate_node`)**
+**5 · Feeding the independent judges — `graph.py:186`**
 ```python
 gen_name = "generate" if context else "generate-direct"          # :186  skip judges on context-less answers
 obs.update(input={"question": state["question"], "context": context}, output=answer)  # :217
@@ -391,9 +391,9 @@ the managed `faithfulness` / `context-relevance` judges score it *independently*
 "who checks the checker" beat. Direct-route answers are named `generate-direct` so they're
 correctly excluded.
 
-**6 · Session wrapping — `graph.py` (`run`)**
+**6 · Session wrapping — `graph.py:314`**
 ```python
-with lf.trace_context("agentic-rag", session_id=session_id):     # :290
+with lf.trace_context("agentic-rag", session_id=session_id):     # :314
     final = self.graph.invoke({"question": question}, config={"callbacks": [handler]})
 ```
 *Why it matters:* one `trace_context(...)` around the whole graph invocation names the
@@ -425,10 +425,32 @@ trace and groups multi-turn runs into a Session (Act 3).
 
 ---
 
+## Known limits
+
+- **The grader is an LLM, so the self-correction is not guaranteed on demand.** Q3 is the
+  designed fail-then-recover case, but say it plainly: "the gate is a model call here; it
+  can be a deterministic threshold in yours." That is why you pre-run and pin the trace.
+- **The corpus is tiny** — the vector-rag demo's ten documents, about 28 chunks. It proves
+  the mechanism and the index path, not recall or latency at scale.
+- **The self-grades and the judges share a model family.** Agreement between them is a
+  calibration signal, not ground truth; there is no human-labelled dataset in this demo.
+- **The managed judges score new traces only, a minute or so after the run**, and they are
+  self-hosted Postgres rows. On Langfuse Cloud you create them in the UI.
+- **No offline experiment ships with it.** The "naive vs agentic" comparison is something
+  you show trace by trace, not a dataset run with a gate.
+
+The full list is in the README's [Known limits](README.md#known-limits).
+
+---
+
 ## Reset / re-run
 
 ```bash
-# Rebuild the vector index from scratch
+# Re-seed and reconcile everything (index, prompt label, judges, LibreChat agent), then re-check
+python demos/agentic-rag/scripts/seed_all.py
+python demos/agentic-rag/scripts/verify_demo.py
+
+# Rebuild only the vector index
 docker compose --profile demo run --rm agentic-rag python ingest.py
 
 # Re-run the 5 CLI demo questions (one shared session) or interactively
