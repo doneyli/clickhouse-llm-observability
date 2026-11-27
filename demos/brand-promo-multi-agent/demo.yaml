@@ -15,22 +15,6 @@ commands:
   install: uv sync --extra dev
   seed: uv run scripts/seed_all.py
   run: uv run scripts/run_live_demo.py play-all
-  verify: uv run python scripts/verify_demo.py   # to be written
+  verify: uv run python scripts/verify_demo.py
   test: uv run pytest -q
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-README-05
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-05
-    reason: predates the standard
-  - rule: DS-SPEC-01
-    reason: predates the standard
-  - rule: DS-VERIFY-01
-    reason: predates the standard
+addons: [spec, architecture]
