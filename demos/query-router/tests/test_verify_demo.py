@@ -333,6 +333,68 @@ def test_missing_experiment_scores_on_a_v3_server_is_not_ready(fake):
     assert v.main([]) == 1
 
 
+def _unlink_v3_evidence(fake, keep_items: bool) -> None:
+    """Strip every run's own items (optionally) and scores, and put same-named scores on a user trace."""
+    for run_id in list(fake.run_items):
+        if not keep_items:
+            fake.run_items[run_id] = []
+    fake.scores = [x for x in fake.scores if x["name"] not in ("route-match", "avg_route_accuracy")]
+    fake.add_obs("chat", "user-trace", None, fl.ts())
+    fake.add_score("route-match", "user-trace", 1)
+    fake.add_score("route-match", "user-obs", 1, kind="observation", trace_id="user-trace")
+    fake.add_score("avg_route_accuracy", "user-trace", 0.99)
+
+
+@pytest.mark.parametrize("keep_items", [False, True])
+def test_v3_scores_on_an_unrelated_trace_are_not_experiment_evidence(fake, keep_items):
+    fake.v3_server = True
+    _unlink_v3_evidence(fake, keep_items)
+    assert v.main([]) == 1
+    runs = [f for f in failed() if f.startswith("run 'router-prompt=")]
+    assert len(runs) == 3, failed()
+    assert all("0 with route-match" in f and "avg_route_accuracy missing" in f for f in runs)
+    assert all(f": {3 if keep_items else 0} item(s)" in f for f in runs)
+
+
+def test_v3_run_score_on_another_run_does_not_count(fake):
+    fake.v3_server = True
+    baseline, production = fake.experiments[0]["id"], fake.experiments[1]["id"]
+    for x in fake.scores:
+        if x["name"] == "avg_route_accuracy" and x["subject"]["id"] == baseline:
+            x["subject"]["id"] = production
+    assert v.main([]) == 1
+    assert [f for f in failed()] == [f"run '{fake.experiments[0]['name']}': 3 item(s), 3 with route-match, "
+                                     "avg_route_accuracy missing"]
+
+
+def test_v3_run_items_of_another_run_do_not_count(fake):
+    fake.v3_server = True
+    first = fake.experiments[0]["id"]
+    for item in fake.run_items[first]:
+        item["datasetRunId"] = fake.experiments[1]["id"]
+    assert v.main([]) == 1
+    assert any(f.startswith(f"run '{fake.experiments[0]['name']}': 0 item(s)") for f in failed())
+
+
+def test_v3_evidence_is_read_per_run_through_run_details_and_score_subjects(fake):
+    fake.v3_server = True
+    # a trace-level route-match on the run's own trace counts as well as the SDK's observation-level one
+    first = fake.experiments[0]["id"]
+    trace = fake.run_items[first][0]["traceId"]
+    fake.scores = [x for x in fake.scores if not (x["name"] == "route-match" and x["subject"].get("traceId") == trace)]
+    fake.add_score("route-match", trace, 1)
+    assert v.main([]) == 0, failed()
+    details = [p for m, p, q in fake.requests if p.startswith(f"/api/public/datasets/{v.DATASET_NAME}/runs/")]
+    assert sorted(details) == sorted(f"/api/public/datasets/{v.DATASET_NAME}/runs/{n}" for n in v.experiment_run_names())
+    run_reads = [q for m, p, q in fake.requests if p == "/api/public/v3/scores" and q.get("name") == "avg_route_accuracy"]
+    assert sorted(q["experimentId"] for q in run_reads) == sorted(e["id"] for e in fake.experiments)
+    item_reads = [q for m, p, q in fake.requests if p == "/api/public/v3/scores" and q.get("name") == "route-match"]
+    assert all(q["fields"] == "subject" and "traceId" not in q for q in run_reads)
+    assert item_reads and all(q["fields"] == "subject" and q["traceId"] and "experimentId" not in q for q in item_reads)
+    assert any("run '" in w and "3 item(s), 3 with route-match, avg_route_accuracy present" in w
+               for st, _, w in v.RESULTS if st == "PASS")
+
+
 def test_short_path_turns_acts_3_to_5_into_warnings(fake, capsys):
     fake.dashboards, fake.experiments, fake.items[v.DATASET_NAME] = [], [], []
     assert v.main([]) == 1
@@ -405,3 +467,96 @@ def test_links_cover_every_act():
                                                "dataset_id": "d1", "dashboard_id": "x"})
     assert [label.split(" ·")[0] for label, _ in links] == ["Act 1", "Act 2", "Act 3", "Act 4", "Act 5", "Act 5"]
     assert all(url.startswith("https://lf.example/project/p1/") for _, url in links)
+
+
+# --- the failure boundary: every failure reaches a counted verdict -----------------------------
+
+def no_requests(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("request made"))
+
+
+def kept_and_final(out: str) -> None:
+    """The lines already printed still count, and the run ends with a counted NOT READY."""
+    assert "PASS  env loaded from" in out
+    assert "\nNOT READY (" in out and "required failed" in out
+
+
+@pytest.mark.parametrize("url", ["http://[::gg]", "http://[::gg", "http://localhost:abc", "localhost:3001"])
+def test_malformed_base_url_is_a_failed_check_not_a_traceback(env, monkeypatch, capsys, url):
+    env.write_text(f"LANGFUSE_PUBLIC_KEY=pk-file\nLANGFUSE_SECRET_KEY=sk-file\nLANGFUSE_BASE_URL={url}\n")
+    no_requests(monkeypatch)
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    kept_and_final(out)
+    assert [f for f in failed() if "LANGFUSE_BASE_URL" in f and url in f]
+
+
+def test_request_construction_errors_are_api_errors(monkeypatch):
+    no_requests(monkeypatch)
+    with pytest.raises(v.ApiError) as e:
+        v.Langfuse("http://[::gg", "pk", "sk").get("/api/public/projects")
+    assert e.value.status is None and "invalid request URL" in str(e.value)
+
+
+def test_undecodable_env_file_is_not_ready(env, monkeypatch, capsys):
+    env.write_bytes(b"LANGFUSE_PUBLIC_KEY=pk-\xff\xfe\nLANGFUSE_SECRET_KEY=sk\n")
+    no_requests(monkeypatch)
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "could not be loaded (UnicodeDecodeError" in out and "\nNOT READY (" in out
+    assert "LANGFUSE_PUBLIC_KEY" not in os.environ   # the hostile shell export is still dropped
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root can read a 000 file")
+def test_unreadable_env_file_is_not_ready(env, monkeypatch, capsys):
+    env.chmod(0)
+    no_requests(monkeypatch)
+    try:
+        assert v.main([]) == 1
+    finally:
+        env.chmod(0o600)
+    out = capsys.readouterr().out
+    assert "could not be loaded (PermissionError" in out and "\nNOT READY (" in out
+
+
+def test_unreadable_manifest_is_not_ready(tmp_path, monkeypatch, capsys):
+    (tmp_path / "demo.yaml").write_bytes(b"profile: \xff\n")
+    monkeypatch.setattr(v, "DEMO_DIR", tmp_path)
+    no_requests(monkeypatch)
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  demo.yaml could not be read: UnicodeDecodeError" in out and "\nNOT READY (" in out
+
+
+def test_unexpected_error_still_reaches_the_verdict(fake, capsys):
+    fake.project = "not-a-project-object"      # /projects answers {"data": ["not-a-project-object"]}
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    kept_and_final(out)
+    assert "PASS  query-router up at" in out           # the service checks before it still count
+    assert any(f.startswith("verifier stopped early: AttributeError") for f in failed())
+
+
+def test_a_malformed_response_fails_its_section_and_the_rest_still_run(fake, capsys):
+    fake.datasets[v.DATASET_NAME] = ["not", "an", "object"]
+    assert v.main([]) == 1
+    assert any(f.startswith("Langfuse response not understood: AttributeError") for f in failed())
+    assert statuses("widget 'Router Ops") == ["PASS"] * 4      # later sections were not skipped
+    assert "\nNOT READY (" in capsys.readouterr().out
+
+
+def test_ctrl_c_still_interrupts(env, monkeypatch):
+    def interrupt(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(urllib.request, "urlopen", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])
+
+
+@pytest.mark.parametrize("argv, code", [(["--help"], 0), (["--no-such-flag"], 2)])
+def test_help_and_usage_errors_keep_argparse_behaviour(argv, code, monkeypatch):
+    no_requests(monkeypatch)
+    with pytest.raises(SystemExit) as e:
+        v.main(argv)
+    assert e.value.code == code

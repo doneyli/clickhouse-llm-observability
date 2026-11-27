@@ -240,7 +240,9 @@ python -m pytest -q                      # no services, no model calls, under a 
 
 They cover the classifier's parsing and gating, dispatch, fallback and escalation, the
 FastAPI endpoints (Anthropic and HTTP stubbed), `verify_demo.py`'s checks, exit code,
-`.env` rule, paging and the 3.x-server fallbacks, and `seed_all.py`'s reconciliation and
+`.env` rule, paging, the 3.x-server fallbacks (experiment scores must belong to each run),
+the failure boundary (a malformed URL, an unreadable `.env` or an unexpected response still
+ends in a counted NOT READY), and `seed_all.py`'s reconciliation and
 failure handling (prompts, dataset, dashboard, history read-back), against an in-memory
 Langfuse served through a fake `urlopen` (`tests/fake_langfuse.py`) that checks query
 parameters and field groups. They also cover the root history seeder's exit code.
@@ -258,6 +260,9 @@ parameters and field groups. They also cover the root history seeder's exit code
 | `router history: … still short after 120s` | Ingestion was accepted but not processed; `docker compose restart langfuse-worker`, then seed again |
 | `dashboard 'Router Ops': HTTP 404` | This server has no dashboards API, so the dashboard cannot be seeded or confirmed. Build it by hand (Act 4) and use `--short`, which is then the honest verdict |
 | `experiment run 'router-prompt=…'` fails | Run `python scripts/run-router-experiment.py --sample 30`; runs older than 30 days do not count |
+| `run 'router-prompt=…': N item(s), 0 with route-match` | The run exists but has no scores of its own. Scores with the same names on other traces or runs do not count; re-run the experiment |
+| `LANGFUSE_BASE_URL '…' is an http(s) URL: …` or `env … could not be loaded` | Fix the root `.env`: an `http://host:port` URL, readable UTF-8. No request is made until it is valid |
+| `verifier stopped early: …` | An unexpected error; the checks printed before it still count and the verdict is NOT READY. Re-run, and report it if it repeats |
 | Act 4's Metrics API call returns 404 | `/api/public/v2/metrics` needs Langfuse server v4; the self-hosted stack runs 3.x |
 | `route-plausibility` scores never appear | The judge scores only new traffic, 25% sampled, and needs a default eval model: run the batch again and check `./scripts/seed-router-judge.sh` output |
 | `latest run has 0 observation(s)` | The run landed before its observations. Wait 30 seconds and verify again |

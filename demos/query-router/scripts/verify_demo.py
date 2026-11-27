@@ -21,14 +21,19 @@ Read APIs: projects, prompts v2, datasets v2, Observations v2, Scores v3, experi
 experiment items, and the (unstable) dashboards API. The self-hosted stack pins Langfuse
 server 3.221.1, where `GET /api/public/v2/observations` and `GET /api/public/experiments`
 answer 404 (CLAUDE.md, measured per endpoint). Only on that 404 do reads fall back to the
-v1 observations list and to `GET /api/public/datasets/{name}/runs`, and the output says so.
-No legacy `/traces` endpoint is used.
+v1 observations list and to `GET /api/public/datasets/{name}/runs` plus each run's details,
+and the output says so. No legacy `/traces` endpoint is used.
+
+Every failure reaches the verdict: unreadable config, a malformed LANGFUSE_BASE_URL, HTTP,
+network and parse errors each become a FAIL line, the lines already printed still count, and
+the run ends with NOT READY and a nonzero exit (Ctrl-C still interrupts).
 """
 from __future__ import annotations
 
 import argparse
 import ast
 import base64
+import ipaddress
 import json
 import os
 import re
@@ -71,6 +76,7 @@ EXPERIMENT_CMD = "python scripts/run-router-experiment.py --sample 30"
 EXPERIMENT_SCRIPT = REPO_ROOT / "scripts" / "run-router-experiment.py"
 TIMEOUT_S = 10
 MAX_PAGES = 20
+SCORE_TRACE_BATCH = 50                    # trace ids per Scores v3 traceId= filter (keeps the URL short)
 
 # The Router Ops dashboard (Act 4). seed_all.py creates exactly these; verify reads them back.
 DASHBOARD_NAME = "Router Ops"
@@ -232,6 +238,27 @@ def services(environ: Optional[MutableMapping[str, str]] = None) -> List[Tuple[s
     ]
 
 
+def base_url_problem(base: str) -> Optional[str]:
+    """Why `base` is not a usable http(s)://host[:port] URL, or None when it is.
+
+    Checked before any request, so a typo such as `http://[::gg]` is a FAIL line, not a
+    ValueError raised while a request is built.
+    """
+    try:
+        parts = urllib.parse.urlsplit(base)
+        host, _ = parts.hostname, parts.port      # .port raises on a non-numeric port
+    except ValueError as e:
+        return str(e)
+    if parts.scheme not in ("http", "https") or not host:
+        return "want http(s)://host[:port]"
+    if ":" in host:                                # a bracketed IPv6 literal
+        try:
+            ipaddress.ip_address(host.split("%", 1)[0])
+        except ValueError:
+            return f"'{host}' is not an IPv6 address"
+    return None
+
+
 def experiment_run_names(source: Optional[str] = None) -> List[str]:
     """The run names scripts/run-router-experiment.py writes, from its CONFIGS literal.
 
@@ -286,11 +313,11 @@ class Langfuse:
                 body: Optional[Any] = None) -> Any:
         query = {k: (str(v).lower() if isinstance(v, bool) else v)
                  for k, v in (params or {}).items() if v is not None}
-        url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
         data = None if body is None else json.dumps(body).encode()
         headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
+            url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
@@ -298,6 +325,8 @@ class Langfuse:
             raise ApiError(e.code, detail or e.reason) from None
         except (urllib.error.URLError, OSError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except ValueError as e:  # a malformed URL (bad host or port) fails while the request is built
+            raise ApiError(None, f"invalid request URL for {path}: {e}") from None
         try:
             return json.loads(raw) if raw else None
         except ValueError:
@@ -439,6 +468,8 @@ def _health(url: str) -> Tuple[Optional[int], Any]:
         return e.code, None
     except (urllib.error.URLError, OSError) as e:
         return None, type(e).__name__
+    except ValueError as e:  # a malformed URL, e.g. a non-numeric *_PORT
+        return None, f"invalid URL ({e})"
     try:
         return status, json.loads(raw) if raw else None
     except ValueError:
@@ -574,31 +605,64 @@ def experiment_checks(lf: Langfuse, state: Dict[str, Any], now: datetime, full: 
     try:
         rows = lf.experiments(state["dataset_id"], DATASET_NAME, since)
         if lf.experiments_api == "dataset-runs":
-            print("  note  this server has no experiments API (Langfuse 3.x); reading dataset runs and Scores v3")
+            print("  note  this server has no experiments API (Langfuse 3.x); reading each run's details and "
+                  "the Scores v3 bound to its traces and to the run")
         for run in wanted:
             matches = sorted((r for r in rows if run_matches(r.get("name") or "", run)),
                              key=lambda r: r.get("startTime") or r.get("createdAt") or "", reverse=True)
             if not check(bool(matches), f"experiment run '{run}' in the last {EXPERIMENT_LOOKBACK_DAYS} days",
                          required=full, hint=f"run {EXPERIMENT_CMD} (90 router calls on Haiku and Sonnet)"):
                 continue
+            latest = matches[0]
             if lf.experiments_api == "experiments":
-                latest = matches[0]
                 run_scores = {s.get("name") for s in latest.get("scores") or []}
                 items = lf.cursor("/api/public/experiment-items", {
                     "experimentId": latest["id"], "fromStartTime": iso(since), "fields": "scores"})
-                scored = [i for i in items if any(s.get("name") == "route-match" for s in i.get("scores") or [])]
-                check("avg_route_accuracy" in run_scores and len(scored) >= 1,
-                      f"run '{run}': {len(items)} item(s), {len(scored)} with route-match, "
-                      f"avg_route_accuracy {'present' if 'avg_route_accuracy' in run_scores else 'missing'}",
-                      required=full, hint=f"re-run {EXPERIMENT_CMD}; a run with no scores is not evidence")
-        if lf.experiments_api == "dataset-runs":
-            window = {"fromTimestamp": iso(since), "toTimestamp": iso(now + timedelta(minutes=5))}
-            for name in ("route-match", "avg_route_accuracy"):
-                found = lf.cursor("/api/public/v3/scores", dict(window, name=name), cap=1)
-                check(bool(found), f"'{name}' scores in the last {EXPERIMENT_LOOKBACK_DAYS} days", required=full,
-                      hint=f"run {EXPERIMENT_CMD}")
+                n_items = len(items)
+                n_scored = sum(1 for i in items if any(s.get("name") == "route-match" for s in i.get("scores") or []))
+                has_run_score = "avg_route_accuracy" in run_scores
+            else:
+                n_items, n_scored, has_run_score = v3_run_evidence(lf, latest, since, now)
+            check(has_run_score and n_scored >= 1,
+                  f"run '{run}': {n_items} item(s), {n_scored} with route-match, "
+                  f"avg_route_accuracy {'present' if has_run_score else 'missing'}",
+                  required=full, hint=f"re-run {EXPERIMENT_CMD}; a run with no scores of its own is not evidence")
     except ApiError as e:
         check(False, f"experiment runs: {e}", required=full)
+
+
+def v3_run_evidence(lf: Langfuse, run: Dict[str, Any], since: datetime, now: datetime) -> Tuple[int, int, bool]:
+    """Item and run scores that belong to ONE dataset run, on a server without the experiments API.
+
+    The run's own items come from its run details (`GET /datasets/{name}/runs/{runName}`),
+    whose `datasetRunItems` name the trace of each item. A `route-match` score counts only
+    when its Scores v3 subject is one of those traces (or an observation in one), and
+    `avg_route_accuracy` only when its subject is this run (`kind: experiment`, the run id).
+    A same-named score on any other trace or run proves nothing about this one.
+    Returns (items in the run, items with route-match, run has avg_route_accuracy).
+    """
+    run_id = run.get("id")
+    quoted = urllib.parse.quote(DATASET_NAME, safe="")
+    detail = lf.get(f"/api/public/datasets/{quoted}/runs/{urllib.parse.quote(run.get('name') or '', safe='')}") or {}
+    if not run_id or detail.get("id") != run_id:
+        raise ApiError(None, f"run details for '{run.get('name')}' did not return run {run_id}")
+    traces = sorted({i["traceId"] for i in detail.get("datasetRunItems") or []
+                     if i.get("datasetRunId") == run_id and i.get("traceId")})
+    window = {"fromTimestamp": iso(since), "toTimestamp": iso(now + timedelta(minutes=5))}
+    scored = set()
+    for start in range(0, len(traces), SCORE_TRACE_BATCH):
+        batch = set(traces[start:start + SCORE_TRACE_BATCH])
+        for s in lf.cursor("/api/public/v3/scores", dict(window, name="route-match", fields="subject",
+                                                         traceId=",".join(sorted(batch)))):
+            subject = s.get("subject") or {}
+            trace = {"trace": subject.get("id"), "observation": subject.get("traceId")}.get(subject.get("kind"))
+            if s.get("name") == "route-match" and trace in batch:
+                scored.add(trace)
+    run_scores = lf.cursor("/api/public/v3/scores", dict(window, name="avg_route_accuracy", fields="subject",
+                                                         experimentId=run_id), cap=100)
+    has_run_score = any(s.get("name") == "avg_route_accuracy" and (s.get("subject") or {}).get("kind") == "experiment"
+                        and (s.get("subject") or {}).get("id") == run_id for s in run_scores)
+    return len(traces), len(scored), has_run_score
 
 
 def live_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
@@ -712,7 +776,45 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], full: bool = 
             section()
         except ApiError as e:  # a failed read is a failed check, never a skipped one
             check(False, f"Langfuse read failed: {e}", required=i < 2 or full)
+        except Exception as e:  # noqa: BLE001 - an unexpected response shape fails this section only
+            check(False, f"Langfuse response not understood: {type(e).__name__}: {e}", required=i < 2 or full)
     return state
+
+
+def run_checks(args: argparse.Namespace, full: bool) -> None:
+    """Config first, then services and Langfuse. Returns early when the config is unusable."""
+    print("Config")
+    manifest_path = DEMO_DIR / "demo.yaml"
+    try:
+        manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    except (OSError, UnicodeDecodeError) as e:
+        check(False, f"{manifest_path.name} could not be read: {type(e).__name__}: {e}")
+        return
+    path = env_file(manifest_value(manifest, "", "profile"))
+    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
+    try:
+        loaded, problem = load_env(path), ""
+    except (OSError, UnicodeDecodeError) as e:   # shell LANGFUSE_* are already dropped
+        loaded, problem = False, f" ({type(e).__name__}: {e})"
+    check(loaded, f"env loaded from {shown}; shell-exported LANGFUSE_* ignored" if loaded
+          else f"env {shown} could not be loaded{problem}" if problem else f"env {shown} not found",
+          hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
+    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
+    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
+    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
+    if not check(loaded and bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
+        return
+    problem = base_url_problem(base)
+    if not check(problem is None, f"LANGFUSE_BASE_URL {base!r} is an http(s) URL" + (f": {problem}" if problem else ""),
+                 hint=f"fix LANGFUSE_BASE_URL in {shown}, e.g. http://localhost:3001"):
+        return
+    service_checks()
+    lf = Langfuse(base, pk, sk)
+    state = langfuse_checks(lf, expected, full)
+    if args.links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state):
+            print(f"  {label:<36} {url}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -724,32 +826,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     del RESULTS[:]
     full = not args.short
 
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
     print("query-router readiness: " + ("full script (Acts 1-5)" if full else "SHORT PATH ONLY (Opening, Acts 1-2, Close)"))
-    print("Config")
-    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    loaded = check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-                   hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
-    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(loaded and bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
-        service_checks()
-        lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected, full)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<36} {url}")
+    try:
+        run_checks(args, full)
+    except Exception as e:  # noqa: BLE001 - any failure must reach the verdict; Ctrl-C (BaseException) still propagates
+        check(False, f"verifier stopped early: {type(e).__name__}: {e}",
+              hint="the lines above still count; fix this and re-run")
 
     line, code = summary()
     if not full:
         line = line.replace("READY (", "READY for the short path only (", 1)
     print(f"\n{line}")
     return code
-
 
 if __name__ == "__main__":
     sys.exit(main())

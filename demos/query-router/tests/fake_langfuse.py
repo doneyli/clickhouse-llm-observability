@@ -4,7 +4,10 @@ The scripts under test build real URLs, query strings and JSON bodies; this serv
 them, rejects query parameters an endpoint does not take (400, as Langfuse does), honours
 Observations v2 field groups and Scores v3 projection, pages lists by cursor (with empty
 pages) or by page number, and can play a Langfuse 3.x server, where Observations v2 and
-the experiments API answer 404. No network, Docker or model calls.
+the experiments API answer 404. Scores carry the published Scores v3 subject shapes (a trace
+subject has only an id; an observation subject adds its traceId; an experiment subject is
+the dataset run id) and are filtered the way the API filters them. No network, Docker or
+model calls.
 """
 from __future__ import annotations
 
@@ -28,7 +31,10 @@ OBS_GROUPS = {"core": OBS_CORE, "basic": ("name", "level", "statusMessage", "ver
                                          "userId", "sessionId", "isRootObservation"),
               "time": (), "io": ("input", "output"), "metadata": ("metadata",), "model": (), "usage": (),
               "prompt": (), "metrics": (), "trace_context": ()}
-SCORE_CORE = ("id", "name", "value", "dataType", "timestamp", "source")
+SCORE_CORE = ("id", "projectId", "name", "value", "dataType", "source", "timestamp", "environment",
+              "createdAt", "updatedAt")
+SCORE_GROUPS = {"details": ("comment", "configId", "metadata"), "subject": ("subject",),
+                "annotation": ("authorUserId", "queueId")}
 COMMON = {"limit", "page"}
 CURSOR = {"limit", "cursor"}
 PARAMS = {  # (method, path regex) -> accepted query parameters
@@ -43,10 +49,12 @@ PARAMS = {  # (method, path regex) -> accepted query parameters
                                                       "toStartTime", "parentObservationId", "filter"},
     ("GET", r"/api/public/observations"): COMMON | {"name", "traceId", "type", "fromStartTime", "toStartTime",
                                                    "parentObservationId"},
-    ("GET", r"/api/public/v3/scores"): CURSOR | {"fields", "name", "traceId", "fromTimestamp", "toTimestamp"},
+    ("GET", r"/api/public/v3/scores"): CURSOR | {"fields", "name", "traceId", "observationId", "sessionId",
+                                                "experimentId", "fromTimestamp", "toTimestamp"},
     ("GET", r"/api/public/experiments"): CURSOR | {"datasetId", "fromStartTime", "toStartTime", "fields", "name"},
     ("GET", r"/api/public/experiment-items"): CURSOR | {"experimentId", "fromStartTime", "toStartTime", "fields"},
     ("GET", r"/api/public/datasets/[^/]+/runs"): COMMON,
+    ("GET", r"/api/public/datasets/[^/]+/runs/[^/]+"): set(),
     ("GET", r"/api/public/unstable/dashboards"): COMMON,
     ("POST", r"/api/public/unstable/dashboards"): set(),
     ("GET", r"/api/public/unstable/dashboards/[^/]+"): set(),
@@ -87,7 +95,8 @@ class FakeLangfuse:
         self.scores: List[Dict[str, Any]] = []
         self.experiments: List[Dict[str, Any]] = []
         self.experiment_items: Dict[str, List[Dict[str, Any]]] = {}
-        self.dataset_runs: Dict[str, List[Dict[str, Any]]] = {}
+        self.dataset_runs: Dict[str, List[Dict[str, Any]]] = {}      # dataset name -> run rows
+        self.run_items: Dict[str, List[Dict[str, Any]]] = {}         # run id -> datasetRunItems
         self.dashboards: List[Dict[str, Any]] = []
         self.widgets: List[Dict[str, Any]] = []
         self.health: Dict[str, Tuple[Optional[int], Any]] = {}
@@ -158,7 +167,8 @@ class FakeLangfuse:
         rules = [(r"v2/prompts/.+", "prompt"), (r"v2/prompts", "prompts"), (r"v2/datasets/.+", "dataset"),
                  (r"v2/datasets", "datasets"), (r"dataset-items", "items"), (r"v2/observations", "obs_v2"),
                  (r"observations", "obs_v1"), (r"v3/scores", "scores"), (r"experiments", "experiments"),
-                 (r"experiment-items", "experiment_items"), (r"datasets/.+/runs", "runs"),
+                 (r"experiment-items", "experiment_items"), (r"datasets/[^/]+/runs", "runs"),
+                 (r"datasets/[^/]+/runs/[^/]+", "run"),
                  (r"unstable/dashboards/.+/placements", "placement"), (r"unstable/dashboards/.+", "dashboard"),
                  (r"unstable/dashboards", "dashboards"), (r"unstable/dashboard-widgets/.+", "widget"),
                  (r"unstable/dashboard-widgets", "widgets"), (r"projects", "projects")]
@@ -257,18 +267,41 @@ class FakeLangfuse:
 
     def _get_scores(self, path, q, body):
         groups = set((q.get("fields") or "").split(",")) - {""}
-        keep = set(SCORE_CORE) | ({"subject"} if "subject" in groups else set())
-        rows = [{k: v for k, v in s.items() if k in keep} for s in self.scores
-                if (not q.get("name") or s["name"] == q["name"])
-                and (not q.get("traceId") or s.get("subject", {}).get("traceId") == q["traceId"])
-                and (not q.get("fromTimestamp") or s["timestamp"] >= q["fromTimestamp"])
-                and (not q.get("toTimestamp") or s["timestamp"] < q["toTimestamp"])]
+        if groups - set(SCORE_GROUPS):
+            return 400, f"invalid field groups {sorted(groups - set(SCORE_GROUPS))}"
+        scoped = [k for k in ("traceId", "sessionId", "experimentId") if q.get(k)]
+        if len(scoped) > 1:
+            return 400, f"{' and '.join(scoped)} are mutually exclusive"
+        if q.get("observationId") and not q.get("traceId"):
+            return 400, "observationId requires traceId"
+        listed = lambda k: set(q[k].split(",")) if q.get(k) else None  # noqa: E731
+        names, traces, observations, runs = listed("name"), listed("traceId"), listed("observationId"), listed("experimentId")
+        keep = set(SCORE_CORE).union(*(SCORE_GROUPS[g] for g in groups))
+        rows = []
+        for sc in self.scores:
+            subject = sc["subject"]
+            trace = subject["id"] if subject["kind"] == "trace" else subject.get("traceId")
+            if ((names is None or sc["name"] in names)
+                    and (traces is None or trace in traces)
+                    and (observations is None or (subject["kind"] == "observation" and subject["id"] in observations))
+                    and (runs is None or (subject["kind"] == "experiment" and subject["id"] in runs))
+                    and (not q.get("fromTimestamp") or sc["timestamp"] >= q["fromTimestamp"])
+                    and (not q.get("toTimestamp") or sc["timestamp"] < q["toTimestamp"])):
+                rows.append({k: v for k, v in sc.items() if k in keep})
         return self._cursor_page(rows, q)
 
-    def add_score(self, name: str, trace_id: str, value: Any = 1, when: str = "") -> None:
-        self.scores.append({"id": self.nid("s"), "name": name, "value": value, "dataType": "NUMERIC",
-                            "timestamp": when or ts(), "source": "API",
-                            "subject": {"kind": "trace", "id": trace_id, "traceId": trace_id}})
+    def add_score(self, name: str, subject_id: str, value: Any = 1, when: str = "", kind: str = "trace",
+                  trace_id: Optional[str] = None) -> dict:
+        """A score on a trace (the default), an observation (pass its trace_id) or an experiment run."""
+        subject = {"kind": kind, "id": subject_id}
+        if kind == "observation":
+            subject["traceId"] = trace_id
+        row = {"id": self.nid("s"), "projectId": "p1", "name": name, "value": value, "dataType": "NUMERIC",
+               "source": "API", "timestamp": when or ts(), "environment": "default", "createdAt": when or ts(),
+               "updatedAt": when or ts(), "comment": None, "configId": None, "metadata": {},
+               "authorUserId": None, "queueId": None, "subject": subject}
+        self.scores.append(row)
+        return row
 
     # --- experiments -----------------------------------------------------------------------------
 
@@ -297,6 +330,13 @@ class FakeLangfuse:
         if name not in self.datasets:
             return 404, "dataset not found"
         return self._page(self.dataset_runs.get(name, []), q)
+
+    def _get_run(self, path, q, body):  # GET /datasets/{name}/runs/{runName}: the run and its items
+        _, name, _, run_name = path.replace("/api/public/", "").split("/")
+        run = next((r for r in self.dataset_runs.get(name, []) if r["name"] == run_name), None)
+        if run is None:
+            return 404, "dataset run not found"
+        return 200, dict(run, datasetRunItems=list(self.run_items.get(run["id"], [])))
 
     # --- dashboards ------------------------------------------------------------------------------
 
@@ -397,16 +437,25 @@ def ready_project(fake: FakeLangfuse, v: Any, seed: Any) -> FakeLangfuse:
         fake.widgets.append(w)
         dash["definition"]["widgets"].append({"id": fake.nid("pl"), "type": "widget", "widgetId": w["id"]})
     fake.dashboards.append(dash)
-    # Act 5: the three experiment runs, each with run- and item-level scores.
+    # Act 5: the three experiment runs, each with run- and item-level scores. The experiments
+    # API embeds them; on a 3.x server they live in Scores v3, bound to the run's own traces
+    # (observation subjects, as the SDK writes them) and to the run (experiment subject).
     for run in v.experiment_run_names():
         e = {"id": fake.nid("exp"), "name": run, "datasetId": "ds1", "startTime": ts(-timedelta(days=1)),
              "scores": [{"name": "avg_route_accuracy", "value": 0.93}]}
         fake.experiments.append(e)
         fake.experiment_items[e["id"]] = [{"id": fake.nid("ei"), "traceId": fake.nid("t"),
                                            "scores": [{"name": "route-match", "value": 1}]} for _ in range(3)]
-        fake.dataset_runs.setdefault(v.DATASET_NAME, []).append({"id": e["id"], "name": run, "createdAt": e["startTime"]})
-    fake.add_score("route-match", "exp-item", 1)
-    fake.add_score("avg_route_accuracy", "exp-run", 0.93)
+        fake.dataset_runs.setdefault(v.DATASET_NAME, []).append(
+            {"id": e["id"], "name": run, "datasetId": "ds1", "datasetName": v.DATASET_NAME,
+             "createdAt": e["startTime"], "updatedAt": e["startTime"]})
+        fake.run_items[e["id"]] = [
+            {"id": fake.nid("dri"), "datasetRunId": e["id"], "datasetRunName": run, "datasetItemId": f"item-{k}",
+             "traceId": item["traceId"], "observationId": None, "createdAt": e["startTime"]}
+            for k, item in enumerate(fake.experiment_items[e["id"]])]
+        for item in fake.experiment_items[e["id"]]:
+            fake.add_score("route-match", fake.nid("task"), 1, kind="observation", trace_id=item["traceId"])
+        fake.add_score("avg_route_accuracy", e["id"], 0.93, kind="experiment")
     # Services.
     handlers = {r: "ok" for r in v.ROUTES}
     for name, url in v.services({}):
