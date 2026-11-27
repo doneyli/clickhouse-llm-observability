@@ -68,10 +68,15 @@ the index in [`demos/README.md`](../README.md).
    30 traces from npm run seed · tag `rls-demo` · userId alice | bob | carol
    metadata {classification, team, topic} · input {query} · output {response}
    no observations, no scores, no sessions
+
+ npm run seed ── scripts/seed-traces.ts
+   GET /api/public/traces?tags=rls-demo   read what exists
+   POST /api/public/ingestion             trace-create, only for missing or drifted fixtures
 ```
 
-The app reads **every** trace in the project, not only the tagged ones, so keep the project to
-these 30. A trace without `classification` and `team` metadata counts as public and is shown to
+Each fixture has a stable trace id (`rls-demo-01` … `rls-demo-30`), so re-seeding updates the
+same 30 traces. The app reads **every** trace in the project, not only the tagged ones, so keep
+the project to these 30. A trace without `classification` and `team` metadata counts as public and is shown to
 every persona.
 
 ## Set up from scratch
@@ -84,21 +89,22 @@ its API keys.
 cd demos/langfuse-rls
 npm ci
 cp .env.example .env         # fill in the keys; set LANGFUSE_PROJECT_NAME to the project's name
-npm run seed                 # 30 traces, a few seconds. Appends: run it once per project
+npm run seed                 # idempotent: created / updated / unchanged per fixture, a few seconds
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 npm run dev                  # app on http://localhost:3000
 bash scripts/verify.sh       # in a second terminal; should print READY
 ```
 
-`npm run seed` and `scripts/verify.sh` read only the demo's `.env` and ignore shell-exported
-`LANGFUSE_*`. `npm run dev` does not: Next.js lets shell exports win over `.env`, so unset them
+`npm run seed` and `scripts/verify.sh` read only the demo's `.env`: they clear shell-exported
+`LANGFUSE_*` first and stop before any request if the file or a key is missing. The seeder also
+writes nothing unless the keys map to the expected project. `npm run dev` does not: Next.js lets shell exports win over `.env`, so unset them
 before starting the app. `./setup.sh` does not run this demo's seed.
 
 ## Before a demo
 
 | When | Do | Why |
 |---|---|---|
-| The day before | `bash scripts/verify.sh` with the app running | READY means 30 traces in the project and 30 / 20 / 10 through the app |
+| The day before | `npm run seed`, then `bash scripts/verify.sh` with the app running | The seed repairs any drifted fixture and writes nothing otherwise; READY means the 30 fixtures by id and 30 / 20 / 10 through the app |
 | 30 minutes before | `unset LANGFUSE_...`, `npm run dev`, then `bash scripts/verify.sh --links` | Prints READY and the tab each act opens |
 | 5 minutes before | Open the four links it printed | Langfuse traces (Opening), the Demo, Policies and Design tabs (Acts 1–3) |
 
@@ -170,8 +176,11 @@ demos/langfuse-rls/
 │   ├── langfuse-client.ts     paginated GET /api/public/traces with a 60 s cache
 │   └── types.ts
 ├── scripts/
-│   ├── seed-traces.ts         npm run seed: the 30 fixtures through the legacy JS SDK
-│   ├── fixtures/traces.json   the 30 synthetic traces
+│   ├── seed-traces.ts         npm run seed: idempotent upsert of the 30 fixtures; --prune-legacy
+│   ├── fixtures/traces.json   the 30 synthetic traces, each with a stable id
+│   ├── fixtures.ts            fixture validation and the drift comparison (seed and verify)
+│   ├── demo_env.ts            the .env loader: clears shell LANGFUSE_*, requires the keys
+│   ├── langfuse_http.ts       minimal JSON client for the public API
 │   ├── verify.sh              npm run verify: readiness check, wraps verify_demo.ts
 │   └── verify_demo.ts         the checks: READY or NOT READY, --links
 └── tests/                     vitest; no services
@@ -187,10 +196,13 @@ npm test                     # vitest, no services, no model calls, under a seco
 
 `tests/rls-policy.test.ts` covers the policy engine: the full persona × classification matrix,
 that a team match never widens access, the no-metadata rule, `evaluateBatch()`, and that the
-committed fixtures produce the 30 / 20 / 10 split. `tests/verify_demo.test.ts` covers the
-readiness check: results, summary and exit code, the `.env` override, the manifest parse, the
-metric parse, and full runs against a fake Langfuse and a fake app. `npm run typecheck` runs
-`tsc --noEmit`.
+committed fixtures produce the 30 / 20 / 10 split. `tests/seed_traces.test.ts` covers the
+seeder: missing or partial `.env` with hostile shell exports, the wrong project, two unchanged
+reruns that write nothing, drift repair, a changed fixture, partial and total write failures, a
+failed read, pagination, and old-seeder duplicates. `tests/verify_demo.test.ts` covers the
+readiness check: verdicts and exit codes, the `.env` rule, the metric parse, and full runs. Both
+run against `tests/fake_langfuse.ts`, an in-memory Langfuse and app that reject unknown query
+parameters. `npm run typecheck` runs `tsc --noEmit`.
 
 ## Troubleshooting
 
@@ -198,8 +210,8 @@ metric parse, and full runs against a fake Langfuse and a fake app. `npm run typ
 |---|---|
 | "Langfuse unreachable or no traces found." banner, empty list | Langfuse is down, or the app started with the wrong keys. Start the root stack's `langfuse` profile; unset shell `LANGFUSE_*` and restart `npm run dev` |
 | `keys map to project '…' (want '…')` | The keys belong to another project, or `LANGFUSE_PROJECT_NAME` does not match the project's name |
-| `project holds 60 trace(s) (want 30 …)`, persona counts 60 / 40 / 20 | `npm run seed` ran twice: it appends new trace ids each run. Wipe the project's traces (Reset in [DEMO_SCRIPT.md](DEMO_SCRIPT.md)) and seed once |
-| Persona counts lag a reseed or a wipe | The app caches the trace list for 60 seconds. Wait, then refresh |
+| `project holds 60 trace(s) (want 30 …)`, persona counts 60 / 40 / 20 | Duplicates from the old appending seeder (random ids). `npm run seed` lists them as `legacy`; `npm run seed -- --prune-legacy` deletes just those |
+| Persona counts lag a reseed or a prune | The app caches the trace list for 60 seconds. Wait, then refresh |
 | `trace count read failed: HTTP 404 … self-hosted v3 server` | The server is Langfuse v4, which drops the reads this demo uses (`GET /traces` in the app, Metrics v1 in the check) |
 | Port 3000 already in use | `lsof -ti:3000 \| xargs kill`, or `PORT=3002 npm run dev` and `DEMO_APP_URL=http://localhost:3002 bash scripts/verify.sh` |
 | Mermaid diagrams blank on `/design` | Mermaid renders client-side only. Wait a moment or hard-refresh |
@@ -219,10 +231,9 @@ metric parse, and full runs against a fake Langfuse and a fake app. `npm run typ
   classification or team. `tests/rls-policy.test.ts` pins this behaviour.
 - **The denied banner lists at most 5** of the hidden traces (`app/api/traces/route.ts`), not
   all of them.
-- **The seeder is not idempotent.** Each `npm run seed` adds another 30 traces; the readiness
-  check catches it and the reset path removes them.
-- **Self-hosted v3 only.** The app reads `GET /api/public/traces` and the seeder writes through
-  the legacy `langfuse` JS SDK (`^3.36`), so the demo needs the root stack's v3 server, not
-  Langfuse Cloud or a v4 server.
+- **Self-hosted v3 only.** The app and the seeder read `GET /api/public/traces`, which Langfuse
+  Cloud removed and a v4 server does not serve, and the seeder writes `trace-create` events to
+  `POST /api/public/ingestion`. Run it against the root stack's v3 server only; there is no
+  tested current-API path yet (`lib/langfuse-client.ts` says what replacing it needs).
 - **Traces only.** The seeded traces have no observations, scores or sessions, and no model is
   called; the demo is about who sees rows, not about tracing.

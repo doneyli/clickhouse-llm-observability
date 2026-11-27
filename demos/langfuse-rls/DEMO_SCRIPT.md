@@ -51,7 +51,7 @@ cd demos/langfuse-rls
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 npm ci                           # one-time
 cp .env.example .env             # one-time: set the keys and LANGFUSE_PROJECT_NAME
-npm run seed                     # one-time per project: push the 30 fixture traces (appends!)
+npm run seed                     # idempotent: creates or repairs the 30 fixture traces
 npm run dev                      # app on http://localhost:3000
 bash scripts/verify.sh --links   # second terminal: READY, plus the four tabs below
 ```
@@ -245,7 +245,7 @@ before any row leaves the store.
 *Why it matters:* swap these for your customer's real teams/attributes and the
 demo becomes *their* requirement in ten minutes.
 
-**4 · The data path — `lib/langfuse-client.ts:44`**
+**4 · The data path — `lib/langfuse-client.ts:52`**
 ```ts
 // paginated fetch of ${host}/api/public/traces with Basic auth (pk:sk), 60s cache
 ```
@@ -303,14 +303,13 @@ npm run dev                      # app on :3000
 bash scripts/verify.sh --links   # READY; prints the project id in the Langfuse link
 ```
 
-`npm run seed` appends 30 new traces each time it runs, so do not reseed a seeded project.
-If the check reports more than 30 traces, wipe the demo's traces and seed once. From the repo
-root, with the project id from `--links`:
+`npm run seed` is safe to re-run: it repairs a fixture that drifted and writes nothing
+otherwise. If the check reports more than 30 traces because an older seeder appended
+duplicates, delete just those (the run lists them as `legacy` first):
 
 ```bash
-docker compose exec langfuse-clickhouse clickhouse-client --user langfuse --password langfuse123 \
-  --query "DELETE FROM default.traces WHERE project_id = '<project id>' AND has(tags, 'rls-demo')"
-cd demos/langfuse-rls && npm run seed && bash scripts/verify.sh   # wait 60 s for the app cache
+npm run seed -- --prune-legacy   # deletes only rls-demo traces that copy a fixture under another id
+bash scripts/verify.sh           # wait 60 s for the app cache
 ```
 
 If the app shows an empty state, Langfuse isn't reachable on `:3001` or the app started with

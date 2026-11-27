@@ -52,14 +52,15 @@ credit risk and churn. Inputs and outputs are pre-written; no model is called.
  Langfuse :3001 (self-hosted v3)
 ```
 
-One process. The seeder (`scripts/seed-traces.ts`) is a separate one-shot run with one
-Langfuse client, flushed before exit.
+One process. The seeder (`scripts/seed-traces.ts`) is a separate one-shot run: it reads the
+project's `rls-demo` traces, then sends `trace-create` events only for fixtures that are
+missing or have drifted.
 
 ## 6. What lands in Langfuse
 
 | Object | Name | Rule |
 |---|---|---|
-| Trace | 30 fixture names, such as `Q4 earnings narrative generation` | One per fixture, per `npm run seed`. New ids every run, so seeding twice gives 60 |
+| Trace | 30 fixture names, such as `Q4 earnings narrative generation` | One per fixture, under a stable id `rls-demo-01` … `rls-demo-30`; re-seeding upserts, never appends |
 | Tag | `rls-demo` | On every seeded trace |
 | `userId` | `alice`, `bob`, `carol` | The persona who owns the topic; 10 each |
 | Metadata | `classification`, `team`, `topic` | Read by the policy engine; `team` is display and audit only |
@@ -87,7 +88,8 @@ predates the standard and has not been re-measured.
   a v4 server no longer serves. The demo runs only against the self-hosted v3 server until the
   read moves to Observations v2 and the seeder to OTLP with the v5 `@langfuse/*` SDK
   (`docs/LANGFUSE_V4_MIGRATION_SPEC.md` §15).
-- The seeder appends. A rehearsal that reseeds doubles every count until the project is wiped.
+- Projects seeded before the stable ids hold copies under random ids. `npm run seed` reports them;
+  `--prune-legacy` deletes only those, after the operator asks for it.
 - An unknown classification ranks below `general` and fails open; a production policy would
   deny it.
 
@@ -100,3 +102,5 @@ predates the standard and has not been re-measured.
 | D3 | Team-based allow | Removed | `allow-own-team` let a general-clearance analyst read `ceo-only` traces their team owned |
 | D4 | Traces without RLS metadata | Public | Keeps unrelated traces visible; recorded as a limit, since it fails open |
 | D5 | Readiness check | `scripts/verify.sh` wraps `scripts/verify_demo.ts`; Metrics v1 for the Langfuse count, the app's own route for the persona counts | The seeded traces have no observations, so Observations v2 has nothing to count, and Observations v2 and Metrics v2 404 on the v3 server. Reading through the app checks the path the audience sees |
+| D6 | Seeding | Stable fixture ids; read, compare, write only what is missing or drifted; raw ingestion API | An unchanged run writes nothing. The 207 response names each failed event, which the legacy SDK's queue swallowed. A trace update keeps its timestamp so the v3 table does not keep a second row |
+| D7 | Old-seeder duplicates | Reported by default, deleted only with `--prune-legacy`, and only tagged traces that copy a fixture's name under another id | Never wipe a project or delete what the seeder does not own |

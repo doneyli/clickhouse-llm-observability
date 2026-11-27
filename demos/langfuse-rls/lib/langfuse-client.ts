@@ -1,3 +1,11 @@
+// The app's only Langfuse read, and its one legacy-API dependency.
+//
+// `GET /api/public/traces` is served by the pinned self-hosted v3 server (3.221.1), the only
+// target this demo supports. Langfuse Cloud removed it on 2026-11-16 and a v4 server does not
+// serve it. The current replacement, Observations v2, 404s on v3, and the seeded traces have
+// no observations to read anyway, so there is no tested current-API path yet: replacing this
+// adapter needs the seeder moved to OTLP root observations and a v4 server to test on
+// (docs/LANGFUSE_V4_MIGRATION_SPEC.md §15). Until then, do not point this demo at Cloud.
 import type { LangfuseTrace } from "./types";
 
 const host = process.env.LANGFUSE_BASE_URL ?? process.env.LANGFUSE_HOST ?? "http://localhost:3001";
