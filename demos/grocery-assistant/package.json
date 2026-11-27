@@ -15,8 +15,9 @@
     "experiment": "tsx scripts/run-experiment.ts",
     "evaluate:live": "tsx scripts/score-live-sessions.ts",
     "demo": "tsx scripts/run-demo.ts",
+    "verify": "tsx scripts/verify_demo.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test src/**/*.test.ts tests/*.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.44",

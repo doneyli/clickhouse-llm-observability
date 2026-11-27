@@ -46,15 +46,15 @@
  * but the demo also documents Langfuse Cloud, which is v4. Both paths are
  * therefore implemented and selected from `GET /api/public/health`:
  *
- *   v3  → `GET /api/public/traces/{id}`, which returns the trace together with
- *         its full `observations` array. One request per turn, and input/output
- *         arrive ALREADY PARSED as objects.
+ *   v3  → `GET /api/public/observations?traceId=…`, the v1 observation list,
+ *         paged. Input/output arrive ALREADY PARSED as objects. (The legacy
+ *         `/api/public/traces/{id}` is not used: Langfuse Cloud removed it.)
  *   v4  → `GET /api/public/v2/observations?traceId=…&fields=core,basic,io,metadata`.
  *         `fields` MUST include `io` or input/output come back undefined, and
  *         there input/output are SERIALIZED JSON STRINGS.
  *
- * Traces are located by the ids `runTurn` hands back, never by
- * `GET /api/public/traces?sessionId=…`. That is not a stylistic choice: in
+ * Both readers live in src/readback.ts. Traces are located by the ids `runTurn`
+ * hands back, never by a session query. That is not a stylistic choice: in
  * broken mode the session id is stamped into free-form metadata instead of being
  * propagated, so those traces have `sessionId: null` and a session query cannot
  * see them at all. Filtering by session to measure a session defect would
@@ -73,6 +73,7 @@ import {
   verifyProject,
 } from "../src/env.js";
 import { CONVERSATIONS, getConversation } from "../src/conversations.js";
+import { apiFlavourFor, sessionOf, traceObservations, type ApiFlavour, type RawObservation } from "../src/readback.js";
 import { driveConversation, sessionUrl, type TurnRecord } from "./run-conversation.js";
 
 const BOLD = "[1m";
@@ -93,7 +94,6 @@ async function api<T>(path: string): Promise<T | undefined> {
 }
 
 // -------------------------------------------------------------- API version ---
-type ApiFlavour = "v1" | "v2";
 let flavour: ApiFlavour | undefined;
 let serverVersion = "unknown";
 
@@ -101,8 +101,7 @@ async function detectApiFlavour(): Promise<ApiFlavour> {
   if (flavour) return flavour;
   const health = await api<{ version?: string }>("/api/public/health");
   serverVersion = health?.version ?? "unknown";
-  // Major 3 has no v2 observations API. Anything else is treated as v4-or-later.
-  flavour = serverVersion.startsWith("3.") ? "v1" : "v2";
+  flavour = apiFlavourFor(serverVersion);
   return flavour;
 }
 
@@ -138,33 +137,6 @@ type ObsRow = {
 /** One turn's worth of trace, however it was fetched. */
 type TraceFacts = { traceId: string; traceName: string; sessionId: string | undefined; rows: ObsRow[] };
 
-type RawObservation = {
-  id: string;
-  traceId?: string | null;
-  type: string;
-  name?: string | null;
-  parentObservationId?: string | null;
-  isRootObservation?: boolean;
-  input?: unknown;
-  output?: unknown;
-  metadata?: unknown;
-  /** v4 only: the propagated session, promoted to a column on the observation. */
-  sessionId?: string | null;
-};
-
-function sessionAttributeOf(metadata: unknown): string | undefined {
-  if (typeof metadata !== "object" || metadata === null) return undefined;
-  const attrs = (metadata as { attributes?: Record<string, unknown> }).attributes;
-  const value = attrs?.["session.id"];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** The observation's session, wherever this server generation keeps it. */
-function sessionOf(o: RawObservation): string | undefined {
-  if (typeof o.sessionId === "string" && o.sessionId.length > 0) return o.sessionId;
-  return sessionAttributeOf(o.metadata);
-}
-
 /** Non-empty, accounting for v4 handing io back as a JSON string. */
 function isPresent(value: unknown): boolean {
   if (value === null || value === undefined) return false;
@@ -192,48 +164,15 @@ function toRow(traceId: string, o: RawObservation): ObsRow {
 
 async function readTrace(traceId: string): Promise<TraceFacts | undefined> {
   const version = await detectApiFlavour();
-
-  if (version === "v1") {
-    const trace = await api<{
-      id: string;
-      name?: string | null;
-      sessionId?: string | null;
-      observations?: RawObservation[];
-    }>(`/api/public/traces/${encodeURIComponent(traceId)}`);
-    if (!trace || !trace.observations || trace.observations.length === 0) return undefined;
-    return {
-      traceId,
-      traceName: trace.name ?? "(unnamed)",
-      sessionId: trace.sessionId ?? undefined,
-      rows: trace.observations.map((o) => toRow(traceId, o)),
-    };
-  }
-
-  const rows: ObsRow[] = [];
-  let cursor: string | undefined;
-  do {
-    const qs = new URLSearchParams({
-      traceId,
-      // WITHOUT `io` here, input and output come back undefined and every
-      // generation looks broken. `metadata` carries the OTel attributes.
-      fields: "core,basic,io,metadata",
-      limit: "100",
-    });
-    if (cursor) qs.set("cursor", cursor);
-    const body = await api<{ data: RawObservation[]; meta?: { nextCursor?: string | null } }>(
-      `/api/public/v2/observations?${qs.toString()}`,
-    );
-    if (!body) return undefined;
-    rows.push(...body.data.map((o) => toRow(traceId, o)));
-    cursor = body.meta?.nextCursor ?? undefined;
-  } while (cursor);
-
+  // `io` is required on v2 or input/output come back undefined and every
+  // generation looks broken; `metadata` carries the OTel attributes on v3.
+  const rows = (await traceObservations(api, version, traceId, "core,basic,io,metadata")).map((o) => toRow(traceId, o));
   if (rows.length === 0) return undefined;
   const root = rows.find((r) => r.isRoot);
   return {
     traceId,
     // In broken mode the root observation's name IS the high-cardinality trace
-    // name, so deriving it here works for both modes without a second request.
+    // name, so deriving it here works for every mode without a second request.
     traceName: root?.name ?? "(unnamed)",
     sessionId: rows.find((r) => r.sessionAttribute)?.sessionAttribute,
     rows,

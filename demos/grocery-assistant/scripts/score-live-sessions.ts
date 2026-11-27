@@ -39,6 +39,7 @@ import {
 import { TRACE_NAME } from "../src/assistant.js";
 import { unverifiedCartClaim, type EvalContext } from "../src/evaluators/deterministic.js";
 import { langfuseClient } from "./seed-dataset.js";
+import { apiFlavourFor, recentTurns, traceObservations, type ApiFlavour, type Get } from "../src/readback.js";
 
 const BOLD = "[1m";
 const DIM = "[2m";
@@ -57,6 +58,9 @@ async function api<T>(path: string): Promise<T> {
   }
   return (await res.json()) as T;
 }
+
+/** `api` as src/readback.ts expects it: a failed read throws, it never reads as empty. */
+const get: Get = <T>(path: string) => api<T>(path);
 
 // ------------------------------------------------------------------ reading ---
 type TraceRow = { id: string; name?: string | null; sessionId?: string | null; timestamp?: string };
@@ -78,22 +82,20 @@ type ObsRow = {
  * Which read API this server speaks, decided the same way `compare-traces.ts`
  * decides it — from `GET /api/public/health`.
  *
- * `GET /api/public/traces` and `GET /api/public/traces/{id}` are deprecated and
- * are removed from Langfuse Cloud on 2026-11-16, so the v2 observations API is
- * the path that has a future. It is also *unavailable* on a Langfuse v3 server,
- * which answers HTTP 404 with `LangfuseNotFoundError` — and this demo's default
- * self-hosted stack is 3.221.1 while its `.env` points at Cloud. Neither path
- * alone covers both, so both are implemented and the server chooses.
+ * `GET /api/public/traces` and `GET /api/public/traces/{id}` were removed from
+ * Langfuse Cloud on 2026-11-16 and are not used here. The v2 observations API is
+ * the current path, and it is *unavailable* on a Langfuse v3 server, which answers
+ * HTTP 404 with `LangfuseNotFoundError` — and this demo's default self-hosted stack
+ * is 3.221.1. So on a 3.x server the v1 observation list is read instead; both
+ * readers live in src/readback.ts and the server chooses.
  */
-type ApiFlavour = "v1" | "v2";
 let flavour: ApiFlavour | undefined;
 
 async function detectApiFlavour(): Promise<ApiFlavour> {
   if (flavour) return flavour;
   const health = await api<{ version?: string }>("/api/public/health");
   const version = health?.version ?? "unknown";
-  // Major 3 has no v2 observations API. Anything else is treated as v4-or-later.
-  flavour = version.startsWith("3.") ? "v1" : "v2";
+  flavour = apiFlavourFor(version);
   return flavour;
 }
 
@@ -127,39 +129,16 @@ function normalise(o: ObsRow): ObsRow {
  * The most recent sessions, newest first.
  *
  * On v2 the session is a first-class column on every observation, so the roots
- * alone identify both the session and its turns — no trace list needed. On v3
- * it comes from the traces list, which is where `sessionId` lives there.
+ * alone identify both the session and its turns — no trace list needed. On v3 the
+ * session is the propagated attribute on each `handle-chat-message` observation
+ * (src/readback.ts `recentTurns`).
  *
  * This project holds only this demo's traffic, so every session here is a demo
  * session.
  */
 async function readRecentSessions(maxSessions: number): Promise<Array<{ sessionId: string; traces: TraceRow[] }>> {
-  const rows: TraceRow[] = [];
-
-  if ((await detectApiFlavour()) === "v2") {
-    type V2Root = { traceId: string; sessionId?: string | null; startTime: string; name?: string | null };
-    let cursor: string | undefined;
-    for (let page = 0; page < 10; page += 1) {
-      const qs = new URLSearchParams({ fields: "core,basic", limit: "100", isRootObservation: "true" });
-      if (cursor) qs.set("cursor", cursor);
-      const body = await api<{ data: V2Root[]; meta?: { cursor?: string; nextCursor?: string } }>(
-        `/api/public/v2/observations?${qs.toString()}`,
-      );
-      for (const o of body.data) {
-        rows.push({ id: o.traceId, sessionId: o.sessionId ?? null, timestamp: o.startTime, name: o.name ?? null });
-      }
-      cursor = body.meta?.nextCursor ?? body.meta?.cursor ?? undefined;
-      if (!cursor || body.data.length === 0) break;
-    }
-    // Cursor order is not guaranteed to be newest-first; make it so explicitly.
-    rows.sort((a, b) => String(b.timestamp ?? "").localeCompare(String(a.timestamp ?? "")));
-  } else {
-    for (let page = 1; page <= 10; page += 1) {
-      const body = await api<{ data: TraceRow[] }>(`/api/public/traces?page=${page}&limit=100`);
-      rows.push(...body.data);
-      if (body.data.length < 100) break;
-    }
-  }
+  const turns = await recentTurns(get, await detectApiFlavour(), TRACE_NAME);
+  const rows: TraceRow[] = turns.map((t) => ({ id: t.traceId, sessionId: t.sessionId, timestamp: t.startTime, name: t.name }));
 
   const grouped = new Map<string, TraceRow[]>();
   for (const t of rows) {
@@ -179,19 +158,8 @@ async function readRecentSessions(maxSessions: number): Promise<Array<{ sessionI
  * broken-instrumentation session this script exists to distinguish.
  */
 async function readObservations(traceId: string): Promise<ObsRow[]> {
-  if ((await detectApiFlavour()) === "v2") {
-    const qs = new URLSearchParams({
-      traceId,
-      fields: "core,basic,io,metadata",
-      limit: "1000",
-    });
-    const body = await api<{ data: ObsRow[] }>(`/api/public/v2/observations?${qs.toString()}`);
-    return (body.data ?? []).map(normalise);
-  }
-  const trace = await api<{ observations?: ObsRow[] }>(
-    `/api/public/traces/${encodeURIComponent(traceId)}`,
-  );
-  return (trace.observations ?? []).map(normalise);
+  const raw = await traceObservations(get, await detectApiFlavour(), traceId, "core,basic,io,metadata");
+  return (raw as unknown as ObsRow[]).map(normalise);
 }
 
 // ----------------------------------------------------------- reconstruction ---

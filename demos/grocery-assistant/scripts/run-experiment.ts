@@ -27,7 +27,7 @@ import { flushTraces } from "../src/instrumentation.js";
 import { AGENT_MODEL, verifyProject } from "../src/env.js";
 import { formatMoney } from "../src/catalog.js";
 import { getConversation, type Conversation } from "../src/conversations.js";
-import { DETERMINISTIC_EVALUATORS, type Verdict } from "../src/evaluators/deterministic.js";
+import { DETERMINISTIC_EVALUATORS, EVALUATOR_NAMES, type Verdict } from "../src/evaluators/deterministic.js";
 import { driveConversation } from "./run-conversation.js";
 import { DATASET_NAME, langfuseClient } from "./seed-dataset.js";
 
@@ -36,18 +36,6 @@ const DIM = "[2m";
 const GREEN = "[32m";
 const RED = "[31m";
 const OFF = "[0m";
-
-/** The evaluator names, taken from the evaluator functions rather than retyped. */
-const EVALUATOR_NAMES = [
-  "unverified-cart-claim",
-  "fabricated-purchase-history",
-  "dropped-dietary-constraint",
-  "stale-discount-quoted",
-  // Added by error analysis; snake_case to match the Langfuse score configs
-  // created from the failure taxonomy. See docs/ERROR_ANALYSIS.md.
-  "quoted_total_for_empty_cart",
-  "readback_request_unanswered",
-] as const;
 
 // ------------------------------------------------------------- task shapes ---
 type TurnSummary = {

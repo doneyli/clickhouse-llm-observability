@@ -71,6 +71,7 @@ import {
 } from "@langfuse/tracing";
 
 import { AGENT_MODEL, BASE_TAGS } from "./env.js";
+import { extractSkus } from "./skus.js";
 import { buildTools, cartSubtotalCents, getSessionState } from "./tools.js";
 
 export type InstrumentationMode = "good" | "broken" | "collapsed";
@@ -162,11 +163,8 @@ const SYSTEM_PROMPT = [
   "- Be concise. Two short paragraphs or a short list, not an essay.",
 ].join("\n");
 
-const SKU_RE = /\b((?:PRD|DRY|PAN|MET|HSE)-\d{4})\b/g;
-
-export function extractSkus(text: string): string[] {
-  return [...new Set(text.match(SKU_RE) ?? [])];
-}
+// Re-exported so `import { extractSkus } from "./assistant.js"` keeps working.
+export { extractSkus };
 
 export type RunTurnArgs = {
   message: string;
