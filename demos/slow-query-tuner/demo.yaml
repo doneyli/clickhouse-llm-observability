@@ -16,22 +16,6 @@ commands:
   install: pip install -r requirements-dev.txt
   seed: python demos/slow-query-tuner/scripts/seed_all.py
   run: docker compose --profile demo run --rm slow-query-tuner python main.py --query q1
-  verify: python demos/slow-query-tuner/scripts/verify_demo.py   # to be written
+  verify: python demos/slow-query-tuner/scripts/verify_demo.py
   test: python -m pytest -q
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-README-05
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-04
-    reason: predates the standard
-  - rule: DS-SCRIPT-05
-    reason: predates the standard
-  - rule: DS-VERIFY-01
-    reason: predates the standard
+  reset: python demos/slow-query-tuner/scripts/reset_demo.py
