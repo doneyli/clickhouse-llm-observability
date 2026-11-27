@@ -1,12 +1,15 @@
-# Debugging an agent in Langfuse: a two-hour workshop
+# Marketing Agent Debugging Workshop — Workshop Guide
 
-**For:** product managers and deployment (forward-deployed) teams who run a probabilistic
-agent for many customers, and who want to answer "why did the agent do that?" without
-waiting for an engineer.
+Product managers and deployment (forward-deployed) teams who run a probabilistic agent
+for many customers work through four symptom-first case files in the Langfuse UI. They
+leave able to answer "why did the agent do that?" without waiting for an engineer, and
+knowing which fixes are theirs to make.
 
-**Format:** the presenter drives Langfuse on screen and the room follows along. Nobody
-needs an account, and everything shown is a click or a filter, not code. The session
-works recorded too.
+- **Format:** the presenter drives Langfuse on screen and the room follows along. Nobody
+  needs an account, and everything shown is a click or a filter, not code. The session
+  works recorded too
+- **Observability:** Langfuse Cloud, project `marketing-agent-debugging`, trace `marketing-agent`
+- **Run length:** 120 min, including a 5-minute break and 10 minutes of questions
 
 **The agent:** a marketing agent working for three fictional customers: Contoso
 (agency software), Fabrikam Running (running shoes) and Tailspin Travel (travel
@@ -17,45 +20,36 @@ Claude; the tools and customer data are synthetic. Four realistic faults are pla
 in the data and tools, never in the model, so the agent reacts to them for real and
 the same task can go right on one run and wrong on the next.
 
-> Before the session, run `scripts/verify_demo.py`. It prints READY or what is missing,
-> plus links to the best trace for each case. Keep that terminal open.
+> Setup lives in [README.md](README.md). [LIVE_SCRIPT.md](LIVE_SCRIPT.md) is the one-page
+> version to present from, and [CHEAT_SHEET.md](CHEAT_SHEET.md) is the participant handout.
 
 ---
 
-## Run of show
+## Before the session
 
-| Time | Module | You leave the room able to… |
-|---|---|---|
-| 0:00 | [0. Frame](#0-frame-5-min) | name the four questions every agent investigation starts with |
-| 0:05 | [1. Find your way around](#1-find-your-way-around-15-min) | find any customer's runs in under 30 seconds |
-| 0:20 | [2. Read one agent run](#2-read-one-agent-run-20-min) | explain why the agent made a particular choice |
-| 0:40 | [3. Case files](#3-case-files-40-min) | debug wrong context, slowness, loops and skipped steps |
-| 1:20 | Break | |
-| 1:25 | [4. From one trace to a pattern](#4-from-one-trace-to-a-pattern-15-min) | tell "one bad run" apart from "every Tuesday" |
-| 1:40 | [5. Close the loop without engineers](#5-close-the-loop-without-engineers-10-min) | hand off a finding, or fix it yourself |
-| 1:50 | Q&A | |
+```bash
+cd demos/marketing-agent-debugging
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL   # the .env wins anyway
+.venv/bin/python scripts/seed_all.py                        # the day before; adds agent runs (about $6-8) only if the corpus is missing
+.venv/bin/python scripts/seed_prompts.py --reset-tailspin   # production back on Tailspin v3
+.venv/bin/python scripts/verify_demo.py                     # READY, plus links to the best trace for each case
+.venv/bin/python webapp/server.py                           # the portal on http://localhost:8097; keep it running
+```
 
-If you are short on time, cut module 4 to the dashboard and the Halo step only, and
-run Case 3 as a two-minute look at the graph.
+Thirty minutes before:
 
----
-
-## Pre-flight (T-30 minutes)
-
-1. **Readiness.** From `demos/marketing-agent-debugging`, run
-   `.venv/bin/python scripts/verify_demo.py`. It should print READY. Open the four
-   hero-trace links in browser tabs.
-2. **Make sure the regression is in place.** Run `.venv/bin/python scripts/seed_prompts.py --reset-tailspin`.
-   This puts `production` back on Tailspin v3, in case a rehearsal "fixed" it.
+1. **Readiness.** `scripts/verify_demo.py` should print READY; otherwise it says what is
+   missing. Keep that terminal open, and open the four hero-trace links in browser tabs.
+2. **Make sure the regression is in place.** `scripts/seed_prompts.py --reset-tailspin`
+   puts `production` back on Tailspin v3, in case a rehearsal "fixed" it.
 3. **Turn on AI features** so the room can see Halo and Ask AI. An organization owner
    or admin does this under Organization Settings → AI features. Both are off by default.
 4. **Turn on the Langfuse v4 preview** in the UI if the filter search bar isn't showing.
    The queries in this guide (`metadata.customer:contoso`, `scores.…`) need it.
-5. **Start the portal and warm it up:** `.venv/bin/python webapp/server.py`, then open
-   http://localhost:8097 and run Fabrikam → `social-posts` once (about 20 s), so the
-   first run on stage isn't a cold start. Every ⚡ re-run below can come from the
-   portal: tick the fix in the **Presenter console**, or pick an instructions version,
-   then run the same task again. The CLI commands do the same thing.
+5. **Warm up the portal.** Open http://localhost:8097 and run Fabrikam → `social-posts`
+   once (about 20 s), so the first run on stage isn't a cold start. Every ⚡ re-run
+   below can come from the portal: tick the fix in the **Presenter console**, or pick an
+   instructions version, then run the same task again. The CLI commands do the same thing.
 6. **Set the time range** to "Last 7 days" on the Tracing page. Seeded traffic is from
    the day before.
 7. **Close other Docker stacks** if you plan to run anything locally. This demo needs
@@ -66,7 +60,26 @@ while they run.
 
 ---
 
-## 0. Frame (5 min)
+## Run of show
+
+| Time | Module | You leave the room able to… |
+|---|---|---|
+| 0:00 | [Module 0 · Frame](#module-0--frame-5-min) | name the four questions every agent investigation starts with |
+| 0:05 | [Module 1 · Find your way around](#module-1--find-your-way-around-15-min) | find any customer's runs in under 30 seconds |
+| 0:20 | [Module 2 · Read one agent run](#module-2--read-one-agent-run-20-min) | explain why the agent made a particular choice |
+| 0:40 | [Module 3 · Case files](#module-3--case-files-40-min) | debug wrong context, slowness, loops and skipped steps |
+| 1:20 | Break | |
+| 1:25 | [Module 4 · From one trace to a pattern](#module-4--from-one-trace-to-a-pattern-15-min) | tell "one bad run" apart from "every Tuesday" |
+| 1:40 | [Module 5 · Close the loop without engineers](#module-5--close-the-loop-without-engineers-10-min) | hand off a finding, or fix it yourself |
+| 1:50 | Q&A | |
+| 2:00 | End | |
+
+If you are short on time, cut module 4 to the dashboard and the Halo step only, and
+run Case 3 as a two-minute look at the graph.
+
+---
+
+## Module 0 · Frame (5 min)
 
 **Frame.** "Your agent now decides for itself: which tool, what to look up, when it's
 done. That's the feature. It's also why 'why did it do that?' became hard. A trace is
@@ -84,7 +97,7 @@ who do you have to ask?"
 
 ---
 
-## 1. Find your way around (15 min)
+## Module 1 · Find your way around (15 min)
 
 **Frame.** "Before you can debug a run you have to find it. Your starting point is
 always a customer, a person, or a complaint, never a trace id."
@@ -122,7 +135,7 @@ every request your agent makes?"
 
 ---
 
-## 2. Read one agent run (20 min)
+## Module 2 · Read one agent run (20 min)
 
 Use a Contoso `pricing-check` run that was approved. `verify_demo.py` lists them under
 Case 1. You'll come back to the same trace in Case 1, so the room already knows its shape.
@@ -166,7 +179,7 @@ choice would you want to audit first?"
 
 ---
 
-## 3. Case files (40 min)
+## Module 3 · Case files (40 min)
 
 Each case starts from a realistic complaint, never from a trace id. For each case,
 walk through: find it, diagnose it, name the owner, then fix and verify (live where
@@ -349,7 +362,7 @@ know what changed?"
 
 ---
 
-## 4. From one trace to a pattern (15 min)
+## Module 4 · From one trace to a pattern (15 min)
 
 **Frame.** "One bad run is an anecdote. Before you escalate, find out whether it's one
 customer, one tool, or everything since Tuesday."
@@ -389,7 +402,7 @@ seconds for Fabrikam only'. That's a ticket an engineer can act on."
 
 ---
 
-## 5. Close the loop without engineers (10 min)
+## Module 5 · Close the loop without engineers (10 min)
 
 **Show.**
 
@@ -438,7 +451,23 @@ own project first?"
 | Slow dependency / harness | uncached CMS, sequential tool calls, raw HTML (Case 2) | platform engineering | no; hand off with the timeline + cost |
 | Model reasoning | agent stops and asks instead of resolving the conflict (Case 1, rejected runs) | PM + engineering | sometimes (instructions); otherwise evals |
 
-## Appendix C: honest notes for the presenter
+## Appendix C: show me the code
+
+| What | Where | Why it matters |
+|---|---|---|
+| One trace per run, customer and task on every observation | `agent/loop.py`, `propagate_attributes(...)` in `run_agent` | makes every filter in module 1 work |
+| Each model call is its own generation with tools, messages and thinking | `agent/loop.py`, `plan-next-step` block and `_assistant_trace_message` | the "available tools / tool calls / thinking" view in module 2 |
+| Instructions fetched by label and linked to each generation | `agent/loop.py`, `lf.get_prompt(...)` + `prompt=linked_prompt` | version links in Case 4 |
+| Tools as `tool` / `retriever` observations, failures as WARNING/ERROR | `agent/loop.py`, `_traced_tool` | red nodes, retriever icon, agent graph |
+| What the model sees vs. what the trace records | `agent/tools.py`, `search_context` (passages vs. records) | the core of Case 1 |
+| Guardrail + reviewer scores | `agent/loop.py`, end of `run_agent`; `agent/review.py` | `publishing-policy`, `reviewer-decision` |
+| Not double-counting cost | `agent/config.py`, `should_export_span` | the Anthropic SDK emits its own spans |
+
+---
+
+## Known limits
+
+Honest notes for the presenter. Say them to the room where they come up.
 
 - **The agent is real; the world is synthetic.** Claude really decides every step.
   Tools return deterministic synthetic data with simulated latency (`agent/tools.py`).
@@ -452,14 +481,21 @@ own project first?"
   gates (two judges are seeded so the scores exist). Those are the natural follow-up session, and the root-cause labels and
   regression dataset from module 5 are their input.
 
-## Appendix D: show me the code
+The full list is in the README's [Known limits](README.md#known-limits).
 
-| What | Where | Why it matters |
-|---|---|---|
-| One trace per run, customer and task on every observation | `agent/loop.py`, `propagate_attributes(...)` in `run_agent` | makes every filter in module 1 work |
-| Each model call is its own generation with tools, messages and thinking | `agent/loop.py`, `plan-next-step` block and `_assistant_trace_message` | the "available tools / tool calls / thinking" view in module 2 |
-| Instructions fetched by label and linked to each generation | `agent/loop.py`, `lf.get_prompt(...)` + `prompt=linked_prompt` | version links in Case 4 |
-| Tools as `tool` / `retriever` observations, failures as WARNING/ERROR | `agent/loop.py`, `_traced_tool` | red nodes, retriever icon, agent graph |
-| What the model sees vs. what the trace records | `agent/tools.py`, `search_context` (passages vs. records) | the core of Case 1 |
-| Guardrail + reviewer scores | `agent/loop.py`, end of `run_agent`; `agent/review.py` | `publishing-policy`, `reviewer-decision` |
-| Not double-counting cost | `agent/config.py`, `should_export_span` | the Anthropic SDK emits its own spans |
+---
+
+## Reset / re-run
+
+After a session where you fixed Tailspin's instructions live, put the regression back
+and check the project:
+
+```bash
+.venv/bin/python scripts/seed_prompts.py --reset-tailspin   # production back on Tailspin v3; versions you created stay
+.venv/bin/python scripts/verify_demo.py                     # READY again
+```
+
+Nothing else needs resetting. Runs made during the session stay in the project as
+extra traffic, and comments, queue labels and dataset items you added stay too. To
+seed a fresh corpus (after the project's 90-day retention, or in a new project), run
+`.venv/bin/python scripts/seed_all.py`.

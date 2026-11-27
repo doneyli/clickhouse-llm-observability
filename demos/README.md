@@ -63,4 +63,5 @@ out of date.
 | Demo | What it shows | Covers | Length | Run | Present |
 |---|---|---|---|---|---|
 | **[Bank Assistant Workshop](bank-assistant-workshop/)** *(draft)* | Nine-module hands-on workshop that adds tracing, prompts, monitoring and experiments to a synthetic bank assistant | Trace · Monitor · Datasets · Experiment · Evaluate · Deploy | 180 min | `cd demos/bank-assistant-workshop && .venv/bin/python workshop.py serve` | [WORKSHOP_GUIDE.md](bank-assistant-workshop/WORKSHOP_GUIDE.md) |
+| **[Marketing Agent Debugging Workshop](marketing-agent-debugging/)** | Two-hour workshop where PMs and deployment teams debug a tool-using marketing agent from the Langfuse UI, through four planted faults with live fixes | Trace · Monitor · Evaluate · Deploy | 120 min | `cd demos/marketing-agent-debugging && .venv/bin/python webapp/server.py` | [WORKSHOP_GUIDE.md](marketing-agent-debugging/WORKSHOP_GUIDE.md) |
 <!-- demo-index:end -->
