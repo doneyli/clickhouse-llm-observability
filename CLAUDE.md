@@ -122,3 +122,11 @@ docs/                       # Documentation (see docs/README.md for the persona-
 .agents/skills/             # Project skills (deploy-demo, run-demo, troubleshoot, langfuse, new-demo)
 .claude/settings.json       # Shared Claude Code permissions for this repo's common commands
 ```
+
+<!-- agent-autonomy:begin project v1 -->
+## Agent workflow (this repo)
+- Default branch: `main`. Setup in a fresh worktree: `python -m pip install pyyaml` (use `python3` if `python` is not on PATH), and for each demo you change, its `commands.install` from `demos/<name>/demo.yaml`, run in the demo's folder (env files come from the main checkout).
+- Tests to run before opening a PR: `python -m unittest discover -s scripts/tests && python scripts/check-demo-structure.py && python scripts/gen-demo-index.py --check`, then for each demo you changed its `commands.test` from `demo.yaml`, run in the demo's folder, and `bash -n` on each shell script you changed; none of these need the stack.
+- Shared stack: the Docker stack that `./setup.sh` and `docker compose ... up` start (about a dozen containers with fixed names and ports, no compose project name) belongs to the main checkout. From a worktree use only `./setup.sh --status` (read-only), not `docker compose run`; never `up`, `down` or `restart` it.
+- After a merge: nothing deploys. A push to `main` runs the `Demo integrity` workflow (`.github/workflows/demo-integrity.yml`); the prompt CI workflows (`langfuse-prompt-ci.yml` and the `*-prompt-gate.yml` files) run only on a Langfuse prompt change or a manual dispatch.
+<!-- agent-autonomy:end project v1 -->

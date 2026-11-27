@@ -1,0 +1,5 @@
+# Gitignored files copied into new Claude Code and Codex worktrees. Names only, no secrets.
+.env
+demos/*/.env
+demos/*/.env.cloud
+demos/*/.env.org-cli
