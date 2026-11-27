@@ -30,7 +30,7 @@ starts fully instrumented and seeded: a capability tour, not a build.
 | 1 | One turn is one readable trace, across two processes | Module 02 | One `northwind-assistant` root with generations, `kb-retrieval` and MCP server spans in the same trace (rehearsal: six turns checked) |
 | 2 | Personal data can be removed before export | Module 02, synthetic card `4111 1111 1111 1111` | `[REDACTED_CARD]` in every exported observation (rehearsal) |
 | 3 | A prompt change is explainable and reversible | Modules 03 and 07 | Generations link the served version; a missing label falls back visibly; the label rolls back (rehearsal) |
-| 4 | Signals find turns worth reviewing, and their limits show | Module 04 | Three BOOLEAN scores on the root observation; `verify_demo.py` checks them on the latest turn |
+| 4 | Signals find turns worth reviewing, and their limits show | Module 04 | Three BOOLEAN scores on the root observation; `verify_demo.py` checks their subject is the latest turn's root |
 | 5 | The same app runs against reusable examples | Modules 05 and 06 | Eight ACTIVE items, every run link and applicable score present, else a non-zero exit (`helpers.validate_experiment`) |
 | 6 | A release decision rests on examples, not one average | Module 07 | Baseline and candidate on one dataset version; rehearsal citation pass 5/6 vs 6/6 |
 
@@ -115,4 +115,5 @@ module have not been measured.
 | D4 | Starting states | Generated folders, not Git tags | No remote checkpoint tags exist; learner edits are never overwritten |
 | D5 | Dataset scope | Policy questions and blocked requests only | Card blocking and disputes change state or need multi-turn confirmation |
 | D6 | Prompt labels | `workshop-*` only | The helper cannot move another demo's `production` label |
-| D7 | Langfuse project in `demo.yaml` | `banking-workshop`, the instructor's rehearsal project | The code defines no project name; each learner sets `DEMO_LANGFUSE_PROJECT` |
+| D7 | Langfuse project in `demo.yaml` | Keep `bank-workshop`; any other name, including the `banking-workshop` rehearsal project, is an explicit `DEMO_LANGFUSE_PROJECT` override in the `.env` | The code defines no project name, and existing installations keep their contract |
+| D8 | What session readiness requires | Portal and MCP server serving, both labels, every dataset item, a fresh turn with its signals, a prepared run per label | Every module, including the guided variant's prepared runs, depends on them; `--prep` is a scoped exception |

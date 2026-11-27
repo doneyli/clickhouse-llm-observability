@@ -22,7 +22,7 @@ prompt change it can defend with evidence?
 | **Covers** | Trace · Monitor · Datasets · Experiment · Evaluate · Deploy |
 | **Stack** | Python · LangGraph · MCP · FastAPI · Anthropic SDK · OpenAI SDK |
 | **Runs as** | Workshop kit: facilitator-led, own toolchain and `.env` |
-| **Langfuse** | Cloud · project `banking-workshop` |
+| **Langfuse** | Cloud · project `bank-workshop` |
 | **Length** | 180 min |
 | **Present it** | [WORKSHOP_GUIDE.md](WORKSHOP_GUIDE.md) |
 <!-- demo-card:end -->
@@ -81,9 +81,19 @@ cd demos/bank-assistant-workshop
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env              # then set WORKSHOP_ID, the model key and the project's keys
 .venv/bin/python scripts/seed_all.py --allow-draft   # facilitator's project only; see below
-.venv/bin/python workshop.py serve                    # ask one question at http://127.0.0.1:8090
-.venv/bin/python scripts/verify_demo.py               # should print READY
+.venv/bin/python scripts/verify_demo.py --prep        # seeded state only; NOT READY until the steps below
+.venv/bin/python workshop.py serve                    # keep it running; ask one question at http://127.0.0.1:8090
+.venv/bin/python workshop.py experiment --prompt-label workshop-baseline    # in a second terminal; model calls
+.venv/bin/python workshop.py experiment --prompt-label workshop-candidate   # cost not measured
+.venv/bin/python scripts/verify_demo.py               # with serve still up: should print READY
 ```
+
+`verify_demo.py` checks what the full session needs: preflight, the portal and MCP server
+answering, the keys mapping to `langfuse.project` (`bank-workshop`, or
+`DEMO_LANGFUSE_PROJECT` from the `.env`), both labels serving the text in `prompts.py`,
+every dataset item ACTIVE and matching, a turn from the last 7 days with its three signals
+on the root observation, and a prepared run of each label's current version. `--prep`
+skips only the two service checks, and its verdict says so.
 
 The `.env` is the only source of `LANGFUSE_*`: shell-exported keys are dropped, both by the
 app (`config.py`) and by the seed and verify scripts. `./setup.sh` does not run this demo's
@@ -100,8 +110,8 @@ kept. Learners do these steps by hand in modules 03, 05 and 07.
 | When | Do | Why |
 |---|---|---|
 | A week before | Follow the [delivery guide](docs/preparation_and_materials/README.md): attendee projects and keys, spend limit, a second facilitator | Setup and keys are the usual blockers |
-| The day before | `.venv/bin/python scripts/seed_all.py`, `workshop.py serve`, one question per module 02 path, then `scripts/checkpoint.py --build-all` | Seeded artifacts match the code, a fresh trace exists, starting states are current |
-| 30 minutes before | `.venv/bin/python scripts/verify_demo.py --links` | Prints READY and the link each module opens |
+| The day before | `.venv/bin/python scripts/seed_all.py`, `workshop.py serve`, one question per module 02 path, one experiment run per label, then `scripts/checkpoint.py --build-all` | Seeded artifacts match the code, a fresh trace and the prepared runs exist, starting states are current |
+| 30 minutes before | `workshop.py serve`, then in a second terminal `.venv/bin/python scripts/verify_demo.py --links` | Prints READY and the link each module opens |
 | 5 minutes before | Open the links it printed | The trace, prompt and dataset you will show |
 
 ## Run it
@@ -150,7 +160,7 @@ solution. Existing folders are never overwritten, so learner edits survive. See
 | What | Command | Notes |
 |---|---|---|
 | Publish a prompt label | `.venv/bin/python workshop.py prompt --variant baseline --label workshop-baseline` | Only `workshop-*` labels; every run creates a new version (`seed_all.py` does not) |
-| Upload the dataset | `.venv/bin/python workshop.py dataset --reviewed` | Upserts eight items by stable id; refuses unreviewed references. `--allow-draft` for an authorized synthetic rehearsal |
+| Upload the dataset | `.venv/bin/python workshop.py dataset --reviewed` | Upserts eight items by stable id, as ACTIVE; refuses unreviewed references. `--allow-draft` for an authorized synthetic rehearsal |
 | Run an experiment | `.venv/bin/python workshop.py experiment --prompt-label workshop-baseline` | Eight agent turns (each one or more model calls) plus eight judge calls. Cost depends on the model and was not measured |
 | Deterministic-only run | `... experiment --prompt-label workshop-candidate --no-judge` | Drops the `correctness` judge |
 | Compare on one dataset version | `... experiment --prompt-label <label> --dataset-version <timestamp>` | Same model, judge and concurrency for both runs |
@@ -177,7 +187,7 @@ reliable improvement rate.
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | blank | Whichever provider the models need; preflight checks it is set |
 | `NORTHWIND_PROMPT_LABEL` | `workshop-baseline` | Label the portal serves; module 07's rollback rehearsal changes it |
 | `WORKSHOP_PORT`, `NORTHWIND_MCP_PORT` | `8090`, `8765` | Portal and MCP ports; `serve` refuses to start if either is taken |
-| `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` (`banking-workshop`) | Project name `verify_demo.py` expects the keys to map to; attendees set their own |
+| `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` (`bank-workshop`) | Project name `verify_demo.py` expects the keys to map to. Set it for any other name, such as `banking-workshop`, the 2026-10-12 rehearsal project |
 | `WORKSHOP_ENV_FILE` | the folder's `.env` | Set by `workshop.py --env-file`, so checkpoints share one private file |
 
 ## Layout
@@ -220,13 +230,16 @@ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requi
 They cover the copied guardrails, masking and business logic; the real LangGraph with fake
 model and MCP responses; a real SDK export to an in-memory exporter (one nested trace,
 masking, prompt linkage); experiment linkage and score coverage; and `verify_demo.py` and
-`seed_all.py` against a fake Langfuse.
+`seed_all.py` through their real HTTP client against an offline fake of the Langfuse API
+and the two services (`tests/fake_langfuse.py`).
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
-| `keys map to project '…' (want 'banking-workshop')` | Another project's keys, or an attendee's own project. Put the right keys in `.env`, or set `DEMO_LANGFUSE_PROJECT` to your project's name |
+| `keys map to project '…' (want 'bank-workshop')` | Another project's keys, or a project with another name. Put the right keys in `.env`, or set `DEMO_LANGFUSE_PROJECT` to the project's name |
+| `portal on 127.0.0.1:8090/health: HTTP None` | `workshop.py serve` is not running, or runs on other ports. Start it in another terminal; use `--prep` only while preparing |
+| `a run of workshop-candidate v<N>` fails | No experiment ran on the label's current version: `workshop.py experiment --prompt-label workshop-candidate` |
 | `Langfuse authentication failed` in preflight | Wrong key pair, or `LANGFUSE_BASE_URL` is another region |
 | `Set OPENAI_API_KEY in the workshop .env.` | `AGENT_MODEL` picks the provider. A key can be present but lack access to the model; the first question proves it works |
 | `Workshop ports must be distinct and free` | Another workshop is running. Stop it, or change `WORKSHOP_PORT` and `NORTHWIND_MCP_PORT` |

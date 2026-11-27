@@ -9,8 +9,9 @@ the run of show that ties them together.
 
 - **Format:** hands-on, one dedicated Langfuse Cloud project and one private `.env` per
   learner, a second facilitator for setup and Python problems
-- **Observability:** Langfuse Cloud, one project per learner (the instructor's rehearsal
-  project is `banking-workshop`), trace `northwind-assistant`
+- **Observability:** Langfuse Cloud, one project per learner, trace `northwind-assistant`;
+  `verify_demo.py` expects project `bank-workshop` unless `DEMO_LANGFUSE_PROJECT` names
+  another (the 2026-10-12 instructor rehearsal used `banking-workshop`)
 - **Run length:** 180 min. The per-module minutes are a teaching estimate from the
   [delivery guide](docs/preparation_and_materials/README.md), not a measured completion
   time. A 90-minute guided variant demonstrates modules 05 to 07 from prepared runs
@@ -23,17 +24,23 @@ the run of show that ties them together.
 
 ## Before the session
 
-In the instructor's project, the day before:
+In the instructor's project, the day before. `serve` keeps its terminal, so run the rest
+in a second one:
 
 ```bash
 cd demos/bank-assistant-workshop
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 .venv/bin/python scripts/seed_all.py --allow-draft   # both prompt labels + the dataset; idempotent
-.venv/bin/python workshop.py serve                    # ask a wire question and an account question
-.venv/bin/python workshop.py experiment --prompt-label workshop-baseline   # prepared run for modules 06-07; model calls, cost not measured
+.venv/bin/python workshop.py serve                    # terminal 1: ask a wire question and an account question
+.venv/bin/python workshop.py experiment --prompt-label workshop-baseline    # terminal 2: prepared runs for modules 06-07
+.venv/bin/python workshop.py experiment --prompt-label workshop-candidate   # model calls; cost not measured
 .venv/bin/python scripts/checkpoint.py --build-all --output dist/checkpoints   # the nine starting states
-.venv/bin/python scripts/verify_demo.py --links      # READY, plus the link for every module
+.venv/bin/python scripts/verify_demo.py --links      # with serve up: READY, plus the link for every module
 ```
+
+On the day, start `serve` again and re-run `scripts/verify_demo.py --links` before the
+room fills. `--prep` skips the portal and MCP checks while `serve` is down, and its
+verdict says so; it is not session readiness.
 
 Use `--reviewed` instead of `--allow-draft` once an instructor has reviewed the eight
 references and cleared their markers.

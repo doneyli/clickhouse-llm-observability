@@ -1,5 +1,9 @@
-"""seed_all.py offline: the reconcile decisions, against a fake Langfuse and fake sub-commands."""
-import copy
+"""seed_all.py offline: the review gate, reconcile decisions, read-back and failure propagation.
+
+Reads go through verify_demo's real HTTP client to tests/fake_langfuse.py; the wrapped
+`workshop.py` sub-commands are a fake subprocess that applies the same writes to the fake
+project (or fails, or silently does nothing). The real helpers.validate_review gate runs.
+"""
 import io
 import json
 import os
@@ -14,151 +18,196 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import seed_all as s  # noqa: E402
 import verify_demo as v  # noqa: E402
+from tests.fake_langfuse import FakeAPI  # noqa: E402
 
-DATASET = "bank-workshop/t-bank/regression-v1"
-ITEMS = json.loads(v.DATASET_FILE.read_text())
-
-
-def remote_rows(items=ITEMS, dataset=DATASET):
-    return [{"id": s.item_id(dataset, i["id"]), "status": "ACTIVE", "input": i["input"],
-             "expectedOutput": i["expected_output"], "metadata": i["metadata"]} for i in items]
+ENV = ("LANGFUSE_PUBLIC_KEY=pk-file\nLANGFUSE_SECRET_KEY=sk-file\n"
+       "LANGFUSE_BASE_URL=https://lf.example\nWORKSHOP_ID=t-bank\n")
 
 
-class FakeLangfuse:
-    def __init__(self, prompt=None, dataset=True, rows=None):
-        self.prompt, self.dataset, self.rows = prompt, dataset, rows if rows is not None else remote_rows()
-
-    def get(self, path, **params):
-        if path.startswith("/api/public/v2/prompts/"):
-            if self.prompt is None:
-                raise v.ApiError(404, "not found")
-            return self.prompt
-        if path.startswith("/api/public/v2/datasets/"):
-            if not self.dataset:
-                raise v.ApiError(404, "not found")
-            return {"id": "d1"}
-        if path == "/api/public/dataset-items":
-            return {"data": self.rows, "meta": {"totalPages": 1}}
-        raise AssertionError(path)
+def fresh_project():
+    api = FakeAPI()
+    api.prompts, api.dataset, api.rows, api.experiments = {}, None, [], []
+    return api
 
 
-class PromptTests(unittest.TestCase):
-    def reconcile(self, current, dry_run=False):
-        calls = []
-        result = s.reconcile_prompt(FakeLangfuse(prompt=current), "bank-workshop/t/assistant", "workshop-baseline",
-                                    "baseline", "TEXT", lambda var, lab: calls.append((var, lab)), dry_run=dry_run)
-        return result, calls
-
-    def test_missing_label_is_created(self):
-        self.assertEqual(self.reconcile(None), ("created", [("baseline", "workshop-baseline")]))
-
-    def test_same_text_and_variant_is_unchanged_and_publishes_nothing(self):
-        current = {"type": "text", "prompt": "TEXT", "config": {"variant": "baseline"}}
-        self.assertEqual(self.reconcile(current), ("unchanged", []))
-
-    def test_drifted_text_or_variant_is_updated(self):
-        for current in ({"type": "text", "prompt": "OLD", "config": {"variant": "baseline"}},
-                        {"type": "text", "prompt": "TEXT", "config": {"variant": "candidate"}},
-                        {"type": "chat", "prompt": "TEXT", "config": {"variant": "baseline"}}):
-            self.assertEqual(self.reconcile(current), ("updated", [("baseline", "workshop-baseline")]))
-
-    def test_dry_run_writes_nothing(self):
-        self.assertEqual(self.reconcile(None, dry_run=True), ("created", []))
-
-    def test_other_api_errors_propagate(self):
-        class Broken(FakeLangfuse):
-            def get(self, path, **params):
-                raise v.ApiError(500, "boom")
-        with self.assertRaises(v.ApiError):
-            s.reconcile_prompt(Broken(), "n", "l", "baseline", "T", lambda *a: None)
-
-    def test_desired_text_is_what_the_helper_publishes(self):
-        from northwind import prompts
-        self.assertEqual(s.desired_prompts(), {"baseline": prompts.V1_BASELINE,
-                                               "candidate": prompts.WORKSHOP_CANDIDATE})
-
-
-class DatasetTests(unittest.TestCase):
-    def test_item_id_matches_the_helper(self):
-        import hashlib
-        self.assertEqual(s.item_id(DATASET, "g01"), hashlib.sha256(f"{DATASET}/g01".encode()).hexdigest()[:32])
-
-    def test_missing_dataset_is_created(self):
-        self.assertEqual(s.dataset_drift(FakeLangfuse(dataset=False), DATASET, ITEMS), "created")
-
-    def test_matching_items_are_unchanged(self):
-        self.assertEqual(s.dataset_drift(FakeLangfuse(), DATASET, ITEMS), "unchanged")
-
-    def test_extra_remote_items_do_not_count_as_drift(self):
-        rows = remote_rows() + [{"id": "extra", "status": "ACTIVE"}]
-        self.assertEqual(s.dataset_drift(FakeLangfuse(rows=rows), DATASET, ITEMS), "unchanged")
-
-    def test_missing_changed_or_archived_items_are_updated(self):
-        changed = copy.deepcopy(remote_rows())
-        changed[0]["expectedOutput"] = "something else"
-        archived = copy.deepcopy(remote_rows())
-        archived[1]["status"] = "ARCHIVED"
-        for rows in (remote_rows()[1:], changed, archived):
-            self.assertEqual(s.dataset_drift(FakeLangfuse(rows=rows), DATASET, ITEMS), "updated")
-
-
-class MainTests(unittest.TestCase):
+class SeedBase(unittest.TestCase):
     def setUp(self):
         self.saved = dict(os.environ)
+        os.environ.pop("WORKSHOP_ID", None)
         self.tmp = tempfile.TemporaryDirectory()
         self.env = Path(self.tmp.name) / ".env"
-        self.env.write_text("LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\n"
-                            "LANGFUSE_BASE_URL=https://lf.example\nWORKSHOP_ID=t-bank\n")
+        self.env.write_text(ENV)
+        self.api = FakeAPI()
+        self.runs = []
+        self.fail_on = set()     # sub-command words that exit non-zero
+        self.no_effect = set()   # sub-command words that exit 0 but write nothing
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.clear()
         os.environ.update(self.saved)
 
-    def run_main(self, lf, args=(), returncode=0):
-        runs = []
+    def fake_run(self, cmd, **kwargs):
+        args = cmd[cmd.index("--env-file") + 2:]
+        self.runs.append(args)
+        key = f"{args[0]} {args[-1]}"
+        if args[0] in self.fail_on or key in self.fail_on:
+            return SimpleNamespace(returncode=1, stdout="", stderr="Traceback...\nValueError: refused by helper")
+        if args[0] not in self.no_effect:
+            self.api.apply_workshop(args)
+        return SimpleNamespace(returncode=0, stdout="Published", stderr="")
 
-        def fake_run(cmd, **kwargs):
-            runs.append(cmd[cmd.index("--env-file") + 2:])
-            return SimpleNamespace(returncode=returncode, stdout="", stderr="ValueError: review first")
-
-        texts = {"baseline": "B", "candidate": "C"}
-        with patch.object(s.v, "Langfuse", lambda *a: lf), patch.object(s, "desired_prompts", lambda: texts), \
-                patch.object(s.subprocess, "run", fake_run), redirect_stdout(io.StringIO()) as out:
+    def seed(self, *args):
+        with patch.object(v.urllib.request, "urlopen", self.api.urlopen), \
+                patch.object(s.subprocess, "run", self.fake_run), redirect_stdout(io.StringIO()) as out:
             code = s.main(["--env-file", str(self.env), *args])
-        return code, runs, out.getvalue()
+        return code, out.getvalue()
 
-    def test_fresh_project_runs_both_prompts_then_the_dataset(self):
-        lf = FakeLangfuse(dataset=False)
-        code, runs, out = self.run_main(lf, ["--allow-draft"])
+
+class GateTests(SeedBase):
+    # 129-1: an unchanged dataset is no way around the reviewed-reference gate
+    def test_reviewed_run_after_a_draft_seed_fails_without_writing(self):
+        code, out = self.seed("--allow-draft")          # the fake project already matches every item
         self.assertEqual(code, 0, out)
-        self.assertEqual(runs, [["prompt", "--variant", "baseline", "--label", "workshop-baseline"],
-                                ["prompt", "--variant", "candidate", "--label", "workshop-candidate"],
-                                ["dataset", "--allow-draft"]])
+        self.assertIn("unchanged  dataset", out)
+        code, out = self.seed()                          # default --reviewed, markers still pending
+        self.assertEqual(code, 1, out)
+        self.assertIn("failed     dataset bank-workshop/t-bank/regression-v1 (8 items, --reviewed): "
+                      "Mark each item's reference_review_required=false", out)
+        self.assertEqual(self.runs, [])
+
+    def test_gate_also_applies_to_dry_runs(self):
+        code, out = self.seed("--dry-run")
+        self.assertEqual(code, 1)
+        self.assertIn("failed     dataset", out)
+
+    def test_reviewed_items_pass_the_gate(self):
+        reviewed = [dict(i, metadata=dict(i["metadata"], reference_review_required=False)) for i in v.local_items()]
+        with patch.object(v, "local_items", lambda: reviewed):
+            self.api.items = reviewed
+            self.api.rows = []
+            code, out = self.seed()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.runs, [["dataset", "--reviewed"]])
+
+    def test_allow_draft_is_limited_to_synthetic_items(self):
+        real = [dict(i, metadata=dict(i["metadata"], synthetic=False)) for i in v.local_items()]
+        with patch.object(v, "local_items", lambda: real):
+            code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 1)
+        self.assertIn("--allow-draft is limited to synthetic rehearsal examples", out)
+
+
+class ReconcileTests(SeedBase):
+    def test_fresh_project_creates_everything_in_order(self):
+        self.api = fresh_project()
+        code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.runs, [["prompt", "--variant", "baseline", "--label", "workshop-baseline"],
+                                     ["prompt", "--variant", "candidate", "--label", "workshop-candidate"],
+                                     ["dataset", "--allow-draft"]])
         self.assertIn("3 created, 0 updated, 0 unchanged, 0 failed", out)
 
-    def test_second_run_changes_nothing(self):
-        class Seeded(FakeLangfuse):
-            def get(self, path, **params):
-                if path.startswith("/api/public/v2/prompts/"):
-                    variant = v.PROMPT_LABELS[params["label"]]
-                    return {"type": "text", "prompt": {"baseline": "B", "candidate": "C"}[variant],
-                            "config": {"variant": variant}}
-                return super().get(path, **params)
-        code, runs, out = self.run_main(Seeded(rows=remote_rows(dataset=DATASET)))
-        self.assertEqual((code, runs), (0, []), out)
+    def test_unchanged_reseed_writes_nothing(self):
+        versions = {k: p["version"] for k, p in self.api.prompts.items()}
+        code, out = self.seed("--allow-draft")
+        self.assertEqual((code, self.runs), (0, []), out)
         self.assertIn("0 created, 0 updated, 3 unchanged, 0 failed", out)
+        self.assertEqual({k: p["version"] for k, p in self.api.prompts.items()}, versions)
 
-    def test_dataset_defaults_to_reviewed_and_a_refusal_fails_the_run(self):
-        code, runs, out = self.run_main(FakeLangfuse(dataset=False), returncode=1)
+    def test_config_only_drift_is_updated(self):
+        self.api.prompts["workshop-candidate"]["config"] = {}
+        code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.runs, [["prompt", "--variant", "candidate", "--label", "workshop-candidate"]])
+        self.assertIn("updated    prompt bank-workshop/t-bank/assistant (label workshop-candidate", out)
+
+    def test_changed_text_or_type_is_updated(self):
+        self.api.prompts["workshop-baseline"]["prompt"] = "old text"
+        self.api.prompts["workshop-candidate"]["type"] = "chat"
+        code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 0, out)
+        self.assertIn("2 updated", out)
+
+    def test_changed_or_archived_items_are_updated(self):
+        self.api.rows[0]["metadata"] = {"changed": True}
+        self.api.rows[1]["status"] = "ARCHIVED"
+        code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.runs, [["dataset", "--allow-draft"]])
+        self.assertIn("updated    dataset", out)
+        self.assertEqual(v.dataset_diff(self.api.dataset_name, v.local_items(), self.api.rows), [])
+
+    def test_extra_remote_items_are_kept_and_not_drift(self):
+        self.api.rows.append({"id": "someone-elses", "status": "ACTIVE"})
+        code, out = self.seed("--allow-draft")
+        self.assertEqual((code, self.runs), (0, []), out)
+        self.assertIn("someone-elses", [r["id"] for r in self.api.rows])
+
+    def test_dry_run_reports_drift_and_writes_nothing(self):
+        self.api = fresh_project()
+        code, out = self.seed("--allow-draft", "--dry-run")
+        self.assertEqual((code, self.runs), (0, []), out)
+        self.assertIn("3 created", out)
+
+    def test_desired_text_is_what_the_helper_publishes(self):
+        from northwind import prompts
+        self.assertEqual(s.desired_prompts(), {"baseline": prompts.V1_BASELINE, "candidate": prompts.WORKSHOP_CANDIDATE})
+
+
+class FailureTests(SeedBase):
+    def test_partial_write_failure_fails_the_run_and_continues(self):
+        self.api = fresh_project()
+        self.fail_on = {"prompt workshop-candidate"}
+        code, out = self.seed("--allow-draft")
         self.assertEqual(code, 1)
-        self.assertEqual(runs[-1], ["dataset", "--reviewed"])
-        self.assertIn("failed     dataset", out)
-        self.assertIn("ValueError: review first", out)
+        self.assertIn("failed     prompt bank-workshop/t-bank/assistant (label workshop-candidate, candidate): "
+                      "ValueError: refused by helper", out)
+        self.assertIn("2 created, 0 updated, 0 unchanged, 1 failed", out)
 
-    def test_missing_env_file_fails(self):
-        with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
-            self.assertEqual(s.main(["--env-file", "/nonexistent/.env"]), 1)
+    def test_total_write_failure(self):
+        self.api = fresh_project()
+        self.fail_on = {"prompt", "dataset"}
+        code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 1)
+        self.assertIn("0 created, 0 updated, 0 unchanged, 3 failed", out)
+
+    def test_a_write_that_does_not_take_effect_is_a_failure(self):
+        self.api = fresh_project()
+        self.no_effect = {"prompt", "dataset"}
+        code, out = self.seed("--allow-draft")
+        self.assertEqual(code, 1)
+        self.assertIn("still does not serve the baseline definition", out)
+        self.assertIn("uploaded, but some items are still missing", out)
+
+    def test_required_read_failures_fail_the_item(self):
+        for endpoint in ("prompt", "dataset", "dataset-items"):
+            self.api, self.runs = FakeAPI(), []
+            self.api.fail[endpoint] = 500
+            code, out = self.seed("--allow-draft")
+            self.assertEqual(code, 1, endpoint)
+            self.assertIn("HTTP 500", out)
+            self.assertEqual(self.runs, [])
+
+    def test_missing_or_partial_env_fails_before_any_api_use(self):
+        os.environ.update(LANGFUSE_PUBLIC_KEY="pk-shell", LANGFUSE_SECRET_KEY="sk-shell",
+                          LANGFUSE_BASE_URL="https://shell.example")
+        for text in (None, "LANGFUSE_PUBLIC_KEY=pk-file\n"):
+            if text is None:
+                self.env.unlink()
+            else:
+                self.env.write_text(text)
+            self.api.calls = []
+            with patch("sys.stderr", io.StringIO()):
+                code, out = self.seed()
+            self.assertEqual((code, self.api.calls, self.runs), (1, [], []))
+
+    def test_unreadable_local_dataset_fails(self):
+        bad = Path(self.tmp.name) / "bad.json"
+        bad.write_text(json.dumps([{"id": "x"}]))
+        with patch.object(v.local_items, "__defaults__", (bad,)), patch("sys.stderr", io.StringIO()):
+            code, _ = self.seed("--allow-draft")
+        self.assertEqual((code, self.api.calls), (1, []))
 
 
 if __name__ == "__main__":

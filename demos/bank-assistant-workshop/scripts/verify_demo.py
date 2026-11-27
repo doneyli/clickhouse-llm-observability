@@ -3,26 +3,30 @@
 
     .venv/bin/python scripts/verify_demo.py            # one PASS / FAIL / WARN line per check; exit 1 when a required one fails
     .venv/bin/python scripts/verify_demo.py --links    # also print the link each module opens
+    .venv/bin/python scripts/verify_demo.py --prep     # before `workshop.py serve` is up: services not checked, verdict says so
     .venv/bin/python scripts/verify_demo.py --env-file ../../.env   # from a work/<checkpoint> folder
 
-It wraps `workshop.py preflight` (packages, model key present, Langfuse authentication; no
-paid model call) and then reads the project back: the keys map to the expected project,
-both prompt labels and the eight-item dataset exist, and a recent traced turn has its
-observations and the three monitoring signals. An HTTP 200 proves little on its own (a
-trace can exist before its observations land), so every check counts real rows.
+Session readiness means: `workshop.py preflight` passes (packages, model key present,
+Langfuse authentication; no paid model call); the portal and the banking MCP server are
+serving; the keys map to the expected project; both prompt labels serve the text in
+src/northwind/prompts.py; every item in data/seed-dataset.json is ACTIVE and matches; a
+recent traced turn has its observations and the three signal scores on its root
+observation; and a prepared experiment run exists for each label's current version
+(modules 06-07). An HTTP 200 proves little on its own, so every check counts real rows.
 
 Standard library only. The preflight step runs `workshop.py` with this same interpreter,
-so run it with the demo's `.venv/bin/python`. No model calls; a handful of Langfuse reads,
-done in seconds. tests/test_verify_demo.py covers the helpers and the checks.
+so run it with the demo's `.venv/bin/python`. No model calls and no writes; a handful of
+Langfuse reads, done in seconds. tests/test_verify_demo.py covers the helpers and checks.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
+import hashlib
 import json
 import os
 import re
-import socket
 import subprocess
 import sys
 import urllib.error
@@ -40,16 +44,21 @@ ROOT_NAME = "northwind-assistant"                 # agent.TRACE_NAME: root obser
 ENVIRONMENT = "workshop"                          # config.get_langfuse(environment=...); experiments use sdk-experiment
 PROMPT_LABELS = {"workshop-baseline": "baseline",  # label -> workshop.py prompt --variant (modules 03 and 07)
                  "workshop-candidate": "candidate"}
+PROMPT_VARS = {"baseline": "V1_BASELINE",          # variant -> the prompts.py constant helpers.publish_prompt sends
+               "candidate": "WORKSHOP_CANDIDATE"}
+PROMPTS_FILE = DEMO_DIR / "src" / "northwind" / "prompts.py"
 EXPECTED_SCORES = ["guardrail-blocked", "pii-in-input", "all-caps-signal"]  # monitoring.record, module 04
 DATASET_FILE = DEMO_DIR / "data" / "seed-dataset.json"  # the items `workshop.py dataset` upserts (module 05)
 MIN_OBSERVATIONS = 3                              # root, input guardrail, and at least one more (a blocked turn has 5)
-LOOKBACK_DAYS = 7                                 # how far back to look for a turn or an experiment
+LOOKBACK_DAYS = 7                                 # how far back to look for a traced turn
+EXPERIMENT_LOOKBACK_DAYS = 90                     # how far back to look for the prepared experiment runs
 FRESH_HOURS = 24                                  # older than this only warns: send a question the day before
 DEFAULT_WORKSHOP_ID = "bank-workshop"             # config.WORKSHOP_ID default
 DEFAULT_PORTAL_PORT, DEFAULT_MCP_PORT = 8090, 8765  # config.PORT, config.MCP_PORT defaults
 SEED_CMD = ".venv/bin/python scripts/seed_all.py"
-RUN_CMD = ".venv/bin/python workshop.py serve, then ask a question at http://127.0.0.1:8090"
-EXPERIMENT_CMD = ".venv/bin/python workshop.py experiment --prompt-label workshop-baseline"
+SERVE_CMD = ".venv/bin/python workshop.py serve"
+RUN_CMD = f"{SERVE_CMD}, then ask a question at http://127.0.0.1:8090"
+EXPERIMENT_CMD = ".venv/bin/python workshop.py experiment --prompt-label {label}"
 TIMEOUT_S = 10
 
 RESULTS: List[Tuple[str, bool, str]] = []         # (PASS | FAIL | WARN, required, what)
@@ -63,8 +72,71 @@ def workshop_names(environ: Optional[MutableMapping[str, str]] = None) -> Dict[s
             "dataset": f"bank-workshop/{wid}/regression-v1"}
 
 
-def expected_dataset_size(path: Path = DATASET_FILE) -> int:
-    return len(json.loads(path.read_text()))
+# --- Local definitions (what seed_all.py publishes) --------------------------------------
+
+def local_prompts(path: Path = PROMPTS_FILE) -> Dict[str, str]:
+    """variant -> prompt text, read from prompts.py with `ast` so this stays stdlib only.
+
+    Evaluates top-level string constants and `+` concatenations of them, which is how
+    WORKSHOP_CANDIDATE is built from V1_BASELINE. Raises KeyError or ValueError when a
+    constant is missing or not a plain string.
+    """
+    values: Dict[str, str] = {}
+
+    def ev(node: ast.AST) -> str:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name) and node.id in values:
+            return values[node.id]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return ev(node.left) + ev(node.right)
+        raise ValueError("not a string expression")
+
+    for stmt in ast.parse(path.read_text(), filename=str(path)).body:
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+            try:
+                values[stmt.targets[0].id] = ev(stmt.value)
+            except ValueError:
+                pass
+    return {variant: values[name] for variant, name in PROMPT_VARS.items()}
+
+
+def local_items(path: Path = DATASET_FILE) -> List[dict]:
+    """The dataset definitions, validated enough that every later comparison is meaningful."""
+    data = json.loads(path.read_text())
+    if not isinstance(data, list) or not data:
+        raise ValueError(f"{path.name} holds no items")
+    ids = [item.get("id") if isinstance(item, dict) else None for item in data]
+    if any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
+        raise ValueError(f"{path.name}: every item needs a unique string id")
+    for item in data:
+        if not isinstance(item.get("input"), dict) or not item.get("expected_output") \
+                or not isinstance(item.get("metadata"), dict):
+            raise ValueError(f"{path.name}: item {item['id']} needs input, expected_output and metadata")
+    return data
+
+
+def item_id(dataset: str, local_id: str) -> str:
+    """The deterministic remote id helpers.seed_dataset upserts each item under."""
+    return hashlib.sha256(f"{dataset}/{local_id}".encode()).hexdigest()[:32]
+
+
+def prompt_matches(current: Optional[Dict[str, Any]], variant: str, text: str) -> bool:
+    """Type, text and the whole config, as helpers.publish_prompt writes them."""
+    return bool(current) and current.get("type") == "text" and current.get("prompt") == text \
+        and (current.get("config") or {}) == {"variant": variant}
+
+
+def dataset_diff(dataset: str, items: List[dict], rows: List[dict]) -> List[str]:
+    """Local ids whose remote item is missing, not ACTIVE, or differs in input, expected output or metadata."""
+    remote = {r.get("id"): r for r in rows}
+    bad = []
+    for item in items:
+        r = remote.get(item_id(dataset, item["id"]))
+        if r is None or r.get("status") != "ACTIVE" or (r.get("input"), r.get("expectedOutput"), r.get("metadata")) \
+                != (item["input"], item["expected_output"], item["metadata"]):
+            bad.append(item["id"])
+    return bad
 
 
 # --- Result helpers ---------------------------------------------------------------------
@@ -237,17 +309,25 @@ class Langfuse:
         return self.request("POST", path, body=body)
 
     def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
+        """Follow `meta.cursor` (Observations v2, Scores v3, experiments). A page may be empty
+        while a cursor is still returned, so stop on a missing cursor, not on an empty page.
+        A repeated cursor or more than `max_pages` pages is an ApiError, not a silent cut."""
         out: List[dict] = []
         cur = None
+        seen = set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
-            out += d.get("data") or []
+            rows = d.get("data") or []
+            if not isinstance(rows, list):
+                raise ApiError(None, f"{path}: 'data' is not a list")
+            out += rows
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+            if cur in seen:
+                raise ApiError(None, f"{path}: the API repeated cursor {cur!r}")
+            seen.add(cur)
+        raise ApiError(None, f"{path}: still paging after {max_pages} pages")
 
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -262,16 +342,23 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
         links.append(("Module 04 · signals (Scores)", f"{p}/traces/{state['trace_id']}"))
     if state.get("dataset_id"):
         links.append(("Module 05 · the dataset", f"{p}/datasets/{state['dataset_id']}"))
-        links.append(("Module 06-07 · runs", f"{p}/datasets/{state['dataset_id']}  (Runs tab)"))
+        for label, run_id in (state.get("runs") or {}).items():
+            links.append((f"Module 06-07 · {label}", f"{p}/datasets/{state['dataset_id']}/runs/{run_id}"))
     return links
 
 
 # --- Checks -------------------------------------------------------------------------------
 
-def listening(port: int) -> bool:
-    with socket.socket() as sock:
-        sock.settimeout(2)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+def http_get(url: str, timeout: float = 4) -> Tuple[Optional[int], bytes]:
+    """(status, body) for a local service; (None, b"") when nothing answers."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}),
+                                    timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, b""
+    except (urllib.error.URLError, OSError):
+        return None, b""
 
 
 def preflight_check(env_path: Path, python: str = sys.executable) -> bool:
@@ -288,32 +375,44 @@ def preflight_check(env_path: Path, python: str = sys.executable) -> bool:
                  hint="read the error above; run with .venv/bin/python after commands.install")
 
 
-def service_checks(environ: Optional[MutableMapping[str, str]] = None) -> None:
-    """Optional: the facilitator's own portal and MCP server, started by `workshop.py serve`."""
+def service_checks(names: Dict[str, str], environ: Optional[MutableMapping[str, str]] = None) -> None:
+    """The facilitator's portal and banking MCP server, started by `workshop.py serve`."""
     env = os.environ if environ is None else environ
-    print("Services (optional: only while `workshop.py serve` runs)")
-    for name, key, default in (("portal", "WORKSHOP_PORT", DEFAULT_PORTAL_PORT),
-                               ("banking MCP server", "NORTHWIND_MCP_PORT", DEFAULT_MCP_PORT)):
-        port = int(env.get(key) or default)
-        check(listening(port), f"{name} listening on 127.0.0.1:{port}", required=False,
-              hint=".venv/bin/python workshop.py serve")
+    print("Services")
+    port = int(env.get("WORKSHOP_PORT") or DEFAULT_PORTAL_PORT)
+    status, body = http_get(f"http://127.0.0.1:{port}/health")
+    try:
+        health = json.loads(body) if status == 200 else {}
+    except ValueError:
+        health = {}
+    ok = status == 200 and health.get("status") == "ok" and health.get("tracing") is True \
+        and health.get("workshop") == names["workshop_id"]
+    check(ok, f"portal on 127.0.0.1:{port}/health: HTTP {status}, tracing {health.get('tracing')}, "
+              f"workshop {health.get('workshop')} (want {names['workshop_id']})",
+          hint=f"{SERVE_CMD} from the reference root with this .env")
+    mcp = int(env.get("NORTHWIND_MCP_PORT") or DEFAULT_MCP_PORT)
+    status, _ = http_get(f"http://127.0.0.1:{mcp}/mcp")
+    check(status is not None and status < 500, f"banking MCP server on 127.0.0.1:{mcp}/mcp: HTTP {status}",
+          hint=SERVE_CMD)
 
 
-def dataset_items(lf: Langfuse, name: str) -> List[dict]:
-    """Every item of a dataset (page-based paging on /dataset-items)."""
+def dataset_items(lf: Langfuse, name: str, max_pages: int = 20) -> List[dict]:
+    """Every item of a dataset (page-based paging on /dataset-items), bounded."""
     out: List[dict] = []
-    for page in range(1, 21):
+    for page in range(1, max_pages + 1):
         d = lf.get("/api/public/dataset-items", datasetName=name, page=page, limit=100) or {}
-        out += d.get("data") or []
+        rows = d.get("data") or []
+        if not isinstance(rows, list):
+            raise ApiError(None, "/api/public/dataset-items: 'data' is not a list")
+        out += rows
         if page >= int((d.get("meta") or {}).get("totalPages") or 1):
-            break
-    return out
+            return out
+    raise ApiError(None, f"/api/public/dataset-items: more than {max_pages} pages")
 
 
-def langfuse_checks(lf: Langfuse, expected_project: Optional[str],
-                    names: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    names = names or workshop_names()
-    state: Dict[str, Any] = {"names": names}
+def langfuse_checks(lf: Langfuse, expected_project: Optional[str], names: Dict[str, str],
+                    prompts: Dict[str, str], items: List[dict]) -> Dict[str, Any]:
+    state: Dict[str, Any] = {"names": names, "versions": {}, "runs": {}}
     print("Langfuse")
     try:
         projects = (lf.get("/api/public/projects") or {}).get("data") or []
@@ -325,72 +424,87 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str],
     state["project_id"] = proj.get("id")
     if not check(bool(expected_project) and proj.get("name") == expected_project,
                  f"keys map to project '{proj.get('name')}' (want '{expected_project}')",
-                 hint="use this project's keys in .env, or set DEMO_LANGFUSE_PROJECT to your own project's name"):
+                 hint="use this project's keys in .env, or set DEMO_LANGFUSE_PROJECT to the project's name"):
         return state
 
+    now = datetime.now(timezone.utc)
     try:
         print(f"Seeded artifacts (WORKSHOP_ID={names['workshop_id']})")
         for label, variant in PROMPT_LABELS.items():
             try:
                 p = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(names['prompt'], safe='')}",
                            label=label) or {}
-                check(True, f"prompt {names['prompt']}: {label} = v{p.get('version')} ({variant})")
             except ApiError as e:
                 if e.status != 404:
                     raise
                 check(False, f"prompt {names['prompt']} has no '{label}' label", hint=f"run {SEED_CMD}")
+                continue
+            state["versions"][label] = p.get("version")
+            check(prompt_matches(p, variant, prompts[variant]),
+                  f"prompt {names['prompt']}: {label} = v{p.get('version')} serves the {variant} text and config",
+                  hint=f"the label serves other text or config: run {SEED_CMD}")
 
-        want = expected_dataset_size()
         try:
             ds = lf.get(f"/api/public/v2/datasets/{urllib.parse.quote(names['dataset'], safe='')}") or {}
         except ApiError as e:
             if e.status != 404:
                 raise
-            check(False, f"dataset {names['dataset']} exists", hint=f"run {SEED_CMD} --allow-draft (rehearsal) or --reviewed")
+            check(False, f"dataset {names['dataset']} exists",
+                  hint=f"run {SEED_CMD} --allow-draft (rehearsal) or --reviewed")
         else:
             state["dataset_id"] = ds.get("id")
-            active = [i for i in dataset_items(lf, names["dataset"]) if i.get("status", "ACTIVE") == "ACTIVE"]
-            check(len(active) >= want, f"dataset {names['dataset']}: {len(active)} ACTIVE item(s) (want {want})",
+            rows = dataset_items(lf, names["dataset"])
+            bad = dataset_diff(names["dataset"], items, rows)
+            check(not bad, f"dataset {names['dataset']}: {len(items) - len(bad)}/{len(items)} items ACTIVE and"
+                           f" matching data/seed-dataset.json" + (f"; not: {', '.join(bad)}" if bad else ""),
                   hint=f"run {SEED_CMD}")
 
         print("Latest traced turn")
-        now = datetime.now(timezone.utc)
         window = {"fromStartTime": iso(now - timedelta(days=LOOKBACK_DAYS)), "toStartTime": iso(now + timedelta(minutes=5))}
         roots = (lf.get("/api/public/v2/observations", name=ROOT_NAME, isRootObservation=True,
                         environment=ENVIRONMENT, fields="core,basic", limit=1, **window)
                  or {}).get("data") or []  # newest first
         if check(bool(roots), f"a '{ROOT_NAME}' turn in environment '{ENVIRONMENT}' in the last {LOOKBACK_DAYS} days",
-                 hint=f"{RUN_CMD}"):
+                 hint=RUN_CMD):
             latest = roots[0]
             state["trace_id"] = trace_id = latest["traceId"]
+            root_id = latest["id"]
             started = parse_time(latest["startTime"])
             obs = lf.cursor("/api/public/v2/observations", {
                 "traceId": trace_id, "fields": "core",
                 "fromStartTime": iso(started - timedelta(hours=1)), "toStartTime": iso(now + timedelta(minutes=5))})
             check(len(obs) >= MIN_OBSERVATIONS, f"latest turn has {len(obs)} observation(s) (want {MIN_OBSERVATIONS}+)",
                   hint="observations may still be landing: wait 30 s and re-run")
-            scored = sorted({s.get("name") for s in lf.cursor("/api/public/v3/scores", {"traceId": trace_id})})
-            missing = [n for n in EXPECTED_SCORES if n not in scored]
-            check(not missing, f"latest turn's scores: {', '.join(scored) or 'none'}"
+            scores = lf.cursor("/api/public/v3/scores", {"traceId": trace_id, "fields": "subject"})
+            on_root = {s.get("name") for s in scores
+                       if (s.get("subject") or {}).get("kind") == "observation" and (s.get("subject") or {}).get("id") == root_id}
+            missing = [n for n in EXPECTED_SCORES if n not in on_root]
+            check(not missing, f"latest turn's signals on its root observation: {', '.join(sorted(on_root)) or 'none'}"
                   + (f"; missing {', '.join(missing)}" if missing else ""),
                   hint="scores land after the trace: wait and re-run; module 04 adds them")
             age_h = (now - started).total_seconds() / 3600
             check(age_h <= FRESH_HOURS, f"latest turn is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
                   required=False, hint="ask one question the day before")
 
-        # Modules 06-07 can be demonstrated from prepared runs; missing runs only warn.
         if state.get("dataset_id"):
-            try:
-                runs = lf.cursor("/api/public/experiments", {
-                    "datasetId": state["dataset_id"], "fields": "core",
-                    "fromStartTime": iso(now - timedelta(days=LOOKBACK_DAYS))}, cap=100)
-            except ApiError as e:
-                check(False, f"experiment runs could not be read: {e}", required=False)
-            else:
-                check(bool(runs), f"{len(runs)} experiment run(s) on the dataset in the last {LOOKBACK_DAYS} days",
-                      required=False, hint=f"prepare one: {EXPERIMENT_CMD} (calls models; see the README for cost)")
+            print("Prepared experiment runs (modules 06-07)")
+            runs = lf.cursor("/api/public/experiments", {
+                "datasetId": state["dataset_id"], "fields": "core,metadata",
+                "fromStartTime": iso(now - timedelta(days=EXPERIMENT_LOOKBACK_DAYS))}, cap=500)
+            for label in PROMPT_LABELS:
+                version = state["versions"].get(label)
+                match = next((r for r in runs if (r.get("metadata") or {}).get("prompt_label") == label
+                              and str((r.get("metadata") or {}).get("prompt_version")) == str(version)), None)
+                if match:
+                    state["runs"][label] = match.get("id")
+                check(version is not None and match is not None,
+                      f"a run of {label} v{version} in the last {EXPERIMENT_LOOKBACK_DAYS} days"
+                      + (f": {match.get('name')}" if match else ""),
+                      hint=EXPERIMENT_CMD.format(label=label) + " (model calls; cost not measured)")
     except ApiError as e:
         check(False, f"Langfuse read failed: {e}")
+    except (KeyError, TypeError, ValueError) as e:
+        check(False, f"unexpected Langfuse response: {type(e).__name__}: {e}")
     return state
 
 
@@ -398,14 +512,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each module opens")
     ap.add_argument("--env-file", type=Path, help="the private .env to read (default: the demo folder's .env)")
-    ap.add_argument("--skip-preflight", action="store_true", help="skip `workshop.py preflight` (reads only)")
+    ap.add_argument("--prep", action="store_true",
+                    help="preparation only: skip the portal and MCP checks; the verdict says so")
     args = ap.parse_args(argv)
     del RESULTS[:]
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = (args.env_file.resolve() if args.env_file else env_file(manifest_value(manifest, "", "profile")))
-    print("bank-assistant-workshop readiness")
+    path = args.env_file.resolve() if args.env_file else env_file(manifest_value(manifest, "", "profile"))
+    print("bank-assistant-workshop readiness" + (" (preparation only)" if args.prep else ""))
     print("Config")
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
     check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
@@ -413,18 +528,38 @@ def main(argv: Optional[List[str]] = None) -> int:
     expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
-        if not args.skip_preflight and path.is_file():
-            preflight_check(path)
-        service_checks()
-        lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<28} {url}")
+    keys_ok = check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set")
+
+    print("Local definitions")
+    prompts: Dict[str, str] = {}
+    items: List[dict] = []
+    try:
+        prompts = local_prompts()
+        check(True, f"prompt text for {', '.join(prompts)} read from src/northwind/prompts.py")
+    except (OSError, SyntaxError, KeyError, ValueError) as e:
+        check(False, f"prompt text in src/northwind/prompts.py: {type(e).__name__}: {e}")
+    try:
+        items = local_items()
+        check(True, f"{len(items)} dataset items read from data/seed-dataset.json")
+    except (OSError, KeyError, TypeError, ValueError) as e:
+        check(False, f"data/seed-dataset.json: {type(e).__name__}: {e}")
+
+    if keys_ok and path.is_file():
+        preflight_check(path)
+        names = workshop_names()
+        if not args.prep:
+            service_checks(names)
+        if prompts and items:
+            lf = Langfuse(base, pk, sk)
+            state = langfuse_checks(lf, expected, names, prompts, items)
+            if args.links and state.get("project_id"):
+                print("\nLinks")
+                for label, url in act_links(lf.base, state):
+                    print(f"  {label:<32} {url}")
 
     line, code = summary()
+    if args.prep:
+        line += " · preparation only: portal and MCP server not checked, run without --prep once serve is up"
     print(f"\n{line}")
     return code
 
