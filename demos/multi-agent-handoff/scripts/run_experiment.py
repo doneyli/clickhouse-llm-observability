@@ -44,10 +44,10 @@ def _services_up() -> list[str]:
     return down
 
 
-def make_task(topology: str, linkage: str, label: str):
+def make_task(topology: str, linkage: str, label: str, prompt_versions: dict | None = None):
     async def task(*, item, **_):
         inp = item.input
-        orch = Orchestrator(topology=topology, linkage=linkage, prompt_label=label)
+        orch = Orchestrator(topology=topology, linkage=linkage, prompt_label=label, prompt_versions=prompt_versions)
         conv = Conversation(customer_id=inp["customer_id"], topology=topology,
                             scenario=(item.metadata or {}).get("item", "experiment"))
         started = time.perf_counter()
@@ -75,18 +75,22 @@ def make_conversation_task(topology: str, linkage: str, label: str):
 
 
 def run(topology: str, *, dataset: str = "routing", label: str = "production", linkage: str = DEFAULT_MODE,
-        concurrency: int = 4, limit: int | None = None, name: str | None = None, quiet: bool = False):
+        concurrency: int = 4, limit: int | None = None, name: str | None = None, quiet: bool = False,
+        prompt_versions: dict | None = None):
     """One experiment run; returns the SDK's ExperimentResult. Also used by scripts/prompt_gate.py."""
     if topology == "a2a" and (down := _services_up()):
         sys.exit(f"A2A services not reachable: {', '.join(down)}. Start them: ./scripts/run_services.sh")
     lf = config.get_langfuse("orchestrator")
     conversations = dataset == "conversations"
+    if conversations and prompt_versions:
+        raise ValueError("Pinned prompt versions currently support only the routing dataset")
     dataset_name = datasets.CONVERSATIONS if conversations else datasets.ROUTING
     ds = lf.get_dataset(dataset_name)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
     run_name = name or f"{topology} · {label} · {stamp}"
     models = {a: AGENTS[a].model for a in ("concierge", "tech-support", "billing", "single")}
     meta = {"topology": topology, "prompt_label": label, "release": config.RELEASE,
+            "prompt_versions": prompt_versions or {},
             "linkage": linkage if topology == "a2a" else "in-process",
             "models": ", ".join(f"{k}={v}" for k, v in models.items())}
     items = [i for i in ds.items if i.status != "ARCHIVED"]
@@ -96,7 +100,8 @@ def run(topology: str, *, dataset: str = "routing", label: str = "production", l
     result = lf.run_experiment(
         name=dataset_name, run_name=run_name, description=f"{topology} topology, prompts @{label}",
         data=items,
-        task=(make_conversation_task if conversations else make_task)(topology, linkage, label),
+        task=(make_conversation_task(topology, linkage, label) if conversations else
+              make_task(topology, linkage, label, prompt_versions)),
         evaluators=CONVERSATION_EVALUATORS if conversations else ITEM_EVALUATORS,
         run_evaluators=CONVERSATION_RUN_EVALUATORS if conversations else RUN_EVALUATORS,
         max_concurrency=concurrency, metadata=meta)

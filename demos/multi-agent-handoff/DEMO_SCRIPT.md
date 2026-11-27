@@ -452,10 +452,10 @@ in the [README](README.md).
 | Trace context attached before the agent runs | [handoff/a2a_service.py:88](handoff/a2a_service.py) | the receiving service continues the caller's trace instead of starting a new root |
 | The handoff observation and what evaluators need on it | [handoff/transport.py:28](handoff/transport.py) | payload as input; required fields and roster as metadata, because a judge sees only this observation |
 | The model client's own trace propagation turned off | [handoff/agents/base.py:45](handoff/agents/base.py) | stops the Anthropic SDK from sending baggage (customer ids) to the model API |
-| One session per conversation, tags per run | [handoff/orchestrator.py:124](handoff/orchestrator.py) | `propagate_attributes(session_id=…, user_id=…)` around each turn |
-| The turn's trajectory written on the root | [handoff/orchestrator.py:143](handoff/orchestrator.py) | `agent_path` and `handoff_count` let a single-observation evaluator see the whole path |
-| The hop cap | [handoff/orchestrator.py:202](handoff/orchestrator.py) | stops F3 at four handoffs and flags `hop_cap_hit` |
-| Transfer vs. delegation, chosen by the model | [handoff/agents/base.py:242](handoff/agents/base.py), [:262](handoff/agents/base.py) | `transfer_to_*` hands the conversation over; `ask_*` asks and keeps it |
+| One session per conversation, tags per run | [handoff/orchestrator.py:126](handoff/orchestrator.py) | `propagate_attributes(session_id=…, user_id=…)` around each turn |
+| The turn's trajectory written on the root | [handoff/orchestrator.py:145](handoff/orchestrator.py) | `agent_path` and `handoff_count` let a single-observation evaluator see the whole path |
+| The hop cap | [handoff/orchestrator.py:214](handoff/orchestrator.py) | stops F3 at four handoffs and flags `hop_cap_hit` |
+| Transfer vs. delegation, chosen by the model | [handoff/agents/base.py:243](handoff/agents/base.py), [:263](handoff/agents/base.py) | `transfer_to_*` hands the conversation over; `ask_*` asks and keeps it |
 | Agent roster from A2A agent cards | [handoff/agents/base.py:66](handoff/agents/base.py) | adding a specialist means starting a service, not editing the concierge |
 | The policy oracle and the write guard | [handoff/tools/policy.py:28](handoff/tools/policy.py), [handoff/tools/crm.py:190](handoff/tools/crm.py) | amounts are code; `issue_credit` refuses any other amount, and duplicates |
 | Code evaluators, as uploaded | [evaluators/handoff_context_complete.py:72](evaluators/handoff_context_complete.py), [evaluators/handoff_loop.py:50](evaluators/handoff_loop.py) | standard-library Python, run inside Langfuse on every match |
@@ -467,11 +467,11 @@ in the [README](README.md).
 | The simulated customer's structured reply | [handoff/conversation.py:46](handoff/conversation.py) | status + message ends conversations reliably |
 | Conversation scores on the session | [handoff/conversation.py:162](handoff/conversation.py) | there is no session-target judge, so code scores the conversation |
 | Transferred sessions to the review queue | [scripts/run_traffic.py:73](scripts/run_traffic.py) | `objectType: "SESSION"`, so reviewers see the whole conversation |
-| The prompt versions on every turn | [handoff/prompts.py:120](handoff/prompts.py), [handoff/orchestrator.py:125](handoff/orchestrator.py), [handoff/linkage.py:60](handoff/linkage.py) | the trace version names the concierge, tech-support and billing versions, carried in baggage to the remote agents, so a dashboard splits any score by them |
+| The prompt versions on every turn | [handoff/prompts.py:127](handoff/prompts.py), [handoff/orchestrator.py:127](handoff/orchestrator.py), [handoff/linkage.py:60](handoff/linkage.py) | the trace version names the concierge, tech-support and billing versions, carried in baggage to the remote agents, so a dashboard splits any score by them |
 | A label move is one PATCH | [scripts/loop.py:72](scripts/loop.py) | `newLabels` on the version; a label is unique per prompt, so this moves `production`, and the agents pick it up by label |
 | Flagged handoffs to the queue | [scripts/flag_handoffs.py:129](scripts/flag_handoffs.py) | `objectType: "OBSERVATION"`: the reviewer labels the one handoff, not the whole trace |
 | A label becomes a test case | [scripts/promote_to_dataset.py:87](scripts/promote_to_dataset.py) | `source_trace_id` / `source_observation_id` link the dataset item back to production |
-| The gate's bar | [cicd/thresholds.json](cicd/thresholds.json), [scripts/prompt_gate.py:117](scripts/prompt_gate.py) | deterministic metrics only, and every item must have been evaluated |
+| The gate's bar | [cicd/thresholds.json](cicd/thresholds.json), [scripts/prompt_gate.py:148](scripts/prompt_gate.py) | deterministic metrics only, and every item must have been evaluated |
 | The loop check on experiment runs | [handoff/evals.py:177](handoff/evals.py) | the online `handoff-loop` rule on the run record, so the gate can require `loop-rate` = 0 |
 
 ---

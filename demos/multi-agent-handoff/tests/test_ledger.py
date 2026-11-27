@@ -42,3 +42,13 @@ def test_one_technician_visit_per_line():
     st = crm.RunState(conversation_id="conv-e")
     assert crm.book_technician(st, "L-1016-2")["booked"] is True
     assert crm.book_technician(crm.RunState(conversation_id="conv-e"), "L-1016-2")["booked"] is False
+
+
+@pytest.mark.parametrize("conversation_id", [None, "conv-unknown-line"])
+def test_unknown_line_never_creates_a_phantom_booking(conversation_id):
+    state = crm.RunState(conversation_id=conversation_id)
+    result = crm.book_technician(state, "L-DOES-NOT-EXIST")
+    assert result == {"booked": False, "error": "unknown line L-DOES-NOT-EXIST"}
+    assert state.technicians == []
+    if conversation_id:
+        assert crm.ledger_snapshot(conversation_id)["technicians"] == []

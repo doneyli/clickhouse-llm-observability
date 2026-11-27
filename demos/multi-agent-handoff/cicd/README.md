@@ -15,9 +15,14 @@ label under review, and compares the run-level scores with [`thresholds.json`](t
 All hard metrics are deterministic: routing and trajectory come from the run record, and outcomes
 come from the back-office ledger, checked against the credit oracle. No LLM judge decides a release.
 
-A label that does not exist on the gated prompt aborts the gate. Otherwise that agent would quietly
+A label that does not exist on the gated prompt aborts a manual gate. Otherwise that agent would quietly
 run its production prompt, and the gate would grade production. Any other agent that has no version
 under the label does run its production prompt; that is how one label changes one agent.
+
+Each gate resolves the participating agents' labels once and pins their version numbers for the
+whole experiment, including remote and peer handoffs. Repository dispatch passes the event's
+version as `--version`, so a queued run still grades that exact version after the label moves.
+An unavailable pinned version, missing comparison metric, or non-finite metric blocks the gate.
 
 The dataset grows as the loop runs. Handoffs a reviewer labelled in production are promoted into
 `handoff-routing` (`scripts/promote_to_dataset.py`), so every bug the loop fixes stays tested.
@@ -40,7 +45,7 @@ Langfuse: save a concierge / tech-support / billing version, or move a label
         └─► .github/workflows/handoff-prompt-gate.yml
               1. Decide: prompt name, version and labels from the payload; skip other prompts and unlabelled versions
               2. Install, write the demo .env from secrets, start billing + tech-support (./scripts/run_services.sh)
-              3. Gate the label (scripts/prompt_gate.py), unique run name per CI run → job summary + run link
+              3. Gate the event's version with the other agents pinned at start, unique run name → summary + run link
               4. "Ship it" only if the gate passed AND the version carries `production`
 ```
 

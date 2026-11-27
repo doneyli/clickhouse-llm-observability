@@ -142,8 +142,6 @@ async def run_conversation(*, topology: str, linkage: str, label: Optional[str],
             res.replied_by.append(r.replied_by)
             res.owners.append(r.owner_after)
             res.trace_ids.append(r.trace_id)
-            if t == max_turns - 1:
-                break
             nxt = await simulate(persona, conv.transcript, traced=traced_simulator)
             if not nxt.verdict and not nxt.text.strip():  # an empty reply: ask once more, then stop
                 nxt = await simulate(persona, conv.transcript, traced=traced_simulator)
@@ -151,6 +149,8 @@ async def run_conversation(*, topology: str, linkage: str, label: Optional[str],
                     nxt = Simulated(verdict="silent")
             if nxt.verdict:
                 res.ended_by = f"customer-{nxt.verdict}"
+                break
+            if t == max_turns - 1:
                 break
             message = nxt.text
     finally:

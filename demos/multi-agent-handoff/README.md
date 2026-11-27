@@ -112,7 +112,7 @@ connection; this project uses the organization's connection named `Anthropic` (s
 cd demos/multi-agent-handoff
 uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env            # then fill in LANGFUSE_PUBLIC_KEY / _SECRET_KEY / _BASE_URL and ANTHROPIC_API_KEY
-.venv/bin/python -m pytest -q tests                        # 45 tests, no server or model calls
+.venv/bin/python -m pytest -q tests                        # 65 tests, no Langfuse or model calls
 ```
 
 Seed the project. `scripts/seed_all.py` runs the four seeders in order and stops at the first one
@@ -323,6 +323,8 @@ blocks on `routing-accuracy`, `loop-rate`, `resolution-rate`, `credit-accuracy`,
 release. [`.github/workflows/handoff-prompt-gate.yml`](../../.github/workflows/handoff-prompt-gate.yml)
 runs it in CI on a Langfuse prompt automation event, with the two agent services started on the
 runner. Setup: [cicd/README.md](cicd/README.md).
+The gate pins a snapshot of prompt versions across every item and A2A hop; dispatch runs use the
+event's exact version even when a label moves while the run is queued.
 
 ## The linkage matrix
 
@@ -395,12 +397,13 @@ tests/              oracle, ledger, evaluators (incl. the uploaded code evaluato
 
 ```bash
 cd demos/multi-agent-handoff
-.venv/bin/python -m pytest -q tests        # 45 tests, about 15 s
+.venv/bin/python -m pytest -q tests        # 65 tests, about 15 s
 ```
 
 No services, no Langfuse and no model calls. They cover the credit policy oracle, the back-office
 ledger, the experiment evaluators, the two code evaluators exactly as uploaded to Langfuse, the five
-linkage modes, the seed entry point and the readiness check's verdict. The linkage test starts its
+linkage modes, the seed entry point, the readiness check's verdict, immutable gate versions,
+handoff ordering, unknown-line bookings and final-turn conversation verdicts. The linkage test starts its
 own stub agents on ports 19310 and 19311 and captures their spans to files.
 
 ## Troubleshooting
