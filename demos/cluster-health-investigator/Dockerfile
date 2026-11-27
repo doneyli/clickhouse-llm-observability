@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 ENV PYTHONUNBUFFERED=1
+# Tells the seed scripts they run in the container, where compose supplies LANGFUSE_*
+# (scripts/verify_demo.py in_container()); on the host they load the root .env instead.
+ENV CLUSTER_HEALTH_CONTAINER=1
 
 # Default: run the batch of 6 demo symptoms (varied worker fan-out).
 #   docker compose --profile langfuse --profile demo run --rm cluster-health python main.py
