@@ -96,10 +96,10 @@ python demos/cluster-health-investigator/scripts/verify_demo.py --short   # READ
 `seed_all.py` reconciles the 3 prompts (5 labels), the 2 datasets and the 2 managed judges,
 printing created / updated / unchanged per item; an unchanged re-run writes nothing. It
 exits 1 when any step failed. Run it on the host: the judges are written to Langfuse's
-Postgres through `docker exec`, which the container cannot do. `./setup.sh` runs it in the
-container, where the judge step cannot run, so setup reports this seed as incomplete
-until you run the host command. In the container,
-`... run --rm cluster-health python scripts/seed_all.py --skip-judges` seeds the rest.
+Postgres through `docker exec`, which the container cannot do. `./setup.sh` seeds this
+demo in two halves: `... run --rm cluster-health python scripts/seed_all.py --skip-judges`
+in the container (prompts and datasets), then `scripts/seed_evaluators.sh` on the host (the
+judges). If either half fails, setup prints a warning naming the host command and carries on.
 `--with-traces` also runs the 8-symptom live batch (`scripts/run_live_demo.py`, model calls).
 
 The root `.env` is the only source of `LANGFUSE_*`. On the host, `seed_all.py`, the other
@@ -235,8 +235,9 @@ python -m pytest -q                 # no services, no model calls, a few seconds
 - `test_catalog_safety.py` — every catalog SQL is SELECT-only and LIMIT-bounded; `focus` can't inject.
 - `test_graph_shape.py` — plan of N → exactly N worker invocations; re-plan guards enforced; fault:overplan hits the cap. Skips if `langgraph` isn't installed.
 - `test_plan_schema.py` — Plan round-trip; malformed plan → retry once, then abort.
-- `test_verify_demo.py` — `verify_demo.py`'s checks, full and `--short` verdicts, `.env` loading with hostile shell keys, cursor paging, the Observations v2 → v1 fallback and the run-shape logic.
+- `test_verify_demo.py` — `verify_demo.py`'s checks, full and `--short` verdicts, `.env` loading with hostile shell keys, cursor paging, the Observations v2 → v1 fallback, the run-shape logic, and the failure boundary (a malformed URL, an unreadable `.env` or an unexpected error is a FAIL and a NOT READY verdict, never a traceback).
 - `test_seed_all.py`, `test_seed_prompts.py`, `test_seed_datasets.py`, `test_score_delegations.py` — env loading, exit codes, per-label and per-item reconcile (unchanged runs write nothing), source capture and delegation reads from observations.
+- `test_setup_integration.py` — the root `setup.sh` step for this demo, run in bash with `docker` and the judge seeder stubbed: container seed with `--skip-judges`, then the host judge seeder; a failure in either half is a warning.
 - `fake_langfuse.py` — the request-level fake the Langfuse tests run against: it rejects unknown query parameters and honours field projection.
 
 ## Troubleshooting
@@ -255,7 +256,7 @@ python -m pytest -q                 # no services, no model calls, a few seconds
 ## Known limits
 
 - **Self-hosted only.** The judge seeder writes to Langfuse's Postgres; on Cloud it prints UI steps and exits 1. `scripts/check_fanout.py` uses the v1 Metrics API, which the 3.x server needs (v2 metrics 404 there).
-- The container seed cannot write the judges, so the `./setup.sh` path leaves them for the host `seed_all.py`.
+- The container seed cannot write the judges; `./setup.sh` writes them from the host with `scripts/seed_evaluators.sh`. In cloud mode that step only prints the UI steps, so setup warns.
 - Worker counts are non-deterministic by design. `DEMO_SYMPTOMS.md` gives a calibrated range for each phrasing, not a guarantee; only `--fault overplan` is deterministic.
 - The Monitor in Act 4 is created by hand in the UI; nothing seeds it.
 - The planner can only choose from the 10 catalog analyses. It diagnoses; it never changes the cluster.

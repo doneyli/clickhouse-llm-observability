@@ -597,21 +597,32 @@ ensure_slow_query_tuner() {
 
 #######################################
 # Seed the Cluster Health Investigator demo (idempotent, non-fatal): 3 managed
-# prompts, plan-quality + worker-quality datasets, and 2 managed judges. Runs
-# via the demo container's scripts/seed_all.py entry point.
+# prompts, plan-quality + worker-quality datasets, and 2 managed judges.
+#
+# Two halves, because the judges cannot be written from inside the container:
+# the demo container's scripts/seed_all.py --skip-judges seeds the prompts and
+# datasets, then the host runs scripts/seed_evaluators.sh, which writes the
+# judges to Langfuse's Postgres through `docker exec`. Either half failing is a
+# warning, not a setup failure; in cloud mode the judge half prints the UI
+# steps and warns, because nothing was seeded.
 #######################################
 ensure_cluster_health_seed() {
-    if [ ! -d "$SCRIPT_DIR/demos/cluster-health-investigator" ]; then
+    local demo="$SCRIPT_DIR/demos/cluster-health-investigator"
+    if [ ! -d "$demo" ]; then
         return 0
     fi
 
     header "Seeding Cluster Health Investigator"
 
-    if docker compose --profile langfuse --profile demo run --rm cluster-health \
-        python scripts/seed_all.py; then
+    local ok=1
+    docker compose --profile langfuse --profile demo run --rm cluster-health \
+        python scripts/seed_all.py --skip-judges || ok=0
+    "$demo/scripts/seed_evaluators.sh" || ok=0
+
+    if [ "$ok" = 1 ]; then
         success "Cluster-health prompts, datasets, and judges seeded"
     else
-        warn "Cluster-health seeding skipped — run: docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_all.py"
+        warn "Cluster-health seeding incomplete — run on the host: python demos/cluster-health-investigator/scripts/seed_all.py"
     fi
 }
 
