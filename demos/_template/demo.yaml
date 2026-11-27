@@ -1,0 +1,31 @@
+# Demo manifest: see demos/CONTRIBUTING.md and docs/DEMO_STANDARD_SPEC.md §6.
+# Unknown keys are an error. Commands follow the profile's working-directory rule:
+# install and test run from the demo folder; seed, run and verify run from the repo root
+# for container demos and from the demo folder otherwise.
+name: {{NAME}}
+title: "{{TITLE}}"
+pitch: "{{PITCH}}"
+profile: {{PROFILE}}
+status: draft
+covers: {{COVERS}}
+stack: [python]
+langfuse:
+  target: {{TARGET}}
+  project: "{{PROJECT}}"
+length:
+# @if container standalone
+  full_min: 15
+  short_min: 9
+# @endif
+# @if workshop
+  full_min: 90
+# @endif
+commands:
+  install: {{CMD_INSTALL}}
+  seed: {{CMD_SEED}}
+  run: {{CMD_RUN}}
+  verify: {{CMD_VERIFY}}
+  test: {{CMD_TEST}}
+# @if standalone workshop
+addons: [spec]
+# @endif

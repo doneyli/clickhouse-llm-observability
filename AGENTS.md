@@ -17,6 +17,7 @@ runbooks:
 | "Run / present / prep the demo" | [`run-demo`](.agents/skills/run-demo/SKILL.md) — pre-flight, fresh data, act-by-act guidance |
 | "Something is broken" | [`troubleshoot`](.agents/skills/troubleshoot/SKILL.md) — triage order + recovery ladder |
 | Query Langfuse data / docs | [`langfuse`](.agents/skills/langfuse/SKILL.md) — CLI + documentation access |
+| "Add / change a demo" | [`new-demo`](.agents/skills/new-demo/SKILL.md) — scaffold, spec, build, check, register; the standard is [demos/CONTRIBUTING.md](demos/CONTRIBUTING.md) |
 
 For presenting to humans, the source material is [docs/SA_FIELD_GUIDE.md](docs/SA_FIELD_GUIDE.md)
 (audience/talk track), [docs/USE_CASES.md](docs/USE_CASES.md) (2-minute demo paths),

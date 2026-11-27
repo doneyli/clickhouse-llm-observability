@@ -1,0 +1,36 @@
+name: brand-promo-multi-agent
+title: Brand Promo Multi-Agent
+pitch: A re-themeable promo-planning agent fleet on LangGraph and CrewAI with 50k synthetic traces, persona dashboards, online judges and a certification gate
+profile: standalone
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate, deploy]
+stack: [python, langgraph, crewai, langchain, anthropic-sdk]
+langfuse:
+  target: either
+  project: brand-promo-demo
+length:
+  full_min: 25-30
+  short_min: 10-12
+commands:
+  install: uv sync --extra dev
+  seed: uv run scripts/seed_all.py
+  run: uv run scripts/run_live_demo.py play-all
+  verify: uv run python scripts/verify_demo.py   # to be written
+  test: uv run pytest -q
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-README-05
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-05
+    reason: predates the standard
+  - rule: DS-SPEC-01
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

@@ -1,0 +1,37 @@
+name: analytics-agentic-speed
+title: Analytics at Agentic Speed
+pitch: An analytics agent that sweeps hundreds of what-if scenarios on ClickHouse Cloud, with the database's own latency on every traced query span
+profile: standalone
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate, deploy]
+stack: [python, anthropic-sdk, clickhouse, asyncio, fastapi]
+langfuse:
+  target: cloud
+  project: analytics-agentic-speed
+length:
+  full_min: 15
+  short_min: 8
+commands:
+  install: uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+  seed: .venv/bin/python scripts/seed_all.py      # to be written: wraps load_data, seed_langfuse and seed_dataset
+  run: .venv/bin/python main.py --question q-padding
+  verify: .venv/bin/python scripts/verify_demo.py
+  test: .venv/bin/python -m pytest -q
+addons:
+  - spec
+  - cicd
+  - measurements
+  - portal: run_ui.sh   # existing name kept (decision D8)
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard

@@ -1,0 +1,36 @@
+name: langfuse-rls
+title: Trace Governance (RLS)
+pitch: Simulated attribute-based row-level security over Langfuse traces, with three personas seeing different slices of one project
+profile: standalone
+status: active
+covers: [governance]
+stack: [typescript, nextjs]
+langfuse:
+  target: self-hosted
+  project: RLS Demo
+length:
+  full_min: 8-12
+commands:
+  install: npm ci
+  seed: npm run seed
+  run: npm run dev
+  verify: bash scripts/verify.sh
+  test: npm test
+addons: []
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-README-05
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-05
+    reason: predates the standard
+  - rule: DS-SPEC-01
+    reason: predates the standard
+  - rule: DS-TEST-01
+    reason: predates the standard

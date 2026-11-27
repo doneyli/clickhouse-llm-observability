@@ -1,0 +1,33 @@
+# Manifest for the text-to-sql container demo (see docs/DEMO_STANDARD_SPEC.md §6)
+name: text-to-sql
+title: Text-to-SQL
+pitch: Prompt chaining with gate checks over ClickHouse via MCP, with an opt-in generate-critique-refine loop grounded in EXPLAIN evidence
+profile: container
+status: active
+covers: [trace, experiment, evaluate, deploy]
+stack: [python, langchain, mcp, clickhouse, fastapi, docker]
+langfuse:
+  target: self-hosted
+  project: LLM Observability Demo
+length:
+  full_min: 20
+  short_min: 6
+commands:
+  install: pip install -r requirements.txt pytest
+  seed: python demos/text-to-sql/scripts/seed_all.py   # to be written: wraps seed-app-prompts.py, seed-code-evaluators.sh, seed_step_dataset.py, seed_refine_datasets.py
+  run: docker compose --profile demo run --rm text-to-sql python main.py
+  verify: python demos/text-to-sql/scripts/verify_demo.py   # to be written
+  test: python -m pytest -q
+waivers:
+  - rule: DS-README-01
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-05
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

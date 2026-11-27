@@ -26,12 +26,15 @@ name: Demo integrity
 on:
   pull_request:
     paths:
-      - 'demos/**/requirements.txt'
-      - 'demos/**/langfuse_config.py'
+      - 'demos/**'
       - 'docker-compose.yaml'
-      - 'demos/langfuse-enterprise-operations/**'
       - 'setup.sh'
       - 'scripts/**.sh'
+      - 'scripts/demo_standard.py'
+      - 'scripts/check-demo-structure.py'
+      - 'scripts/gen-demo-index.py'
+      - 'scripts/new-demo.py'
+      - 'scripts/tests/**'
       - '.github/workflows/demo-integrity.yml'
   push:
     branches: [main]
@@ -49,22 +52,112 @@ jobs:
       - name: Test portal workflows and state migration without live services
         run: python -B -m unittest discover -s demos/langfuse-enterprise-operations/tests -v
 
-  deps-resolve:
-    name: requirements.txt resolves
+  # The demo standard (demos/CONTRIBUTING.md). The checker and the index generator
+  # need only PyYAML; the matrices below are built from each demo's demo.yaml, so a
+  # new demo is covered as soon as its manifest lands.
+  demo-structure:
+    name: demos follow the standard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pyyaml
+      - name: tooling tests (checker, generator, schema)
+        run: python -m unittest discover -s scripts/tests
+      - name: check-demo-structure (waived rules are reported as notices)
+        run: python scripts/check-demo-structure.py --format github
+      - name: generated index and cards are committed
+        run: python scripts/gen-demo-index.py --check
+
+  template-self-test:
+    name: a scaffolded demo passes with no waivers
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        demo:
-          - agentic-rag
-          - analytics-agentic-speed
-          - cluster-health-investigator
-          - query-router
-          - real-estate
-          - slow-query-tuner
-          - support-triage-parallel
-          - text-to-sql
-          - vector-rag
+        profile: [container, standalone, workshop]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pyyaml
+      - name: scaffold, regenerate, check --strict
+        run: |
+          # The runner's checkout is throwaway, so the demo is scaffolded into the
+          # real demos/ folder: the index, links and card rules then see it exactly
+          # as they would see a committed demo.
+          name="zz-selftest-${{ matrix.profile }}"
+          python scripts/new-demo.py "$name" --profile "${{ matrix.profile }}" \
+            --title "Self-test ${{ matrix.profile }}" --pitch "Template self-test for the ${{ matrix.profile }} profile"
+          python scripts/check-demo-structure.py --strict --demo "$name" --format github
+          python scripts/gen-demo-index.py --check
+
+  manifests:
+    name: build matrices from demo.yaml
+    runs-on: ubuntu-latest
+    outputs:
+      pip-demos: ${{ steps.m.outputs.pip }}
+      test-demos: ${{ steps.m.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pyyaml
+      - id: m
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # On a pull request, demo-tests runs only the demos the PR touches, plus
+          # every demo when the shared tooling changes. On main and on dispatch it
+          # runs them all.
+          changed=""
+          if [ "$EVENT" = "pull_request" ]; then
+            changed="$(git diff --name-only "origin/$BASE_REF...HEAD")"
+          fi
+          CHANGED="$changed" python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, sys
+          sys.path.insert(0, "scripts")
+          import demo_standard as ds
+          event = os.environ["EVENT"]
+          changed = [c for c in os.environ.get("CHANGED", "").splitlines() if c]
+          shared = any(c.startswith((".github/workflows/demo-integrity.yml", "scripts/demo_standard.py"))
+                       for c in changed)
+          pip, tests = [], []
+          for d in ds.discover():
+              if not d.valid or d.manifest.get("status") == "archived":
+                  continue
+              if (d.path / "requirements.txt").is_file():
+                  pip.append(d.name)
+              has_tests = any(
+                  p.name.startswith("test_") and p.suffix == ".py" or p.name.endswith("_test.py")
+                  or ".test." in p.name or ".spec." in p.name
+                  for p in d.path.rglob("*")
+                  if p.is_file() and not ({"node_modules", ".venv", "venv"} & set(p.parts)))
+              touched = event != "pull_request" or shared or any(c.startswith(f"demos/{d.name}/") for c in changed)
+              if has_tests and touched:
+                  cmds = d.manifest["commands"]
+                  tests.append({"name": d.name, "install": cmds.get("install", ""), "test": cmds["test"]})
+          print("pip=" + json.dumps(pip))
+          print("tests=" + json.dumps(tests))
+          PY
+          cat "$GITHUB_OUTPUT"
+
+  deps-resolve:
+    name: requirements.txt resolves
+    needs: manifests
+    if: needs.manifests.outputs.pip-demos != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo: ${{ fromJSON(needs.manifests.outputs.pip-demos) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,6 +170,45 @@ jobs:
           # here, but nothing is installed or compiled — keeps this to seconds.
           python -m pip install --upgrade pip >/dev/null
           python -m pip install --dry-run -r requirements.txt
+
+  demo-tests:
+    name: demo tests (${{ matrix.demo.name }})
+    needs: manifests
+    if: needs.manifests.outputs.test-demos != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        demo: ${{ fromJSON(needs.manifests.outputs.test-demos) }}
+    defaults:
+      run:
+        working-directory: demos/${{ matrix.demo.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: commands.install
+        if: matrix.demo.install != ''
+        env:
+          CMD: ${{ matrix.demo.install }}
+        run: bash -euo pipefail -c "$CMD"
+      - name: commands.test (no services, no network to Langfuse or models)
+        env:
+          CMD: ${{ matrix.demo.test }}
+          # Tests must not reach a real Langfuse. Some demos validate their keys at
+          # import, so give them obvious placeholders and point any client that
+          # slips through at a closed local port: nothing leaves the runner.
+          LANGFUSE_PUBLIC_KEY: pk-lf-ci-placeholder
+          LANGFUSE_SECRET_KEY: sk-lf-ci-placeholder
+          LANGFUSE_BASE_URL: http://127.0.0.1:9
+          LANGFUSE_HOST: http://127.0.0.1:9
+        run: bash -euo pipefail -c "$CMD"
 
   shell-syntax:
     name: shell scripts parse

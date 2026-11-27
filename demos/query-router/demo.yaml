@@ -1,0 +1,39 @@
+# Manifest for the query-router container demo (see docs/DEMO_STANDARD_SPEC.md §6)
+name: query-router
+title: Query Router
+pitch: Front-door classification and dispatch with a confidence gate, fallback, human escalation and router-accuracy evals
+profile: container
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate]
+stack: [python, anthropic-sdk, fastapi, docker]
+langfuse:
+  target: self-hosted
+  project: LLM Observability Demo
+length:
+  full_min: 15
+  short_min: 6
+commands:
+  install: pip install -r requirements-dev.txt
+  seed: python demos/query-router/scripts/seed_all.py   # to be written: wraps seed-router-prompt.py, seed-router-dataset.py, seed-router-history.py, seed-router-judge.sh
+  run: docker compose --profile demo run --rm query-router python main.py
+  verify: python demos/query-router/scripts/verify_demo.py   # to be written
+  test: python -m pytest -q
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-02
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-05
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

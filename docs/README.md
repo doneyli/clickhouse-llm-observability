@@ -16,19 +16,12 @@ Pick your path by what you're trying to do.
 | Doc | What it gives you |
 |-----|-------------------|
 | [**SA Field Guide**](SA_FIELD_GUIDE.md) | **Start here** — demo selection, talk track, prep checklist, objection handling |
-| [Property Concierge Demo Script](../demos/real-estate/DEMO_SCRIPT.md) | Consultative script for the real-estate app — the full AI Engineering loop, benefit-led Frame→Show→Land→Ask flow + "show me the code" appendix |
-| [Agentic RAG Demo Script](../demos/agentic-rag/DEMO_SCRIPT.md) | Consultative script for the self-correcting RAG app — ClickHouse-native vectors + Langfuse graph, same flow + code appendix |
-| [Text-to-SQL Demo Script](../demos/text-to-sql/DEMO_SCRIPT.md) | Consultative script for the NL-data-assistant demo — SQL-safety guardrail + prompt deploys by label, same flow + code appendix |
-| [Vector RAG Demo Script](../demos/vector-rag/DEMO_SCRIPT.md) | Consultative script for the naive-RAG baseline — tracing, managed prompts, free guardrails, and the designed hand-off to agentic-rag |
-| [Brand-Promo Demo Script](../demos/brand-promo-multi-agent/DEMO_SCRIPT.md) | Consultative script for the multi-agent (LangGraph + CrewAI) fleet demo — 50k-trace scale, persona dashboards, certification gate |
-| [LiteLLM Gateway Demo Script](../demos/litellm-gateway/DEMO_SCRIPT.md) | Short (~5 min) script for the gateway-instrumentation pattern — centralized Langfuse tracing at a LiteLLM proxy, no client SDK, same Frame→Show→Land→Ask flow |
-| [Analytics at Agentic Speed Demo Script](../demos/analytics-agentic-speed/DEMO_SCRIPT.md) | ~15-min script (8-min short path) for an analytics agent that sweeps hundreds of what-if scenarios on ClickHouse Cloud: per-query DB latency on every span, a live view, and Experiment A (10 vs 300 scenarios per round, 40% vs 80%) as proof that breadth is a knob you can afford to turn up |
+| [**Demo index**](../demos/README.md) | Every demo, generated from its `demo.yaml`: one table per profile with what it shows, coverage, length, the run command and the demo script to present |
 | [Use Case Catalog](USE_CASES.md) | 11 capabilities, each with a 2-minute demo path; quick-tour combos |
 | [Langfuse Demo Runbook](LANGFUSE_DEMO_RUNBOOK.md) | 45-min screen-by-screen platform demo script with full talk tracks |
 | [Lifecycle Feedback Runbook](LIFECYCLE_FEEDBACK_RUNBOOK.md) | 20-min SA-enablement narrative: one user 👎 → test case → proven prompt fix → CI gate → deploy (pairs with the [Property Concierge script](../demos/real-estate/DEMO_SCRIPT.md)) |
 | [Agentic RAG Demo Runbook](AGENTIC_RAG_DEMO_RUNBOOK.md) | Deep screen-by-screen reference + fallbacks (pairs with the co-located [demo script](../demos/agentic-rag/DEMO_SCRIPT.md)) |
 | [Brand-Promo Multi-Agent Runbook](../demos/brand-promo-multi-agent/docs/DEMO_RUNBOOK.md) | Deep 60-min segment-by-segment reference (pairs with the co-located [demo script](../demos/brand-promo-multi-agent/DEMO_SCRIPT.md)) |
-| [Langfuse RLS Demo Script](../demos/langfuse-rls/DEMO_SCRIPT.md) | Short (~10 min) governance-conversation script for the row-level-security **prototype** over Langfuse traces — simulated feature, loop-adjacent |
 | [Dashboard (LLM Observatory)](DASHBOARD.md) | The "your data is just ClickHouse tables" 5-min demo beat |
 
 ## I want to learn from it
@@ -43,11 +36,20 @@ Pick your path by what you're trying to do.
 | [Agentic RAG Architecture](AGENTIC_RAG_ARCHITECTURE.md) | CRAG loop on ClickHouse-native vectors, typed observations |
 | [Langfuse CLI](LANGFUSE_CLI.md) | Terminal access to traces, prompts, datasets, scores |
 
+## I want to build or change a demo
+
+| Doc | What it gives you |
+|-----|-------------------|
+| [**Demo contributing guide**](../demos/CONTRIBUTING.md) | **Start here** — the demo standard: profiles, required files, README and script shape, readiness check, tests, the checker's rules, waivers, definition of done |
+| [Demo template](../demos/_template/) | The skeleton every new demo is scaffolded from (`python scripts/new-demo.py <name> --profile …`) |
+| [`new-demo` skill](../.agents/skills/new-demo/SKILL.md) | The step-by-step flow for a coding agent: scaffold, spec, build, README from a live run, script after a rehearsal, check, register |
+| [Demo Standard Spec](DEMO_STANDARD_SPEC.md) | The design record: why the standard looks the way it does, the state it replaced, the migration plan |
+
 ## I'm an AI agent (or pointing one at this repo)
 
 | Doc | What it gives you |
 |-----|-------------------|
 | [../AGENTS.md](../AGENTS.md) | Deterministic deploy runbook with machine-checkable verification |
 | [../CLAUDE.md](../CLAUDE.md) | Architecture, commands, conventions (Claude Code reads automatically) |
-| Project skills in [`.agents/skills/`](../.agents/skills/) | `deploy-demo`, `run-demo`, `troubleshoot`, `langfuse` — full lifecycle coverage |
+| Project skills in [`.agents/skills/`](../.agents/skills/) | `deploy-demo`, `run-demo`, `troubleshoot`, `langfuse`, `new-demo` — full lifecycle coverage |
 | [Langfuse Skills](LANGFUSE_SKILLS.md) | The vendored Langfuse skill: SDK patterns, CLI, docs access |

@@ -1,0 +1,41 @@
+name: langfuse-enterprise-operations
+title: Langfuse Enterprise Operations
+pitch: Real platform lifecycle automation from a local portal, covering projects, RBAC, key rotation, audit evidence and reviewed reset
+profile: standalone
+status: active
+covers: [governance, operations]
+stack: [python, docker]
+langfuse:
+  target: self-hosted
+  project: Operations Demo Organization
+length:
+  full_min: 20-30
+commands:
+  seed: ./scripts/seed_all.sh   # to be written: wraps the onboarding workflows
+  run: ./scripts/run-portal.sh
+  verify: ./scripts/verify_demo.sh   # to be written
+  test: python3 -B -m unittest discover -s tests
+  reset: ./scripts/reset-demo.sh
+addons:
+  - architecture: docs/architecture.md   # existing lower-case name kept (decision D8)
+waivers:
+  - rule: DS-ENV-01
+    reason: predates the standard
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-02
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard
+  - rule: DS-SPEC-01
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

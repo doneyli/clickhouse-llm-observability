@@ -1,0 +1,32 @@
+# Manifest for the agentic-rag container demo (see docs/DEMO_STANDARD_SPEC.md §6)
+name: agentic-rag
+title: Agentic RAG
+pitch: Self-correcting RAG (CRAG) on ClickHouse-native vector search with LangGraph, fully scored in Langfuse
+profile: container
+status: active
+covers: [trace, experiment, deploy]
+stack: [python, langgraph, langchain, clickhouse, mcp, fastapi, docker]
+langfuse:
+  target: self-hosted
+  project: LLM Observability Demo
+length:
+  full_min: 20-25
+  short_min: 8-10
+commands:
+  install: pip install -r requirements-dev.txt
+  seed: python demos/agentic-rag/scripts/seed_all.py   # to be written: wraps ingest.py, seed-langfuse-prompt.py, seed-agentic-rag-evaluators.sh
+  run: docker compose --profile demo run --rm agentic-rag python main.py
+  verify: python demos/agentic-rag/scripts/verify_demo.py   # to be written
+  test: python -m pytest -q
+addons: [questions]
+waivers:
+  - rule: DS-README-01
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-05
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

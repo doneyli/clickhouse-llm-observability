@@ -1,0 +1,38 @@
+name: insurance-claims
+title: Northwind Life & Annuity claims
+pitch: Death-claims agents checked against an SME answer key, with a prompt CI gate
+profile: standalone
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate, deploy, governance]
+stack: [python, langgraph, strands, a2a, mcp, fastapi, anthropic-sdk, docker]
+langfuse:
+  target: either
+  project: northwind-life-claims
+length:
+  full_min: 50
+commands:
+  install: uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -r requirements.txt
+  seed: .venv/bin/python scripts/seed_all.py      # to be written: wraps the four seed_*.py scripts
+  run: ./scripts/run_services.sh
+  verify: .venv/bin/python scripts/verify_demo.py
+  test: .venv/bin/python -m unittest discover -s tests -t .
+  reset: .venv/bin/python scripts/reset_hero.py
+addons:
+  - spec
+  - cicd: [cicd/README.md, cicd/thresholds.json, ../../.github/workflows/claims-prompt-gate.yml]   # existing name kept (D8)
+  - capability-matrix
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-02
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard

@@ -502,5 +502,10 @@ def test_workflow_secrets_are_documented_and_demo_prefixed():
 def test_demo_integrity_resolves_this_demos_requirements():
     if not INTEGRITY.exists():
         pytest.skip("not in the monorepo checkout")
-    demos = yaml.safe_load(INTEGRITY.read_text())["jobs"]["deps-resolve"]["strategy"]["matrix"]["demo"]
-    assert "analytics-agentic-speed" in demos and demos == sorted(demos)
+    # The deps-resolve matrix is built from the demo manifests: every demo with a
+    # demo.yaml and a requirements.txt is resolved. So this demo is covered when it
+    # has both and the matrix still comes from the manifests job.
+    jobs = yaml.safe_load(INTEGRITY.read_text())["jobs"]
+    matrix = jobs["deps-resolve"]["strategy"]["matrix"]["demo"]
+    assert "needs.manifests.outputs" in str(matrix)
+    assert (DEMO / "demo.yaml").is_file() and (DEMO / "requirements.txt").is_file()

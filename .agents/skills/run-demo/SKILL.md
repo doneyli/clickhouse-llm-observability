@@ -11,9 +11,24 @@ live traces while the presenter narrates.
 
 ## 1. Pick the right demo
 
-Ask (or infer from context) the audience and time slot, then choose:
+Ask (or infer from context) the audience, the time slot and what they care about, then:
 
-| Demo | Time | Best for | Script |
+1. Read [demos/README.md](../../../demos/README.md). Its index is generated from each
+   demo's `demo.yaml`: one table per profile (`container`, `standalone`, `workshop`) with
+   what each demo shows, what it covers, its length and a Present link.
+2. Pick by audience, time and coverage. Prefer a demo whose `length` fits the slot (use
+   the short path when the slot is tight) and whose `covers` matches what the audience
+   asked about. Skip demos tagged draft unless the user asks for one.
+3. Open that demo's `DEMO_SCRIPT.md` (the Present link; `WORKSHOP_GUIDE.md` for a
+   workshop). Its `0 · Pre-flight` section is the demo-specific checklist.
+4. Run the demo's readiness check, `commands.verify` in its `demo.yaml`, and expect
+   `READY`. Run it from the right place: `container` demos run `seed`, `run` and `verify`
+   from the repo root; `standalone` and `workshop` demos run them from the demo folder.
+
+For a platform tour on the root stack rather than one demo app, these runbooks remain
+options:
+
+| Option | Time | Best for | Script |
 |------|------|----------|--------|
 | **Langfuse platform demo** | 45 min | Platform/ML engineering teams evaluating LLM observability | [docs/LANGFUSE_DEMO_RUNBOOK.md](../../../docs/LANGFUSE_DEMO_RUNBOOK.md) |
 | **Agentic RAG demo** | 25 min | Technical audiences interested in agents + ClickHouse-native vector search | [docs/AGENTIC_RAG_DEMO_RUNBOOK.md](../../../docs/AGENTIC_RAG_DEMO_RUNBOOK.md) |
@@ -23,6 +38,12 @@ Ask (or infer from context) the audience and time slot, then choose:
 matrix, talk-track framing, and objection handling — point the presenter at it.
 
 ## 2. Pre-flight (always, before any demo)
+
+For a demo picked from the index, its script's `0 · Pre-flight` and its
+`commands.verify` are the pre-flight: clear shell keys first
+(`unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL`), then
+run the verify command until it prints `READY`. The steps below are for the root stack:
+`container` demos and the platform runbooks.
 
 ```bash
 ./setup.sh --status        # every "Demo Readiness" line must be ✓
@@ -44,14 +65,16 @@ runbook — walk the presenter through it.
 
 ## 3. During the demo
 
-- Follow the chosen runbook's acts in order; each step has a click path, timing, and a
-  **Say:** block. Feed the presenter the next step on request ("what's next?").
+- Follow the chosen script's acts in order. A demo script gives each act as Frame, Show,
+  Land and Ask; a platform runbook gives a click path, timing and a **Say:** block. Feed
+  the presenter the next step on request ("what's next?").
 - To show *live* tracing, generate a trace on cue:
   `docker compose run --rm text-to-sql python main.py --interactive` (type the
   customer's own question), then refresh Langfuse > Tracing > Traces.
 - To answer data questions on the fly ("what's our avg latency?", "show me that
   trace"), use the `langfuse` skill / `./scripts/langfuse-cli.sh`.
-- If something breaks mid-demo, use the runbook's **Fallback Plans** section first —
+- If something breaks mid-demo, use the act's `> **Fallback:**` note (demo scripts) or
+  the runbook's **Fallback Plans** section first —
   it is written for exactly this moment. Diagnose quietly with the `troubleshoot`
   skill; don't debug on the projector.
 
