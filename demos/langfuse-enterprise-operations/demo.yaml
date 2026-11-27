@@ -7,10 +7,11 @@ covers: [governance, operations]
 stack: [python, docker]
 langfuse:
   target: self-hosted
-  # An organization, not a project: the org key in private/org.env acts on the whole organization and the
-  # portal creates its projects live. "Demo Organization" is the root stack's LANGFUSE_INIT_ORG_NAME
-  # (docker-compose.yaml). verify_demo.py confirms the name when the instance API is enabled.
-  project: Demo Organization
+  # For this demo the declared target is an organization, not a project. The org key in private/org.env
+  # acts on the presenter's own organization, where the portal creates projects live; the Organizations
+  # workflow (Act 6) provisions this declared organization (the form's default name) through the instance
+  # API, marked metadata.demo = langfuse-operations. verify_demo.py reads its ownership back once recorded.
+  project: Operations Demo Organization
 length:
   full_min: 20-30
 commands:

@@ -6,11 +6,17 @@
 
 This demo writes no traces, so there is no trace or score to count. It is ready when the
 licensed local instance, the organization key, the running portal and the seeded
-governance project all read back correctly. Every Langfuse read goes through the same
-credential path the portal uses: the vendored CLI wrapper (`scripts/langfuse-connect.sh
---env-file`) for public REST, and `node --env-file` with `scripts/platform-api.mjs` for the
-instance API. Python never reads a credential file, and shell-exported LANGFUSE_* keys are
-stripped from every child process. Standard library only, no model calls, no writes.
+governance project all read back live: the project and its ownership marker, both persona
+memberships, the protected-label policy and both governed prompt definitions. Cached flags
+in private/state.json are never accepted on their own.
+
+Every read goes through the credential path the portal uses: the vendored CLI wrapper
+(`scripts/langfuse-connect.sh --env-file`) for public REST, and `node --env-file` with
+`scripts/platform-api.mjs` for the instance API and the native policy read. Python never
+reads a credential file; a small Node check confirms the required names are set. Shell
+LANGFUSE_* keys are cleared first and stripped from every child process. Standard library
+only, no model calls, no writes. Required checks cover the full script and the short path;
+WARN lines are for the optional Acts 6 and 8 only.
 """
 from __future__ import annotations
 
@@ -29,22 +35,29 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 DEMO_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
 sys.path.insert(0, str(DEMO_DIR))
-import workflows as wf  # noqa: E402  (stdlib only; gives HOST, WRAPPER and the manifest loader)
+import workflows as wf  # noqa: E402  (stdlib only; HOST, WRAPPER, the manifest loader and the prompt definitions)
 
 # --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with workflows.py and platform-api.mjs.
 SERVER_VERSION = "4.76.0"                    # scripts/platform-api.mjs refuses any other version
 PORTAL_URL = "http://127.0.0.1:8091"         # server.py --port default
 PRESENTER_EMAIL = "demo@example.com"         # provision_organization grants this user Admin when present
-GOVERNANCE_PROMPT = "governance-demo/release"  # protected_labels() creates two versions of it
+GOVERNANCE_PROMPT = wf.GOVERNANCE_PROMPT     # protected_labels() keeps two versions of it
+PROJECT_MARKER = "langfuse-admin-portal"     # metadata.demo on every project onboard_application creates
+ORG_MARKER = "langfuse-operations"           # metadata.demo on every organization provision_organization creates
 MIN_PYTHON = (3, 10)
 MIN_NODE = 22
 SEED_CMD = "python3 scripts/seed_all.py"
 RUN_CMD = "./scripts/run-portal.sh"
 TIMEOUT_S = 45                               # the same per-call limit Context.call uses
+KEEP = {"LANGFUSE_CLI_BIN"}                  # the wrapper's runner override is not a credential
 
 RESULTS: List[Tuple[str, bool, str]] = []    # (PASS | FAIL | WARN, required, what)
-
 Runner = Callable[..., Any]                  # subprocess.run, or a fake in tests
+Check = Tuple[bool, str, bool, str]          # (ok, what, required, hint)
+
+# Prints the names (never the values) that are unset or still a template placeholder.
+_ENV_PROBE = ("const bad=process.argv.slice(1).filter(n=>!process.env[n]||/^replace-with-/.test(process.env[n]));"
+              "process.stdout.write(JSON.stringify(bad));")
 
 
 # --- Result helpers ---------------------------------------------------------------------
@@ -55,6 +68,11 @@ def check(ok: bool, what: str, *, required: bool = True, hint: str = "") -> bool
     RESULTS.append((status, required, what))
     print(f"  {status}  {what}" + (f"  ->  {hint}" if hint and not ok else ""))
     return ok
+
+
+def record(checks: List[Check]) -> bool:
+    """Print a list of checks; True when none of the required ones failed."""
+    return all([check(ok, what, required=req, hint=hint) or not req for ok, what, req, hint in checks])
 
 
 def summary(results: Optional[List[Tuple[str, bool, str]]] = None) -> Tuple[str, int]:
@@ -68,10 +86,10 @@ def summary(results: Optional[List[Tuple[str, bool, str]]] = None) -> Tuple[str,
         detail += f", {failed} required failed"
     if warned:
         detail += f", {warned} warning{'s' if warned != 1 else ''}"
-    return (f"NOT READY ({detail})", 1) if failed else (f"READY ({detail})", 0)
+    return (f"NOT READY ({detail})", 1) if failed or not rs else (f"READY ({detail})", 0)
 
 
-# --- Manifest and versions --------------------------------------------------------------
+# --- Manifest, versions and environment -------------------------------------------------
 
 def _strip_comment(line: str) -> str:
     quote = ""
@@ -121,12 +139,40 @@ def private_mode_ok(path: Path) -> bool:
     return (path.stat().st_mode & 0o077) == 0
 
 
-KEEP = {"LANGFUSE_CLI_BIN"}                 # the wrapper's runner override is not a credential
+def clear_shell_keys(environ: Optional[Dict[str, str]] = None) -> None:
+    """Drop inherited LANGFUSE_* (except the CLI runner override) before anything reads the env."""
+    env = os.environ if environ is None else environ
+    for k in [k for k in env if k.startswith("LANGFUSE_") and k not in KEEP]:
+        del env[k]
 
 
 def child_env(drop: Tuple[str, ...] = ()) -> Dict[str, str]:
-    """The child's environment without shell LANGFUSE_* keys and hosts (and any named secrets)."""
+    """The child's environment without LANGFUSE_* keys and hosts (and any named secrets)."""
     return {k: v for k, v in os.environ.items() if (k in KEEP or not k.startswith("LANGFUSE_")) and k not in drop}
+
+
+def env_missing(path: Path, names: Tuple[str, ...], runner: Runner = subprocess.run) -> Optional[List[str]]:
+    """Names unset or still a placeholder in `path`, checked by Node's loader so Python never sees a value.
+    The names are removed from the child's environment first, so a shell export cannot satisfy them.
+    None when the check itself could not run."""
+    try:
+        result = runner(["node", "--env-file=" + str(path), "-e", _ENV_PROBE, *names], capture_output=True, text=True,
+                        timeout=10, env=child_env(names))
+        missing = json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return missing if isinstance(missing, list) else None
+
+
+def env_check(path: Optional[str], names: Tuple[str, ...], what: str, runner: Runner) -> Check:
+    """One required check that a credential file exists and sets every name."""
+    if not path or not Path(path).is_file():
+        return (False, f"{what}: file {path or 'not recorded'} missing", True, f"run {SEED_CMD}")
+    missing = env_missing(Path(path), names, runner)
+    if missing is None:
+        return (False, f"{what}: could not load {path} with Node", True, "check Node 22+ and the file's syntax")
+    return (not missing, f"{what}: {', '.join(names)} set" + (f"; missing {', '.join(missing)}" if missing else ""),
+            True, f"fill in {path}")
 
 
 # --- Reads ----------------------------------------------------------------------------------
@@ -144,17 +190,28 @@ def cli(env_file: Path, resource: str, action: str, *args: str, runner: Runner =
     return payload.get("status"), payload.get("body")
 
 
-def instance_get(env_file: Path, path: str, runner: Runner = subprocess.run) -> Tuple[Optional[int], Any]:
-    """One instance-API GET through scripts/platform-api.mjs, like Context.instance. Returns (status, body)."""
-    request = {"host": wf.HOST, "mode": "instance", "method": "GET", "path": path, "body": None}
+def adapter(env_file: Path, request: Dict[str, Any], runner: Runner = subprocess.run) -> Tuple[Optional[int], Any]:
+    """One read through scripts/platform-api.mjs, like Context.bridge. Returns (status, body)."""
+    request = dict({"host": wf.HOST, "body": None}, **request)
     try:
         result = runner(["node", "--env-file=" + str(env_file), str(DEMO_DIR / "scripts" / "platform-api.mjs")],
-                        input=json.dumps(request), capture_output=True, text=True, timeout=TIMEOUT_S,
+                        input=json.dumps(request), capture_output=True, text=True, timeout=80,
                         env=child_env(("ADMIN_API_KEY", "DEMO_EMAIL", "DEMO_PASSWORD")))
         payload = json.loads(result.stdout)
     except (OSError, subprocess.TimeoutExpired, ValueError) as error:
         return None, f"platform adapter failed: {type(error).__name__}"
+    if not isinstance(payload, dict):
+        return None, "platform adapter returned no result"
     return (payload.get("status") or None), payload.get("body")
+
+
+def instance_get(env_file: Path, path: str, runner: Runner = subprocess.run) -> Tuple[Optional[int], Any]:
+    return adapter(env_file, {"mode": "instance", "method": "GET", "path": path}, runner)
+
+
+def native_get(persona_env: Path, procedure: str, body: Dict[str, Any], runner: Runner = subprocess.run) -> Tuple[Optional[int], Any]:
+    """A read-only native UI RPC (as the recorded persona); the adapter allowlists the procedure."""
+    return adapter(persona_env, {"mode": "rpc", "method": "GET", "procedure": procedure, "body": body}, runner)
 
 
 def http_json(url: str, headers: Optional[Dict[str, str]] = None, timeout: float = 5) -> Tuple[Optional[int], Any]:
@@ -179,46 +236,128 @@ def node_version(runner: Runner = subprocess.run) -> str:
         return ""
 
 
-# --- Pure logic (covered by tests/test_verify_demo.py) -----------------------------------
+# --- Live checks (covered by tests/test_verify_demo.py against a fake CLI and adapter) ------
 
-def manifest_checks(state: Dict[str, Any], live_ids: set) -> List[Tuple[bool, str, bool, str]]:
-    """(ok, what, required, hint) for the portal manifest against the live project inventory."""
-    out: List[Tuple[bool, str, bool, str]] = []
+def marker(item: Any) -> Optional[str]:
+    return ((item.get("metadata") or {}) if isinstance(item, dict) else {}).get("demo")
+
+
+def governance_checks(state: Dict[str, Any], projects: Dict[str, Dict[str, Any]], org_env: Path,
+                      runner: Runner = subprocess.run) -> List[Check]:
+    """Every governance prerequisite for Acts 4 and 5, read back live. A missing prerequisite fails and
+    the checks that depend on it are not attempted (the failure already reaches the verdict)."""
+    hint = f"run {SEED_CMD}"
     governance = state.get("governance") or {}
     gov_id = governance.get("projectId")
-    out.append((bool(gov_id) and gov_id in live_ids,
-                f"governance project recorded and listed ({gov_id or 'none recorded'})", True, f"run {SEED_CMD}"))
+    out: List[Check] = []
+    if not gov_id:
+        return [(False, "governance project recorded in private/state.json", True, hint)]
+    live = projects.get(gov_id)
+    out.append((live is not None and marker(live) == PROJECT_MARKER,
+                f"governance project {gov_id} listed with metadata.demo = {PROJECT_MARKER}"
+                + ("" if live is not None else " (not in the organization)"), True, hint))
+    app = (state.get("applications") or {}).get(gov_id)
+    if not app:
+        return out + [(False, "governance application record in private/state.json", True, hint)]
+    key = env_check(app.get("envFile"), ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"), "governance project key", runner)
+    out.append(key)
+
     personas = governance.get("personas") or {}
-    registered = sorted(r for r, p in personas.items() if p.get("registered"))
-    out.append((registered == ["ADMIN", "MEMBER"],
-                f"native sign-in personas registered: {', '.join(registered) or 'none'} (want ADMIN, MEMBER)", True,
-                f"run {SEED_CMD}; a signup policy, email verification or SSO enforcement can block it"))
-    out.append((len(governance.get("versions") or []) == 2,
-                f"governed prompt versions recorded: {len(governance.get('versions') or [])} (want 2)", True, f"run {SEED_CMD}"))
-    apps = state.get("applications") or {}
-    others = sorted(pid for pid in apps if pid != gov_id)
-    stale = [pid for pid in others if pid not in live_ids]
-    out.append((not stale, f"recorded applications listed in the organization: {len(others) - len(stale)} of {len(others)}",
-                False, "stale records: preview Reset in the portal, or move private/ aside for a clean start"))
-    orgs = state.get("organizations") or {}
-    pending = sorted(o.get("name", oid) for oid, o in orgs.items() if o.get("resetStatus"))
-    out.append((not pending, f"isolated organizations with cleanup pending: {', '.join(pending) or 'none'}",
-                False, "preview and retry Reset before the Organizations act"))
+    users = state.get("users") or {}
+    persona_ok: Dict[str, bool] = {}
+    for role in ("ADMIN", "MEMBER"):
+        persona = personas.get(role) or {}
+        user = users.get(persona.get("email") or "") or {}
+        if not (persona.get("registered") and user.get("id")):
+            out.append((False, f"{role.title()} persona recorded with a SCIM user id", True, hint))
+            persona_ok[role] = False
+            continue
+        c = env_check(persona.get("envFile"), ("DEMO_EMAIL", "DEMO_PASSWORD"), f"{role.title()} persona sign-in", runner)
+        out.append(c)
+        persona_ok[role] = c[0]
+
+    status, body = cli(org_env, "projects", "list-memberships", gov_id, runner=runner)
+    grants = {m.get("userId"): m.get("role") for m in (body.get("memberships") or [])} if status == 200 and isinstance(body, dict) else None
+    for role in ("ADMIN", "MEMBER"):
+        user_id = (users.get((personas.get(role) or {}).get("email") or "") or {}).get("id")
+        actual = grants.get(user_id) if grants is not None else None
+        out.append((grants is not None and actual == role,
+                    f"{role.title()} persona has project role {role} ({'read failed: ' + str(status) if grants is None else actual})",
+                    True, hint))
+
+    if persona_ok.get("ADMIN"):
+        status, body = native_get(Path(personas["ADMIN"]["envFile"]), "prompts.getProtectedLabels", {"projectId": gov_id}, runner)
+        labels = body if isinstance(body, list) else []
+        out.append((status == 200 and "production" in labels,
+                    f"protected-label policy protects production ({status}: {labels if status == 200 else wf.scrub(body)})",
+                    True, hint))
+
+    if key[0]:
+        env = Path(app["envFile"])
+        versions = governance.get("versions") or []
+        for number in (1, 2):
+            if len(versions) < number:
+                out.append((False, f"{GOVERNANCE_PROMPT} slot {number} recorded", True, hint))
+                continue
+            recorded = versions[number - 1]
+            status, body = cli(env, "prompts", "get", GOVERNANCE_PROMPT, "--version", str(recorded.get("version")), runner=runner)
+            ok = status == 200 and wf.prompt_matches(body, wf.governance_prompt(number)) and body.get("version") == recorded.get("version")
+            out.append((ok, f"{GOVERNANCE_PROMPT} v{recorded.get('version')} matches the slot {number} definition ({status})",
+                        True, hint))
+        status, body = cli(env, "prompts", "get", GOVERNANCE_PROMPT, "--label", "production", runner=runner)
+        recorded_versions = {v.get("version") for v in versions}
+        current = body.get("version") if status == 200 and isinstance(body, dict) else None
+        out.append((current in recorded_versions and current is not None,
+                    f"{GOVERNANCE_PROMPT}: production = v{current} ({status})", True, hint))
     return out
 
 
-def governance_version_ok(body: Any, governance: Dict[str, Any]) -> bool:
-    """The production label resolves to one of the two versions the governance run recorded."""
-    versions = {v.get("version") for v in governance.get("versions") or []}
-    return isinstance(body, dict) and body.get("version") in versions
+def application_checks(state: Dict[str, Any], projects: Dict[str, Dict[str, Any]]) -> List[Check]:
+    """Recorded applications other than governance. They are created live in Act 1, so only warn."""
+    gov_id = (state.get("governance") or {}).get("projectId")
+    others = sorted(pid for pid in (state.get("applications") or {}) if pid != gov_id)
+    stale = [pid for pid in others if pid not in projects]
+    unmarked = [pid for pid in others if pid in projects and marker(projects[pid]) != PROJECT_MARKER]
+    pending = sorted(o.get("name", oid) for oid, o in (state.get("organizations") or {}).items() if o.get("resetStatus"))
+    return [
+        (not stale, f"recorded applications listed in the organization: {len(others) - len(stale)} of {len(others)}",
+         False, "stale records: preview Reset (Act 8) in the portal"),
+        (not unmarked, f"recorded applications carrying metadata.demo = {PROJECT_MARKER}: {len(others) - len(unmarked)} of {len(others)}",
+         False, "Reset (Act 8) refuses unmarked projects"),
+        (not pending, f"organizations with cleanup pending: {', '.join(pending) or 'none'}", False,
+         "preview and retry Reset (Act 8)"),
+    ]
 
 
-def org_name_for(organizations: List[Dict[str, Any]], live_ids: set) -> Optional[str]:
-    """The name of the organization whose projects overlap the org key's project inventory."""
-    for org in organizations:
-        if live_ids & {p.get("id") for p in org.get("projects") or [] if isinstance(p, dict)}:
-            return org.get("name")
-    return None
+def declared_org_checks(state: Dict[str, Any], expected: Optional[str], instance_env: Path,
+                        runner: Runner = subprocess.run) -> List[Check]:
+    """The manifest's declared target is the organization the Organizations workflow provisions.
+    Once the manifest records it, its ownership must read back; until then Act 6 creates it."""
+    recorded = [o for o in (state.get("organizations") or {}).values() if o.get("name") == expected]
+    if not recorded:
+        out: List[Check] = [(False, f"declared organization '{expected}' provisioned", False,
+                             f"Act 6 (optional) creates it with organization name '{expected}'")]
+        if instance_env.is_file():
+            status, body = instance_get(instance_env, "/api/admin/organizations", runner)
+            out.append((status == 200 and isinstance(body, dict) and isinstance(body.get("organizations"), list),
+                        f"instance API lists organizations ({status})", False,
+                        "web lacks ADMIN_API_KEY: ./scripts/enable-instance-api.sh --dry-run"))
+        else:
+            out.append((False, f"instance key file {instance_env}", False,
+                        "python3 scripts/prepare-instance-key.py, then ./scripts/enable-instance-api.sh (Act 6 only)"))
+        return out
+    out = [env_check(str(instance_env), ("ADMIN_API_KEY",), "instance key for the recorded declared organization", runner)]
+    if not out[0][0]:
+        return out
+    for org in recorded:
+        status, body = instance_get(instance_env, "/api/admin/organizations/" + str(org.get("id")), runner)
+        ok = (status == 200 and isinstance(body, dict) and body.get("name") == expected and marker(body) == ORG_MARKER
+              and (not org.get("projectId") or org["projectId"] in {p.get("id") for p in body.get("projects") or []}))
+        out.append((ok, f"declared organization '{expected}' ({org.get('id')}) owned: name, metadata.demo = {ORG_MARKER}, "
+                        f"starter project ({status})", True, "preview Reset (Act 8); the portal refuses unowned organizations"))
+        out.append(env_check(org.get("envFile"), ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"),
+                             f"'{expected}' organization key", runner))
+    return out
 
 
 def act_links(host: str, portal: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -238,7 +377,25 @@ def act_links(host: str, portal: str, state: Dict[str, Any]) -> List[Tuple[str, 
     return links
 
 
-# --- Checks -------------------------------------------------------------------------------
+def organization_projects(org_env: Path, runner: Runner) -> Tuple[Optional[Dict[str, Dict[str, Any]]], str]:
+    """The org key's live project inventory by id, or None with the reason it could not be read."""
+    status, body = cli(org_env, "organizations", "list-projects", runner=runner)
+    projects = body.get("projects") if isinstance(body, dict) else None
+    if status != 200 or not isinstance(projects, list) or any(not isinstance(p, dict) or not p.get("id") for p in projects):
+        return None, f"{status}: {wf.scrub(body)}"
+    return {p["id"]: p for p in projects}, f"{status}: {len(projects)} project(s)"
+
+
+# --- Main -----------------------------------------------------------------------------------
+
+def section(name: str, fn: Callable[[], Any]) -> Any:
+    """Run one section; an unexpected error becomes a FAIL instead of a traceback."""
+    try:
+        return fn()
+    except Exception as error:  # noqa: BLE001 - every failure must reach the verdict
+        check(False, f"{name}: unexpected {type(error).__name__}: {wf.scrub(str(error))[:200]}")
+        return None
+
 
 def main(argv: Optional[List[str]] = None, runner: Runner = subprocess.run) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -248,6 +405,7 @@ def main(argv: Optional[List[str]] = None, runner: Runner = subprocess.run) -> i
     ap.add_argument("--portal-url", default=PORTAL_URL, help=f"where run-portal.sh listens (default: {PORTAL_URL})")
     args = ap.parse_args(argv)
     del RESULTS[:]
+    clear_shell_keys()
     state_dir = Path(args.state_dir).resolve()
     org_env = Path(args.org_env).resolve() if args.org_env else state_dir / "org.env"
     instance_env = state_dir / "instance.env"
@@ -259,13 +417,20 @@ def main(argv: Optional[List[str]] = None, runner: Runner = subprocess.run) -> i
     check(sys.version_info >= MIN_PYTHON, f"Python {sys.version.split()[0]} (README asks for {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+)",
           required=False, hint="the test suite passes on 3.9, but the live workflows are only rehearsed on 3.10+")
     node = node_version(runner)
-    check((major_version(node) or 0) >= MIN_NODE, f"Node {node or 'not found'} (want {MIN_NODE}+)",
-          hint="the platform adapter needs Node's --env-file loader")
-    has_org_env = check(org_env.is_file(), f"organization key file {org_env}; shell-exported LANGFUSE_* ignored",
-                        hint="mkdir -p private && cp org.env.example private/org.env, then fill in an organization key")
-    if has_org_env:
-        check(private_mode_ok(org_env), "organization key file is private (mode 0600)", required=False,
-              hint=f"chmod 600 {org_env}")
+    node_ok = check((major_version(node) or 0) >= MIN_NODE, f"Node {node or 'not found'} (want {MIN_NODE}+)",
+                    hint="the platform adapter and the credential check need Node's --env-file loader")
+    file_ok = check(org_env.is_file(), f"organization key file {org_env}; shell-exported LANGFUSE_* cleared",
+                    hint="python3 scripts/seed_all.py creates it from org.env.example; then fill it in")
+    config_ok = node_ok and file_ok
+    if org_env.is_file():
+        check(private_mode_ok(org_env), "organization key file is private (mode 0600)", required=False, hint=f"chmod 600 {org_env}")
+    if config_ok:
+        config_ok = record([env_check(str(org_env), ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"), "organization key", runner)])
+    if not config_ok:
+        print("  ....  Langfuse reads skipped until the configuration passes")
+        line, code = summary()
+        print(f"\n{line}")
+        return code
 
     print("Services")
     status, health = http_json(wf.HOST + "/api/public/health")
@@ -278,52 +443,32 @@ def main(argv: Optional[List[str]] = None, runner: Runner = subprocess.run) -> i
     check(status == 200 and isinstance(config, dict) and config.get("mode") == "live",
           f"portal up at {args.portal_url} ({status or config})", hint=f"start it: {RUN_CMD}")
 
+    print("Organization key")
+    projects, detail = organization_projects(org_env, runner)
+    check(projects is not None, f"organization key lists its projects ({detail})",
+          hint="401: wrong or revoked key; 403: a project key, use an organization key")
+    if projects is not None:
+        status, _ = cli(org_env, "scim", "get-service-provider-config", runner=runner)
+        check(status == 200, f"SCIM and the organization API answer ({status})", hint="needs an Enterprise license on the instance")
+        status, body = cli(org_env, "organizations", "list-memberships", runner=runner)
+        members = body.get("memberships") if status == 200 and isinstance(body, dict) else None
+        check(members is not None, f"organization memberships readable ({status})", hint="needs an Enterprise license")
+        check(any(m.get("email") == PRESENTER_EMAIL for m in members or []),
+              f"presenter {PRESENTER_EMAIL} is an organization member (Act 6)", required=False,
+              hint="the Organizations act gives this user Admin on the new organization only when present")
+
     state: Dict[str, Any] = {}
-    live_ids: set = set()
-    if has_org_env:
-        print("Organization key")
-        status, body = cli(org_env, "organizations", "list-projects", runner=runner)
-        projects = body.get("projects") if isinstance(body, dict) else None
-        ok = check(status == 200 and isinstance(projects, list),
-                   f"organization key lists its projects ({status}: {len(projects) if isinstance(projects, list) else wf.scrub(body)})",
-                   hint="401: wrong or revoked key; 403: a project key, use an organization key")
-        if ok:
-            live_ids = {p.get("id") for p in projects if isinstance(p, dict)}
-            status, _ = cli(org_env, "scim", "get-service-provider-config", runner=runner)
-            check(status == 200, f"SCIM and the organization API answer ({status})",
-                  hint="needs an Enterprise license on the instance")
-            status, body = cli(org_env, "organizations", "list-memberships", runner=runner)
-            members = body.get("memberships") if isinstance(body, dict) else []
-            check(any(m.get("email") == PRESENTER_EMAIL for m in members or []),
-                  f"presenter {PRESENTER_EMAIL} is an organization member", required=False,
-                  hint="the Organizations act gives this user Admin on the new organization only when present")
-
-        print("Portal manifest")
-        state = wf.load_state(state_dir)
-        for passed, what, required, hint in manifest_checks(state, live_ids):
-            check(passed, what, required=required, hint=hint)
-        governance = state.get("governance") or {}
-        gov_app = (state.get("applications") or {}).get(governance.get("projectId") or "")
-        if gov_app and gov_app.get("envFile") and governance.get("versions"):
-            status, body = cli(Path(gov_app["envFile"]), "prompts", "get", GOVERNANCE_PROMPT, "--label", "production", runner=runner)
-            check(status == 200 and governance_version_ok(body, governance),
-                  f"{GOVERNANCE_PROMPT}: production = v{body.get('version') if isinstance(body, dict) else '?'} ({status})",
-                  hint=f"run {SEED_CMD}")
-
-    print("Instance API (Organizations act only)")
-    if check(instance_env.is_file(), f"instance key file {instance_env}", required=False,
-             hint="python3 scripts/prepare-instance-key.py, then ./scripts/enable-instance-api.sh; skip if you do not show Organizations"):
-        status, body = instance_get(instance_env, "/api/admin/organizations", runner)
-        orgs = body.get("organizations") if isinstance(body, dict) else None
-        if check(status == 200 and isinstance(orgs, list), f"instance API lists organizations ({status})", required=False,
-                 hint="web lacks ADMIN_API_KEY: ./scripts/enable-instance-api.sh --dry-run"):
-            for org in orgs[:25]:
-                if "projects" not in org and org.get("id"):  # the list may omit projects; the detail read has them
-                    status, detail = instance_get(instance_env, "/api/admin/organizations/" + org["id"], runner)
-                    org["projects"] = detail.get("projects", []) if status == 200 and isinstance(detail, dict) else []
-            name = org_name_for(orgs, live_ids)
-            check(name == expected_org, f"organization key belongs to '{name}' (want '{expected_org}')", required=False,
-                  hint="fine if you run in another organization; set langfuse.project in demo.yaml to match")
+    print("Portal manifest and governance (Acts 4 and 5)")
+    loaded = section("private/state.json", lambda: wf.load_state(state_dir))
+    if isinstance(loaded, dict):
+        state = loaded
+        if projects is not None:
+            section("governance read-back", lambda: record(governance_checks(state, projects, org_env, runner)))
+            section("recorded applications", lambda: record(application_checks(state, projects)))
+        else:
+            check(False, "governance read-back skipped: the organization inventory is unreadable")
+    print(f"Declared organization '{expected_org}' (Act 6)")
+    section("declared organization", lambda: record(declared_org_checks(state, expected_org, instance_env, runner)))
 
     if args.links:
         print("\nLinks")
@@ -332,6 +477,7 @@ def main(argv: Optional[List[str]] = None, runner: Runner = subprocess.run) -> i
 
     line, code = summary()
     print(f"\n{line}")
+    print("Short path (Opening, Acts 1, 4, 5, Close) needs every required check; WARN lines affect only Acts 6 and 8.")
     return code
 
 

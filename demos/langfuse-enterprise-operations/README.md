@@ -20,7 +20,7 @@ as scripted, reviewable operations, and which of those operations need Enterpris
 | **Covers** | Governance · Operations |
 | **Stack** | Python · Docker |
 | **Runs as** | Standalone: own toolchain and `.env` |
-| **Langfuse** | Self-hosted · project `Demo Organization` |
+| **Langfuse** | Self-hosted · project `Operations Demo Organization` |
 | **Length** | 20–30 min |
 | **Present it** | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) |
 <!-- demo-card:end -->
@@ -89,7 +89,7 @@ cd demos/langfuse-enterprise-operations
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 python3 scripts/seed_all.py      # first run: creates private/ (0700) and private/org.env (0600), then stops
 # Fill private/org.env with your organization key using your editor.
-python3 scripts/seed_all.py      # idempotent: governance project and personas; no model calls
+python3 scripts/seed_all.py      # governance project and personas; writes nothing when they read back unchanged
 ./scripts/run-portal.sh          # http://127.0.0.1:8091; leave it running
 python3 scripts/verify_demo.py   # in a second terminal; should print READY
 ```
@@ -117,7 +117,7 @@ Custom credential paths stay unchanged, and missing files are not substituted. I
 
 | When | Do | Why |
 |---|---|---|
-| The day before | `python3 scripts/seed_all.py` | Re-proves Protected labels; catches signup or license problems early |
+| The day before | `python3 scripts/seed_all.py` (add `--reprove` to repeat the live proof) | Reconciles the governance project; catches signup or license problems early |
 | 30 minutes before | `./scripts/run-portal.sh`, then `python3 scripts/verify_demo.py --links` | Prints READY and the link each act opens |
 | 5 minutes before | Open the portal and Langfuse; keep the inspector open | Every act runs from the portal |
 
@@ -222,7 +222,7 @@ rotation restores service by issuing another key, not by reviving a revoked one.
 | `ADMIN_API_KEY` (in `private/instance.env`) | unset | Instance API key; only the Organizations workflow needs it |
 | `LANGFUSE_INSTANCE_ENV_FILE` (root `.env`) | `instance.env.example` (empty) | Which file the root compose loads into `langfuse-web` |
 | `LANGFUSE_CLI_BIN` | global CLI, then `npx`, then `bunx` | Runner override for `scripts/langfuse-connect.sh` |
-| `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` | Organization name `verify_demo.py` expects the org key to belong to |
+| `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` (`Operations Demo Organization`) | Name of the organization Act 6 provisions; once recorded, `verify_demo.py` requires its name, `metadata.demo` and starter project to read back |
 
 ## Layout
 
@@ -264,7 +264,8 @@ node --check public/app.js && node --check scripts/platform-api.mjs && bash -n s
 ```
 
 They cover validation, redaction, key-role fail-closed checks, rotation, reset preview and
-ownership rules, state migration, and `verify_demo.py` and `seed_all.py` against fakes. The
+ownership rules, state migration, governed-prompt reconciliation, and `verify_demo.py` and
+`seed_all.py` against a fake CLI and adapter that rejects undeclared query flags. The
 Team form regression runs in Chromium against fixture data; it needs Playwright in a
 temporary directory:
 
@@ -285,6 +286,7 @@ NODE_PATH="$pw_dir/node_modules" node --test tests/team-form.test.cjs
 | Seed fails at "Prepare native … sign-in identity" | Signup policy, email verification, SSO enforcement or CAPTCHA. Adapt to approved pre-existing demo accounts |
 | `Instance API is not configured` | No `private/instance.env`, or web lacks `ADMIN_API_KEY`: see [Enable organization creation](#enable-organization-creation) |
 | `Resource temporarily unavailable` | Another workflow holds `private/workflow.lock`. Wait for the portal run to finish |
+| A governance check fails (persona role, protected-label policy, `matches the slot … definition`, production) | The governance project drifted or was edited. `python3 scripts/seed_all.py` reconciles it and re-checks |
 | Reset reports **Cleanup pending** | Background project purging. Preview and retry Reset later; records are kept |
 
 ## Known limits

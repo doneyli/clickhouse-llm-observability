@@ -81,5 +81,6 @@ them.
 |---|---|---|---|
 | D1 | Credentials in Python | Never read; paths go to the CLI or Node loaders | Keeps secrets out of process output and agent context |
 | D2 | What the seed prepares | `private/` and the Protected labels workflow only | Everything else is the live demo; governance is slow and policy-sensitive |
-| D3 | `langfuse.project` in `demo.yaml` | The org key's organization, `Demo Organization` | The demo acts on an organization, not a fixed project |
+| D3 | `langfuse.project` in `demo.yaml` | Kept as `Operations Demo Organization`, the organization Act 6 provisions | The demo acts on organizations, not a fixed project. The org key's own organization is whichever the presenter uses; the declared one is owned by the demo, so verify reads its name and `metadata.demo` back once the manifest records it |
+| D5 | Seed idempotence | Read governance back live; run the workflow only on drift (or `--reprove`) | An unchanged seed writes nothing; the workflow replaces a prompt version whose definition drifted |
 | D4 | Existing file names | Kept (`docs/architecture.md`, kebab-case scripts) | Standard decision D8: no renames |

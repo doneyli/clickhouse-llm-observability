@@ -7,7 +7,7 @@ button makes real API calls against a licensed local instance, and the inspector
 script, request, response and edition of each one.
 
 - **App:** the local portal at http://127.0.0.1:8091 (`./scripts/run-portal.sh`), with Langfuse at http://localhost:3001 beside it
-- **Observability:** Langfuse self-hosted Enterprise (server 4.76.0), organization `Demo Organization`; no traces, every act creates administration objects
+- **Observability:** Langfuse self-hosted Enterprise (server 4.76.0), the org key's own organization plus the declared `Operations Demo Organization` (Act 6); no traces, every act creates administration objects
 - **Models:** none; no LLM provider or paid model calls
 - **Data:** fictional application, team, organization and email names, typed by the presenter
 - **Run length:** about 24 min, 30 with the optional Acts 6 and 8; short path is Opening, Acts 1, 4 and 5, and Close (about 16 min). Estimates until a rehearsal measures them
@@ -54,7 +54,8 @@ presenter. `--links` prints the governance prompt and audit-log pages for Acts 4
 ### The day before
 
 ```bash
-python3 scripts/seed_all.py   # re-runs Protected labels: governance project, Member and Admin personas
+python3 scripts/seed_all.py             # reads governance back; runs Protected labels only if something is missing or drifted
+python3 scripts/seed_all.py --reprove   # optional: repeat the full proof now (moves labels, adds audit records)
 ```
 
 This is where a signup policy, email verification, SSO enforcement or a missing license
@@ -274,21 +275,25 @@ role.
 A failed revoke is retried on the next rotation. `workflows.py:497` expects 401 only,
 because a still-valid restricted key also gets 403.
 
-**4 · A denial passes only on its exact status — `workflows.py:775`**
-The Member's production promotion must return 403, and `workflows.py:776` reads production
+**4 · A denial passes only on its exact status — `workflows.py:806`**
+The Member's production promotion must return 403, and `workflows.py:807` reads production
 back to prove it did not change.
 
-**5 · The audit role change is always undone — `workflows.py:811`**
+**5 · The audit role change is always undone — `workflows.py:842`**
 The Member role is restored in `finally`, whether or not the native record matched.
 
-**6 · The native adapter refuses other server versions — `scripts/platform-api.mjs:25`**
+**6 · Governed prompts are reconciled against their definitions — `workflows.py:767`**
+Each recorded version is read back and kept only while its type, text and config match;
+a deleted or drifted version is replaced, and an unchanged run creates nothing.
+
+**7 · The native adapter refuses other server versions — `scripts/platform-api.mjs:25`**
 UI RPC is not a public contract, so the adapter checks `/api/public/health` first.
 
-**7 · Reset is bound to the reviewed preview — `workflows.py:605`**
+**8 · Reset is bound to the reviewed preview — `workflows.py:605`**
 The preview's SHA-256 fingerprint covers the manifest and live inventory;
 `workflows.py:633` refuses a reset whose inventory changed since.
 
-**8 · Loopback only — `server.py:131`**
+**9 · Loopback only — `server.py:131`**
 Host must be loopback, and `server.py:187` requires a loopback Origin when one is sent, a custom header
 and JSON on every run request.
 

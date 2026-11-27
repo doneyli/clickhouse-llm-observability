@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """The one seed entry point for langfuse-enterprise-operations. Idempotent; safe to re-run.
 
-    python3 scripts/seed_all.py                  # prepare private/, then run the governance workflow
-    python3 scripts/seed_all.py --governance-name "Governance Demo"
+    python3 scripts/seed_all.py              # prepare private/, reconcile the governance project
+    python3 scripts/seed_all.py --reprove    # also repeat the Protected labels proof when nothing drifted
 
 Most of this demo is created live, from the portal, in front of the audience. Seeding
 prepares only what is slow or can be blocked by instance policy, so a failure shows up the
 day before rather than mid-demo:
 
-1. `private/` exists with mode 0700, and `private/org.env` exists with mode 0600. A missing
-   `org.env` is copied from `org.env.example` and the run stops until you fill it in.
+1. `private/` exists with mode 0700, and `private/org.env` exists with mode 0600 and sets
+   both key names. A missing `org.env` is copied from `org.env.example` and the run stops
+   until you fill it in.
 2. The organization key lists its organization's projects (HTTP 200).
-3. `scripts/protected-labels.sh` runs once. It is the portal's own Protected labels
-   workflow: a dedicated governance project, real Member and Admin sign-in personas, two
-   versions of `governance-demo/release`, the protected `production` label, and the full
-   Member-denied / Admin-promotes proof. On a re-run it reuses the recorded project and
-   personas and repeats the proof. The Audit evidence act needs the same project.
+3. The governance prerequisites of Acts 4 and 5 are read back live, with the same checks
+   `verify_demo.py` runs: the project and its ownership marker, both persona sign-ins and
+   project roles, the protected-label policy, and both governed prompt versions against
+   their definitions in `workflows.py`. When all of them pass, nothing is written. When any
+   fails, `scripts/protected-labels.sh` (the portal's own Protected labels workflow) runs:
+   it creates what is missing, replaces a prompt version whose definition drifted, and
+   repeats the Member-denied / Admin-promotes proof. The checks then run again and must pass.
 
-It prints what was created, updated and left unchanged, and exits non-zero on failure.
-Credentials are only ever passed as file paths (to the CLI and to Node), never read here.
-Shell-exported LANGFUSE_* keys are stripped from the child process.
+It prints what was created, updated and left unchanged, and exits non-zero on any failure,
+including a partial workflow run. Credentials are only ever passed as file paths (to the
+CLI and to Node), never read here. Shell-exported LANGFUSE_* keys are cleared first.
 """
 from __future__ import annotations
 
@@ -37,37 +40,47 @@ DEMO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DEMO_DIR))
 sys.path.insert(0, str(DEMO_DIR / "scripts"))
 import workflows as wf  # noqa: E402
-from verify_demo import GOVERNANCE_PROMPT, child_env, cli  # noqa: E402
+import verify_demo as v  # noqa: E402
 
 DEFAULT_GOVERNANCE_NAME = "Governance Demo"  # the portal form's default (public/index.html)
 Runner = Callable[..., Any]
 
 
 def governance_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
-    """What the governance workflow has recorded so far, for the created/unchanged report."""
+    """What the governance workflow has recorded, for the created/updated/unchanged report."""
     governance = state.get("governance") or {}
     project_id = governance.get("projectId")
     app = (state.get("applications") or {}).get(project_id or "") or {}
     return {
         "projectId": project_id,
         "projectName": app.get("name"),
-        "personas": sorted(r for r, p in (governance.get("personas") or {}).items() if p.get("registered")),
-        "versions": [v.get("version") for v in governance.get("versions") or []],
+        "personas": {r: p.get("email") for r, p in (governance.get("personas") or {}).items() if p.get("registered")},
+        "versions": [(x.get("id"), x.get("version")) for x in governance.get("versions") or []],
     }
 
 
-def report(before: Dict[str, Any], after: Dict[str, Any]) -> List[Tuple[str, str]]:
-    """(created | unchanged | updated, what) for each seeded governance artifact."""
-    out = []
-    out.append(("unchanged" if before["projectId"] and before["projectId"] == after["projectId"] else "created",
-                f"governance project {after['projectName']} ({after['projectId']})"))
-    for role in after["personas"]:
-        out.append(("unchanged" if role in before["personas"] else "created", f"native {role.title()} sign-in persona"))
-    for version in after["versions"]:
-        out.append(("unchanged" if version in before["versions"] else "created", f"prompt {GOVERNANCE_PROMPT} v{version}"))
-    if after["versions"]:
-        out.append(("updated", f"production label: reset to v{after['versions'][0]}, Member denied, Admin promoted "
-                               f"v{after['versions'][-1]} (repeated on every run)"))
+def report(before: Dict[str, Any], after: Dict[str, Any], proof_ran: bool) -> List[Tuple[str, str]]:
+    """(created | updated | unchanged, what) per seeded governance artifact, by identity, not by count."""
+    out: List[Tuple[str, str]] = []
+    if after["projectId"]:
+        out.append(("unchanged" if before["projectId"] == after["projectId"] else "created",
+                    f"governance project {after['projectName']} ({after['projectId']})"))
+    for role in ("ADMIN", "MEMBER"):
+        email = after["personas"].get(role)
+        if email:
+            out.append(("unchanged" if before["personas"].get(role) == email else "created",
+                        f"native {role.title()} sign-in persona"))
+    for slot, (prompt_id, version) in enumerate(after["versions"], start=1):
+        previous = before["versions"][slot - 1] if len(before["versions"]) >= slot else None
+        if previous is None:
+            out.append(("created", f"prompt {v.GOVERNANCE_PROMPT} slot {slot}: v{version}"))
+        elif previous == (prompt_id, version):
+            out.append(("unchanged", f"prompt {v.GOVERNANCE_PROMPT} slot {slot}: v{version}"))
+        else:
+            out.append(("updated", f"prompt {v.GOVERNANCE_PROMPT} slot {slot}: v{previous[1]} -> v{version} (definition drifted)"))
+    if proof_ran and after["versions"]:
+        out.append(("updated", f"production label: reset to v{after['versions'][0][1]}, Member denied, Admin promoted "
+                               f"v{after['versions'][-1][1]} (the proof moves labels and adds audit records)"))
     return out
 
 
@@ -94,7 +107,7 @@ def event_line(event: Dict[str, Any]) -> Optional[str]:
 
 
 def ensure_private(state_dir: Path, org_env: Path) -> Tuple[List[Tuple[str, str]], bool]:
-    """Create or tighten private/ and org.env. Returns (lines, org.env is usable)."""
+    """Create or tighten private/ and org.env. Returns (lines, org.env exists and can be checked)."""
     lines = []
     if state_dir.is_dir():
         if state_dir.stat().st_mode & 0o077:
@@ -127,7 +140,10 @@ def run_governance(state_dir: Path, org_env: Path, name: str, runner: Runner = s
     command = [str(DEMO_DIR / "scripts" / "protected-labels.sh"), "--params-file", str(params),
                "--state-dir", str(state_dir), "--org-env", str(org_env), "--run-id", run_id]
     result, message = False, "the workflow ended without a result"
-    process = runner(command, cwd=str(DEMO_DIR), stdout=subprocess.PIPE, text=True, env=child_env())
+    try:
+        process = runner(command, cwd=str(DEMO_DIR), stdout=subprocess.PIPE, text=True, env=v.child_env())
+    except OSError as error:
+        return False, f"could not start scripts/protected-labels.sh: {error}"
     for raw in process.stdout:
         try:
             event = json.loads(raw)
@@ -139,45 +155,77 @@ def run_governance(state_dir: Path, org_env: Path, name: str, runner: Runner = s
         if event.get("type") == "complete":
             result, message = True, event.get("result", {}).get("message", "complete")
         elif event.get("type") == "error":
-            message = event.get("message") or "workflow failed"
+            result, message = False, event.get("message") or "workflow failed"
             if "Resource temporarily unavailable" in message:
                 message += " (another workflow holds private/workflow.lock: wait for the portal run to finish)"
-    return process.wait() == 0 and result, message
+    code = process.wait()
+    if code != 0 and result:
+        result, message = False, f"workflow exited {code} after reporting completion"
+    return result, message
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def failing(checks: List[v.Check]) -> List[str]:
+    return [what for ok, what, required, _ in checks if required and not ok]
+
+
+def main(argv: Optional[List[str]] = None, cli_runner: Runner = subprocess.run, popen: Runner = subprocess.Popen) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--state-dir", default=str(DEMO_DIR / "private"), help="the portal's --state-dir (default: private/)")
     ap.add_argument("--org-env", help="the portal's --org-env (default: <state-dir>/org.env)")
     ap.add_argument("--governance-name", help=f"governance project name (default: the recorded one, else '{DEFAULT_GOVERNANCE_NAME}')")
+    ap.add_argument("--reprove", action="store_true",
+                    help="run the Protected labels proof even when nothing drifted (moves labels, adds audit records)")
     args = ap.parse_args(argv)
     os.umask(0o077)
+    v.clear_shell_keys()
     state_dir = Path(args.state_dir).resolve()
     org_env = Path(args.org_env).resolve() if args.org_env else state_dir / "org.env"
 
     print("langfuse-enterprise-operations seed")
-    lines, usable = ensure_private(state_dir, org_env)
+    lines, present = ensure_private(state_dir, org_env)
     for status, what in lines:
         print(f"  {status:<9} {what}")
-    if not usable:
+    if not present:
+        return 1
+    ok, what, _, hint = v.env_check(str(org_env), ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"), "organization key", cli_runner)
+    if not ok:
+        print(f"  FAILED    {what}  ->  {hint}")
         return 1
 
-    status, body = cli(org_env, "organizations", "list-projects")
-    if status != 200:
-        print(f"  FAILED    organization key check: {status} {wf.scrub(body) if status is None else ''}".rstrip())
+    projects, detail = v.organization_projects(org_env, cli_runner)
+    if projects is None:
+        print(f"  FAILED    organization key check: {detail}")
         print("            401: wrong or revoked key; 403: a project key, use an organization key")
         return 1
-    print(f"  unchanged organization key lists {len((body or {}).get('projects') or [])} project(s)")
+    print(f"  unchanged organization key lists {len(projects)} project(s)")
 
-    before = governance_snapshot(wf.load_state(state_dir))
-    name = governance_name(wf.load_state(state_dir), args.governance_name)
+    state = wf.load_state(state_dir)
+    before = governance_snapshot(state)
+    drift = failing(v.governance_checks(state, projects, org_env, cli_runner))
+    if not drift and not args.reprove:
+        for status, what in report(before, before, proof_ran=False):
+            print(f"  {status:<9} {what}")
+        print("\nSeeded. Governance read back unchanged; nothing written. --reprove repeats the live proof.")
+        return 0
+    for what in drift:
+        print(f"  missing   {what}")
+
+    name = governance_name(state, args.governance_name)
     print(f"  running   Protected labels workflow for '{name}' (scripts/protected-labels.sh)")
-    ok, message = run_governance(state_dir, org_env, name)
-    if not ok:
-        print(f"  FAILED    {message}")
-        return 1
-    for status, what in report(before, governance_snapshot(wf.load_state(state_dir))):
+    ok, message = run_governance(state_dir, org_env, name, popen)
+    after_state = wf.load_state(state_dir)
+    for status, what in report(before, governance_snapshot(after_state), proof_ran=ok):
         print(f"  {status:<9} {what}")
+    if not ok:
+        print(f"  FAILED    {message}  (partial results above are kept for the next run)")
+        return 1
+    projects, detail = v.organization_projects(org_env, cli_runner)
+    remaining = failing(v.governance_checks(after_state, projects or {}, org_env, cli_runner)) if projects is not None \
+        else [f"organization inventory unreadable after the run ({detail})"]
+    if remaining:
+        for what in remaining:
+            print(f"  FAILED    {what}")
+        return 1
     print(f"\nSeeded. {message}")
     return 0
 
