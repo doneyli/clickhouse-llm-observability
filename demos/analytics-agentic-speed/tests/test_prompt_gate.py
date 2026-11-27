@@ -80,7 +80,7 @@ def test_thresholds_file_is_valid_and_matches_the_standard_config(gate, threshol
 
 
 def test_baseline_passes_its_own_bar_with_headroom(gate, thresholds):
-    """Every bound sits strictly beyond the measured production baseline, so noise doesn't fail it."""
+    """Policy bounds leave headroom from the historical baseline; this does not establish noise tolerance."""
     base = {k: v for k, v in thresholds["baseline"].items() if not k.startswith("_")}
     for kind in ("hard", "soft"):
         for name, rule in thresholds[kind].items():
@@ -279,7 +279,18 @@ def test_render_passed_report_full_run(gate, thresholds):
     md, blocked = _render(gate, thresholds, run, n_dataset=3, url=None)
     assert not blocked and md.startswith("## ✅ **GATE PASSED**")
     assert "Smoke run" not in md and "Open the run" not in md
-    assert "safe to move `production` to this pair (planner v2, analyst v2)" in md
+    assert "All configured hard thresholds met for this pair (planner v2, analyst v2)" in md
+    assert "calibration limits" in md and "safe to move" not in md
+
+
+def test_smoke_pass_never_recommends_promotion(gate, thresholds):
+    md, blocked = _render(gate, thresholds, _good_run())
+    assert not blocked and "not promotion evidence" in md
+    assert "safe to move" not in md
+
+
+def test_thresholds_mark_historical_calibration_as_provisional(thresholds):
+    assert thresholds["calibration"]["status"] == "provisional"
 
 
 def test_render_lists_soft_warnings(gate, thresholds):

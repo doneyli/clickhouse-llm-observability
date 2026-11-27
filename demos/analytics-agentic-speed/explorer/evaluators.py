@@ -86,8 +86,12 @@ def values_match(expected: Any, actual: Any) -> bool:
         return False
     if _is_number(e) and _is_number(a):
         if isinstance(e, int):
-            return float(a) == float(e)  # 9 == 9.0, but 9.4 != 9
-        if not math.isfinite(e) or not math.isfinite(a):
+            return a == e  # exact even above 2**53; 9 == 9.0, but 9.4 != 9
+        try:
+            finite = math.isfinite(e) and math.isfinite(a)
+        except OverflowError:
+            return False
+        if not finite:
             return False
         return math.isclose(a, e, rel_tol=FLOAT_REL_TOL, abs_tol=1e-9)
     if isinstance(e, str) and isinstance(a, str):
@@ -106,7 +110,13 @@ def _answer_dict(output: Any) -> dict[str, Any]:
     if not isinstance(answer, Mapping):
         return {}
     # Key names are matched case-insensitively ("Origin" == "origin").
-    return {str(k).strip().lower(): v for k, v in answer.items()}
+    normalized: dict[str, Any] = {}
+    for k, v in answer.items():
+        key = str(k).strip().lower()
+        if key in normalized:
+            return {}  # contradictory aliases must not silently overwrite each other
+        normalized[key] = v
+    return normalized
 
 
 def key_results(expected_output: Any, output: Any) -> dict[str, bool]:

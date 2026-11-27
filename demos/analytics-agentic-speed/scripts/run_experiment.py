@@ -147,6 +147,7 @@ def task_output(res: Any, cfg: RunConfig) -> dict[str, Any]:
         "question_id": res.question_id,
         "answer_values": dict(res.answer_values or {}),
         "summary": res.summary,
+        "summary_evidence": dict(res.summary_evidence),
         "stop_reason": res.stop_reason,
         "best_scenario": dict(res.best_scenario or {}),
         "metric_value": res.metric_value,

@@ -62,6 +62,7 @@ DECISION = {"decision": "answer", "summary": "LAX needs 9 minutes",
 
 @pytest.mark.parametrize("verify_fails", [False, True])
 async def test_agent_keeps_pinned_pair_and_rejects_failed_verification(monkeypatch, verify_fails):
+    monkeypatch.setitem(DECISION, "summary", "Every airport crosses 85% with at most 29 minutes.")
     lf = LF()
     versions = {name: lf.get_prompt(name, label="staging", cache_ttl_seconds=0).version for name in P.PROMPTS}
     lf.label_version = 2  # labels move after the gate's pre-flight, before any task starts
@@ -98,8 +99,9 @@ async def test_agent_keeps_pinned_pair_and_rejects_failed_verification(monkeypat
     monkeypatch.setattr(A, "LLM", LLM)
     monkeypatch.setattr(A, "profile", profile)
     cfg = RunConfig(prompt_label="staging", prompt_versions=versions)
+    events = []
     result = await A.run_question(Question("q-padding", "padding?", ["origin", "buffer_minutes"]),
-                                  cfg, ch=CH(), lf=lf)
+                                  cfg, ch=CH(), lf=lf, on_progress=events.append)
     assert used == [("plan", 1), ("analyse", 1)]
     assert all(kw == {"version": 1} for _, kw in lf.fetches[2:])  # no label or fallback in pinned tasks
     expected = {"origin": "LAX", "buffer_minutes": 9}
@@ -108,6 +110,11 @@ async def test_agent_keeps_pinned_pair_and_rejects_failed_verification(monkeypat
     assert result.stop_reason == ("error" if verify_fails else "answered")
     assert answer_correct(input={}, output=output, expected_output=expected).value == (0 if verify_fails else 1)
     assert answer_key_match(input={}, output=output, expected_output=expected).value == (0 if verify_fails else 1)
+    assert "Every airport" not in result.summary
+    root_output = lf.spans[0][1].updates[-1]["output"]
+    assert root_output["summary"] == result.summary == events[-1]["result"]["summary"]
+    assert root_output["summary_evidence"] == result.summary_evidence
+    assert result.summary_evidence["metric_verified"] is not verify_fails
     if not verify_fails:
         assert result.recommendation_grounded is True
 

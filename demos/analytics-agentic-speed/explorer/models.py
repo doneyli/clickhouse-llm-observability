@@ -84,6 +84,8 @@ class RunResult:
     recommendation_grounded: Optional[bool]
     trace_url: Optional[str] = None
     error: Optional[str] = None
+    # Facts used to render summary; independent of the analyst's free-form draft.
+    summary_evidence: dict[str, Any] = field(default_factory=dict)
 
     @property
     def db_time_share(self) -> float:

@@ -91,8 +91,9 @@ SCORE_CONFIGS: list[dict[str, Any]] = [
                     "hits a cap says so here instead of hiding it.",
      "categories": [{"label": s, "value": i} for i, s in enumerate(STOP_REASONS)]},
     {"name": "recommendation_grounded", "dataType": "BOOLEAN",
-     "description": "Deterministic check: re-running the recommended scenario's SQL reproduces the "
-                    "number the answer states."},
+     "description": "Deterministic metric-replay check: the named scenario, the reported metric and a "
+                    "repeat query agree within six-significant-figure rounding. This does not assess "
+                    "answer correctness, global optimality, or free-form prose."},
     # experiment item evaluators
     {"name": "answer_correct", "dataType": "BOOLEAN",
      "description": "Experiment evaluator: the answer matches the reference SQL's result on every "

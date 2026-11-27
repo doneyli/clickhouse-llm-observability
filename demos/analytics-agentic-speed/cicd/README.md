@@ -31,8 +31,10 @@ it generalizes to questions outside the set, or anything about latency SLOs. Use
 
 The baseline is production v1 (planner v1, analyst v1) on claude-opus-5-5, run
 `breadth-300-20261126T232112Z`: 12/15 correct, $0.1445 and 66.3 s per question, ClickHouse 6.7% of
-wall time, 418.5 scenarios and 3.6 model calls per question, no errored items. Every bound sits
-beyond that baseline (a test keeps it that way), so run-to-run noise doesn't fail a good prompt.
+wall time, 418.5 scenarios and 3.6 model calls per question, no errored items. Bounds were chosen
+relative to that one historical run. Their tolerance to run-to-run noise has not been established.
+`thresholds.json` therefore marks calibration **provisional**; see the
+[evaluator audit](../docs/EVALUATOR_AUDIT.md). Numeric policy bounds are unchanged by the audit.
 
 | Metric | Bound | Kind | Baseline | Why this value |
 |---|---|---|---|---|
@@ -47,7 +49,7 @@ beyond that baseline (a test keeps it that way), so run-to-run noise doesn't fai
 | `mean_llm_calls` | ≤ 5 | soft | 3.6 | At 2 rounds the agent makes 2 to 4 calls. More than 5 on average means plans are being rejected and retried. |
 | `errors` | ≤ 0 | soft | 0 | An errored question already counts as wrong. The warning names the cause (timeout, rate limit, invalid plan), so infrastructure trouble isn't mistaken for prompt quality. |
 
-A **missing** metric fails a hard rule. The thresholds are calibrated on all 15 questions: with
+A **missing** metric fails a hard rule. The historical reference used all 15 questions: with
 `--limit` the verdict is a smoke test and the summary says so (per-question costs range from $0.056
 to $0.285, so a subset's mean isn't comparable).
 

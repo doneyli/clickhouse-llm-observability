@@ -157,6 +157,11 @@ server p50/p95 per level.
   version IDs before running any task. Errored answers receive no credit, even if they
   retain matching values from before verification failed. Models require explicit
   pricing in `explorer/config.py`; unknown spend blocks the cost check.
+- **Reports:** final summaries are rendered from the complete scenario records, with
+  `summary_evidence` on the root observation and task output. They state the verified
+  point, metric, support, and actual query counts, including NULL/error outcomes. The
+  analyst's draft stays on its generation; it is not published as the final summary.
+  [Evaluator audit](docs/EVALUATOR_AUDIT.md) explains score scope and provisional thresholds.
 
 ## Troubleshooting
 

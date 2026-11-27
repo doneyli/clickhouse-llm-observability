@@ -89,6 +89,9 @@ def test_normalize(raw, want):
     ("LAX", None, False),
     (None, None, False),
     (1, True, False),        # booleans are not numbers
+    (2**53, 2**53 + 1, False),  # integer precision must not be lost through float()
+    (10**400, 10**400, True),
+    (0.5, 10**400, False),
 ])
 def test_values_match(expected, actual, ok):
     assert values_match(expected, actual) is ok
@@ -105,6 +108,11 @@ def test_answer_correct_all_keys():
 def test_answer_correct_key_names_case_insensitive():
     ev = answer_correct(input={}, output=out({"Origin": "LAX", "BUFFER_MINUTES": 9}), expected_output=EXPECTED)
     assert ev.value == 1.0
+
+
+def test_contradictory_case_aliases_are_not_a_correct_answer():
+    output = out({"Origin": "ORD", "origin": "LAX", "buffer_minutes": 9})
+    assert answer_correct(input={}, output=output, expected_output=EXPECTED).value == 0
 
 
 def test_answer_correct_partial_is_wrong_and_says_which():

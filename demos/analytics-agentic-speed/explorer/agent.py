@@ -32,7 +32,8 @@ from .ch_client import ClickHouseClient, ClickHouseError, QueryResult, gather_bo
 from .config import DEMO_DIR, RunConfig
 from .llm import DECISION_SCHEMA, LLM, PLAN_SCHEMA, LLMError
 from .models import Plan, Question, RoundRecord, RunResult, ScenarioOutcome
-from .scenarios import PlanError, check_lookup, expand, plan_from_json, scenario_key, validate
+from .reporting import build_summary, find_scenario
+from .scenarios import PlanError, check_lookup, expand, plan_from_json, validate
 
 QUERY_SPAN = "clickhouse.query"
 # One row per scenario: anything else is a template bug, and the server says so.
@@ -40,6 +41,9 @@ SCENARIO_SETTINGS = {"max_result_rows": "1", "result_overflow_mode": "throw"}
 LOOKUP_SETTINGS = {"max_result_rows": "100", "result_overflow_mode": "break"}
 LOOKUP_MAX_CHARS = 8000
 CELL_MAX_CHARS = 200
+# Results shown to the analyst have six significant figures. This permits their
+# rounding error, rather than accepting a half-percent change in the metric.
+METRIC_REL_TOL = 5e-6
 
 
 def _cell(v: Any) -> str:
@@ -346,17 +350,19 @@ async def _run_question(question: Question, cfg: RunConfig, *, ch: ClickHouseCli
             if stop_reason in ("max_rounds", "budget") and not best and rounds:
                 best, answer_values = _fallback_best(rounds[-1], question)
             scen = sum(len(r.outcomes) for r in rounds)
+            summary, summary_evidence = build_summary(rounds, best, grounded=grounded, stop_reason=stop_reason)
             result = RunResult(
                 trace_id=trace_id, question_id=question.id, stop_reason=stop_reason,
-                summary=decision.get("summary", "") or "", answer_values=answer_values, best_scenario=best,
+                summary=summary, answer_values=answer_values, best_scenario=best,
                 metric_value=decision.get("metric_value") if decision.get("decision") == "answer" else None,
                 rounds=len(rounds), scenarios_evaluated=scen, llm_calls=llm.calls,
                 db_server_ms_total=meter.total_server_ms, db_wait_ms_total=meter.wait_ms,
                 wall_ms=wall_ms, cost_usd=llm.cost_usd if getattr(llm, "cost_known", True) else None,
-                recommendation_grounded=grounded, error=error,
+                recommendation_grounded=grounded, error=error, summary_evidence=summary_evidence,
             )
             root.update(output={"summary": result.summary, "answer_values": answer_values,
                                 "best_scenario": best, "metric_value": result.metric_value,
+                                "summary_evidence": summary_evidence,
                                 "stop_reason": stop_reason, "rounds": len(rounds),
                                 "scenarios_evaluated": scen, "error": error})
             _score_trace(root, result, meter)
@@ -557,37 +563,43 @@ async def _analyse(lf, llm: LLM, ch: ClickHouseClient, cfg: RunConfig, question:
     return data, None
 
 
+def _metric_matches(expected: Any, actual: Any) -> bool:
+    if expected is None or actual is None or isinstance(expected, bool) or isinstance(actual, bool):
+        return False
+    try:
+        e, a = float(expected), float(actual)
+        return math.isfinite(e) and math.isfinite(a) and math.isclose(e, a, rel_tol=METRIC_REL_TOL, abs_tol=1e-9)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 async def _verify(lf, ch: ClickHouseClient, meter: DbMeter, cfg: RunConfig, rounds: list[RoundRecord],
                   decision: dict) -> Optional[bool]:
-    """Re-run the scenario the answer names and compare the number it states."""
+    """Confirm the named scenario's metric, not answer correctness or global optimality."""
     if decision.get("decision") != "answer" or not rounds:
         return None
     named = {k: _coerce(v) for k, v in _pairs(decision.get("best_scenario", [])).items()}
     claimed = decision.get("metric_value")
     with lf.start_as_current_observation(as_type="chain", name="verify",
                                          input={"best_scenario": named, "claimed_metric": claimed}) as span:
-        for rec in reversed(rounds):
-            by_key = {scenario_key(o.scenario): o for o in rec.outcomes}
-            hit = by_key.get(scenario_key(named))
-            if hit is None:
-                continue
-            if hit.metric is None or claimed is None:
-                # An answer resting on a NULL metric (no data, or below minimum support)
-                # is never grounded, whatever a re-run returns.
-                span.update(output={"found_in_round": rec.index, "grounded": False,
-                                    "note": "the named scenario has no metric"})
-                return False
-            res = await traced_query(lf, ch, rec.plan.sql_template, hit.scenario, meter=meter,
-                                     purpose="verify", score=cfg.score_each_query, scenario=hit.scenario,
-                                     round_index=rec.index, settings=SCENARIO_SETTINGS)
-            rerun = (res.first() or {}).get("metric")
-            ok = (rerun is not None and claimed is not None
-                  and math.isclose(float(rerun), float(claimed), rel_tol=5e-3, abs_tol=1e-9))
-            span.update(output={"found_in_round": rec.index, "rerun_metric": rerun, "grounded": ok})
-            return ok
-        span.update(output={"found_in_round": None, "grounded": False,
-                            "note": "the named scenario is not in any round's results"})
-        return False
+        found = find_scenario(rounds, named)
+        if found is None:
+            span.update(output={"found_in_round": None, "grounded": False,
+                                "note": "the named scenario is not in any round's results"})
+            return False
+        rec, hit = found
+        if hit.error is not None or not _metric_matches(hit.metric, claimed):
+            span.update(output={"found_in_round": rec.index, "grounded": False,
+                                "note": "the claimed metric does not match the recorded scenario"})
+            return False
+        res = await traced_query(lf, ch, rec.plan.sql_template, hit.scenario, meter=meter,
+                                 purpose="verify", score=cfg.score_each_query, scenario=hit.scenario,
+                                 round_index=rec.index, settings=SCENARIO_SETTINGS)
+        rerun = (res.first() or {}).get("metric")
+        ok = _metric_matches(hit.metric, rerun) and _metric_matches(rerun, claimed)
+        span.update(output={"found_in_round": rec.index, "recorded_metric": hit.metric,
+                            "rerun_metric": rerun, "grounded": ok})
+        return ok
 
 
 def _fallback_best(rec: RoundRecord, question: Question) -> tuple[dict, dict]:

@@ -1,8 +1,14 @@
 {
-  "_doc": "Release gate for the analytics-agentic-speed planner + analyst prompts (one label = the pair). HARD rules block the release; SOFT rules warn. 'min' is a floor, 'max' a ceiling. Every bound sits below (or above) the measured production baseline so run-to-run noise does not fail a good prompt; each one is explained in cicd/README.md. The gate also adds two hard rules of its own: every dataset item evaluated, and every item read back from Langfuse with an answer_correct score. A MISSING metric fails.",
+  "_doc": "Regression gate for the analytics-agentic-speed planner + analyst prompts (one label = the pair). HARD rules block; SOFT rules warn. 'min' is a floor, 'max' a ceiling. Bounds are policy choices relative to a historical baseline, not a demonstrated noise tolerance. See calibration and cicd/README.md. The gate also requires every item evaluated and read back from Langfuse with an answer_correct score. A MISSING metric fails.",
   "dataset": "scenario-explorer-questions",
+  "calibration": {
+    "status": "provisional",
+    "dataset_version_reviewed": "2026-11-27T03:25:48.869Z",
+    "reason": "The full-run baseline predates question-text and code changes. Repeated current-code runs and a held-out challenge set have not validated these bounds.",
+    "audit": "docs/EVALUATOR_AUDIT.md"
+  },
   "config": {
-    "_doc": "The standard Experiment A wide config the thresholds were calibrated at. scripts/prompt_gate.py runs exactly this; tests/test_prompt_gate.py keeps it equal to scripts/run_experiment.py (BREADTH['wide'], EXPERIMENT_A_ROUNDS).",
+    "_doc": "The standard Experiment A wide config used by the historical baseline. scripts/prompt_gate.py runs exactly this; tests/test_prompt_gate.py keeps it equal to scripts/run_experiment.py (BREADTH['wide'], EXPERIMENT_A_ROUNDS).",
     "max_scenarios_per_round": 300,
     "max_rounds": 2
   },

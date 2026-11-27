@@ -26,7 +26,7 @@ misconfigured run costs nothing and says why.
 
 Exit codes: 0 passed (or --warn-only); 1 blocked, or nothing evaluated (pre-flight failed).
 `--limit N` runs the first N questions in questions.yaml order (the hero first): a smoke test whose
-verdict is indicative only, since the thresholds are calibrated on all 15.
+verdict is indicative only; the historical reference used all 15 and calibration is provisional.
 """
 from __future__ import annotations
 
@@ -223,8 +223,8 @@ def render(rows: list[dict[str, Any]], blocked: bool, *, label: str, versions: M
            f"Run `{run_name}` on `{dataset}`: {n_items} question(s), "
            f"{cfg['max_scenarios_per_round']} scenarios/round, {cfg['max_rounds']} rounds", ""]
     if n_items < n_dataset:
-        out += [f"> **Smoke run:** {n_items} of {n_dataset} questions (`--limit`). The thresholds are "
-                f"calibrated on all {n_dataset}; this verdict is indicative only, never a promotion decision.", ""]
+        out += [f"> **Smoke run:** {n_items} of {n_dataset} questions (`--limit`). The configured checks target "
+                f"all {n_dataset}; this verdict is indicative only, never a promotion decision.", ""]
     if run_url:
         out += [f"[Open the run in Langfuse]({run_url})", ""]
     out += ["| Metric | Value | Bound | Baseline | Kind | |", "|---|---|---|---|---|---|"]
@@ -255,8 +255,11 @@ def render(rows: list[dict[str, Any]], blocked: bool, *, label: str, versions: M
         out += ["**Blocked on:** " + ", ".join(f"`{n}`" for n in hard_fails), "",
                 f"Label `{label}` must not be promoted to `production`."]
     else:
-        out.append(f"All hard thresholds met: safe to move `production` to this pair "
-                   f"(planner v{pv}, analyst v{av}).")
+        out.append(f"All configured hard thresholds met for this pair (planner v{pv}, analyst v{av}).")
+        if n_items < n_dataset:
+            out.append("This subset is a smoke check, not promotion evidence. Run the full current dataset.")
+        else:
+            out.append("This is a dataset regression check; see cicd/README.md for baseline calibration limits.")
     if warns:
         out += ["", "Warnings (soft, not blocking): " + ", ".join(f"`{n}`" for n in warns)]
     return "\n".join(out)

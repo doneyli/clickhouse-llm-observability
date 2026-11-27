@@ -3,6 +3,8 @@
 `scripts/seed_langfuse.py` pushes PROMPTS to the project; the agent fetches them with
 `get_prompt(name, label=cfg.prompt_label, fallback=...)`, so a new prompt version ships
 by moving a label, and every generation links to the exact version that produced it.
+The analyst's summary field is retained as a draft on its generation. Final reports
+are rendered from recorded scenario evidence by explorer.reporting.
 """
 from __future__ import annotations
 
