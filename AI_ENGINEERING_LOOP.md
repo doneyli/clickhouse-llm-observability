@@ -38,6 +38,7 @@ it across the whole stack.
 | `demos/real-estate/` | Self-contained agentic concierge — the loop shown end-to-end in one place | Langfuse SDK |
 | `demos/brand-promo-multi-agent/` | Multi-agent promo-planning assistant (standalone): synthetic history, online + offline evals, persona dashboards | LangGraph + CrewAI + Langfuse `CallbackHandler` |
 | `demos/slow-query-tuner/` | Autonomous agent loop: open-ended query optimization against a live ClickHouse lab (Pattern #7) | Raw Anthropic tool-use + Langfuse SDK (typed observations) |
+| `demos/analytics-agentic-speed/` | Analytics agent at machine speed: one SQL template + a lever grid from the model, hundreds of scenario queries per round on a 231.6M-row ClickHouse Cloud table, DB server time on every query span | Anthropic API (asyncio) + Langfuse SDK (typed observations) |
 
 ## Where each loop step lives
 
@@ -166,6 +167,30 @@ bounded pipeline, because the step count is agent-decided:
 - **Deploy** — both system-prompt versions are Langfuse-managed;
   `v2-disciplined` carries the `production` label (flipping the label is the
   deploy beat, reused as the Experiment's variable).
+
+## The loop when the database is fast enough to explore — `demos/analytics-agentic-speed/`
+
+The agent asks hundreds of questions per answer, so each loop step has to read at the
+scale of queries, not calls:
+
+- **Trace** — one `analytics-agentic-speed` agent trace per question: `profile` → `plan`
+  (generation) → per round `compile` → `sweep` (300 `clickhouse.query` tool spans, each
+  carrying ClickHouse's own server ms, round trip, rows read and query id) → `analyse`
+  (generation) → `verify`. The query spans are slivers next to the generations, which
+  is the point.
+- **Monitor** — the seeded dashboard "Analytics at Agentic Speed" charts `db_time_share`,
+  p50/p95/p99 of `db_server_ms`, scenarios vs LLM calls per run, and per-level latency
+  for the many-agents act.
+- **Datasets** — `scenario-explorer-questions`: 15 questions whose expected output is
+  computed by reference SQL, so grading is exact. No judge.
+- **Experiment** — Experiment A varies only the sweep breadth (10 vs 300 scenarios per
+  round, rounds fixed at 2). Experiment B varies the prompt label or the model.
+- **Evaluate** — code scores on every run (`db_time_share`, `scenarios_evaluated`,
+  `recommendation_grounded` from a deterministic re-run of the winning scenario) plus
+  `answer_correct` and `answer_key_match` on experiment items.
+- **Deploy** — planner and analyst prompts are Langfuse-managed and fetched by label;
+  `scripts/prompt_gate.py` runs the dataset on a candidate label and blocks it below
+  `cicd/thresholds.json`.
 
 ## Honest scope (what's live vs documented)
 

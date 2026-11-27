@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analytics at Agentic Speed</title>
+  <link rel="stylesheet" href="/static/clickui-tokens.css">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Analytics at Agentic Speed</h1>
+      <p class="sub">An agent sweeping what-if scenarios on ClickHouse Cloud, live</p>
+    </div>
+    <div class="conn">
+      <span id="conn-text" class="muted">connecting…</span>
+      <span class="traced" title="Every run is traced to Langfuse">Traced in Langfuse</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="side">
+      <section class="card">
+        <h2>Question</h2>
+        <label class="field">
+          <span>From the dataset</span>
+          <select id="q-select"></select>
+        </label>
+        <p id="q-text" class="qtext"></p>
+        <details class="ask">
+          <summary>Or ask your own</summary>
+          <textarea id="q-ask" rows="4" placeholder="e.g. Which carrier at ORD had the worst on-time rate in each winter month of 2019?"></textarea>
+        </details>
+
+        <div class="field">
+          <span>Scenarios per round</span>
+          <div class="seg" id="seg-breadth" role="radiogroup" aria-label="Scenarios per round">
+            <button type="button" data-v="10" role="radio">10</button>
+            <button type="button" data-v="100" role="radio">100</button>
+            <button type="button" data-v="300" role="radio" class="on" aria-checked="true">300</button>
+          </div>
+        </div>
+        <div class="field">
+          <span>Max rounds</span>
+          <div class="seg" id="seg-rounds" role="radiogroup" aria-label="Max rounds">
+            <button type="button" data-v="1" role="radio">1</button>
+            <button type="button" data-v="2" role="radio">2</button>
+            <button type="button" data-v="3" role="radio">3</button>
+            <button type="button" data-v="4" role="radio" class="on" aria-checked="true">4</button>
+          </div>
+        </div>
+        <button id="run" class="primary" type="button">Run the agent</button>
+        <p id="run-hint" class="muted small">Same agent as the CLI: same trace, same scores.</p>
+      </section>
+
+      <section class="card">
+        <h2>What the agent is doing</h2>
+        <ol id="steps" class="steps"><li class="empty muted">Nothing yet. Pick a question and run it.</li></ol>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div class="tiles">
+        <div class="tile"><span class="label">Scenarios run</span><span class="num" id="t-scen">0</span><span class="foot" id="t-scen-f">&nbsp;</span></div>
+        <div class="tile"><span class="label">Scenario queries / second</span><span class="num" id="t-qps">–</span><span class="foot" id="t-qps-f">&nbsp;</span></div>
+        <div class="tile"><span class="label">ClickHouse time per query</span><span class="num" id="t-p50">–</span><span class="foot" id="t-p50-f">server-side p50 · p95</span></div>
+        <div class="tile hero"><span class="label">Time waiting on ClickHouse</span><span class="num" id="t-share">–</span><span class="foot" id="t-share-f">of the run's wall time</span></div>
+        <div class="tile"><span class="label">Model calls</span><span class="num" id="t-llm">0</span><span class="foot" id="t-llm-f">&nbsp;</span></div>
+      </div>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Where the time went</h2>
+          <span class="muted small" id="split-total"></span>
+        </div>
+        <div class="split" id="split" aria-label="Run time split">
+          <div class="seg-db" id="split-db" style="width:0"></div>
+          <div class="seg-llm" id="split-llm" style="width:0"></div>
+          <div class="seg-other" id="split-other" style="width:100%"></div>
+        </div>
+        <div class="split-legend">
+          <span><i class="sw sw-db"></i><b>ClickHouse</b> <span id="lg-db">0.0 s</span></span>
+          <span><i class="sw sw-llm"></i><b>Model thinking</b> <span id="lg-llm">0.0 s</span></span>
+          <span><i class="sw sw-other"></i>Everything else <span id="lg-other">0.0 s</span></span>
+        </div>
+      </section>
+
+      <div id="rounds"></div>
+
+      <div class="row2">
+        <section class="card">
+          <div class="card-head">
+            <h2>ClickHouse time per query</h2>
+            <span class="muted small">server-side, every query this run</span>
+          </div>
+          <div class="hist" id="hist"></div>
+        </section>
+        <section class="card" id="answer-card">
+          <h2>Answer</h2>
+          <div id="answer" class="muted">The agent's answer appears here when it decides it's done.</div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <footer class="foot-credit muted small">ClickHouse Cloud is the data the agent explores · Langfuse records every query and model call</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

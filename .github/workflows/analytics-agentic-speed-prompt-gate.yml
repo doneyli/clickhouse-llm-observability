@@ -1,0 +1,166 @@
+# Analytics at Agentic Speed demo — prompt quality gate in CI.
+#
+# WHAT IT DOES
+#   Same template as claims-prompt-gate.yml and northwind-prompt-gate.yml. A Langfuse prompt automation
+#   (Prompts → Automations → GitHub Repository Dispatch, event type `analytics-agentic-speed-prompt-update`)
+#   fires on every prompt version or label change in the analytics-agentic-speed project. The agent
+#   fetches its two prompts as a PAIR by label, so the gate evaluates a label, not a single prompt:
+#     analytics-agentic-speed-planner + analytics-agentic-speed-analyst at <label>
+#       → scenario-explorer-questions (15 what-if questions, exact SQL ground truth)
+#   at the standard config (300 scenarios/round, 2 rounds) against the ClickHouse Cloud flights table,
+#   and compares accuracy, the hero question and per-question cost with
+#   demos/analytics-agentic-speed/cicd/thresholds.json. A regression FAILS the job and blocks "Ship it".
+#
+# SETUP (once) — see demos/analytics-agentic-speed/cicd/README.md
+#   Repo secrets: AGENTIC_SPEED_LANGFUSE_BASE_URL, AGENTIC_SPEED_LANGFUSE_PUBLIC_KEY,
+#   AGENTIC_SPEED_LANGFUSE_SECRET_KEY, AGENTIC_SPEED_CH_HOST, AGENTIC_SPEED_CH_USER,
+#   AGENTIC_SPEED_CH_PASSWORD (the READ-ONLY agent user, never the admin), ANTHROPIC_API_KEY.
+#   Optional repo variables: AGENTIC_SPEED_CH_DATABASE (flights), AGENTIC_SPEED_CH_TABLE (ontime),
+#   AGENTIC_SPEED_CH_PORT (8443). The runner must get through the ClickHouse Cloud service's IP access
+#   list (GitHub-hosted runners have no fixed IP): the gate's pre-flight fails fast, before any model
+#   call, when it can't. The Langfuse automation is a UI step (no public API).
+#
+# DEMO TIP
+#   Actions → Analytics at Agentic Speed prompt gate → Run workflow → label `candidate-coarse` → BLOCKED
+#   (a 5-minute grid policy misses the hero question's one-minute answer); `production` → passes.
+#   Seed the candidate first: demos/analytics-agentic-speed/scripts/seed_candidate_prompt.py.
+name: Analytics at Agentic Speed prompt gate
+
+on:
+  repository_dispatch:
+    types: [analytics-agentic-speed-prompt-update]
+  workflow_dispatch:
+    inputs:
+      prompt_label:
+        description: Label to gate (planner + analyst)
+        required: true
+        default: candidate-coarse
+        type: choice
+        options: [candidate-coarse, production, staging, candidate]
+
+concurrency:
+  # One group per LABEL SET, not per prompt version: the gate evaluates the planner + analyst pair at a
+  # label, and labelling the pair sends two events (one per prompt) with the same labels. The second
+  # cancels the first, so the pair is gated once, after both versions carry the label. A housekeeping
+  # event (the old version losing the label, or `previous-production`) has other labels: its own group.
+  group: agentic-speed-gate-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prompt_label || join(github.event.client_payload.prompt.labels, '-') }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Evaluate the prompt pair against the quality bar
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      label: ${{ steps.which.outputs.label }}
+      is_production: ${{ steps.which.outputs.is_production }}
+      skip: ${{ steps.which.outputs.skip }}
+      name: ${{ steps.which.outputs.name }}
+    defaults:
+      run:
+        working-directory: demos/analytics-agentic-speed
+    steps:
+      - uses: actions/checkout@v4
+
+      # The automation fires for EVERY prompt change in the project, so guard: a prompt the dataset does
+      # not exercise → skip; no deployable label → skip. The gate itself also aborts (exit 1) when either
+      # prompt lacks the label, because the agent would silently run its in-code fallback text.
+      - name: Decide which label to gate
+        id: which
+        working-directory: .
+        env:
+          MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
+        run: |
+          set -euo pipefail
+          GATED="analytics-agentic-speed-planner analytics-agentic-speed-analyst"
+          DEPLOYABLE="production staging candidate candidate-coarse"; SKIP=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NAME="planner + analyst"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
+          else
+            NAME=$(jq -r '.client_payload.prompt.name // ""' "$GITHUB_EVENT_PATH")
+            VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
+            LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
+            # `latest` is auto-maintained and `previous-production` is housekeeping: never deploy targets.
+            LABEL=$(jq -r '(.client_payload.prompt.labels // []) | map(select(. != "latest" and . != "previous-production"))
+                           | (map(select(. == "production")) + .) | first // ""' "$GITHUB_EVENT_PATH")
+            if ! printf '%s' " $GATED " | grep -q " $NAME "; then
+              SKIP="\`$NAME\` is not one of the agent's prompts (\`$GATED\`): the dataset does not exercise it."
+            elif [ -z "$LABEL" ]; then
+              SKIP="version $VERSION carries no deployable label (has: \`${LABELS:-none}\`). Add \`staging\` or \`candidate\` to evaluate it."
+            elif ! printf '%s' " $DEPLOYABLE " | grep -q " $LABEL "; then
+              SKIP="label \`$LABEL\` is not one of: $DEPLOYABLE — the gate resolves prompts by label."
+            fi
+          fi
+          IS_PROD=false; case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"; echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"; echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Prompt change"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| prompt | \`$NAME\` |"
+            echo "| version | \`$VERSION\` |"
+            echo "| labels | \`${LABELS:-none}\` |"
+            if [ -n "$SKIP" ]; then
+              echo ""
+              echo "### ⏭️ Skipped — nothing evaluated"
+              echo ""
+              echo "$SKIP"
+              echo ""
+              echo "> A deliberate decision, not a passing gate: no prompt version was evaluated, so this run makes **no claim** about quality."
+            else
+              echo "| gating label | \`$LABEL\` (planner + analyst) |"
+            fi
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v5
+        if: steps.which.outputs.skip == ''
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: demos/analytics-agentic-speed/requirements.txt
+
+      - name: Install
+        if: steps.which.outputs.skip == ''
+        run: pip install -r requirements.txt
+
+      # No .env on the runner: explorer.config.load_env() finds none and the step env below is used as is.
+      # The gate's pre-flight (Langfuse project, both prompts at the label, the read-only ClickHouse user
+      # can read the table) runs before any model call. Non-zero exit on a hard-threshold miss IS the gate.
+      # run_attempt in the run name: a re-run job must not append to the first attempt's dataset run.
+      - name: Gate — 15 questions with exact SQL ground truth
+        if: steps.which.outputs.skip == ''
+        env:
+          EXPLORER_TARGET: cloud
+          CH_HOST: ${{ secrets.AGENTIC_SPEED_CH_HOST }}
+          CH_USER: ${{ secrets.AGENTIC_SPEED_CH_USER }}
+          CH_PASSWORD: ${{ secrets.AGENTIC_SPEED_CH_PASSWORD }}
+          CH_PORT: ${{ vars.AGENTIC_SPEED_CH_PORT || '8443' }}
+          CH_DATABASE: ${{ vars.AGENTIC_SPEED_CH_DATABASE || 'flights' }}
+          CH_TABLE: ${{ vars.AGENTIC_SPEED_CH_TABLE || 'ontime' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LANGFUSE_BASE_URL: ${{ secrets.AGENTIC_SPEED_LANGFUSE_BASE_URL }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.AGENTIC_SPEED_LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.AGENTIC_SPEED_LANGFUSE_SECRET_KEY }}
+        run: |
+          python scripts/prompt_gate.py --prompt-label "${{ steps.which.outputs.label }}" \
+            --run-name "ci · {label} {version} · #${{ github.run_number }}.${{ github.run_attempt }}"
+
+  deploy:
+    name: Ship it
+    needs: gate
+    runs-on: ubuntu-latest
+    # Passed (implicit in `needs`), labelled production, and NOT skipped: a skipped gate "succeeds", so
+    # without the last check an unevaluated change could reach this job.
+    if: needs.gate.outputs.is_production == 'true' && needs.gate.outputs.skip == ''
+    steps:
+      - name: Announce the deploy
+        run: |
+          {
+            echo "### 🚀 Deployed"
+            echo ""
+            echo "The planner + analyst pair at \`${{ needs.gate.outputs.label }}\` passed the quality bar and carries \`production\`."
+            echo "The agent fetches the production-labelled prompts at runtime (60 s SDK cache): nothing to redeploy. Roll back = move the label back."
+          } >> "$GITHUB_STEP_SUMMARY"

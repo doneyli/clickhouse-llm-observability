@@ -1,0 +1,459 @@
+# Evaluation questions (Langfuse dataset `scenario-explorer-questions`).
+#
+# Each question is a what-if or search over a large space (hub x carrier x month x time
+# block x threshold ...) whose answer is computed EXACTLY by `reference_sql`, so grading
+# needs no LLM judge. `scripts/seed_dataset.py` runs the SQL and stores the one row it
+# returns as the item's expected output.
+#
+# Conventions (enforced by tests/test_questions.py):
+# - `{table}` is the only placeholder (Python str.format with the qualified table name),
+#   so the same SQL runs on the Cloud copy (flights.ontime) and the playground (ontime.ontime).
+# - The SQL builds a CTE named `ranked` (answer keys + `metric` + `support`, one row per
+#   candidate) and ends with `SELECT <answer keys> FROM ranked ORDER BY metric ..., <keys> LIMIT 1`.
+#   seed_dataset.py widens that final LIMIT to rank the runner-up and checks the margin.
+# - Cancelled and diverted rows carry ArrDelay = 0 (not NULL), so every delay metric is over
+#   completed flights only: Cancelled = 0 AND Diverted = 0.
+# - "The N busiest origin airports of YEAR" = most rows with that Origin in YEAR, cancelled
+#   flights included (the agent can reproduce it with one GROUP BY).
+# - Delay-cause minutes exist from mid-2003 and only on flights that arrived 15+ min late.
+# - Notes record the validated answer, the runner-up and the relative margin
+#   |best - runner-up| / max(|best|, |runner-up|) on the ranking metric. Questions with a
+#   margin under 2% were rejected (e.g. best on-time cell of 2023: 0.1%).
+
+- id: q-padding
+  difficulty: medium
+  text: >-
+    In 2019, for evening departures (DepTimeBlk 1700-1759 or later) from the 10 busiest origin airports of
+    2019 (ranked by 2019 departures, cancelled flights included), how many minutes of schedule padding
+    would lift on-time arrival above 85%, and at which airport does it take the fewest minutes? With a
+    schedule buffer of 0 to 60 whole minutes, a flight counts as on time when ArrDelay <= 15 + buffer; use
+    completed 2019 flights only (Cancelled = 0 and Diverted = 0) and require the on-time share to be
+    strictly above 85%.
+    Report origin (IATA code, e.g. ATL) and buffer_minutes (the smallest whole number of minutes that
+    works at that airport).
+  answer_keys: [origin, buffer_minutes]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 10
+    ),
+    grid AS (
+        SELECT Origin AS origin, b, countIf(ArrDelay <= 15 + b) / count() AS on_time, count() AS n
+        FROM {table} ARRAY JOIN range(0, 61) AS b
+        WHERE Year = 2019 AND Origin IN top AND DepTimeBlk >= '1700'
+          AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, b
+    ),
+    ranked AS (
+        SELECT origin, minIf(b, on_time > 0.85) AS buffer_minutes, buffer_minutes AS metric,
+               any(n) AS support
+        FROM grid GROUP BY origin HAVING countIf(on_time > 0.85) > 0
+    )
+    SELECT origin, buffer_minutes FROM ranked ORDER BY metric ASC, origin LIMIT 1
+  notes: >-
+    The hero question. 10 airports x 61 buffers = 610 scenarios. Answer LAX, 9 minutes (85.07% on time,
+    68,453 evening flights). Runner-up ATL needs 10 minutes (84.96% at 9 minutes), so the margin is one
+    minute (10% relative): a sweep in 5- or 10-minute steps lands on 10 or picks ATL. All 10 airports
+    reach 85% within 60 minutes (LGA needs 58).
+
+- id: q-carrier-month
+  difficulty: easy
+  text: >-
+    In 2019, which carrier and month had the highest share of completed flights (Cancelled = 0 and
+    Diverted = 0) arriving 15 or more minutes late (ArrDel15 = 1)? Consider every carrier-month with at
+    least 5,000 completed flights. Report carrier (the Reporting_Airline code, e.g. DL) and month (1-12).
+  answer_keys: [carrier, month]
+  reference_sql: |
+    WITH ranked AS (
+        SELECT Reporting_Airline AS carrier, Month AS month, avg(ArrDel15) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2019 AND Cancelled = 0 AND Diverted = 0
+        GROUP BY carrier, month HAVING support >= 5000
+    )
+    SELECT carrier, month FROM ranked ORDER BY metric DESC, carrier, month LIMIT 1
+  notes: >-
+    2 levers, about 200 cells. Answer EV, June (36.2% late, 9,129 flights). Runner-up F9, June (34.0%):
+    margin 6.0%.
+
+- id: q-late-departure-block
+  difficulty: easy
+  text: >-
+    In 2019, among the 30 busiest origin airports of 2019 (ranked by 2019 departures, cancelled flights
+    included), which airport and scheduled departure time block (DepTimeBlk) had the highest average
+    departure delay (mean DepDelay in minutes, early departures counted as negative) over completed 2019
+    flights (Cancelled = 0 and Diverted = 0)? Only airport-block cells with at least 2,000 completed
+    departures in 2019 count.
+    Report origin (IATA code) and dep_time_block (exactly as stored, e.g. 1700-1759).
+  answer_keys: [origin, dep_time_block]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 30
+    ),
+    ranked AS (
+        SELECT Origin AS origin, DepTimeBlk AS dep_time_block, avg(DepDelay) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, dep_time_block HAVING support >= 2000
+    )
+    SELECT origin, dep_time_block FROM ranked ORDER BY metric DESC, origin, dep_time_block LIMIT 1
+  notes: >-
+    2 levers, 30 airports x 19 blocks = 570 cells. Answer EWR, 2000-2059 (38.3 min, 8,240 flights).
+    Runner-up EWR, 1900-1959 (36.8 min): margin 4.0%.
+
+- id: q-worst-route
+  difficulty: easy
+  text: >-
+    In 2019, considering only routes whose origin and destination are both among the 20 busiest origin
+    airports of 2019 (ranked by 2019 departures, cancelled flights included), which route had the highest
+    average arrival delay (mean ArrDelay in minutes over completed flights, Cancelled = 0 and Diverted = 0)?
+    Routes are directional (origin to dest) and need at least 2,000 completed flights to count. Report
+    origin and dest (IATA codes).
+  answer_keys: [origin, dest]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 20
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Dest AS dest, avg(ArrDelay) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2019 AND Origin IN top AND Dest IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, dest HAVING support >= 2000
+    )
+    SELECT origin, dest FROM ranked ORDER BY metric DESC, origin, dest LIMIT 1
+  notes: >-
+    2 levers, up to 380 directional routes. Answer MCO to EWR (24.2 min, 6,762 flights). Runner-up ORD to
+    EWR (21.3 min): margin 12.0%.
+
+- id: q-carrier-hub-month
+  difficulty: medium
+  text: >-
+    In 2022, at the 20 busiest origin airports of 2022 (ranked by 2022 departures, cancelled flights
+    included), which combination of origin airport, carrier and month had the highest share of completed
+    departures (Cancelled = 0 and Diverted = 0) arriving 15 or more minutes late (ArrDel15 = 1)? Only
+    cells with at least 500 completed flights count. Report origin (IATA code), carrier (Reporting_Airline
+    code) and month (1-12).
+  answer_keys: [origin, carrier, month]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2022
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 20
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier, Month AS month,
+               avg(ArrDel15) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2022 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, carrier, month HAVING support >= 500
+    )
+    SELECT origin, carrier, month FROM ranked ORDER BY metric DESC, origin, carrier, month LIMIT 1
+  notes: >-
+    3 levers, 20 airports x ~12 carriers x 12 months (a few thousand cells). Answer on the Cloud copy:
+    MCO, F9, April (55.2% late, 1,660 flights). Runner-up ATL, F9, December (52.9%): margin 4.3%. The
+    public playground's ontime.ontime lacks April 2022 (556,502 rows) and so answers ATL, F9, December:
+    a dev run on the playground fails this item by design.
+
+- id: q-weather-share
+  difficulty: medium
+  text: >-
+    From 2015 through 2019, at the 20 busiest origin airports of 2019 (ranked by 2019 departures, cancelled
+    flights included), in which airport, year and month was weather the largest share of delay minutes?
+    Weather share = sum(WeatherDelay) / sum(CarrierDelay + WeatherDelay + NASDelay + SecurityDelay +
+    LateAircraftDelay) over completed departures (Cancelled = 0 and Diverted = 0) from that airport in that
+    month; only airport-months with at least 1,000 completed departures that arrived 15+ minutes late
+    (ArrDel15 = 1) count. Report origin (IATA code), year and month (1-12).
+  answer_keys: [origin, year, month]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 20
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Year AS year, Month AS month,
+               sum(WeatherDelay) / sum(CarrierDelay + WeatherDelay + NASDelay + SecurityDelay + LateAircraftDelay) AS metric,
+               countIf(ArrDel15 = 1) AS support
+        FROM {table}
+        WHERE Year BETWEEN 2015 AND 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, year, month HAVING support >= 1000
+    )
+    SELECT origin, year, month FROM ranked ORDER BY metric DESC, origin, year, month LIMIT 1
+  notes: >-
+    Delay-cause share, 3 levers, 20 airports x 5 years x 12 months = 1,200 cells. Answer ATL, April 2017
+    (30.3% of delay minutes from weather, 6,557 delayed flights). Runner-up DTW, January 2019 (24.2%):
+    margin 20.2%.
+
+- id: q-late-aircraft
+  difficulty: medium
+  text: >-
+    Pooling 2016 through 2019, at the 15 busiest origin airports of 2019 (ranked by 2019 departures,
+    cancelled flights included), which origin airport, carrier and scheduled departure time block
+    (DepTimeBlk) has the highest share of delay minutes caused by late-arriving aircraft? Share =
+    sum(LateAircraftDelay) / sum(CarrierDelay + WeatherDelay + NASDelay + SecurityDelay +
+    LateAircraftDelay) over completed departures (Cancelled = 0 and Diverted = 0); only cells with at least
+    1,000 completed departures that arrived 15+ minutes late (ArrDel15 = 1) count. Report origin (IATA
+    code), carrier (Reporting_Airline code) and dep_time_block (as stored, e.g. 2000-2059).
+  answer_keys: [origin, carrier, dep_time_block]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 15
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier, DepTimeBlk AS dep_time_block,
+               sum(LateAircraftDelay) / sum(CarrierDelay + WeatherDelay + NASDelay + SecurityDelay + LateAircraftDelay) AS metric,
+               countIf(ArrDel15 = 1) AS support
+        FROM {table}
+        WHERE Year BETWEEN 2016 AND 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, carrier, dep_time_block HAVING support >= 1000
+    )
+    SELECT origin, carrier, dep_time_block FROM ranked
+    ORDER BY metric DESC, origin, carrier, dep_time_block LIMIT 1
+  notes: >-
+    Delay-cause share, 3 levers, 15 airports x ~12 carriers x 19 blocks. Answer LGA, WN, 2000-2059 (78.9%
+    of delay minutes from late aircraft, 1,409 delayed flights). Runner-up LAX, WN, 2200-2259 (76.4%):
+    margin 3.1%.
+
+- id: q-cancellations
+  difficulty: medium
+  text: >-
+    In 2018, at the 25 busiest origin airports of 2018 (ranked by 2018 departures, cancelled flights
+    included), which origin airport, carrier and month had the highest cancellation rate (share of all
+    scheduled departures with Cancelled = 1; diverted flights count as not cancelled)? Only cells with at
+    least 1,000 scheduled departures count. Report origin (IATA code), carrier (Reporting_Airline code) and
+    month (1-12).
+  answer_keys: [origin, carrier, month]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2018
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 25
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier, Month AS month,
+               avg(Cancelled) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2018 AND Origin IN top
+        GROUP BY origin, carrier, month HAVING support >= 1000
+    )
+    SELECT origin, carrier, month FROM ranked ORDER BY metric DESC, origin, carrier, month LIMIT 1
+  notes: >-
+    3 levers, 25 airports x ~15 carriers x 12 months. Answer LGA, 9E, March (14.4% cancelled, 2,325
+    flights; the March 2018 nor'easters). Runner-up CLT, OH, June (13.5%): margin 6.6%.
+
+- id: q-taxi-out
+  difficulty: medium
+  text: >-
+    In 2019, at the 20 busiest origin airports of 2019 (ranked by 2019 departures, cancelled flights
+    included), which origin airport, carrier and month had the longest average taxi-out time (mean TaxiOut
+    in minutes over completed flights, Cancelled = 0 and Diverted = 0)? Only cells with at least 1,000
+    completed departures count. Report origin (IATA code), carrier (Reporting_Airline code) and month
+    (1-12).
+  answer_keys: [origin, carrier, month]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 20
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier, Month AS month,
+               avg(TaxiOut) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, carrier, month HAVING support >= 1000
+    )
+    SELECT origin, carrier, month FROM ranked ORDER BY metric DESC, origin, carrier, month LIMIT 1
+  notes: >-
+    3 levers, 20 airports x ~12 carriers x 12 months. Answer LGA, 9E, August (36.1 min, 1,868 flights).
+    Runner-up LGA, YX, August (33.4 min): margin 7.5%.
+
+- id: q-yoy-decline
+  difficulty: medium
+  text: >-
+    Between 2018 and 2019, which origin airport and carrier pair at the 20 busiest origin airports of 2019
+    (ranked by 2019 departures, cancelled flights included) saw the largest increase in the share of
+    completed departures (Cancelled = 0 and Diverted = 0) arriving 15+ minutes late (ArrDel15 = 1), in
+    percentage points (2019 share minus 2018 share)? Only pairs with at least 5,000 completed departures in
+    each of the two years count. Report origin (IATA code) and carrier (Reporting_Airline code).
+  answer_keys: [origin, carrier]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 20
+    ),
+    ranked AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier,
+               avgIf(ArrDel15, Year = 2019) - avgIf(ArrDel15, Year = 2018) AS metric,
+               least(countIf(Year = 2018), countIf(Year = 2019)) AS support
+        FROM {table}
+        WHERE Year IN (2018, 2019) AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, carrier HAVING support >= 5000
+    )
+    SELECT origin, carrier FROM ranked ORDER BY metric DESC, origin, carrier LIMIT 1
+  notes: >-
+    Two-period comparison over 20 airports x ~12 carriers (each scenario needs both years). Answer IAH, EV
+    (+6.9 points, at least 34,143 flights per year). Runner-up LGA, DL (+6.3 points): margin 8.5%.
+
+- id: q-remove-delay-cause
+  difficulty: medium
+  text: >-
+    In 2019, at the 10 busiest origin airports of 2019 (ranked by 2019 departures, cancelled flights
+    included), consider each airport-carrier pair with at least 5,000 completed departures (Cancelled = 0
+    and Diverted = 0). If one delay cause were removed entirely (subtract CarrierDelay, WeatherDelay,
+    NASDelay or LateAircraftDelay from ArrDelay), which pair and cause would cut the share of completed
+    flights arriving 15+ minutes late (ArrDelay >= 15) by the most percentage points? Report origin (IATA
+    code), carrier (Reporting_Airline code) and cause (one of carrier, weather, nas, late_aircraft).
+  answer_keys: [origin, carrier, cause]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 10
+    ),
+    cells AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier, count() AS n,
+               avg(ArrDelay >= 15) AS late_now,
+               avg(ArrDelay - CarrierDelay >= 15) AS late_no_carrier,
+               avg(ArrDelay - WeatherDelay >= 15) AS late_no_weather,
+               avg(ArrDelay - NASDelay >= 15) AS late_no_nas,
+               avg(ArrDelay - LateAircraftDelay >= 15) AS late_no_late_aircraft
+        FROM {table}
+        WHERE Year = 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, carrier HAVING n >= 5000
+    ),
+    ranked AS (
+        SELECT origin, carrier, cause_cut.1 AS cause, late_now - cause_cut.2 AS metric, n AS support
+        FROM cells
+        ARRAY JOIN [('carrier', late_no_carrier), ('weather', late_no_weather),
+                    ('nas', late_no_nas), ('late_aircraft', late_no_late_aircraft)] AS cause_cut
+    )
+    SELECT origin, carrier, cause FROM ranked ORDER BY metric DESC, origin, carrier, cause LIMIT 1
+  notes: >-
+    Counterfactual what-if, 10 airports x their 5,000+ flight carriers x 4 causes. Answer ORD, NK, nas (removing NAS delay
+    cuts the late share by 13.0 points, 9,553 flights). Runner-up LGA, OO, late_aircraft (12.7 points):
+    margin 3.0%.
+
+- id: q-padding-by-month
+  difficulty: hard
+  text: >-
+    In 2019, for evening departures (DepTimeBlk 1700-1759 or later) from the 5 busiest origin airports of
+    2019 (ranked by 2019 departures, cancelled flights included), find for each airport and month of 2019 the
+    smallest whole-minute schedule buffer B (0 to 60) that brings the on-time share to at least 80%, where
+    a completed flight (Cancelled = 0 and Diverted = 0) counts as on time when ArrDelay <= 15 + B. Which
+    airport-month needs the largest buffer, and how many minutes? Ignore airport-months that cannot reach
+    80% within 60 minutes. Report origin (IATA code), month (1-12) and buffer_minutes.
+  answer_keys: [origin, month, buffer_minutes]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 5
+    ),
+    grid AS (
+        SELECT Origin AS origin, Month AS month, b,
+               countIf(ArrDelay <= 15 + b) / count() AS on_time, count() AS n
+        FROM {table} ARRAY JOIN range(0, 61) AS b
+        WHERE Year = 2019 AND Origin IN top AND DepTimeBlk >= '1700' AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, month, b
+    ),
+    ranked AS (
+        SELECT origin, month, minIf(b, on_time >= 0.80) AS buffer_minutes, buffer_minutes AS metric,
+               any(n) AS support
+        FROM grid GROUP BY origin, month HAVING countIf(on_time >= 0.80) > 0
+    )
+    SELECT origin, month, buffer_minutes FROM ranked ORDER BY metric DESC, origin, month LIMIT 1
+  notes: >-
+    Threshold sweep, 5 airports x 12 months x 61 buffers = 3,660 scenarios. Answer ORD, June, 51 minutes
+    (9,356 evening flights). Runner-up DEN, July (47 minutes): margin 7.8%.
+
+- id: q-padding-carrier
+  difficulty: hard
+  text: >-
+    In 2019, at the 10 busiest origin airports of 2019 (ranked by 2019 departures, cancelled flights
+    included), for each carrier with at least 5,000 completed departures (Cancelled = 0 and Diverted = 0)
+    from that airport in 2019, find the smallest whole-minute schedule buffer B (0 to 90) that brings its
+    2019 on-time share to at least 85%, where a completed flight counts as on time when ArrDelay <= 15 + B. Which
+    airport-carrier pair needs the largest buffer, and how many minutes? Ignore pairs that cannot reach 85%
+    within 90 minutes. Report origin (IATA code), carrier (Reporting_Airline code) and buffer_minutes.
+  answer_keys: [origin, carrier, buffer_minutes]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 10
+    ),
+    grid AS (
+        SELECT Origin AS origin, Reporting_Airline AS carrier, b,
+               countIf(ArrDelay <= 15 + b) / count() AS on_time, count() AS n
+        FROM {table} ARRAY JOIN range(0, 91) AS b
+        WHERE Year = 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, carrier, b
+    ),
+    ranked AS (
+        SELECT origin, carrier, minIf(b, on_time >= 0.85) AS buffer_minutes, buffer_minutes AS metric,
+               any(n) AS support
+        FROM grid GROUP BY origin, carrier
+        HAVING support >= 5000 AND countIf(on_time >= 0.85) > 0
+    )
+    SELECT origin, carrier, buffer_minutes FROM ranked ORDER BY metric DESC, origin, carrier LIMIT 1
+  notes: >-
+    Threshold sweep, 69 airport-carrier pairs x 91 buffers (all pairs reach 85%). Answer LGA, OO, 41
+    minutes (10,951 flights). Runner-up LGA, B6 and ORD, EV (38 minutes each): margin 7.3%. A 90% target
+    was rejected: LGA, OO and ORD, EV tie at 67 minutes.
+
+- id: q-connection-window
+  difficulty: hard
+  text: >-
+    In 2019, at the 15 busiest destination airports of 2019 (ranked by 2019 arrivals, cancelled flights
+    included), for each carrier with at least 10,000 completed arrivals (Cancelled = 0 and Diverted = 0)
+    there in 2019, find the shortest connection buffer W in whole minutes (0 to 120) such that at least 95%
+    of its completed 2019 arrivals have ArrDelay <= W. Which airport-carrier pair needs the shortest buffer, and what
+    is it? Report dest (IATA code), carrier (Reporting_Airline code) and buffer_minutes.
+  answer_keys: [dest, carrier, buffer_minutes]
+  reference_sql: |
+    WITH top AS (
+        SELECT Dest FROM {table} WHERE Year = 2019
+        GROUP BY Dest ORDER BY count() DESC, Dest LIMIT 15
+    ),
+    grid AS (
+        SELECT Dest AS dest, Reporting_Airline AS carrier, w,
+               countIf(ArrDelay <= w) / count() AS covered, count() AS n
+        FROM {table} ARRAY JOIN range(0, 121) AS w
+        WHERE Year = 2019 AND Dest IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY dest, carrier, w
+    ),
+    ranked AS (
+        SELECT dest, carrier, minIf(w, covered >= 0.95) AS buffer_minutes, buffer_minutes AS metric,
+               any(n) AS support
+        FROM grid GROUP BY dest, carrier
+        HAVING support >= 10000 AND countIf(covered >= 0.95) > 0
+    )
+    SELECT dest, carrier, buffer_minutes FROM ranked ORDER BY metric ASC, dest, carrier LIMIT 1
+  notes: >-
+    Connection-window threshold, 15 airports x their 10,000+ arrival carriers x 121 windows. Answer ATL, DL, 44 minutes
+    (243,201 arrivals). Runner-up LAS, DL (47 minutes): margin 6.4%.
+
+- id: q-weekday-block
+  difficulty: medium
+  text: >-
+    In 2019, at the 10 busiest origin airports of 2019 (ranked by 2019 departures, cancelled flights
+    included), which combination of origin airport, day of week and scheduled departure time block
+    (DepTimeBlk) had the highest average departure delay (mean DepDelay in minutes over completed flights,
+    Cancelled = 0 and Diverted = 0)? Only cells with at least 1,000 completed departures count. Report
+    origin (IATA code), day_of_week (1 = Monday to 7 = Sunday, as in DayOfWeek) and dep_time_block (as
+    stored, e.g. 1900-1959).
+  answer_keys: [origin, day_of_week, dep_time_block]
+  reference_sql: |
+    WITH top AS (
+        SELECT Origin FROM {table} WHERE Year = 2019
+        GROUP BY Origin ORDER BY count() DESC, Origin LIMIT 10
+    ),
+    ranked AS (
+        SELECT Origin AS origin, DayOfWeek AS day_of_week, DepTimeBlk AS dep_time_block,
+               avg(DepDelay) AS metric, count() AS support
+        FROM {table}
+        WHERE Year = 2019 AND Origin IN top AND Cancelled = 0 AND Diverted = 0
+        GROUP BY origin, day_of_week, dep_time_block HAVING support >= 1000
+    )
+    SELECT origin, day_of_week, dep_time_block FROM ranked
+    ORDER BY metric DESC, origin, day_of_week, dep_time_block LIMIT 1
+  notes: >-
+    3 levers, 10 x 7 x 19 = 1,330 cells. Answer LGA, Thursday (4), 1900-1959 (50.1 min, 1,471 flights).
+    Runner-up LGA, Thursday, 2100-2159 (48.4 min): margin 3.4%. The DepDel15-share version of this
+    question was a near-tie (1.85%) and was rejected.

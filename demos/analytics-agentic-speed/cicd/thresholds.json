@@ -1,0 +1,54 @@
+{
+  "_doc": "Regression gate for the analytics-agentic-speed planner + analyst prompts (one label = the pair). HARD rules block; SOFT rules warn. 'min' is a floor, 'max' a ceiling. Bounds are policy choices relative to a historical baseline, not a demonstrated noise tolerance. See calibration and cicd/README.md. The gate also requires every item evaluated and read back from Langfuse with an answer_correct score. A MISSING metric fails.",
+  "dataset": "scenario-explorer-questions",
+  "calibration": {
+    "status": "provisional",
+    "dataset_version_reviewed": "2026-11-27T03:25:48.869Z",
+    "reason": "The full-run baseline predates question-text and code changes. Repeated current-code runs and a held-out challenge set have not validated these bounds.",
+    "audit": "docs/EVALUATOR_AUDIT.md"
+  },
+  "config": {
+    "_doc": "The standard Experiment A wide config used by the historical baseline. scripts/prompt_gate.py runs exactly this; tests/test_prompt_gate.py keeps it equal to scripts/run_experiment.py (BREADTH['wide'], EXPERIMENT_A_ROUNDS).",
+    "max_scenarios_per_round": 300,
+    "max_rounds": 2
+  },
+  "baseline": {
+    "_doc": "production v1 (planner v1, analyst v1), claude-opus-5-5, 15 questions, 300 scenarios/round, 2 rounds: Langfuse run breadth-300-20261126T232112Z.",
+    "accuracy": 0.8,
+    "must_pass:q-padding": 1,
+    "mean_run_cost_usd": 0.1445,
+    "mean_wall_s": 66.3,
+    "mean_db_time_share": 0.0667,
+    "mean_scenarios_evaluated": 418.5,
+    "mean_llm_calls": 3.6,
+    "errors": 0
+  },
+  "must_pass": [
+    "q-padding"
+  ],
+  "hard": {
+    "accuracy": {
+      "min": 0.7
+    },
+    "mean_run_cost_usd": {
+      "max": 0.22
+    }
+  },
+  "soft": {
+    "mean_wall_s": {
+      "max": 120
+    },
+    "mean_db_time_share": {
+      "max": 0.15
+    },
+    "mean_scenarios_evaluated": {
+      "min": 250
+    },
+    "mean_llm_calls": {
+      "max": 5
+    },
+    "errors": {
+      "max": 0
+    }
+  }
+}
