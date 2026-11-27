@@ -11,29 +11,45 @@ version that produced it.
 (The agentic-rag demo has its own prompt via scripts/seed-langfuse-prompt.py;
 this script covers the two LangChain apps that previously hard-coded prompts.)
 
-Idempotent: for each (name, label) a new version is created ONLY if the prompt is
-missing or its text differs from what's checked in here — re-running is a no-op.
+Reconciles, idempotently. For each (name, label) in PROMPTS it reads the version the
+label serves today and compares the complete definition: type, text and config, and
+that the version carries the label. Only when something differs does it create a new
+version carrying the label (which moves the label onto it); an unchanged run writes
+nothing. Each entry prints created / updated / unchanged / failed with what differed,
+and a failed read or write never stops the other entries but makes the exit code 1.
 
-Usage (from repo root, after sourcing .env):
+Usage (from repo root; keys from the environment, LANGFUSE_BASE_URL wins over LANGFUSE_HOST):
     LANGFUSE_HOST=http://localhost:3001 \
     LANGFUSE_PUBLIC_KEY=pk-lf-... LANGFUSE_SECRET_KEY=sk-lf-... \
-    python scripts/seed-app-prompts.py
+    python scripts/seed-app-prompts.py [--only NAME ...] [--dry-run]
+
+The demos wrap this with a seed entry point that loads the root .env first and ignores
+shell-exported LANGFUSE_* (demos/vector-rag/scripts/seed_all.py, demos/text-to-sql/...).
 """
 
+import argparse
 import base64
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3001").rstrip("/")
+DEFAULT_HOST = "http://localhost:3001"
+
+
+def resolve_host(environ=None) -> str:
+    """LANGFUSE_BASE_URL first (the SDK v4 order), then LANGFUSE_HOST, then the local stack."""
+    env = os.environ if environ is None else environ
+    return (env.get("LANGFUSE_BASE_URL") or env.get("LANGFUSE_HOST") or DEFAULT_HOST).strip().rstrip("/")
+
+
+# Kept for callers that read them; main() resolves its own from the environment it is given.
+HOST = resolve_host()
 PK = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 SK = os.getenv("LANGFUSE_SECRET_KEY", "")
 CONFIG = {"model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"), "temperature": 0.7}
-
-_auth = base64.b64encode(f"{PK}:{SK}".encode()).decode()
-_HEADERS = {"Authorization": f"Basic {_auth}", "Content-Type": "application/json"}
 
 # ---------------------------------------------------------------------------
 # Prompt texts — Langfuse {{var}} syntax. These MIRROR the local fallback
@@ -230,25 +246,61 @@ PROMPTS = [
 ]
 
 
-def _get(name: str, label: str):
-    url = f"{HOST}/api/public/v2/prompts/{urllib.parse.quote(name)}?label={label}"
-    req = urllib.request.Request(url, headers=_HEADERS, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        raise
+PROMPT_TYPE = "text"  # every prompt here is a text prompt; a chat prompt under the label is drift
 
 
-def _create(name: str, text: str, label: str, message: str, config: dict = None) -> dict:
-    body = {"name": name, "type": "text", "prompt": text, "labels": [label],
-            "config": config or CONFIG, "commitMessage": message}
-    req = urllib.request.Request(f"{HOST}/api/public/v2/prompts",
-                                 data=json.dumps(body).encode(), headers=_HEADERS, method="POST")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+class SeedError(Exception):
+    """A failed read or write: an HTTP status, a network error, or a response that is wrong."""
+
+    def __init__(self, message: str, status=None):
+        super().__init__(message)
+        self.status = status
+
+
+class Client:
+    """The three prompt calls the seeder makes, on the Prompts v2 API (Cloud and v3 servers)."""
+
+    def __init__(self, host: str, public_key: str, secret_key: str, opener=None, timeout: float = 30):
+        self.host = host.rstrip("/")
+        token = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
+        self.headers = {"Authorization": f"Basic {token}", "Content-Type": "application/json",
+                        "Accept": "application/json"}
+        self.opener = opener or urllib.request.urlopen
+        self.timeout = timeout
+
+    def _call(self, method: str, path: str, params=None, body=None):
+        url = self.host + path + ("?" + urllib.parse.urlencode(params) if params else "")
+        data = None if body is None else json.dumps(body).encode()
+        req = urllib.request.Request(url, data=data, headers=self.headers, method=method)
+        try:
+            with self.opener(req, timeout=self.timeout) as r:
+                raw = r.read()
+        except urllib.error.HTTPError as e:
+            raise SeedError(f"{method} {path}: HTTP {e.code} {e.reason}", e.code) from None
+        except (urllib.error.URLError, OSError) as e:
+            raise SeedError(f"{method} {path}: {type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            raise SeedError(f"{method} {path}: response is not JSON") from None
+
+    def by_label(self, name: str, label: str):
+        """The version `label` serves today, or None when no version carries it."""
+        try:
+            return self._call("GET", f"/api/public/v2/prompts/{urllib.parse.quote(name, safe='')}",
+                              {"label": label})
+        except SeedError as e:
+            if e.status == 404:
+                return None
+            raise
+
+    def exists(self, name: str) -> bool:
+        """Whether any version of `name` exists, under any label."""
+        d = self._call("GET", "/api/public/v2/prompts", {"name": name, "limit": 1}) or {}
+        return any(p.get("name") == name for p in d.get("data") or [])
+
+    def create(self, body: dict) -> dict:
+        return self._call("POST", "/api/public/v2/prompts", body=body) or {}
 
 
 def _unpack(entry):
@@ -259,21 +311,83 @@ def _unpack(entry):
     return name, text, message, label, config
 
 
-def main():
-    if not PK or not SK:
-        raise SystemExit("LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set (source .env first).")
-    print(f"Seeding app prompts at {HOST} ...")
+def drift(current, text: str, label: str, config: dict) -> list:
+    """The parts of the served version that differ from the desired definition ([] = in sync).
+    Text is compared exactly: whitespace in a prompt is part of the prompt."""
+    if current is None:
+        return ["missing"]
+    out = []
+    if current.get("type") != PROMPT_TYPE:
+        out.append(f"type {current.get('type')!r} -> {PROMPT_TYPE!r}")
+    if current.get("prompt") != text:
+        out.append("text")
+    if (current.get("config") or {}) != (config or {}):
+        out.append(f"config {current.get('config') or {}} -> {config or {}}")
+    if label not in (current.get("labels") or []):
+        out.append(f"label {label!r}")
+    return out
+
+
+def reconcile(client: Client, entry, dry_run: bool = False):
+    """(result, detail) for one entry: result is created, updated or unchanged. Raises SeedError."""
+    name, text, message, label, config = _unpack(entry)
+    current = client.by_label(name, label)
+    diff = drift(current, text, label, config)
+    if not diff:
+        return "unchanged", f"v{current.get('version')}"
+    if current is None:
+        result = "updated" if client.exists(name) else "created"
+        detail = f"label {label!r} added" if result == "updated" else "new prompt"
+    else:
+        result, detail = "updated", ", ".join(diff) + f" (was v{current.get('version')})"
+    if dry_run:
+        return result, detail + " [dry run]"
+    created = client.create({"name": name, "type": PROMPT_TYPE, "prompt": text, "labels": [label],
+                             "config": config or {}, "commitMessage": message})
+    if not isinstance(created.get("version"), int) or label not in (created.get("labels") or []):
+        raise SeedError(f"POST /api/public/v2/prompts for {name}: response has no version carrying "
+                        f"label {label!r}: {json.dumps(created)[:200]}")
+    return result, f"{detail}; now v{created['version']}"
+
+
+def main(argv=None, environ=None, opener=None) -> int:
+    ap = argparse.ArgumentParser(description="Reconcile the text-to-sql and vector-rag managed prompts.")
+    ap.add_argument("--only", action="append", metavar="NAME",
+                    help="reconcile only this prompt name (repeatable); default: all of them")
+    ap.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
+    args = ap.parse_args(argv)
+    names = {e[0] for e in PROMPTS}
+    unknown = sorted(set(args.only or []) - names)
+    if unknown:
+        ap.error(f"unknown prompt name(s): {', '.join(unknown)} (known: {', '.join(sorted(names))})")
+
+    env = os.environ if environ is None else environ
+    pk, sk = env.get("LANGFUSE_PUBLIC_KEY", ""), env.get("LANGFUSE_SECRET_KEY", "")
+    if not pk or not sk:
+        print("LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set (source .env first).", file=sys.stderr)
+        return 1
+    host = resolve_host(env)
+    client = Client(host, pk, sk, opener=opener)
+
+    print(f"Seeding app prompts at {host}" + (" (dry run)" if args.dry_run else "") + " ...")
+    counts = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0}
     for entry in PROMPTS:
-        name, text, message, label, config = _unpack(entry)
-        existing = _get(name, label)
-        if existing is not None and (existing.get("prompt") or "").strip() == text.strip():
-            print(f"  ✓ {name} [{label}] already up to date (v{existing.get('version')})")
+        name, _text, _message, label, _config = _unpack(entry)
+        if args.only and name not in args.only:
             continue
-        created = _create(name, text, label, message, config)
-        verb = "updated" if existing is not None else "created"
-        print(f"  + {name} [{label}] {verb} (v{created.get('version')})")
-    print(f"\nDone. View: {HOST} → Prompts. The apps fetch these by label=production at runtime.")
+        try:
+            result, detail = reconcile(client, entry, dry_run=args.dry_run)
+        except SeedError as e:
+            result, detail = "failed", str(e)
+        counts[result] += 1
+        print(f"  {result:<9} {name} [{label}]: {detail}")
+    print("\n" + ", ".join(f"{n} {k}" for k, n in counts.items()))
+    if counts["failed"]:
+        print("Some prompts were not reconciled; fix the cause above and run again.", file=sys.stderr)
+        return 1
+    print(f"Done. View: {host} → Prompts. The apps fetch these by label=production at runtime.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
