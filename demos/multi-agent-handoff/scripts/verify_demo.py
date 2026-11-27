@@ -12,7 +12,8 @@ and their agent cards, recent production traffic.
 baseline, reads each trace and its online scores back from Langfuse, and checks that the
 catching layer tripped. It also reports what the "missed by" layer saw, because that is
 the lesson of each fault. Judges are probabilistic, so a judge miss is a WARN, not a FAIL.
-Exit 1 if any required check fails. Needs the A2A services: ./scripts/run_services.sh
+The last line is READY or NOT READY; exit 1 if any required check fails. Needs the A2A
+services: ./scripts/run_services.sh
 """
 
 from __future__ import annotations
@@ -311,6 +312,8 @@ def main() -> None:
     print(f"\n{len(FAIL)} required failure(s), {len(WARN)} warning(s)")
     if FAIL:
         print("FAILED:", ", ".join(FAIL))
+    print("NOT READY" if FAIL else "READY")
+    if FAIL:
         sys.exit(1)
 
 

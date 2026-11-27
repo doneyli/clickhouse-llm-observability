@@ -1,0 +1,26 @@
+# Demo manifest: see demos/CONTRIBUTING.md and docs/DEMO_STANDARD_SPEC.md §6.
+# Commands run from this folder (standalone profile).
+name: multi-agent-handoff
+title: Multi-Agent Handoff (A2A)
+pitch: Support agents hand off work over A2A 1.0, with every handoff traced and scored, one trace and session across services, and one bug taken round the loop
+profile: standalone
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate, deploy]
+stack: [python, a2a, anthropic-sdk, sqlite]
+langfuse:
+  target: cloud
+  project: multi-agent-handoff
+length:
+  full_min: 60
+  short_min: 30
+commands:
+  install: uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+  seed: .venv/bin/python scripts/seed_all.py      # wraps seed_prompts, seed_datasets, seed_evals and seed_dashboards
+  run: ./scripts/run_services.sh && .venv/bin/python scripts/run_scenario.py hero-outage-credit --topology a2a
+  verify: .venv/bin/python scripts/verify_demo.py
+  test: .venv/bin/python -m pytest -q tests
+  reset: .venv/bin/python scripts/loop.py reset
+addons:
+  - spec
+  - cicd: [cicd/README.md, cicd/thresholds.json, ../../.github/workflows/handoff-prompt-gate.yml]   # existing name kept (D8)
+  - measurements: [docs/LINKAGE_MATRIX.live.md, docs/TOPOLOGY_COMPARISON.md, docs/CONVERSATION_COMPARISON.md, docs/FAULT_MATRIX.md, docs/LOOP_RUN.md]   # one file per measured table (D8)

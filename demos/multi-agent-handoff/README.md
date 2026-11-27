@@ -1,10 +1,10 @@
-# Multi-agent handoff demo (A2A)
+# Multi-Agent Handoff (A2A) — Support agents hand off work over A2A 1.0, with every handoff traced and scored, one trace and session across services, and one bug taken round the loop
 
 A support desk for **Northwind Mobile**, a fictional phone and home-internet provider. Agents hand
 work to each other over **A2A 1.0**, and every handoff is traced and evaluated in Langfuse. All
 customers, lines, outages and invoices are synthetic.
 
-**The questions it answers** (from public-training feedback, DON-245):
+**The question it answers:** three of them, from public-training feedback (DON-245).
 
 1. What does a handoff between agents look like in a trace?
 2. Does a handoff stay in the same trace and session, or split, and how do you keep the pieces
@@ -16,13 +16,49 @@ It also runs the whole AI engineering loop on one bug: a bad routing prompt ship
 flags it in production, a reviewer labels the flagged handoffs, they become test cases, the fix goes
 through a CI gate, and the dashboard shows the misroutes stop ([The loop on one bug](#the-loop-on-one-bug-f1)).
 
-- **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md), the talk track act by act (about 45 minutes)
-- **Design and measured results:** [SPEC.md](SPEC.md)
-- **Measured tables:** [linkage, live](docs/LINKAGE_MATRIX.live.md) ·
+<!-- demo-card:start -->
+| | |
+|---|---|
+| **Covers** | Trace · Monitor · Datasets · Experiment · Evaluate · Deploy |
+| **Stack** | Python · A2A · Anthropic SDK · SQLite |
+| **Runs as** | Standalone: own toolchain and `.env` |
+| **Langfuse** | Cloud · project `multi-agent-handoff` |
+| **Length** | 60 min · short path 30 min |
+| **Present it** | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) |
+<!-- demo-card:end -->
+
+- **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md), the talk track act by act (about 60 minutes, 30-minute short path)
+- **Design record:** [SPEC.md](SPEC.md), with the measured results
+- **CI gate:** [cicd/README.md](cicd/README.md)
+- **Measured numbers:** [linkage, live](docs/LINKAGE_MATRIX.live.md) ·
   [single vs. multi-agent](docs/TOPOLOGY_COMPARISON.md) ·
   [conversations](docs/CONVERSATION_COMPARISON.md) · [faults](docs/FAULT_MATRIX.md) ·
   [one pass round the loop](docs/LOOP_RUN.md)
-- **CI gate setup:** [cicd/README.md](cicd/README.md)
+
+## What it demonstrates
+
+| Capability | Where it shows up |
+|---|---|
+| A handoff as a step you can open in the trace | Every `handoff` observation carries the payload that crossed the boundary, the A2A task and context ids, and which headers linked it (`handoff/transport.py`; Act 1) |
+| One trace and one session across three processes | `traceparent` plus baggage scoped to the one A2A call; five linkage modes measured offline and on Cloud (`scripts/linkage_matrix.py`; Act 2) |
+| Online evaluation of the handoff, not only the answer | Two code evaluators and two LLM judges, each on a rule that selects its observation by `metadata.role` (`scripts/seed_evals.py`; Act 3) |
+| Failures that only exist between agents | Five seeded faults, each with a switch and the layer that catches it (`handoff/faults.py`, `scripts/verify_demo.py --faults`; Acts 2 to 5) |
+| Single agent vs. multi-agent, measured | The same agents in three topologies on the same dataset items (`scripts/run_experiment.py`, `scripts/compare_runs.py`; Act 6) |
+| Multi-turn conversations and human review | Simulated customers, session scores written by code, and a `SESSION` annotation queue (`scripts/run_traffic.py`; Act 7) |
+| Dashboards as code | Two dashboards, 24 widgets, with scores split by the prompt versions each turn ran (`scripts/seed_dashboards.py`; Act 8) |
+| Prompt management and a CI gate | The agents fetch prompts by label, the loop moves `production`, and a deterministic gate decides the release (`scripts/loop.py`, `scripts/prompt_gate.py`, [cicd/README.md](cicd/README.md); Act 8) |
+
+## Who it's for
+
+Teams that build, or are about to build, agents that hand work to each other, often across teams
+and services: the engineers who own the tracing, and whoever owns evaluation.
+
+Pick it when the questions are about the handoff itself: what crosses the boundary, whether the
+trace and the session survive it, and how to score routing separately from the final answer. The
+repo's other multi-agent demos run in one process or have one fixed delegation step
+([SPEC.md](SPEC.md) §3 compares them). For the AI engineering loop on a single agent,
+[Property Concierge](../real-estate/) is the shorter path. The rest are in the
+[demo index](../README.md).
 
 ## What runs where
 
@@ -47,6 +83,9 @@ through a CI gate, and the dashboard shows the misroutes stop ([The loop on one 
 - **A delegation (`ask_billing`) is a question:** the caller keeps the conversation and gets the answer
   back.
 - **The models decide every handoff;** no code routes requests.
+- **What lands in Langfuse:** trace `support-turn`; the conversation's id as the session and the
+  customer's id as the user; tags `topology:<name>` and `scenario:<id>`; and the prompt versions the
+  turn ran as the trace version.
 
 | Agent | Runs as | Owns | Can hand to |
 |---|---|---|---|
@@ -65,24 +104,31 @@ That makes the single- vs. multi-agent comparison like for like.
 ## Set up from scratch
 
 You need Python 3.11+, [`uv`](https://docs.astral.sh/uv/), an Anthropic API key, and a Langfuse
-Cloud project with its API keys. The judges also need an LLM connection; this project uses the
-organization's connection named `Anthropic` (see [Troubleshooting](#troubleshooting)).
+Cloud project named `multi-agent-handoff` with its API keys. The judges also need an LLM
+connection; this project uses the organization's connection named `Anthropic` (see
+[Troubleshooting](#troubleshooting)).
 
 ```bash
 cd demos/multi-agent-handoff
 uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env            # then fill in LANGFUSE_PUBLIC_KEY / _SECRET_KEY / _BASE_URL and ANTHROPIC_API_KEY
-.venv/bin/python -m pytest -q tests                        # 39 tests, no server or model calls
+.venv/bin/python -m pytest -q tests                        # 45 tests, no server or model calls
 ```
 
-Seed the project. Every seeder is idempotent and reconciles drift, so re-running is safe.
+Seed the project. `scripts/seed_all.py` runs the four seeders in order and stops at the first one
+that fails. Every seeder is idempotent and reconciles drift, so re-running is safe. `./setup.sh`
+does not run it.
 
 ```bash
-.venv/bin/python scripts/seed_prompts.py --faults     # 4 agent prompts @production + fault variants @fault-f1 / @fault-f3
-.venv/bin/python scripts/seed_datasets.py             # handoff-routing (40 items) + handoff-conversations (12)
-.venv/bin/python scripts/seed_evals.py --judges --queue   # 2 code evaluators, 2 LLM judges, rules, 2 review queues
-.venv/bin/python scripts/seed_dashboards.py           # 2 dashboards, 24 widgets (--check runs every widget query)
+.venv/bin/python scripts/seed_all.py                  # the four below, in order (--plan prints them and runs nothing)
+#   scripts/seed_prompts.py --faults                    4 agent prompts @production + fault variants @fault-f1 / @fault-f3
+#   scripts/seed_datasets.py                            handoff-routing (40 items) + handoff-conversations (12)
+#   scripts/seed_evals.py --judges --queue              2 code evaluators, 2 LLM judges, rules, 2 review queues
+#   scripts/seed_dashboards.py                          2 dashboards, 24 widgets (--check runs every widget query)
 ```
+
+After a pass round the loop, seeding puts the seeded concierge prompt back in production as a new
+version. Run `scripts/loop.py status` first if the fix should stay live.
 
 Start the agents and generate data:
 
@@ -92,7 +138,7 @@ Start the agents and generate data:
 .venv/bin/python scripts/run_experiment.py --topology single    # the three-way comparison, ~2 min each
 .venv/bin/python scripts/run_experiment.py --topology local
 .venv/bin/python scripts/run_experiment.py --topology a2a
-.venv/bin/python scripts/verify_demo.py               # readiness: should print 0 required failures
+.venv/bin/python scripts/verify_demo.py               # readiness: should end with READY
 ```
 
 The `.env` is the only source of `LANGFUSE_*`. Shell-exported keys are ignored on purpose, because
@@ -103,7 +149,7 @@ a key for another project would silently send the traces there.
 | When | Do | Why |
 |---|---|---|
 | The day before | `.venv/bin/python scripts/verify_demo.py --faults` | Runs one live turn per fault and checks each one trips its catching layer (~4 min, a few cents) |
-| 30 min before | `./scripts/run_services.sh` then `scripts/verify_demo.py` | Services up, prompts, datasets, evaluators active, queues and dashboards present |
+| 30 min before | `./scripts/run_services.sh` then `scripts/verify_demo.py` | Prints READY: services up, prompts, datasets, evaluators active, queues and dashboards present |
 | 30 min before, for Act 8 | `scripts/loop.py ship-bug` then `scripts/run_traffic.py --repeat 2` (~8 min) | Production runs the F1 bug, with a dashboard's worth of traffic and judge flags to start the loop from |
 | 15 min before | `scripts/run_traffic.py --only conv-01 conv-02 conv-05 conv-07` | Fresh sessions, judge scores and queue items from today (conv-05 is the judge-vs-policy example in Act 7) |
 | Tabs to open | Langfuse → Tracing, Sessions, Evaluators, Datasets → `handoff-routing` → Runs, Annotation queues, Dashboards → **Handoffs — quality** | Each act starts on one of these |
@@ -298,6 +344,65 @@ mode ([docs/LINKAGE_MATRIX.live.md](docs/LINKAGE_MATRIX.live.md)). Baggage is sc
 call, carries no PII, and never goes to a partner. The demo also turns off the Anthropic SDK's own
 trace-header injection, which would otherwise send baggage to the model API.
 
+## Configuration
+
+Settings come from the demo's `.env`. Everything except `LANGFUSE_*` can also be set in the shell
+for one command, which is how the fault switches are meant to be used.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | blank | Keys for the `multi-agent-handoff` project. Read from the `.env` only |
+| `LANGFUSE_BASE_URL` | `https://us.cloud.langfuse.com` | Langfuse region or host. Read from the `.env` only |
+| `ANTHROPIC_API_KEY` | blank | Model key for the agents and the simulated customer |
+| `HANDOFF_ROUTER_MODEL` | `claude-haiku-5-5` | The concierge's model |
+| `HANDOFF_SPECIALIST_MODEL` | `claude-sonnet-5-5` | Model for tech-support, billing and the single-agent baseline |
+| `HANDOFF_SIMULATOR_MODEL` | `claude-haiku-5-5` | The simulated customer's model |
+| `HANDOFF_PROMPT_LABEL` | `production` | The prompt label the agents fetch |
+| `HANDOFF_ENVIRONMENT`, `HANDOFF_RELEASE` | `production`, `1.0.0` | Environment and release on every trace. The online rules run on `production` only |
+| `BILLING_PORT`, `TECH_SUPPORT_PORT` | `9310`, `9311` | Ports of the two A2A services |
+| `HANDOFF_HOST` | `127.0.0.1` | Host the services bind to, and the default host in their URLs |
+| `BILLING_URL`, `TECH_SUPPORT_URL` | built from the host and port | Where callers reach each service. Pointing `BILLING_URL` nowhere is fault F5 |
+| `HANDOFF_A2A_TIMEOUT_S` | `120` | How long a handoff waits for a remote agent |
+| `HANDOFF_MAX_HANDOFFS` | `4` | The hop cap for one turn |
+| `HANDOFF_LEDGER` | `.run/ledger.sqlite` | The shared back-office ledger file |
+| `HANDOFF_JUDGE_PROVIDER` | `Anthropic` | The name of the LLM connection the judges use (case-sensitive), read by `seed_evals.py` |
+| `HANDOFF_CAPTURE_DIR` | unset | Write spans to JSONL files in this folder instead of Langfuse (offline) |
+| `HANDOFF_OFFLINE_PROMPTS` | unset | `1` uses the prompt texts in the code instead of fetching them from Langfuse |
+| `HANDOFF_SLIM_CONTEXT` | unset | `1` drops `line_id` from handoff payloads (fault F2). Shell only |
+| `BILLING_FAULT_LATENCY_MS`, `TECH_SUPPORT_FAULT_LATENCY_MS` | `0` | Delay a service's replies (fault F5). Set it when starting the services |
+| `HANDOFF_TRUST_SHELL_KEYS` | unset | `1` reads `LANGFUSE_*` from the shell, as CI does (`CI=true`) |
+
+## Layout
+
+```
+demo.yaml           the manifest: profile, coverage, commands (feeds the demo index)
+handoff/            the system: agents/ (registry, agent loop, A2A service handler), orchestrator.py (the hub),
+                    transport.py (the handoff observation), linkage.py (what crosses the wire), a2a_client.py,
+                    a2a_service.py (trace context in, task out), tools/ (fake back office, policy oracle, ledger),
+                    prompts.py, faults.py, datasets.py, evals.py (experiment evaluators), conversation.py (simulator)
+evaluators/         the code evaluators uploaded to Langfuse (stdlib Python)
+scripts/            seed_all.py (the one seed entry point) over seed_*.py (prompts, datasets, evals, dashboards),
+                    run_services.sh, run_scenario.py, run_traffic.py, run_experiment.py, compare_runs.py,
+                    linkage_matrix.py, verify_demo.py, show_trace.py; the loop: loop.py (label moves),
+                    flag_handoffs.py, promote_to_dataset.py, judge_calibration.py, prompt_gate.py
+cicd/               the gate's thresholds and CI setup (the workflow is .github/workflows/handoff-prompt-gate.yml)
+data/               customers, outages, KB, scenarios (synthetic; data/generate.py rebuilds them)
+docs/               measured tables
+tests/              oracle, ledger, evaluators (incl. the uploaded code evaluators), linkage modes, seed_all, the readiness verdict
+```
+
+## Tests
+
+```bash
+cd demos/multi-agent-handoff
+.venv/bin/python -m pytest -q tests        # 45 tests, about 15 s
+```
+
+No services, no Langfuse and no model calls. They cover the credit policy oracle, the back-office
+ledger, the experiment evaluators, the two code evaluators exactly as uploaded to Langfuse, the five
+linkage modes, the seed entry point and the readiness check's verdict. The linkage test starts its
+own stub agents on ports 19310 and 19311 and captures their spans to files.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -313,23 +418,6 @@ trace-header injection, which would otherwise send baggage to the model API.
 | Production still runs the F1 bug after a rehearsal | `scripts/loop.py status`, then `loop.py promote` (the fix) or `loop.py reset` (the seeded prompt) |
 | The gate aborts: "has no version labelled …" | The gated prompt must carry that label (`loop.py fix` creates `candidate`); otherwise the gate would grade production |
 
-## Layout
-
-```
-handoff/            the system: agents/ (registry, agent loop, A2A service handler), orchestrator.py (the hub),
-                    transport.py (the handoff observation), linkage.py (what crosses the wire), a2a_client.py,
-                    a2a_service.py (trace context in, task out), tools/ (fake back office, policy oracle, ledger),
-                    prompts.py, faults.py, datasets.py, evals.py (experiment evaluators), conversation.py (simulator)
-evaluators/         the code evaluators uploaded to Langfuse (stdlib Python)
-scripts/            seed_*.py (prompts, datasets, evals, dashboards), run_services.sh, run_scenario.py, run_traffic.py,
-                    run_experiment.py, compare_runs.py, linkage_matrix.py, verify_demo.py, show_trace.py; the loop:
-                    loop.py (label moves), flag_handoffs.py, promote_to_dataset.py, judge_calibration.py, prompt_gate.py
-cicd/               the gate's thresholds and CI setup (the workflow is .github/workflows/handoff-prompt-gate.yml)
-data/               customers, outages, KB, scenarios (synthetic; data/generate.py rebuilds them)
-docs/               measured tables
-tests/              oracle, ledger, evaluators (incl. the uploaded code evaluators), linkage modes
-```
-
 ## Known limits
 
 - **Small samples.** One run per topology, 40 routing items and 12 conversations: a one-item
@@ -343,3 +431,5 @@ tests/              oracle, ledger, evaluators (incl. the uploaded code evaluato
   items stay in the queue for a person.
 - **Judges are probabilistic.** The F1 catch rests on `handoff-appropriate`, which `verify_demo.py`
   treats as a warning, not a failure, if it misses.
+- **The readiness check is narrower than the demo standard asks.** It prints the project the keys
+  map to but does not fail on a different one, and it has no `--links` flag.

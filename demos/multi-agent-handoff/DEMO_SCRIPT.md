@@ -1,48 +1,123 @@
-# Demo script: "The handoff nobody saw"
+# Multi-Agent Handoff (A2A) — Demo Script (The handoff nobody saw)
 
-About 50 minutes of demo inside a 60-minute meeting. The audience builds, or is about to build,
-agents that hand work to each other, often across teams and services. Every act opens with the
-question they are already asking, shows it live, and ends on the point to land and a question back
-to the room. For a 30-minute slot, cut acts 6 and 7. For an audience that already runs evals, keep
-Act 8 and cut acts 4–6 instead.
+A support desk where three agents hand work to each other over A2A. The room sees one customer turn
+cross three services as one trace, what keeps it one trace and one session, handoffs scored
+separately from the answer, five faults flipped live, a single agent measured against the
+multi-agent setup, and one shipped bug taken round the loop. The audience builds, or is about to
+build, agents that hand work to each other, often across teams and services.
 
-**Before you start** (see the README's *Before a demo*):
+- **App:** Northwind Mobile's support desk, driven from a terminal in `demos/multi-agent-handoff`
+  (`scripts/run_scenario.py`, `scripts/run_traffic.py`), with billing on :9310 and tech-support on
+  :9311 as A2A services
+- **Observability:** Langfuse Cloud, project `multi-agent-handoff`, trace `support-turn`
+- **Models:** Haiku 5.5 for the concierge and the simulated customers, Sonnet 5.5 for the
+  specialists; the judges are `handoff-appropriate` on Haiku 5.5 and `customer-resolved` on Sonnet 5.5
+- **Data:** Northwind Mobile is fictional, and every customer, outage and invoice is synthetic. Say
+  so once, up front
+- **Prompts:** `concierge`, `tech-support`, `billing` and `single-agent`, fetched by label
+- **Run length:** 60 min; short path is the Opening, Acts 1 to 3 and the Close (30 min)
 
-- Run `.venv/bin/python scripts/verify_demo.py --faults` the day before. Every line should PASS.
-- 30 minutes before, run `./scripts/run_services.sh` and `scripts/verify_demo.py`. Then run
-  `scripts/run_traffic.py --only conv-01 conv-02 conv-05 conv-07` so today's sessions, judge scores
-  and queue items exist. conv-05 (a 2.5-hour blip, no credit) is the one Act 7 uses.
-- For Act 8, 30 minutes before: `scripts/loop.py ship-bug`, then `scripts/run_traffic.py --repeat 2`
-  (about 8 minutes). Production now runs the F1 bug, with a dashboard's worth of traffic and judge
-  flags. Rehearsed, check that `scripts/loop.py status` says production = the F1 bug.
-- Open a terminal in `demos/multi-agent-handoff`.
-- Open Langfuse on the `multi-agent-handoff` project in tabs: **Tracing**, **Sessions**,
-  **Evaluators**, **Datasets → handoff-routing → Runs**, **Annotation queues**, **Dashboards →
-  Handoffs — quality**, **Prompts → concierge**.
-- After the meeting, run `scripts/loop.py status`. Production should hold the fix; run
-  `scripts/loop.py reset` if you stopped half-way.
-
-Northwind Mobile is fictional, and every customer, outage and invoice is synthetic. Say so once,
-up front.
+> Setup lives in [README.md](README.md).
 
 ---
 
-## 0 · The question (2 min)
+## How to run this script
 
-> "When one agent hands a customer to another, three things usually go dark. What did the
-> handoff actually carry? Is it still the same trace and the same conversation on the other
-> side of the service boundary? And how do you know the handoff was right, not just that the
-> final answer sounded good? That's the next 45 minutes."
+It's a conversation, not a walkthrough. Every act does four things:
 
-Name the desk in one breath:
+- **Frame:** the question the room is already asking. Say it before you touch the screen.
+- **Show:** the exact commands and clicks, and what to read on screen.
+- **Land:** the point, in a sentence you can say aloud.
+- **Ask:** a question back to the room that maps the act to their stack.
+
+The answers to each Ask tell you which act gets the time.
+
+- **Short path (30 min):** the Opening, Acts 1 to 3 and the Close. Those acts are the three
+  questions the demo answers.
+- **For an audience that already runs evals (45 min):** keep Act 8 and cut Acts 4 to 6.
+- **If the meeting runs short:** Acts 6 and 7 are the first to cut (12 minutes).
+
+---
+
+## 0 · Pre-flight
+
+30 minutes before, in a terminal:
+
+```bash
+cd demos/multi-agent-handoff
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+./scripts/run_services.sh                                                        # billing :9310 + tech-support :9311
+.venv/bin/python scripts/verify_demo.py                                          # should end with READY
+.venv/bin/python scripts/run_traffic.py --only conv-01 conv-02 conv-05 conv-07   # today's sessions, judge scores, queue items
+```
+
+`verify_demo.py` exits 1 when a required check fails. Fix what it names before the meeting. conv-05
+(a 2.5-hour blip, no credit) is the conversation Act 7 uses.
+
+For Act 8, also 30 minutes before (about 8 minutes):
+
+```bash
+.venv/bin/python scripts/loop.py ship-bug            # production now runs the F1 bug
+.venv/bin/python scripts/run_traffic.py --repeat 2   # a dashboard's worth of traffic and judge flags
+.venv/bin/python scripts/loop.py status              # should say production = the F1 bug
+```
+
+**Tabs to open:** Langfuse on the `multi-agent-handoff` project: **Tracing**, **Sessions**,
+**Evaluators**, **Datasets → handoff-routing → Runs**, **Annotation queues**, **Dashboards →
+Handoffs — quality**, **Prompts → concierge**. Keep the terminal in `demos/multi-agent-handoff`.
+
+After the meeting, run `scripts/loop.py status`. Production should hold the fix; run
+`scripts/loop.py reset` if you stopped half-way.
+
+### The day before
+
+```bash
+.venv/bin/python scripts/verify_demo.py --faults     # one live turn per fault; every line should PASS (~4 min, a few cents)
+```
+
+---
+
+## What each act proves
+
+| Capability | Where in the demo |
+|---|---|
+| Tracing: a handoff as an observation you can open, three processes in one trace | Act 1 |
+| Trace and session linkage across services, measured mode by mode | Act 2 |
+| Online evaluation of the handoff: code evaluators and LLM judges on rules | Act 3 |
+| Trajectory evaluation: a loop that only the path shows | Act 4 |
+| A failed hop as a scored, filterable event with a fallback | Act 5 |
+| Datasets and experiments: single agent vs. multi-agent on the same items | Act 6 |
+| Session scores and annotation queues for whole conversations | Act 7 |
+| Dashboards, review to dataset, prompt management by label, and the CI gate | Act 8 |
+
+---
+
+## Opening · The question (2 min)
+
+**Frame.** "When one agent hands a customer to another, three things usually go dark. What did the
+handoff actually carry? Is it still the same trace and the same conversation on the other
+side of the service boundary? And how do you know the handoff was right, not just that the
+final answer sounded good? That's the next hour."
+
+**Ask.** Two questions before any screen:
+- *"How many of your agents call another agent today, and does one team own both ends?"*
+- *"When a customer says a handoff went wrong, where do you look first?"*
+
+**Land.** "Let me show you one customer turn that crosses three agents, then what can break between
+them." Name the desk in one breath:
 - **Agents:** a concierge at the front door, plus tech-support and billing, each a separate A2A
   service owned by a different team.
 - **Models:** Haiku 5.5 routes, Sonnet 5.5 does the specialist work.
 - **Routing:** the models choose every handoff with tools; no code routes anything.
 
-## 1 · One customer turn, three agents, one trace (8 min)
+---
 
-Terminal:
+## Act 1 · One customer turn, three agents, one trace (8 min)
+
+**Frame.** The first question from the opening: what did the handoff actually carry? Most teams can
+open each agent's own calls, and nothing in between.
+
+**Show.** Terminal:
 
 ```bash
 .venv/bin/python scripts/run_scenario.py hero-outage-credit --topology a2a
@@ -69,15 +144,18 @@ Sessions → the session for this conversation: all three turns. On turn 2 the c
 the credit will show on the bill, and billing reads it back from the same back-office record that
 tech-support's hop wrote.
 
-> Land: a handoff is a first-class step in the trace, with what it carried and how it was linked.
-> Ask: *"When one of your agents calls another today, what do you see on the far side?"*
+**Land.** A handoff is a first-class step in the trace, with what it carried and how it was linked.
 
-## 2 · Keeping the pieces together across services (8 min)
+**Ask.** *"When one of your agents calls another today, what do you see on the far side?"*
 
-> "A2A doesn't define tracing. Its guidance is ordinary W3C trace context, and most teams stop at
-> `traceparent`. Here is what that buys you."
+---
 
-Show the measured matrix (README, *The linkage matrix*). It was measured on this Cloud project with
+## Act 2 · Keeping the pieces together across services (8 min)
+
+**Frame.** "A2A doesn't define tracing. Its guidance is ordinary W3C trace context, and most teams stop at
+`traceparent`. Here is what that buys you."
+
+**Show.** The measured matrix (README, *The linkage matrix*). It was measured on this Cloud project with
 Langfuse's own `isRootObservation`:
 
 - **`traceparent` only:** one trace id, but **three roots**. Every service starts its own logical
@@ -87,7 +165,7 @@ Langfuse's own `isRootObservation`:
 - **`traceparent` plus baggage set with `propagate_attributes(as_baggage=True)`:** one trace, one
   root, the session everywhere. That's this demo's default.
 
-Now break it live, fault F4 ("the new A2A client dropped the baggage header"):
+**Show (fault F4).** Now break it live ("the new A2A client dropped the baggage header"):
 
 ```bash
 .venv/bin/python scripts/run_scenario.py hero-outage-credit --topology a2a --linkage traceparent
@@ -107,13 +185,19 @@ Then the hygiene point:
   API calls by default. On a remote agent that would send the customer's ids to the model API, so
   this demo turns it off.
 
-> Land: "same trace" is a property you engineer and test, not a default.
-> Ask: *"Which of your agent-to-agent calls cross a team or company boundary, and what are you
-> allowed to send across it?"*
+**Land.** "Same trace" is a property you engineer and test, not a default.
 
-## 3 · Evaluating the handoff, not just the answer (10 min)
+**Ask.** *"Which of your agent-to-agent calls cross a team or company boundary, and what are you
+allowed to send across it?"*
 
-**Evaluators** page: four, each on a rule.
+---
+
+## Act 3 · Evaluating the handoff, not just the answer (10 min)
+
+**Frame.** Both turns so far ended in a correct answer. Whether the handoff was right is a separate
+question, and a judge that reads only the final reply cannot answer it.
+
+**Show.** **Evaluators** page: four, each on a rule.
 
 | Evaluator | Kind | Where it runs |
 |---|---|---|
@@ -128,7 +212,8 @@ Two design points to call out:
 - **A judge sees only the observation it matches.** So the handoff observation carries the target's
   required fields and the roster: what the judge needs to decide.
 
-**Fault F2, context loss** ("a token-saving refactor dropped `line_id` from handoff payloads"):
+**Show (fault F2, context loss).** The story: "a token-saving refactor dropped `line_id` from handoff
+payloads".
 
 ```bash
 HANDOFF_SLIM_CONTEXT=1 .venv/bin/python scripts/run_scenario.py router-offline-tech --topology a2a
@@ -140,7 +225,7 @@ Open the trace → the `handoff` → Scores:
 - **The miss:** the technician was still booked, because tech-support looked the line up itself.
   *"On a lucky run, the outcome check passes and hides a broken contract between two teams."*
 
-**Fault F1, misroute** ("to cut a hop, send every credit request straight to billing"):
+**Show (fault F1, misroute).** The story: "to cut a hop, send every credit request straight to billing".
 
 ```bash
 .venv/bin/python scripts/run_scenario.py hero-outage-credit --topology a2a --label fault-f1
@@ -157,16 +242,19 @@ Open the trace → the `handoff` → Scores:
 Show the fault itself: Prompts → `concierge` → compare the production version with the
 `fault-f1` version. Only the routing lines differ.
 
-> Land: score the handoff and the trajectory, not only the final answer; the end-to-end judge was
-> happy in both faults.
-> Ask: *"If one of your agents started routing wrong tomorrow, which signal would tell you first?"*
+**Land.** Score the handoff and the trajectory, not only the final answer; the end-to-end judge was
+happy in both faults.
 
-## 4 · When agents bounce work (5 min)
+**Ask.** *"If one of your agents started routing wrong tomorrow, which signal would tell you first?"*
 
-> "In the same week, network-ops said 'our agent never touches money', and billing said 'ours
-> never touches outages'. Each change was sensible on its own."
+---
 
-Fault F3, ping-pong:
+## Act 4 · When agents bounce work (5 min)
+
+**Frame.** "In the same week, network-ops said 'our agent never touches money', and billing said 'ours
+never touches outages'. Each change was sensible on its own."
+
+**Show.** Fault F3, ping-pong:
 
 ```bash
 .venv/bin/python scripts/run_scenario.py ambiguous-bill-and-slow --topology a2a --label fault-f3
@@ -182,12 +270,18 @@ it and the customer gets *"I've flagged it for a person"*.
 - **The cost:** in the trace, four handoffs and nine model calls, about $0.075. That's roughly four
   times a normal turn, for a turn that resolved nothing.
 
-> Land: some failures only exist across agents, so some evaluators have to look across agents.
-> Ask: *"Who owns the boundary between two of your agent teams?"*
+**Land.** Some failures only exist across agents, so some evaluators have to look across agents.
 
-## 5 · A remote agent goes down (3 min)
+**Ask.** *"Who owns the boundary between two of your agent teams?"*
 
-Fault F5. Point the orchestrator at a billing service that isn't there:
+---
+
+## Act 5 · A remote agent goes down (3 min)
+
+**Frame.** A specialist that another team runs will be down or slow at some point. The question is
+what the customer hears, and what the trace records, when it is.
+
+**Show.** Fault F5. Point the orchestrator at a billing service that isn't there:
 
 ```bash
 BILLING_URL=http://127.0.0.1:9 .venv/bin/python scripts/run_scenario.py balance-quick --topology a2a
@@ -203,14 +297,17 @@ that the failed hop is a scored, filterable event. To show slowness instead of a
 billing with `BILLING_FAULT_LATENCY_MS=8000`; latency shows in the trace, and with
 `HANDOFF_A2A_TIMEOUT_S=5` it becomes a timeout.
 
-> Land: an unavailable agent is a measured event with a fallback, not a stack trace.
-> Ask: *"What should your front-door agent say when a specialist is down?"*
+**Land.** An unavailable agent is a measured event with a fallback, not a stack trace.
 
-## 6 · Single agent vs. multi-agent, measured (7 min)
+**Ask.** *"What should your front-door agent say when a specialist is down?"*
 
-> "The question we always get: is splitting into agents better? We ran it."
+---
 
-Datasets → `handoff-routing` → Runs. Select the `single`, `local` and `a2a` runs and compare them.
+## Act 6 · Single agent vs. multi-agent, measured (7 min)
+
+**Frame.** "The question we always get: is splitting into agents better? We ran it."
+
+**Show.** Datasets → `handoff-routing` → Runs. Select the `single`, `local` and `a2a` runs and compare them.
 They use the same 40 items, prompts, models and tools.
 
 - **Outcome:** all three reached the right back-office state on 40 of 40. Credit amounts and
@@ -231,12 +328,18 @@ The honest point:
 Also say: these are small samples (one run each, 40 and 12 items), and a one-item difference is
 noise.
 
-> Land: measure the architecture like any other change: same items, same scores, cost included.
-> Ask: *"What would multi-agent have to beat for your team to accept its cost?"*
+**Land.** Measure the architecture like any other change: same items, same scores, cost included.
 
-## 7 · Conversations and the human in the loop (5 min)
+**Ask.** *"What would multi-agent have to beat for your team to accept its cost?"*
 
-Sessions → one of today's conversations, for example conv-07: a billing question that turns into
+---
+
+## Act 7 · Conversations and the human in the loop (5 min)
+
+**Frame.** A customer feels the whole conversation, not one turn. And a judge earns a place on a
+dashboard only after people have checked it.
+
+**Show.** Sessions → one of today's conversations, for example conv-07: a billing question that turns into
 an outage claim.
 
 - **Turns and owners:** each customer message is a turn, and ownership moves between agents as the
@@ -259,26 +362,29 @@ differs, use whichever turn the judge scored lowest.
 Mention that the customers are simulated (Haiku 5.5 with a persona and a goal). The simulator
 returns a structured status (continue, done, give up); a "reply DONE" instruction proved unreliable.
 
-> Land: the conversation is the unit the customer feels, so score it and put the hard ones in
-> front of a person.
-> Ask: *"Who on your side would review transferred conversations, and how many a week?"*
+**Land.** The conversation is the unit the customer feels, so score it and put the hard ones in
+front of a person.
 
-## 8 · Round the loop on one bug (10 min)
+**Ask.** *"Who on your side would review transferred conversations, and how many a week?"*
 
-> "Everything so far was us flipping a fault on purpose. Here is what it looks like when one ships:
-> release 1.1 went out last week, and nobody's dashboard turned red."
+---
+
+## Act 8 · Round the loop on one bug (10 min)
+
+**Frame.** "Everything so far was us flipping a fault on purpose. Here is what it looks like when one ships:
+release 1.1 went out last week, and nobody's dashboard turned red."
 
 The setup, in one breath: someone shortened the concierge's routing to "money back goes straight to
 billing, it saves a hop". That is F1, and it has been production since before the meeting.
 
-**Monitor.** Dashboards → **Handoffs — quality**.
+**Show (Monitor).** Dashboards → **Handoffs — quality**.
 - **Handoff judged right, by prompt versions:** the row `concierge v3 / tech-support v1 / billing v1`
   has the flags. In our run, the concierge's first handoff was flagged in 13 of 37 turns, every one an
   outage credit sent to billing.
 - **Customer resolved, by prompt versions:** the same row sits at about 0.8, and every conversation's
   ledger is right. Billing passed each request on, so the customer never noticed.
 
-**Datasets.** In the terminal, `scripts/flag_handoffs.py`. Then open Annotation queues → **Flagged
+**Show (Datasets).** In the terminal, `scripts/flag_handoffs.py`. Then open Annotation queues → **Flagged
 handoffs**.
 - **What's in the queue:** the flagged handoffs, plus as many the judge passed, so the review checks
   the judge in both directions.
@@ -288,7 +394,7 @@ handoffs**.
 - **Promote:** `scripts/promote_to_dataset.py`. Datasets → `handoff-routing` now has `prod-…` items,
   each linked to the production trace it came from.
 
-**Experiment and evaluate.** `scripts/loop.py fix`. Prompts → concierge → compare v3 with v4. The fix
+**Show (Experiment and evaluate).** `scripts/loop.py fix`. Prompts → concierge → compare v3 with v4. The fix
 keeps the latency idea and adds the exception: outage credits go to tech-support first.
 - **The gate:** `scripts/prompt_gate.py --label candidate --compare production` (about 6 minutes; show
   a run from before the meeting). The fix routes 1.00, and the live bug 0.61 on the same 56 items.
@@ -297,7 +403,7 @@ keeps the latency idea and adds the exception: outage credits go to tech-support
 - **The judge:** `scripts/judge_calibration.py`. It agreed with the reviewer on all 16 labelled items.
   Say what that is: 16 easy turn-1 cases, labelled from ground truth. A direction, not a measurement.
 
-**Deploy.** `scripts/loop.py promote`, then show the label on v4.
+**Show (Deploy).** `scripts/loop.py promote`, then show the label on v4.
 - **Nothing redeploys:** the agents fetch the prompt by label, so production picks it up within a
   minute.
 - **CI:** with the Langfuse automation set up, this label change also runs the same gate in GitHub
@@ -310,11 +416,14 @@ The honest close of the act: after the fix, the judge still flags some specialis
 because it wants to see the outage confirmation in the payload. That is the next round of the loop,
 and it starts in the same queue.
 
-> Land: a production failure became a test case, the fix went through the same gate as any change,
-> and the dashboard shows the before and after by prompt version.
-> Ask: *"Where in your pipeline would this gate run, and who owns the thresholds?"*
+**Land.** A production failure became a test case, the fix went through the same gate as any change,
+and the dashboard shows the before and after by prompt version.
 
-## 9 · Close (2 min)
+**Ask.** *"Where in your pipeline would this gate run, and who owns the thresholds?"*
+
+---
+
+## Close · The answers, and what to do with them (2 min)
 
 The three answers, and what to do with them:
 1. **A handoff is a step you can open:** what it carried, to whom, and how it was linked.
@@ -328,25 +437,12 @@ The three answers, and what to do with them:
 What isn't built yet, if asked: a black-box partner agent. The CI workflow is written, but it runs
 only once it is merged to the default branch.
 
+Hand over the repo: `demos/multi-agent-handoff` runs on their own Langfuse Cloud project with the steps
+in the [README](README.md).
+
 ---
 
-## Appendix A · Commands behind each act
-
-| Act | Command |
-|---|---|
-| Pre-flight | `scripts/verify_demo.py --faults` (day before) · `./scripts/run_services.sh && scripts/verify_demo.py` · `scripts/seed_dashboards.py --check` |
-| 1 | `scripts/run_scenario.py hero-outage-credit --topology a2a` |
-| 2 | `scripts/linkage_matrix.py --live` (measured beforehand) · `scripts/run_scenario.py hero-outage-credit --topology a2a --linkage traceparent` |
-| 3 | `HANDOFF_SLIM_CONTEXT=1 scripts/run_scenario.py router-offline-tech --topology a2a` · `scripts/run_scenario.py hero-outage-credit --topology a2a --label fault-f1` |
-| 4 | `scripts/run_scenario.py ambiguous-bill-and-slow --topology a2a --label fault-f3` |
-| 5 | `BILLING_URL=http://127.0.0.1:9 scripts/run_scenario.py balance-quick --topology a2a` |
-| 6 | `scripts/run_experiment.py --topology single\|local\|a2a [--dataset conversations]` · `scripts/compare_runs.py --since <time>` |
-| 7 | `scripts/run_traffic.py --only conv-07` |
-| 8 | Before: `scripts/loop.py ship-bug` · `scripts/run_traffic.py --repeat 2`. Live: `scripts/flag_handoffs.py [--simulate-reviewer]` · `scripts/promote_to_dataset.py` · `scripts/loop.py fix` · `scripts/prompt_gate.py --label candidate --compare production` · `scripts/judge_calibration.py` · `scripts/loop.py promote` · `scripts/run_traffic.py --only conv-01 conv-12`. After: `scripts/loop.py status` |
-
-All Python commands run with `.venv/bin/python` from `demos/multi-agent-handoff`.
-
-## Appendix B · Show me the code
+## Show me the code
 
 | What | Where | Why it matters |
 |---|---|---|
@@ -377,3 +473,75 @@ All Python commands run with `.venv/bin/python` from `demos/multi-agent-handoff`
 | A label becomes a test case | [scripts/promote_to_dataset.py:87](scripts/promote_to_dataset.py) | `source_trace_id` / `source_observation_id` link the dataset item back to production |
 | The gate's bar | [cicd/thresholds.json](cicd/thresholds.json), [scripts/prompt_gate.py:117](scripts/prompt_gate.py) | deterministic metrics only, and every item must have been evaluated |
 | The loop check on experiment runs | [handoff/evals.py:177](handoff/evals.py) | the online `handoff-loop` rule on the run record, so the gate can require `loop-rate` = 0 |
+
+---
+
+## Talking points & objections
+
+- **"Is multi-agent actually better than one agent?"** Not on accuracy here. All three topologies
+  reached the right outcome on 40 of 40 requests and 12 of 12 conversations; the multi-agent setups
+  cost about 20% more and doubled the latency. The case for splitting is ownership, and it has to be
+  made before the run, not read off it (Act 6).
+- **"We already propagate `traceparent`. Isn't that enough?"** It gives one trace id and three roots,
+  with no session on the remote rows, so a judge scoped to root observations fires once per hop. The
+  answer the customer gets is identical, which is why nobody notices (Act 2).
+- **"Can't we just pass the session id in the A2A message?"** That keeps the session and splits the
+  turn into three traces, each with its own root. It is the right mode for asynchronous work that
+  outlives the turn, not for a synchronous handoff.
+- **"Isn't baggage a way to leak customer data?"** It can be. Here it is set for the one outbound A2A
+  call, carries no PII, and never goes to a partner's agent. The Anthropic SDK's own header injection
+  is turned off, or the baggage would go to the model API too.
+- **"The customer got the right answer. Why does the route matter?"** Under F1 the outcome stayed
+  right and the bug still cost 22% more per item, because billing sent every outage credit back. Under
+  F2 a lucky run hid a broken contract between two teams.
+- **"Why not let the judge decide the release?"** Judges are probabilistic. Every hard metric in the
+  gate is deterministic: routing and loops from the run record, outcomes from the ledger. The judge
+  flags work for people, and it is checked against a reviewer before anyone trusts it.
+- **"Are these real customers?"** No. The customers are simulated and the data is synthetic, and the
+  samples are small: one run per topology, 40 routing items, 12 conversations.
+
+---
+
+## Known limits
+
+- **Small samples.** One run per topology, 40 routing items and 12 conversations. A one-item
+  difference is noise; say so when you show the comparison.
+- **The customers and the reviewer are simulated.** The simulated reviewer labels turn-1 items from
+  the scenario's ground truth, so the 16 of 16 judge agreement is a direction, not a measurement.
+- **The judge catches F1, most of the time.** Judges are probabilistic, and `verify_demo.py` treats a
+  judge miss as a warning.
+- **The CI gate has not run on GitHub yet.** The gate script ran live, locally. The workflow runs
+  once it is on the default branch and the Langfuse automation is set up.
+- **No partner agent.** A black-box agent you don't control is not built.
+
+The full list is in the README's [Known limits](README.md#known-limits).
+
+---
+
+## Reset / re-run
+
+```bash
+.venv/bin/python scripts/loop.py status                      # which concierge version holds which label
+.venv/bin/python scripts/loop.py reset                       # production back on the seeded prompt
+./scripts/run_services.sh stop && ./scripts/run_services.sh  # after F5, or after any code or .env change
+.venv/bin/python scripts/verify_demo.py                      # READY again
+```
+
+The ledger is per conversation, so a new conversation starts clean. To wipe it, stop the services
+and delete `.run/ledger.sqlite`. Nothing else needs a reset: the fault switches are per command.
+
+### Commands behind each act
+
+| Act | Command |
+|---|---|
+| Pre-flight | `scripts/verify_demo.py --faults` (day before) · `./scripts/run_services.sh && scripts/verify_demo.py` · `scripts/seed_dashboards.py --check` |
+| 1 | `scripts/run_scenario.py hero-outage-credit --topology a2a` |
+| 2 | `scripts/linkage_matrix.py --live` (measured beforehand) · `scripts/run_scenario.py hero-outage-credit --topology a2a --linkage traceparent` |
+| 3 | `HANDOFF_SLIM_CONTEXT=1 scripts/run_scenario.py router-offline-tech --topology a2a` · `scripts/run_scenario.py hero-outage-credit --topology a2a --label fault-f1` |
+| 4 | `scripts/run_scenario.py ambiguous-bill-and-slow --topology a2a --label fault-f3` |
+| 5 | `BILLING_URL=http://127.0.0.1:9 scripts/run_scenario.py balance-quick --topology a2a` |
+| 6 | `scripts/run_experiment.py --topology single\|local\|a2a [--dataset conversations]` · `scripts/compare_runs.py --since <time>` |
+| 7 | `scripts/run_traffic.py --only conv-07` |
+| 8 | Before: `scripts/loop.py ship-bug` · `scripts/run_traffic.py --repeat 2`. Live: `scripts/flag_handoffs.py [--simulate-reviewer]` · `scripts/promote_to_dataset.py` · `scripts/loop.py fix` · `scripts/prompt_gate.py --label candidate --compare production` · `scripts/judge_calibration.py` · `scripts/loop.py promote` · `scripts/run_traffic.py --only conv-01 conv-12`. After: `scripts/loop.py status` |
+
+All Python commands run with `.venv/bin/python` from `demos/multi-agent-handoff`.
