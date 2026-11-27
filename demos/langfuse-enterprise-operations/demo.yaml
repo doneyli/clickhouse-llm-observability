@@ -7,35 +7,20 @@ covers: [governance, operations]
 stack: [python, docker]
 langfuse:
   target: self-hosted
+  # For this demo the declared target is an organization, not a project. The org key in private/org.env
+  # acts on the presenter's own organization, where the portal creates projects live; the Organizations
+  # workflow (Act 6) provisions this declared organization (the form's default name) through the instance
+  # API, marked metadata.demo = langfuse-operations. verify_demo.py reads its ownership back once recorded.
   project: Operations Demo Organization
 length:
   full_min: 20-30
 commands:
-  seed: ./scripts/seed_all.sh   # to be written: wraps the onboarding workflows
+  seed: python3 scripts/seed_all.py     # private/ setup + the Protected labels workflow (governance project, personas)
   run: ./scripts/run-portal.sh
-  verify: ./scripts/verify_demo.sh   # to be written
+  verify: python3 scripts/verify_demo.py
   test: python3 -B -m unittest discover -s tests
   reset: ./scripts/reset-demo.sh
 addons:
+  - spec
   - architecture: docs/architecture.md   # existing lower-case name kept (decision D8)
-waivers:
-  - rule: DS-ENV-01
-    reason: predates the standard
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-SCRIPT-02
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-04
-    reason: predates the standard
-  - rule: DS-SEED-01
-    reason: predates the standard
-  - rule: DS-SPEC-01
-    reason: predates the standard
-  - rule: DS-VERIFY-01
-    reason: predates the standard
+  - portal: scripts/run-portal.sh        # existing kebab-case name kept (decision D8)

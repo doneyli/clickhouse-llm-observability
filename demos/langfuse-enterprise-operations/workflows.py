@@ -748,19 +748,50 @@ def prepare_governance(ctx, name=None):
     return app, governance
 
 
+GOVERNANCE_PROMPT = "governance-demo/release"
+
+
+def governance_prompt(number):
+    """Desired definition of governed prompt slot 1 (the production baseline) or 2 (the candidate)."""
+    return {"name": GOVERNANCE_PROMPT, "type": "text", "prompt": "Synthetic release candidate " + str(number),
+            "labels": ["production"] if number == 1 else ["development"]}
+
+
+def prompt_matches(live, desired):
+    """A live version matches when its type, text and config equal the desired definition.
+    Labels are not compared: protected_labels moves them on every run by design."""
+    return (isinstance(live, dict) and live.get("type") == desired["type"] and live.get("prompt") == desired["prompt"]
+            and (live.get("config") or {}) == (desired.get("config") or {}))
+
+
+def reconcile_governed_prompts(ctx, env, versions):
+    """Keep one recorded version per slot that still exists and matches its definition; replace the rest."""
+    for number in (1, 2):
+        desired = governance_prompt(number)
+        if len(versions) >= number:
+            recorded = versions[number - 1]
+            live = ctx.call("Read back governed prompt version " + str(number), "prompts", "get", (GOVERNANCE_PROMPT,), env=env,
+                            query=("--version", str(recorded["version"])), expected=(200, 404))
+            if prompt_matches(live, desired) and live.get("version") == recorded["version"]:
+                continue
+            ctx.note("Reconcile governed prompt version " + str(number), "The recorded version is missing or differs from its definition; a new version replaces it.")
+        prompt = ctx.call("Create governed prompt version " + str(number), "prompts", "create", env=env, body=desired)
+        record = {"id": prompt.get("id"), "version": prompt["version"]}
+        if len(versions) >= number:
+            versions[number - 1] = record
+        else:
+            versions.append(record)
+        ctx.save()
+
+
 def protected_labels(ctx, p):
     """Prove a Member can edit ordinary labels, is denied production, and an Admin can promote."""
     app, governance = prepare_governance(ctx, p["governanceName"])
     admin, member = governance["personas"]["ADMIN"], governance["personas"]["MEMBER"]
-    name = "governance-demo/release"
+    name = GOVERNANCE_PROMPT
     with project_setup_access(ctx, app) as env:
         versions = governance.setdefault("versions", [])
-        for number in (1, 2):
-            if len(versions) < number:
-                prompt = ctx.call("Create governed prompt version " + str(number), "prompts", "create", env=env,
-                                  body={"name": name, "type": "text", "prompt": "Synthetic release candidate " + str(number), "labels": ["production"] if number == 1 else ["development"]})
-                versions.append({"id": prompt.get("id"), "version": prompt["version"]})
-                ctx.save()
+        reconcile_governed_prompts(ctx, env, versions)
         # Public prompt writes intentionally remain available for CI/service accounts.
         ctx.call("Reset production to baseline via writable service key", "prompts", "update-version", (name, versions[0]["version"]), env=env, body={"newLabels": ["production"]})
         ctx.native("Protect the production label as Admin", "prompts.addProtectedLabel", {"projectId": app["id"], "label": "production"}, admin)
