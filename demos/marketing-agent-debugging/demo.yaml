@@ -1,0 +1,24 @@
+# Demo manifest: see demos/CONTRIBUTING.md and docs/DEMO_STANDARD_SPEC.md §6.
+# Every command runs from this folder (workshop profile).
+name: marketing-agent-debugging
+title: Marketing Agent Debugging Workshop
+pitch: Two-hour workshop where PMs and deployment teams debug a tool-using marketing agent from the Langfuse UI, through four planted faults with live fixes
+profile: workshop
+status: active
+covers: [trace, monitor, evaluate, deploy]
+stack: [python, anthropic-sdk, fastapi]
+langfuse:
+  target: cloud
+  project: marketing-agent-debugging   # agent/config.py refuses keys that map to another project (LANGFUSE_PROJECT_NAME overrides)
+length:
+  full_min: 120
+commands:
+  install: uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
+  seed: .venv/bin/python scripts/seed_all.py        # idempotent definitions; agent traffic (about $6-8, ~5 min) only when the corpus is missing
+  run: .venv/bin/python webapp/server.py            # presenter portal on http://localhost:8097
+  verify: .venv/bin/python scripts/verify_demo.py   # READY or NOT READY, plus the hero trace for each case; no model calls
+  test: .venv/bin/python -m pytest -q               # offline: no keys, no network, no model calls
+  reset: .venv/bin/python scripts/seed_prompts.py --reset-tailspin   # production back on Tailspin v3 after a live fix
+addons:
+  - spec
+  - portal: webapp/server.py   # existing name kept (D8): the portal is a Python entry point, not scripts/run_portal.sh
