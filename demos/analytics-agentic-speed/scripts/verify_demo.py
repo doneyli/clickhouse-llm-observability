@@ -176,7 +176,7 @@ def langfuse_checks(lf: Langfuse, links: bool) -> dict[str, Any]:
           f"{len(placed)}/{len(seed.WIDGETS)} widgets placed" + ("" if dash else " (run scripts/seed_langfuse.py)"))
     out["dashboard_id"] = dash and dash["id"]
 
-    print("Runs (Act 1-3 open a fresh one)")
+    print("Runs (Acts 1-2 open a fresh one)")
     now = datetime.now(timezone.utc)
     hero_filter = [{"type": "stringObject", "column": "metadata", "key": "question_id", "operator": "=",
                     "value": HERO}]
@@ -228,11 +228,11 @@ def print_links(lf: Langfuse, st: dict[str, Any]) -> None:
     print("\nLinks")
     print(f"  live view           {UI_URL}")
     if st.get("latest_trace"):
-        print(f"  latest run (Act 2)  {base}/traces/{st['latest_trace']}")
+        print(f"  latest run (Act 1)  {base}/traces/{st['latest_trace']}")
     if st.get("dashboard_id"):
-        print(f"  dashboard (Act 3)   {base}/dashboards/{st['dashboard_id']}")
+        print(f"  dashboard (Close)   {base}/dashboards/{st['dashboard_id']}")
     if st.get("dataset_id"):
-        print(f"  dataset (Act 4)     {base}/datasets/{st['dataset_id']}")
+        print(f"  dataset (Act 3)     {base}/datasets/{st['dataset_id']}")
         for e in sorted(st.get("experiments") or [], key=lambda e: e.get("startTime") or e.get("createdAt") or "")[-4:]:
             print(f"    run {e.get('name')}")
     print(f"  prompts             {base}/prompts")

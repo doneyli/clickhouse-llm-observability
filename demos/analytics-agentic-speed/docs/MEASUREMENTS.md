@@ -28,7 +28,7 @@ Measured with `scripts/load_data.py`.
 | Sort key | `(Origin, Year, Month, Reporting_Airline, FlightDate)` |
 | One airport's scenario | 477 of 28,281 granules read (the `Origin` prefix of the sort key); adding `Year = 2019` narrows it further |
 
-## Act 2: the hero question
+## Act 1: the hero question
 
 Measured with `main.py --question q-padding`.
 
@@ -86,7 +86,7 @@ different question, 16 queries in flight per agent).
 9 of the 10 agents answered. One failed on a model refusal, which the agent retries once
 and records.
 
-## Act 4: Experiment A (sweep breadth)
+## Act 3: Experiment A (sweep breadth)
 
 Measured with `scripts/run_experiment.py --breadth both --concurrency 2`, on 15 dataset
 items (`scenario-explorer-questions`, exact SQL ground truth).
@@ -111,7 +111,7 @@ rules are enforced in `explorer/scenarios.py`.
 
 **Caveat, found after the rerun:** four questions (`q-padding`, `q-late-departure-block`,
 `q-padding-carrier`, `q-connection-window`) had the ambiguous wording described under
-Act 2. On all four, neither breadth's template filtered on `Year`. That handicapped both
+Act 1. On all four, neither breadth's template filtered on `Year`. That handicapped both
 sides equally, so the comparison holds. But the wide run's `q-padding-carrier` miss
 (LGA/OO at 40 vs 41 minutes) is most likely the wording, not breadth. Rerun
 Experiment A before quoting these figures.
