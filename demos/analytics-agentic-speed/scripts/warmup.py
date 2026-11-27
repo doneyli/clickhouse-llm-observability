@@ -85,7 +85,7 @@ def _fmt_rows(n: int) -> str:
 
 
 async def run(runs: int) -> int:
-    load_env()
+    load_env(require_langfuse=False)  # ClickHouse only
     settings = ClickHouseSettings.from_env()
     results: list[tuple[str, list[QueryStats], int]] = []
     async with ClickHouseClient(settings) as client:

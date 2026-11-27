@@ -361,7 +361,7 @@ def load_items(lf: Any, dataset_name: str, limit: Optional[int]) -> tuple[list[A
 # ----------------------------------------------------------------------- the gate
 def run_gate(a: argparse.Namespace, t: Mapping[str, Any]) -> tuple[str, bool]:
     """Pre-flight, run, read back, evaluate. Returns (markdown, blocked); raises GateAbort."""
-    load_env()
+    load_env(ci_step_env=True)  # the workflow command: on a runner with no .env, its step env
     base = RunConfig()
     cfg = replace(base, max_scenarios_per_round=t["config"]["max_scenarios_per_round"],
                   max_rounds=t["config"]["max_rounds"], prompt_label=a.prompt_label,

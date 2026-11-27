@@ -696,7 +696,7 @@ async def verify_agent_user(agent: ClickHouseSettings, columns: Sequence[tuple[s
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
-    load_env()
+    load_env(require_langfuse=False)  # ClickHouse only
     try:
         admin_settings = ClickHouseSettings.from_env(admin=True)
         agent_settings = ClickHouseSettings.from_env()

@@ -13,7 +13,7 @@ length:
   short_min: 8
 commands:
   install: uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
-  seed: .venv/bin/python scripts/seed_all.py      # to be written: wraps load_data, seed_langfuse and seed_dataset
+  seed: .venv/bin/python scripts/seed_all.py      # wraps load_data, seed_langfuse and seed_dataset
   run: .venv/bin/python main.py --question q-padding
   verify: .venv/bin/python scripts/verify_demo.py
   test: .venv/bin/python -m pytest -q
@@ -22,16 +22,3 @@ addons:
   - cicd
   - measurements
   - portal: run_ui.sh   # existing name kept (decision D8)
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-04
-    reason: predates the standard
-  - rule: DS-SEED-01
-    reason: predates the standard

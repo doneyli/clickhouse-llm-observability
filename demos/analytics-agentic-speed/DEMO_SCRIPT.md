@@ -4,39 +4,51 @@ A ready-to-run demo of an analytics agent that answers what-if questions by **sw
 hundreds of scenarios** against ClickHouse Cloud, fully traced to **Langfuse**, with
 the database's own latency on every query span.
 
+- **App:** `main.py` in a terminal, or the live view at http://localhost:8099 (`./run_ui.sh`)
 - **Data:** US domestic flights, 231.6M rows (1987 → 2026), table `flights.ontime` on a
   ClickHouse Cloud service, sorted by `(Origin, Year, Month, Reporting_Airline, FlightDate)`
-- **Agent:** `explorer/agent.py`. Claude Opus 5.5 writes ONE SQL template and a grid of
-  lever values; the code runs every scenario, 32 in flight; the agent reads the results
-  and decides whether to refine
+- **Models:** Claude Opus 5.5 writes ONE SQL template and a grid of lever values
+  (`explorer/agent.py`); the code runs every scenario, 32 in flight; the agent reads the
+  results and decides whether to refine. Grading is exact SQL ground truth, no judge model
 - **Observability:** Langfuse Cloud project `analytics-agentic-speed`: trace `analytics-agentic-speed`,
   dashboard "Analytics at Agentic Speed", dataset `scenario-explorer-questions`
-- **Run length:** ~15 min; 8-min short path is Acts 1–2 + the Experiment A compare view
+- **Run length:** ~15 min; 8-min short path is the Opening, Act 1 and the Experiment A
+  compare view from Act 3
 
-> Everything lives in `demos/analytics-agentic-speed/`. Measured numbers in this script come
-> from runs on a 2-replica, 16 GiB-per-replica Cloud service in AWS us-west-2, with the
-> agent running on a laptop over the public internet. Re-measure on your own setup
-> before quoting them.
+> Setup lives in [README.md](README.md). Everything lives in `demos/analytics-agentic-speed/`.
+> Measured numbers in this script come from runs on a 2-replica, 16 GiB-per-replica Cloud
+> service in AWS us-west-2, with the agent running on a laptop over the public internet.
+> Re-measure on your own setup before quoting them.
 
 ---
 
 ## How to run this script
 
-It's a conversation, not a walkthrough. Every act opens with the problem in the room's
-terms (say it before you touch the screen), shows how the platform answers it, lands
-what that's worth, then hands a question back to the room. The questions matter more
-than the clicks: they tell you which act to spend time on.
+It's a conversation, not a walkthrough. Every act does four things:
+
+- **Frame** — the problem, in the room's terms. Say it before you touch the screen.
+- **Show** — how the platform answers it: the exact commands and clicks.
+- **Land** — what that's worth.
+- **Ask** — a question handed back to the room.
+
+The questions matter more than the clicks: they tell you which act to spend time on.
+The short path is the Opening, Act 1, the Experiment A compare view from Act 3, and the
+Close. Acts 4 and 5 are optional.
+
+---
+
+## 0 · Pre-flight
 
 ### The day before
 
-Act 4 opens two Experiment A runs that must already exist in the project. If you're on
+Act 3 opens two Experiment A runs that must already exist in the project. If you're on
 a fresh project, or want your own numbers:
 
 ```bash
 .venv/bin/python scripts/run_experiment.py --breadth both --concurrency 2   # ~20 min, ~$4
 ```
 
-### Pre-flight (10 minutes before)
+### 10 minutes before
 
 ```bash
 cd demos/analytics-agentic-speed
@@ -49,13 +61,16 @@ unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 
 `verify_demo.py` reads everything back: the agent user is read-only, the table holds
 231.6M rows, a hero-shaped scenario runs warm, the keys map to this project, both prompts
-have a `production` version, the dataset has 15 graded items, the dashboard has all 20
-widgets, and the latest hero trace carries its scores. It exits 1 on a required failure.
-The optional acts (Experiment A runs, the concurrency act, the live view) only warn.
+have a `production` version, the dataset has 15 graded items, the score configs match,
+the dashboard has all 20 widgets, the latest hero trace carries its scores, and both
+Experiment A runs exist for Act 3. Each check prints PASS, FAIL or WARN, and it exits 1
+on any FAIL, including a missing `.env`, a refused key or an unreachable service. The
+optional acts (the concurrency runs, the `candidate-coarse` label) and the live view only
+warn.
 Measured numbers for every act, with the command that produced each, are in
 [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md).
 
-**Live view or terminal?** For most rooms, run Act 2 from the live view: the round
+**Live view or terminal?** For most rooms, run Act 1 from the live view: the round
 heatmaps fill in as each query returns, and the time-split bar makes the punchline
 without narration. The terminal (`main.py`) prints the same run as text lines. Both
 produce the same Langfuse trace.
@@ -65,11 +80,26 @@ produce the same Langfuse trace.
 - **Cold vs warm is real.** The first query on a cold replica runs 150–400 ms; warm, the
   same scenario runs in 10–40 ms. The warm-up exists so the audience sees the steady
   state. If someone asks, say so: it's caching, not a trick.
-- Open three tabs: the fresh trace, the dashboard, and the dataset's experiment runs.
+- **Tabs to open:** the fresh trace, the dashboard, and the dataset's experiment runs,
+  all printed by `--links`.
 
 ---
 
-## Act 1 — Agents don't ask one question (2 min)
+## What each act proves
+
+| Capability | Where in the demo |
+|---|---|
+| Tracing: one span per query, with ClickHouse's own server time | Act 1 |
+| Trace scores: `db_time_share`, `scenarios_evaluated`, `recommendation_grounded` | Act 1 |
+| Agent behaviour you can audit: the model decides to refine, and the trace shows why | Act 2 |
+| Datasets and experiments with exact, judge-free grading | Act 3 |
+| Many agents against one service, grouped by session | Act 4 (optional) |
+| Prompt management by label, and a CI gate that blocks a regression | Act 5 (optional) |
+| A dashboard built from the scores; Langfuse itself runs on ClickHouse | Close |
+
+---
+
+## Opening · Agents don't ask one question (2 min)
 
 **Frame.** "When people picture an agent on top of a database, they picture text-to-SQL:
 one question, one query. That's not how a good analyst works, and it isn't how a good
@@ -77,7 +107,7 @@ agent works either. It explores: it tries a hypothesis, compares, narrows down, 
 again. Every one of those steps is a query. So how fast the database answers sets how
 far the agent can look before someone gets bored."
 
-**Show.** Nothing yet. Read the hero question aloud:
+No screen yet. Read the hero question aloud:
 
 > *In 2019, for evening departures at the 10 busiest airports, how many minutes of
 > schedule padding would lift on-time arrival above 85%, and where does it take the
@@ -86,15 +116,16 @@ far the agent can look before someone gets bored."
 "An analyst would try a few airports and a few buffer values. The answer here hinges on
 a single minute, so a 5-minute grid gets it wrong."
 
-**Land.** "The question isn't 'can the database answer a query'. It's 'can the agent
-afford to ask six hundred of them'."
-
 **Ask.** "In your team, what decision gets made on three or four scenarios today because
 running fifty would take a week?"
 
+**Land.** "The question isn't 'can the database answer a query'. It's 'can the agent
+afford to ask six hundred of them'. Let me show you one run, the agent deciding on its
+own to look again, and what that breadth buys on questions with exact answers."
+
 ---
 
-## Act 2 — One run, six hundred queries (5 min)
+## Act 1 · One run, six hundred queries (5 min)
 
 **Frame.** "Let's watch the agent do it, then look at where the time went."
 
@@ -140,17 +171,12 @@ The database has dropped out of the latency budget."
 
 **Ask.** "Where does your agent's time go today? Do you know, per tool call?"
 
-> **If someone asks "couldn't one GROUP BY do this?"** Yes, for this question, and the
-> agent will do it if you let it: our first version wrote one query per airport that
-> searched all 61 buffer values inside the SQL. That's fast and clever, and it hides the
-> search. Real what-ifs (a policy simulated over several steps, a scenario that changes
-> a join or a cohort definition) often don't collapse into one aggregate. So the prompt
-> asks the template to *measure* one scenario and leave the *search* to the system, so
-> each scenario is auditable on its own. That's a design choice; say so.
+> **Fallback:** if the live run stalls or the model refuses, open the trace from the
+> pre-flight run (the `latest run` link from `--links`). It has the same shape.
 
 ---
 
-## Act 3 — The agent left alone (3 min)
+## Act 2 · The agent left alone (3 min)
 
 **Frame.** "Nobody told it to run a second round."
 
@@ -171,7 +197,7 @@ assumption for a second of compute?"
 
 ---
 
-## Act 4 — More experiments per hour (4 min)
+## Act 3 · More experiments per hour (4 min)
 
 **Frame.** "Same agent, same prompt, same model, and the same two rounds of thinking.
 The only knob: how many scenarios it may run per round, 10 or 300. If database time
@@ -211,15 +237,6 @@ database, and the database does it in milliseconds."
 > of 41). Open one in the compare view: the item's trace shows exactly which scenarios
 > it ran and which it never tried. Breadth raises accuracy; it doesn't make a judgment
 > call for you.
->
-> **If someone asks whether the comparison is rigged:** it's constrained, on purpose, and
-> you should say how. Both breadths get the same two rounds, because a round is a model
-> call (10–25 s) and a scenario is a query (milliseconds). The agent's fact-finding
-> lookups may list candidates but not measure outcomes, and templates may not search
-> inside the SQL; both rules are enforced in code. The first, unconstrained run scored
-> 93% vs 93%. The 10-scenario agent got there by ranking the whole space in one lookup
-> query and by bisecting over extra rounds: still ClickHouse doing the search, through a
-> side door. The constraints make the experiment measure what it claims to.
 
 > **Two caveats on the runs above, both fixed since.** First, four questions
 > (`q-padding`, `q-late-departure-block`, `q-padding-carrier`, `q-connection-window`)
@@ -231,24 +248,13 @@ database, and the database does it in milliseconds."
 > Langfuse. Rerun Experiment A the day before (see "The day before") and quote your own
 > numbers.
 
-**Land.** "Breadth is a knob you can afford to turn up. Accuracy moves; the bill and the
-model's time barely do, because the extra work lands on the database, and the database
-does it in milliseconds."
-
-**Ask.** "What's the knob in your evals you keep low because turning it up is slow?"
+> **Fallback:** if the two runs aren't in the project, `verify_demo.py` fails on it the
+> day before; run Experiment A then. In the room, quote the table above as the reference
+> run and show the dataset items instead.
 
 ---
 
-## Act 5 — Land (1 min)
-
-"Two last things. Every trace you've looked at is stored in ClickHouse too: Langfuse runs
-on it. And the dashboard (open it) is just these scores, charted: DB share per run, query
-latency percentiles, scenarios per minute, LLM calls against scenarios. The agent's
-environment and its observability backend are the same database."
-
----
-
-## Optional — Many agents, one service (2 min)
+## Act 4 · Many agents, one service (optional, 2 min)
 
 **Frame.** "One agent is a demo. A team running ten of these at once, against one
 service, is a platform question."
@@ -290,7 +296,7 @@ the trace tells you exactly when you hit it."
 
 ---
 
-## Optional — A cheaper prompt meets the gate (3 min)
+## Act 5 · A cheaper prompt meets the gate (optional, 3 min)
 
 **Frame.** "Someone on the team says the agent sweeps too finely: 'five-minute steps are
 plenty, and it'll cost less.' That's a plausible change, it'll pass code review, and it
@@ -331,7 +337,96 @@ check them every time a prompt changes."
 
 ---
 
-## Honest limits (know these before you present)
+## Close · The same database, twice (1 min)
+
+"Two last things. Every trace you've looked at is stored in ClickHouse too: Langfuse runs
+on it. And the dashboard (open it) is just these scores, charted: DB share per run, query
+latency percentiles, scenarios per minute, LLM calls against scenarios. The agent's
+environment and its observability backend are the same database."
+
+1. **The database dropped out of the latency budget.** Six hundred queries, about 5% of
+   the run spent waiting on ClickHouse, and every query span says so (Act 1).
+2. **Cheap queries change what the agent does.** It re-checks its own metric, and wider
+   sweeps doubled accuracy on exact-answer questions for cents (Acts 2 and 3).
+3. **Every claim here is a trace you can open.** Scores, experiments and the dashboard
+   are all in one Langfuse project.
+
+Hand over the repo: `demos/analytics-agentic-speed` runs against their own ClickHouse
+Cloud service and Langfuse project with the steps in the README.
+
+---
+
+## Show me the code
+
+**1 · One query = one tool span with the DB's own timing — `explorer/agent.py:114`**
+`traced_query` puts server ms, round trip, rows read and query id on every span.
+
+**2 · The per-query score — `explorer/agent.py:145`**
+Langfuse's Metrics API can't chart metadata; a score makes `db_server_ms` chartable.
+
+**3 · Server time from ClickHouse — `explorer/ch_client.py:214`**
+`statistics.elapsed` from the response body: the database's number, not the client's.
+
+**4 · Typed server-side parameters — `explorer/ch_client.py:198`**
+`{origin:String}` + `param_origin=…`: no string formatting of values into SQL.
+
+**5 · No query cache — `explorer/config.py:156`**
+`use_query_cache=0`: every scenario is computed.
+
+**6 · The sweep — `explorer/agent.py:487`**
+asyncio tasks inherit the current span, so 300 queries nest under one `sweep`.
+
+**7 · Measure, don't search — `explorer/prompts.py:37`**
+Keeps each scenario a separate, auditable query.
+
+**8 · Grid compiler — `explorer/scenarios.py:158`, `explorer/scenarios.py:197`**
+Deterministic: the LLM writes one template, `validate` checks it and `expand` turns the
+grid into scenarios.
+
+**9 · Verify the answer — `explorer/agent.py:576`**
+Re-runs the winning scenario; sets `recommendation_grounded`.
+
+**10 · No duplicate LLM spans — `explorer/tracing.py:21`**
+Drops the Anthropic SDK's native OTel spans that double-count cost.
+
+**11 · A clean trace per UI run — `webapp/server.py:142`**
+FastAPI emits its own request spans; each run starts in an empty OTel context so its
+root has no dangling parent.
+
+**12 · Sort key — `sql/schema.sql:94`**
+`(Origin, Year, …)`: one airport's scenario reads 477 of 28,281 granules.
+
+---
+
+## Talking points & objections
+
+- **"Couldn't one GROUP BY do this?"** Yes, for this question, and the agent will do it
+  if you let it: our first version wrote one query per airport that searched all 61
+  buffer values inside the SQL. That's fast and clever, and it hides the search. Real
+  what-ifs (a policy simulated over several steps, a scenario that changes a join or a
+  cohort definition) often don't collapse into one aggregate. So the prompt asks the
+  template to *measure* one scenario and leave the *search* to the system, so each
+  scenario is auditable on its own. That's a design choice; say so.
+- **"Isn't the Experiment A comparison rigged?"** It's constrained, on purpose, and you
+  should say how. Both breadths get the same two rounds, because a round is a model call
+  (10–25 s) and a scenario is a query (milliseconds). The agent's fact-finding lookups
+  may list candidates but not measure outcomes, and templates may not search inside the
+  SQL; both rules are enforced in code. The first, unconstrained run scored 93% vs 93%.
+  The 10-scenario agent got there by ranking the whole space in one lookup query and by
+  bisecting over extra rounds: still ClickHouse doing the search, through a side door.
+  The constraints make the experiment measure what it claims to.
+- **"You warmed the cache first. Isn't that a trick?"** The first query on a cold replica
+  runs 150–400 ms; warm, the same scenario runs in 10–40 ms. The warm-up exists so the
+  audience sees the steady state. It's caching, not a trick, and `use_query_cache=0`
+  means no scenario's result is served from a cache.
+- **"Why is the round trip so much longer than the server time?"** From a laptop, the
+  round trip is ~100 ms against 10–20 ms of server time. Showing `db_server_ms` next to
+  the span duration is the point. Run the agent in the service's region for the
+  cleanest numbers.
+
+---
+
+## Known limits
 
 - **The network shows up.** From a laptop, round-trip time is ~100 ms against 10–20 ms of
   server time. Showing `db_server_ms` next to the span duration is the point; don't
@@ -353,21 +448,22 @@ check them every time a prompt changes."
   four model calls. That's the point of the demo, but it's a long minute on stage:
   narrate the live lines.
 
+The full list is in the README's [Known limits](README.md#known-limits).
+
 ---
 
-## Show me the code
+## Reset / re-run
 
-| What | Where | Why it matters |
-|---|---|---|
-| One query = one tool span with the DB's own timing | `explorer/agent.py:109` (`traced_query`) | Server ms, round trip, rows read and query id land on every span |
-| The per-query score | `explorer/agent.py:140` | Langfuse's Metrics API can't chart metadata; a score makes `db_server_ms` chartable |
-| Server time from ClickHouse | `explorer/ch_client.py:214` | `statistics.elapsed` from the response body: the database's number, not the client's |
-| Typed server-side parameters | `explorer/ch_client.py:198` | `{origin:String}` + `param_origin=…`: no string formatting of values into SQL |
-| No query cache | `explorer/config.py:76` | `use_query_cache=0`: every scenario is computed |
-| The sweep | `explorer/agent.py:486` | asyncio tasks inherit the current span, so 300 queries nest under one `sweep` |
-| Measure, don't search | `explorer/prompts.py:33` | Keeps each scenario a separate, auditable query |
-| Grid compiler | `explorer/scenarios.py:116`, `:152` | Deterministic: the LLM writes one template, code expands the grid |
-| Verify the answer | `explorer/agent.py:556` | Re-runs the winning scenario; `recommendation_grounded` |
-| No duplicate LLM spans | `explorer/tracing.py:21` | Drops the Anthropic SDK's native OTel spans that double-count cost |
-| A clean trace per UI run | `webapp/server.py` (`go()`) | FastAPI emits its own request spans; each run starts in an empty OTel context so its root has no dangling parent |
-| Sort key | `sql/schema.sql` | `(Origin, Year, …)`: one airport's scenario reads 477 of 28,281 granules |
+A rehearsal leaves only new traces behind: no script here moves the `production` prompt
+label (the gate act reads `candidate-coarse`). To put the Langfuse side back and re-run:
+
+```bash
+cd demos/analytics-agentic-speed
+.venv/bin/python scripts/seed_all.py --skip-data     # prompts, score configs, dashboard, dataset back to the code
+.venv/bin/python main.py --question q-padding        # a fresh hero trace
+.venv/bin/python scripts/verify_demo.py              # READY again
+```
+
+Drop `--skip-data` to also re-check the table and the agent user: `load_data.py` skips
+years that already match the source. A full reload is
+`.venv/bin/python scripts/load_data.py --reload` (~6 min).
