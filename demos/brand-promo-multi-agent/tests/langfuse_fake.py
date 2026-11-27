@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime
 from typing import Any
 
 from src.langfuse_rest import ApiError, Client
@@ -19,6 +20,16 @@ SCORE_FIELDS = {"details", "subject", "annotation"}  # core is always returned; 
 OBS_PARAMS = {"limit", "cursor", "fields", "name", "userId", "sessionId", "type", "traceId", "level",
               "parentObservationId", "isRootObservation", "environment", "fromStartTime", "toStartTime",
               "version", "filter", "expandMetadata"}
+# Metrics API: the dimensions and filter columns each view accepts (openapi.yml), and the one
+# measure the seeders use.
+METRIC_DIMS = {
+    "observations": {"environment", "type", "name", "level", "version", "tags", "release", "traceName",
+                     "traceRelease", "traceVersion", "providedModelName", "promptName", "promptVersion",
+                     "isRootObservation", "startTimeMonth"},
+    "scores-numeric": {"environment", "name", "source", "dataType", "configId", "timestampMonth", "timestampDay",
+                       "value", "traceName", "tags", "traceRelease", "traceVersion", "observationName"},
+}
+METRIC_OPERATORS = {"=", "contains", "does not contain", "starts with", "ends with"}
 SCORE_PARAMS = {"limit", "cursor", "fields", "id", "name", "source", "dataType", "environment", "configId",
                 "queueId", "authorUserId", "value", "valueMin", "valueMax", "traceId", "sessionId",
                 "observationId", "experimentId", "fromTimestamp", "toTimestamp"}
@@ -45,10 +56,38 @@ class FakeClient(Client):
         self.dashboards: list[dict] = []
         self.rules: list[dict] = []
         self.v2_observations = True  # False: behave like a pinned self-hosted v3 server
+        self.v2_metrics = True       # False: /v2/metrics answers 404, as on that server
+        self.traces: dict[str, dict] = {}  # trace id -> {"name", "version"}, from trace-create events
+        self.ingest_calls = 0
+        self.drop = None  # drop(event) -> True loses that event, like a failed ingestion chunk
 
     # -- bookkeeping ------------------------------------------------------------------
     def writes(self) -> list[tuple[str, str]]:
         return [(m, p) for m, p, _, _ in self.calls if m != "GET"]
+
+    # -- ingestion --------------------------------------------------------------------
+    def ingest(self, chunk: list[Any]) -> list[Any]:
+        """The `ingest` hook of trace_generator.generate_traces: upsert each event by id, the
+        way the ingestion API does. Returns per-event errors (none)."""
+        self.ingest_calls += 1
+        for e in chunk:
+            if self.drop and self.drop(e):
+                continue
+            b = e.body
+            if e.type == "trace-create":
+                self.traces[b.id] = {"name": b.name, "version": b.version}
+            elif e.type in ("span-create", "generation-create"):
+                row = {"id": b.id, "traceId": b.trace_id, "name": b.name, "startTime": str(b.start_time),
+                       "type": "GENERATION" if e.type == "generation-create" else "SPAN", "version": b.version}
+                self.observations = [o for o in self.observations if o["id"] != b.id] + [row]
+            elif e.type == "score-create":
+                row = {"id": b.id, "name": b.name, "value": b.value, "dataType": "NUMERIC",
+                       "subject": {"kind": "trace", "id": b.trace_id}, "traceId": b.trace_id}
+                self.scores = [x for x in self.scores if x["id"] != b.id] + [row]
+        return []
+
+    def _trace_name(self, row: dict) -> str | None:
+        return row.get("traceName") or self.traces.get(row["traceId"], {}).get("name")
 
     def request(self, method: str, path: str, params: dict | None = None, body: Any = None) -> Any:
         params = {k: v for k, v in (params or {}).items() if v is not None}
@@ -81,6 +120,9 @@ class FakeClient(Client):
             ("GET", "/api/public/observations", self._get_obs_v1),
             ("GET", "/api/public/unstable/dashboards", self._get_dashboards),
             ("GET", "/api/public/v2/evaluation-rules", self._get_rules),
+            ("GET", "/api/public/v2/metrics", self._get_metrics),
+            ("GET", "/api/public/metrics", self._get_metrics),
+            ("DELETE", "/api/public/traces", self._delete_traces),
         ]
         for m, prefix, fn in table:
             if m == method and (path == prefix or (prefix.endswith("/") and path.startswith(prefix))):
@@ -241,3 +283,59 @@ class FakeClient(Client):
 
     def _get_rules(self, path, params, body):
         return self._cursor_page(copy.deepcopy(self.rules), params)
+
+    # -- metrics ----------------------------------------------------------------------
+    def _get_metrics(self, path, params, body):
+        if path == "/api/public/v2/metrics" and not self.v2_metrics:
+            raise ApiError(404, "not found")
+        if set(params) != {"query"}:
+            raise _bad(f"metrics takes one `query` parameter, got {set(params)}")
+        q = json.loads(params["query"])
+        view = q.get("view")
+        if view not in METRIC_DIMS:
+            raise _bad(f"unknown view {view}")
+        if q.get("metrics") != [{"measure": "count", "aggregation": "count"}]:
+            raise _bad("the fake serves count/count only")
+        if not q.get("fromTimestamp") or not q.get("toTimestamp"):
+            raise _bad("fromTimestamp and toTimestamp are required")
+        dims = [d["field"] for d in q.get("dimensions") or []]
+        if set(dims) - METRIC_DIMS[view]:
+            raise _bad(f"unknown dimensions {set(dims) - METRIC_DIMS[view]}")
+        lo, hi = (datetime.fromisoformat(q[k].replace("Z", "+00:00")) for k in ("fromTimestamp", "toTimestamp"))
+        if view == "observations":
+            rows = [{"name": o["name"], "version": o.get("version"), "traceName": self._trace_name(o),
+                     "traceVersion": self.traces.get(o["traceId"], {}).get("version")}
+                    for o in self.observations
+                    if lo <= datetime.fromisoformat(o["startTime"].replace("Z", "+00:00")) <= hi]
+        else:  # scores carry their ingestion time; the fake keeps no score timestamps
+            rows = [{"name": x["name"], "traceName": self.traces.get(x.get("traceId"), {}).get("name"),
+                     "traceVersion": self.traces.get(x.get("traceId"), {}).get("version")}
+                    for x in self.scores]
+        for f in q.get("filters") or []:
+            if f["column"] not in METRIC_DIMS[view] or f.get("type") != "string" or f["operator"] not in METRIC_OPERATORS:
+                raise _bad(f"bad filter {f}")
+            if f["operator"] == "=":
+                rows = [r for r in rows if r.get(f["column"]) == f["value"]]
+            elif f["operator"] == "starts with":
+                rows = [r for r in rows if (r.get(f["column"]) or "").startswith(f["value"])]
+            else:
+                raise _bad(f"the fake does not serve operator {f['operator']}")
+        groups: dict[tuple, int] = {}
+        for r in rows:
+            k = tuple(r.get(d) for d in dims)
+            groups[k] = groups.get(k, 0) + 1
+        limit = int((q.get("config") or {}).get("row_limit", 100))
+        out = [dict(zip(dims, k, strict=True), count_count=str(n)) for k, n in groups.items()]  # UInt64 comes back as a string
+        return {"data": out[:limit]}
+
+    def _delete_traces(self, path, params, body):
+        ids = (body or {}).get("traceIds")
+        if not isinstance(ids, list) or not ids:
+            raise _bad("traceIds is required")
+        gone = set(ids)
+        self.observations = [o for o in self.observations if o["traceId"] not in gone]
+        self.scores = [x for x in self.scores if x.get("traceId") not in gone
+                       and (x.get("subject") or {}).get("id") not in gone]
+        for t in gone:
+            self.traces.pop(t, None)
+        return {"message": f"{len(ids)} traces queued for deletion"}

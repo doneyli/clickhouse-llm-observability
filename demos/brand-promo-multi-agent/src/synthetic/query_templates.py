@@ -50,8 +50,8 @@ STRATEGY_OUTPUTS = [
 ]
 
 
-def build_promo_planner_input(rng: random.Random) -> str:
-    cfg = load_config()
+def build_promo_planner_input(rng: random.Random, cfg=None) -> str:
+    cfg = cfg or load_config()
     brand = rng.choice(cfg.all_brand_names())
     region = rng.choice(cfg.regions)
     retailer = rng.choice(cfg.retail_partners)
@@ -73,8 +73,8 @@ def build_promo_planner_input(rng: random.Random) -> str:
     )
 
 
-def build_promo_planner_output(rng: random.Random, failure_mode: str | None = None) -> str:
-    cfg = load_config()
+def build_promo_planner_output(rng: random.Random, failure_mode: str | None = None, cfg=None) -> str:
+    cfg = cfg or load_config()
     brand = rng.choice(cfg.all_brand_names())
     region = rng.choice(cfg.regions)
     retailer = rng.choice(cfg.retail_partners)
@@ -106,8 +106,8 @@ def build_promo_planner_output(rng: random.Random, failure_mode: str | None = No
     )
 
 
-def build_simple_agent_input(agent_name: str, rng: random.Random) -> str:
-    cfg = load_config()
+def build_simple_agent_input(agent_name: str, rng: random.Random, cfg=None) -> str:
+    cfg = cfg or load_config()
     brand = rng.choice(cfg.all_brand_names())
     region = rng.choice(cfg.regions)
     templates = {

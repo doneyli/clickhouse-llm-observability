@@ -309,90 +309,217 @@ def test_dashboards_and_judges_report_manual_steps(fake):
 
 
 # --- history -----------------------------------------------------------------------------
+#
+# These drive generate_history end to end: the real planner and generator build the batch,
+# FakeClient.ingest upserts its events by id, and the read-back goes through the fake's
+# Metrics API, so a wrong query shape or a count that misses a gap fails here.
 
-def _gen_recorder(results=None):
-    calls = []
-
-    def generate(**kw):
-        calls.append(kw)
-        return results if results is not None else [{"agent": "x"}] * kw["total"]
-
-    return calls, generate
+TODAY = date(2026, 11, 27)
+SMALL = 40  # traces per test batch: 8 PromoPlanner, 32 fleet
 
 
-def _land(fake, tid):
-    fake.observations.append({"id": f"o-{tid}", "traceId": tid, "traceName": "promo_planner_run",
-                              "name": "classify_intent", "startTime": "2026-11-20T10:00:00Z"})
-
-
-def test_history_creates_then_is_unchanged(fake):
-    from scripts.generate_history import generate_history
+def _cfg():
     from src.config import load_config
+
+    return load_config()
+
+
+def _run_history(fake, cfg=None, today=TODAY, **kw):
+    from scripts.generate_history import generate_history
+
+    kw.setdefault("confirm_timeout", 0)
+    return generate_history(total=SMALL, client=fake, ingest=fake.ingest, today=today, cfg=cfg or _cfg(),
+                            sleep=lambda s: None, **kw)
+
+
+def _stamps(fake):
+    return {o.get("version") for o in fake.observations}
+
+
+def test_history_creates_confirms_then_is_unchanged(fake):
     from src.synthetic import history_batch as hb
 
-    today = date(2026, 11, 27)
-    calls, gen = _gen_recorder()
-    assert generate_history(total=10, client=fake, generate=gen, today=today) == 0
-    assert len(calls) == 1 and calls[0]["anchor"] == hb.anchor(today)
-    key = hb.batch_key(load_config(), 10, 42, today)
-    assert calls[0]["trace_id_for"](0) == hb.trace_id(key, 0)
+    assert _run_history(fake) == 0
+    key = hb.batch_key(_cfg(), SMALL, 42, TODAY)
+    assert set(fake.traces) == {hb.trace_id(key, i) for i in range(SMALL)}
+    assert _stamps(fake) == {hb.stamp(key, SMALL)}
+    rows = len(fake.observations)
 
-    _land(fake, hb.trace_id(key, 0))
-    _land(fake, hb.trace_id(key, 9))
-    assert generate_history(total=10, client=fake, generate=gen, today=today) == 0
-    assert len(calls) == 1  # complete batch: nothing written
-    # still current four days later, inside the reuse window
-    assert generate_history(total=10, client=fake, generate=gen, today=date(2026, 12, 1)) == 0
-    assert len(calls) == 1
-    assert fake.writes() == []
+    fake.calls.clear()
+    fake.ingest_calls = 0
+    assert _run_history(fake) == 0
+    assert _run_history(fake, today=date(2026, 12, 1)) == 0  # still current inside the reuse window
+    assert fake.ingest_calls == 0 and fake.writes() == [] and len(fake.observations) == rows
 
 
-def test_history_resumes_a_partial_batch_and_fails_loudly(fake):
-    from scripts.generate_history import generate_history
-    from src.config import load_config
+def test_history_repairs_missing_middle_rows_with_both_ends_present(fake):
+    """132-6: the first and last trace are no proof. Rows lost from the middle of the batch
+    read as partial, the re-run re-sends the same ids, and the next run writes nothing."""
     from src.synthetic import history_batch as hb
 
-    today = date(2026, 11, 27)
-    key = hb.batch_key(load_config(), 10, 42, today)
-    _land(fake, hb.trace_id(key, 0))
-    calls, gen = _gen_recorder()
-    assert generate_history(total=10, client=fake, generate=gen, today=today) == 0
-    assert len(calls) == 1 and calls[0]["trace_id_for"](9) == hb.trace_id(key, 9)
+    key = hb.batch_key(_cfg(), SMALL, 42, TODAY)
+    middle = {hb.trace_id(key, i) for i in range(15, 25)}
+    fake.drop = lambda e: (getattr(e.body, "trace_id", None) or e.body.id) in middle
+    assert _run_history(fake) == 1  # sent, but the read-back finds the gap: not confirmed
+    assert hb.trace_id(key, 0) in fake.traces and hb.trace_id(key, SMALL - 1) in fake.traces
+    assert not middle & set(fake.traces)
 
-    _, failing = _gen_recorder([{"agent": "x"}, {"error": "batch rejected", "agent": "batch"}])
-    assert generate_history(total=10, client=FakeClient(), generate=failing, today=today) == 1
+    fake.drop = None
+    assert _run_history(fake) == 0  # partial: the same batch is re-sent and confirmed
+    assert set(fake.traces) == {hb.trace_id(key, i) for i in range(SMALL)}
+    rows, ids = len(fake.observations), {o["id"] for o in fake.observations}
+    assert len(ids) == rows  # upserted in place, not appended
+
+    fake.calls.clear()
+    fake.ingest_calls = 0
+    assert _run_history(fake) == 0
+    assert fake.ingest_calls == 0 and fake.writes() == []
+
+
+def test_history_repairs_a_lost_middle_observation_and_score(fake):
+    """A trace can be partly there: one lost observation or score is a short group too."""
+    from src.synthetic import history_batch as hb
+    from src.synthetic.trace_generator import batch_counts, iter_batch
+
+    assert _run_history(fake) == 0
+    victim = next(o for o in fake.observations if o["name"] == "tool.query_inventory")
+    fake.observations.remove(victim)
+    assert _run_history(fake) == 0
+    assert victim["id"] in {o["id"] for o in fake.observations}
+
+    assert len(fake.scores) == 8  # 2 scored PromoPlanner traces x 4 judges in this batch
+    lost = fake.scores.pop(3)
+    assert _run_history(fake) == 0
+    assert lost["id"] in {x["id"] for x in fake.scores}
+
+    cfg = _cfg()
+    synth = cfg.synthetic_history
+    expected = batch_counts(iter_batch(SMALL, synth.hero_agent_share, synth.days_back,
+                                       synth.business_hours_weighting, seed=42, cfg=cfg))
+    key = hb.batch_key(cfg, SMALL, 42, TODAY)
+    assert hb.batch_state(fake, key, SMALL, TODAY, synth.days_back, expected) == ("complete", [])
+    fake.observations.remove(next(o for o in fake.observations if o["name"] == "historian"))
+    state, short = hb.batch_state(fake, key, SMALL, TODAY, synth.days_back, expected)
+    assert state == "partial" and short == ["promo_planner_run/historian: 7/8 observations"]
+
+
+def test_history_unconfirmed_write_and_read_failures_exit_1(fake):
+    from src.synthetic import history_batch as hb
+
+    def failing(chunk):
+        return ["event rejected"]
+
+    from scripts.generate_history import generate_history
+    assert generate_history(total=SMALL, client=FakeClient(), ingest=failing, today=TODAY, cfg=_cfg(),
+                            confirm_timeout=0) == 1
 
     broken = FakeClient()
-    broken.fail[("GET", "/api/public/v2/observations")] = ApiError(500, "boom")
-    calls, gen = _gen_recorder()
-    assert generate_history(total=10, client=broken, generate=gen, today=today) == 1
-    assert calls == []  # an unknown state never writes another batch
+    broken.fail[("GET", "/api/public/v2/metrics")] = ApiError(500, "boom")
+    assert _run_history(broken) == 1
+    assert broken.ingest_calls == 0 and broken.traces == {}  # an unknown state never writes
+
+    # landing slowly: polled until complete, within the bound
+    slow, polls = FakeClient(), []
+    key = hb.batch_key(_cfg(), SMALL, 42, TODAY)
+    held: list = []
+    slow.drop = lambda e: held.append(e) or True
+    clock = iter(range(0, 10_000, 10))
+
+    def sleep(s):
+        polls.append(s)
+        slow.drop = None
+        slow.ingest(held)
+        held.clear()
+
+    from scripts.generate_history import generate_history as gh
+    assert gh(total=SMALL, client=slow, ingest=slow.ingest, today=TODAY, cfg=_cfg(), confirm_timeout=60,
+              poll_s=15, sleep=sleep, clock=lambda: next(clock)) == 0
+    assert polls == [15] and hb.trace_id(key, 5) in slow.traces
 
 
-def test_history_read_back_on_a_pinned_v3_server_uses_v1_observations(fake):
-    from src.config import load_config
+@pytest.mark.parametrize("change", ["regions", "brand", "retailer", "sku", "fleet", "definition"])
+def test_history_key_covers_every_generation_input(change, monkeypatch):
+    """132-7: each input the generator reads changes the key; identical inputs do not."""
     from src.synthetic import history_batch as hb
 
-    fake.v2_observations = False
-    day = date(2026, 11, 27)
-    key = hb.batch_key(load_config(), 10, 42, day)
-    _land(fake, hb.trace_id(key, 0))
-    _land(fake, hb.trace_id(key, 9))
-    assert hb.batch_state(fake, key, 10, day, 30) == "complete"
+    cfg = _cfg()
+    k = hb.batch_key(cfg, 50000, 42, TODAY)
+    assert hb.batch_key(_cfg(), 50000, 42, TODAY) == k
+    other = cfg.model_copy(deep=True)
+    definition = None
+    if change == "regions":
+        other.regions = [*other.regions[:-1], "Pacific Northwest Test"]
+    elif change == "brand":
+        other.catalog.brand_families[0].name = "Renamed Brand"
+    elif change == "retailer":
+        other.retail_partners = [*other.retail_partners[:-1], "Corner Store Co"]
+    elif change == "sku":
+        other.catalog.brand_families[0].hero_skus = [*other.catalog.brand_families[0].hero_skus[:-1], "NEW-SKU-1"]
+    elif change == "fleet":
+        other.agent_fleet.other_agents[0].name = "CareDesk"
+    else:
+        definition = hb.definition_digest(("trace_generator.py", "query_templates.py"))
+    assert hb.batch_key(other, 50000, 42, TODAY, definition) != k
 
 
-def test_batch_key_follows_the_config(monkeypatch):
-    from src.config import load_config
+@pytest.mark.parametrize("change", ["regions", "brand", "retailer", "sku"])
+def test_history_retheme_writes_new_content_and_removes_only_the_owned_old_batch(fake, change):
+    """A region-, brand-, retailer- or SKU-only change is not reported unchanged: the new
+    content is written and confirmed, the superseded owned batch is deleted, and rows the
+    generator did not write survive. The re-themed config is then a no-op."""
     from src.synthetic import history_batch as hb
 
-    cfg = load_config()
-    day = date(2026, 11, 27)
-    k = hb.batch_key(cfg, 50000, 42, day)
-    assert hb.batch_key(cfg, 50000, 42, day) == k
-    renamed = cfg.model_copy(deep=True)
-    renamed.agent_fleet.other_agents[0].name = "CareDesk"
-    assert hb.batch_key(renamed, 50000, 42, day) != k
-    assert hb.batch_key(cfg, 50000, 42, date(2026, 11, 28)) != k
+    assert _run_history(fake) == 0
+    old = hb.batch_key(_cfg(), SMALL, 42, TODAY)
+    fake.observations.append({"id": "user-1", "traceId": "user-trace", "traceName": "my_app",
+                              "name": "user span", "startTime": "2026-11-26T10:00:00+00:00", "version": "v7"})
+    cfg = _cfg()
+    if change == "regions":
+        cfg.regions = ["Atlantis"]
+    elif change == "brand":
+        for bf in cfg.catalog.brand_families:
+            bf.name = f"Neo {bf.name}"
+    elif change == "retailer":
+        cfg.retail_partners = ["Corner Store Co"]
+    else:
+        for bf in cfg.catalog.brand_families:
+            bf.hero_skus = [f"NEW-{s}" for s in bf.hero_skus]
+    new = hb.batch_key(cfg, SMALL, 42, TODAY)
+    assert new != old
+
+    assert _run_history(fake, cfg=cfg) == 0
+    assert set(fake.traces) == {hb.trace_id(new, i) for i in range(SMALL)}
+    assert _stamps(fake) == {hb.stamp(new, SMALL), "v7"}
+    assert any(o["id"] == "user-1" for o in fake.observations)
+    deleted = [b["traceIds"] for m, p, _, b in fake.calls if m == "DELETE"]
+    assert {t for chunk in deleted for t in chunk} == {hb.trace_id(old, i) for i in range(SMALL)}
+
+    fake.calls.clear()
+    fake.ingest_calls = 0
+    assert _run_history(fake, cfg=cfg) == 0
+    assert fake.ingest_calls == 0 and fake.writes() == []
+
+
+def test_history_keep_superseded_and_failed_delete(fake):
+    from src.synthetic import history_batch as hb
+
+    assert _run_history(fake) == 0
+    cfg = _cfg()
+    cfg.regions = ["Atlantis"]
+    assert _run_history(fake, cfg=cfg, keep_superseded=True) == 0
+    assert len(_stamps(fake)) == 2 and not [c for c in fake.calls if c[0] == "DELETE"]
+    fake.fail[("DELETE", "/api/public/traces")] = ApiError(500, "boom")
+    assert _run_history(fake, cfg=cfg) == 1
+    with pytest.raises(ValueError):
+        hb.delete_batch(fake, "v7")  # never deletes by a version it did not write
+
+
+def test_history_read_back_on_a_pinned_v3_server_uses_v1_metrics(fake):
+    fake.v2_metrics = False
+    assert _run_history(fake) == 0
+    fake.calls.clear()
+    assert _run_history(fake) == 0 and fake.writes() == []
+    assert {p for _, p, _, _ in fake.calls} == {"/api/public/v2/metrics", "/api/public/metrics"}
 
 
 def test_generated_batch_is_deterministic():
@@ -408,7 +535,8 @@ def test_generated_batch_is_deterministic():
         lf.api.ingestion.batch.side_effect = lambda batch: sent.append(batch) or MagicMock(errors=[])
         with patch("langfuse.Langfuse", return_value=lf):
             generate_traces(total=12, hero_share=0.5, days_back=30, business_hours=True, seed=7,
-                            anchor=hb.anchor(date(2026, 11, 27)), trace_id_for=lambda i: hb.trace_id("k", i))
+                            anchor=hb.anchor(date(2026, 11, 27)), trace_id_for=lambda i: hb.trace_id("k", i),
+                            version="brand-promo-history/k/12")
         events = [e for b in sent for e in b]
         sent.clear()
         return events
@@ -422,6 +550,7 @@ def test_generated_batch_is_deterministic():
     traces = [e.body for e in a if e.type == "trace-create"]
     assert [t.id for t in traces] == [hb.trace_id("k", i) for i in range(12)]
     assert all(str(t.timestamp) < "2026-11-28" for t in traces)
+    assert all(e.body.version == "brand-promo-history/k/12" for e in a if e.type != "score-create")
     assert {e.id for e in a}.isdisjoint({e.id for e in b})  # envelope ids stay random
 
 
@@ -431,6 +560,7 @@ def test_unseeded_builders_keep_random_ids():
     a = _build_promo_planner_events(random.Random(1), 30, True)
     b = _build_promo_planner_events(random.Random(1), 30, True)
     assert a[0].type == "trace-create" and a[0].body.id != b[0].body.id
+    assert a[0].body.version is None
 
 
 # --- seed_all ----------------------------------------------------------------------------
