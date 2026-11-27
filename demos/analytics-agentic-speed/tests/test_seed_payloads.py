@@ -21,6 +21,8 @@ for p in (DEMO_DIR, DEMO_DIR / "scripts"):
 
 
 def _load(name: str):
+    if name in sys.modules:  # one module object per script, so other tests' fakes share its classes
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, DEMO_DIR / "scripts" / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod

@@ -111,8 +111,10 @@ on connect (curl exit 35) means it doesn't.
 .venv/bin/python scripts/verify_demo.py      # should print READY
 ```
 
-`seed_all.py` runs the three seeders in order and stops at the first failure. Each one
-is idempotent and can still be run on its own:
+`seed_all.py` first checks that `.env` exists and fills in every key the planned steps
+need, then runs the three seeders in order and stops at the first failure (exit 1). Each
+seeder is idempotent, exits 1 on a conflict, a failed write or a read-back mismatch, and
+can still be run on its own:
 
 ```bash
 .venv/bin/python scripts/load_data.py      # schema, 231.6M rows (~6 min the first time), read-only agent user
@@ -120,8 +122,10 @@ is idempotent and can still be run on its own:
 .venv/bin/python scripts/seed_dataset.py   # 15 questions, ground truth computed from reference SQL
 ```
 
-The `.env` is the only source of `LANGFUSE_*`: the demo loads it with `override=True`,
-so shell-exported keys are ignored. `./setup.sh` does not run this demo's seed.
+The `.env` is the only source of `LANGFUSE_*`: every script drops inherited `LANGFUSE_*`
+variables before it reads the file, and stops when the file or a key is missing, so
+shell-exported keys are never used. (The CI gate has no `.env`; on a GitHub Actions
+runner the workflow's step env is used instead.) `./setup.sh` does not run this demo's seed.
 
 ## Before a demo
 
@@ -293,12 +297,16 @@ uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requi
 They cover the SQL allow-list, parameter encoding and grid compiler, exact-match grading,
 `load_data.py`'s SQL and planning, the question file, report facts, the trace inputs and
 export filter, the seed payloads, the prompt gate's thresholds, the agent boundaries from
-PR #122's review, `verify_demo.py`'s probe, and `seed_all.py`'s step plan.
+PR #122's review, `verify_demo.py`'s probe, requests, paging and verdicts against a fake
+Langfuse, `seed_langfuse.py`'s reconcile and failure paths, `seed_all.py`'s step plan and
+env checks, and the `.env` loader.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
+| `no .env at …` or `missing from …: LANGFUSE_…` | Copy `.env.example` to `.env` and fill it in. Shell exports never fill a gap, by design. |
+| `conflict, cannot be reconciled` from `seed_langfuse.py` | A score config with a contract name exists with another data type. The type can't be changed and configs can't be deleted: archive or rename it in the UI, then reseed. |
 | TLS error / curl exit 35 on connect | This machine isn't on the service's IP access list. Add it in ClickHouse Cloud. |
 | Langfuse 404s, or traces "missing" | Keys for another project. `unset LANGFUSE_*` and rerun; `verify_demo.py` checks which project the keys map to. |
 | Server ms in the hundreds | Either a cold replica (run `warmup.py`), or the template doesn't filter on the sort key. Open the `sweep` span's input and check for `Origin = …` and `Year = …`. See [MEASUREMENTS.md](docs/MEASUREMENTS.md#act-1-the-hero-question). |

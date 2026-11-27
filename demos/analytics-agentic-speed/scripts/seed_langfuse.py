@@ -106,26 +106,68 @@ SCORE_TYPES: dict[str, str] = {c["name"]: c["dataType"] for c in SCORE_CONFIGS}
 _DRIFT_KEYS = ("description", "minValue", "maxValue", "categories")
 
 
+def _wanted_fields(want: dict) -> dict[str, Any]:
+    """The drift-checked fields of one wanted config. A NUMERIC range the contract leaves
+    open is wanted as null, so a bound someone added on the server counts as drift."""
+    out = {k: want[k] for k in _DRIFT_KEYS if k in want}
+    if want["dataType"] == "NUMERIC":
+        out.setdefault("minValue", None)
+        out.setdefault("maxValue", None)
+    return out
+
+
+def config_drift(want: dict, have: dict) -> dict[str, Any]:
+    """The PATCH body that brings ``have`` to ``want`` (empty when it already matches)."""
+    return {k: v for k, v in _wanted_fields(want).items() if _norm(have.get(k)) != _norm(v)}
+
+
 def plan_score_configs(existing: Iterable[dict]) -> tuple[list[dict], list[tuple[str, dict]], list[str]]:
     """(to_create, to_patch [(id, body)], conflicts) for the wanted configs vs what exists.
 
-    A name that exists with a different data type is a conflict: it cannot be changed or
-    deleted, so it is reported, never duplicated.
+    A name that exists with a different data type is a conflict: the type cannot be
+    changed and a config cannot be deleted, so it is reported (and fails the seed), never
+    duplicated. A config that exists only archived, with the right type, is unarchived
+    instead of created again.
     """
-    by_name = {c["name"]: c for c in existing if not c.get("isArchived")}
+    existing = list(existing)
+    active = {c["name"]: c for c in existing if not c.get("isArchived")}
+    archived: dict[str, dict] = {}
+    for c in existing:
+        if c.get("isArchived"):
+            archived.setdefault(c["name"], c)
     create, patch, conflicts = [], [], []
     for want in SCORE_CONFIGS:
-        have = by_name.get(want["name"])
+        have = active.get(want["name"])
         if have is None:
-            create.append(want)
+            old = archived.get(want["name"])
+            if old is not None and old.get("dataType") == want["dataType"]:
+                patch.append((old["id"], {"isArchived": False, **config_drift(want, old)}))
+            else:
+                create.append(want)
             continue
         if have.get("dataType") != want["dataType"]:
             conflicts.append(f"{want['name']}: exists as {have.get('dataType')}, contract says {want['dataType']}")
             continue
-        body = {k: want[k] for k in _DRIFT_KEYS if k in want and _norm(have.get(k)) != _norm(want[k])}
+        body = config_drift(want, have)
         if body:
             patch.append((have["id"], body))
     return create, patch, conflicts
+
+
+def score_config_readback(landed: Iterable[dict]) -> list[str]:
+    """Problems with the configs as they stand: every contract config present, active,
+    of the right type and without drift. Empty means the read-back passed."""
+    active = {c["name"]: c for c in landed if not c.get("isArchived")}
+    out = []
+    for want in SCORE_CONFIGS:
+        have = active.get(want["name"])
+        if have is None:
+            out.append(f"{want['name']}: no active config")
+        elif have.get("dataType") != want["dataType"]:
+            out.append(f"{want['name']}: {have.get('dataType')}, want {want['dataType']}")
+        elif config_drift(want, have):
+            out.append(f"{want['name']}: still differs in {', '.join(config_drift(want, have))}")
+    return out
 
 
 def _norm(v: Any) -> Any:
@@ -144,15 +186,21 @@ def plan_prompts(wanted: dict[str, Any], current: Callable[[str], Optional[dict]
     """[(name, action, detail)] — action is 'create' (detail = text) or 'unchanged' (detail = version).
 
     ``current(name)`` returns the version labelled production (or None when there is none).
+    The owned definition is a text prompt with no config: a production version that differs
+    in text, type or config gets a new version.
     """
     out = []
     for name, text in wanted.items():
         cur = current(name)
-        if cur is not None and cur.get("prompt") == text:
+        if cur is not None and prompt_matches(cur, text):
             out.append((name, "unchanged", cur.get("version")))
         else:
             out.append((name, "create", text))
     return out
+
+
+def prompt_matches(cur: dict, text: str) -> bool:
+    return cur.get("prompt") == text and cur.get("type", "text") == "text" and not cur.get("config")
 
 
 def load_prompts() -> Optional[dict[str, Any]]:
@@ -391,12 +439,9 @@ class API:
 
         from explorer.config import load_env  # noqa: PLC0415
 
-        load_env()
-        missing = [k for k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY") if not os.environ.get(k)]
-        if missing:
-            sys.exit(f"missing from {DEMO_DIR / '.env'}: {', '.join(missing)}")
-        base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or "https://us.cloud.langfuse.com"
-        return cls(base, os.environ["LANGFUSE_PUBLIC_KEY"], os.environ["LANGFUSE_SECRET_KEY"])
+        load_env()  # drops inherited LANGFUSE_*; EnvError (exit 1) on a missing .env or key
+        return cls(os.environ["LANGFUSE_BASE_URL"], os.environ["LANGFUSE_PUBLIC_KEY"],
+                   os.environ["LANGFUSE_SECRET_KEY"])
 
     def __call__(self, method: str, path: str, body: Optional[dict] = None,
                  params: Optional[dict] = None) -> dict:
@@ -434,36 +479,57 @@ def verify_project(api: API, expected: str) -> dict:
 
 # ---------------------------------------------------------------- seeding steps
 
-def seed_score_configs(api: API, dry_run: bool) -> None:
+def seed_score_configs(api: API, dry_run: bool) -> list[str]:
+    """Reconcile the score configs; returns the problems (empty when all is well)."""
     print("\n== score configs")
+    problems: list[str] = []
     existing = api.paginate("/api/public/score-configs")
     create, patch, conflicts = plan_score_configs(existing)
-    have = {c["name"] for c in existing}
+    touched = {c["name"] for c in create} | {msg.split(":")[0] for msg in conflicts}
+    patched = {cid for cid, _ in patch}
+    for c in existing:
+        if c["id"] in patched:
+            touched.add(c["name"])
     for c in SCORE_CONFIGS:
-        if c["name"] in have and all(c is not x for x in create):
+        if c["name"] not in touched:
             print(f"  = {c['name']} ({c['dataType']})")
     for c in create:
-        if not dry_run:
-            api("POST", "/api/public/score-configs", c)
-        print(f"  {'would create' if dry_run else '+'} {c['name']} ({c['dataType']})")
+        try:
+            if not dry_run:
+                api("POST", "/api/public/score-configs", c)
+            print(f"  {'would create' if dry_run else '+'} {c['name']} ({c['dataType']})")
+        except LangfuseAPIError as e:
+            problems.append(f"score config {c['name']}: create failed: {e}")
+            print(f"  x {c['name']}: create failed: {e}")
     for cid, body in patch:
-        if not dry_run:
-            api("PATCH", f"/api/public/score-configs/{cid}", body)
-        print(f"  {'would update' if dry_run else '~'} {cid}: {', '.join(body)}")
-    for msg in conflicts:
-        print(f"  ! conflict (left as is): {msg}")
+        try:
+            if not dry_run:
+                api("PATCH", f"/api/public/score-configs/{cid}", body)
+            print(f"  {'would update' if dry_run else '~'} {cid}: {', '.join(body)}")
+        except LangfuseAPIError as e:
+            problems.append(f"score config {cid}: update failed: {e}")
+            print(f"  x {cid}: update failed: {e}")
+    for msg in conflicts:  # the type can't be changed and configs can't be deleted
+        problems.append(f"score config conflict: {msg}")
+        print(f"  x conflict, cannot be reconciled (fix or rename it in the UI): {msg}")
     if not dry_run:
-        landed = {c["name"]: c["dataType"] for c in api.paginate("/api/public/score-configs")}
-        ok = sum(landed.get(n) == t for n, t in SCORE_TYPES.items())
-        print(f"  read back: {ok}/{len(SCORE_TYPES)} contract configs present with the right type")
+        bad = score_config_readback(api.paginate("/api/public/score-configs"))
+        print(f"  read back: {len(SCORE_CONFIGS) - len(bad)}/{len(SCORE_CONFIGS)} contract configs "
+              "active, with the right type and definition")
+        for msg in bad:
+            print(f"    x {msg}")
+        problems += [f"score config read-back: {m}" for m in bad]
+    return problems
 
 
-def seed_prompts(api: API, dry_run: bool) -> None:
+def seed_prompts(api: API, dry_run: bool) -> list[str]:
+    """Reconcile the agent prompts; returns the problems (empty when all is well)."""
     print("\n== prompts")
+    problems: list[str] = []
     wanted = load_prompts()
     if wanted is None:
-        print("  skipped: explorer/prompts.py does not exist yet (re-run once it does)")
-        return
+        print("  x explorer/prompts.py is missing: nothing to seed")
+        return ["prompts: explorer/prompts.py is missing"]
 
     def production(name: str) -> Optional[dict]:
         try:
@@ -483,22 +549,36 @@ def seed_prompts(api: API, dry_run: bool) -> None:
         body = {"name": name, "type": "text" if isinstance(detail, str) else "chat", "prompt": detail,
                 "labels": ["production"], "tags": ["analytics-agentic-speed"],
                 "commitMessage": "seed_langfuse.py"}
-        created = api("POST", "/api/public/v2/prompts", body)
+        try:
+            created = api("POST", "/api/public/v2/prompts", body)
+        except LangfuseAPIError as e:
+            problems.append(f"prompt {name}: create failed: {e}")
+            print(f"  x {name}: create failed: {e}")
+            continue
         print(f"  + {name} v{created.get('version')} -> production")
     if not dry_run:
-        for name in wanted:
-            p = api("GET", f"/api/public/v2/prompts/{quote(name, safe='')}", params={"label": "production"})
-            print(f"  read back: {name} production = v{p.get('version')}, labels {p.get('labels')}")
+        for name, text in wanted.items():
+            p = production(name)
+            if p is None or not prompt_matches(p, text):
+                why = "no production version" if p is None else f"production v{p.get('version')} differs"
+                problems.append(f"prompt {name} read-back: {why}")
+                print(f"  x read back: {name}: {why}")
+            else:
+                print(f"  read back: {name} production = v{p.get('version')}, labels {p.get('labels')}")
+    return problems
 
 
-def seed_dashboard(api: API, dry_run: bool) -> Optional[str]:
+def seed_dashboard(api: API, dry_run: bool) -> tuple[Optional[str], list[str]]:
+    """Reconcile the dashboard; returns (dashboard id, problems)."""
     print(f"\n== dashboard: {DASHBOARD['name']}")
+    problems: list[str] = []
     existing_widgets = {w["name"]: w for w in api.paginate(f"{U}/dashboard-widgets")}
     accepted: list[tuple[str, dict]] = []  # (widget id, spec)
     for w in WIDGETS:
         try:
             rows = api.metrics(metrics_query(w))
         except LangfuseAPIError as e:
+            problems.append(f"widget {w['name']}: metrics query rejected")
             print(f"  x {w['name']}: metrics query rejected: {e}")
             continue
         note = f"{len(rows)} row(s)"
@@ -517,12 +597,13 @@ def seed_dashboard(api: API, dry_run: bool) -> Optional[str]:
                     print(f"  ~ {w['name']} (definition updated; {note})")
                 else:
                     print(f"  = {w['name']} ({note})")
-        except LangfuseAPIError as e:  # one bad widget must not abort the dashboard
+        except LangfuseAPIError as e:  # one bad widget must not abort the dashboard, but fails the seed
+            problems.append(f"widget {w['name']}: rejected")
             print(f"  x {w['name']}: widget rejected: {e}")
             continue
         accepted.append((wid, w))
     if dry_run:
-        return None
+        return None, problems
 
     dash = next((d for d in api.paginate(f"{U}/dashboards") if d["name"] == DASHBOARD["name"]), None)
     if dash is None:
@@ -551,7 +632,10 @@ def seed_dashboard(api: API, dry_run: bool) -> Optional[str]:
     print(f"  read back: dashboard {dash_id} holds {len(placed)} widget(s)")
     for p in sorted(placed, key=lambda p: (p.get("y", 0), p.get("x", 0))):
         print(f"    - {names.get(p.get('widgetId'), p.get('widgetId'))}")
-    return dash_id
+    if {placement_tuple(p) for p in placed} != want or len(placed) != len(WIDGETS):
+        problems.append(f"dashboard read-back: {len(placed)}/{len(WIDGETS)} widgets placed as planned")
+        print(f"  x read back: {len(placed)}/{len(WIDGETS)} widgets placed as planned")
+    return dash_id, problems
 
 
 def delete_dashboard(api: API) -> None:
@@ -575,19 +659,32 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--project-name", default=EXPECTED_PROJECT, help="project the keys must map to")
     args = ap.parse_args(argv)
 
+    import httpx  # noqa: PLC0415
+
     api = API.from_env()
-    project = verify_project(api, args.project_name)
-    if args.delete_dashboard:
-        delete_dashboard(api)
-        return 0
-    if "scores" in args.only:
-        seed_score_configs(api, args.dry_run)
-    if "prompts" in args.only:
-        seed_prompts(api, args.dry_run)
-    if "dashboard" in args.only:
-        dash_id = seed_dashboard(api, args.dry_run)
-        if dash_id:
-            print(f"\n  {api.base_url}/project/{project['id']}/dashboards/{dash_id}")
+    problems: list[str] = []
+    try:
+        project = verify_project(api, args.project_name)
+        if args.delete_dashboard:
+            delete_dashboard(api)
+            return 0
+        if "scores" in args.only:
+            problems += seed_score_configs(api, args.dry_run)
+        if "prompts" in args.only:
+            problems += seed_prompts(api, args.dry_run)
+        if "dashboard" in args.only:
+            dash_id, dash_problems = seed_dashboard(api, args.dry_run)
+            problems += dash_problems
+            if dash_id:
+                print(f"\n  {api.base_url}/project/{project['id']}/dashboards/{dash_id}")
+    except (LangfuseAPIError, httpx.HTTPError) as e:  # a read or write the steps can't absorb
+        problems.append(f"{type(e).__name__}: {e}")
+    if problems:
+        print(f"\nFAILED: {len(problems)} problem(s)")
+        for msg in problems:
+            print(f"  - {msg}")
+        return 1
+    print("\nOK" + (" (dry run: nothing written)" if args.dry_run else ""))
     return 0
 
 

@@ -1,8 +1,10 @@
 """Settings for the analytics agent, read from the demo's own `.env`.
 
-The demo's `.env` is loaded with ``override=True`` on purpose: a shell-exported
-``LANGFUSE_PUBLIC_KEY`` for another project would otherwise win and silently send
-traces somewhere else (a repo-wide footgun, see the root CLAUDE.md).
+A shell-exported ``LANGFUSE_PUBLIC_KEY`` for another project would otherwise win and
+silently send traces somewhere else (a repo-wide footgun, see the root CLAUDE.md). So
+``load_env`` drops every inherited ``LANGFUSE_*`` variable before it reads the demo's
+`.env`, and fails when the file or a required key is missing. ``override=True`` alone is
+not enough: a key the file leaves out would still come from the shell.
 """
 from __future__ import annotations
 
@@ -23,13 +25,57 @@ PLAYGROUND = {
 }
 
 
-def load_env() -> None:
-    """Load the demo's .env (overriding the shell). ``EXPLORER_TARGET=playground`` in the
-    shell or .env points the agent at the public playground instead of the Cloud service."""
+ENV_FILE = DEMO_DIR / ".env"
+LANGFUSE_KEYS = ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY")
+
+
+class EnvError(SystemExit):
+    """The demo's environment is unusable. A SystemExit, so a CLI prints it and exits 1."""
+
+
+def in_github_actions() -> bool:
+    """True only on a GitHub Actions runner, where the workflow step env is the source."""
+    return os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+def missing_langfuse_vars(env: "os._Environ[str] | dict[str, str]") -> list[str]:
+    missing = [k for k in LANGFUSE_KEYS if not (env.get(k) or "").strip()]
+    if not ((env.get("LANGFUSE_BASE_URL") or env.get("LANGFUSE_HOST") or "").strip()):
+        missing.append("LANGFUSE_BASE_URL")
+    return missing
+
+
+def load_env(*, require_langfuse: bool = True, env_file: Path | None = None) -> str:
+    """Load the demo's .env and return where the settings came from.
+
+    Every inherited ``LANGFUSE_*`` variable is dropped first, so the keys, host and base
+    URL all come from the file. With no file, only a GitHub Actions runner (positively
+    identified by ``GITHUB_ACTIONS=true``) may use its step env instead; anywhere else it
+    is an ``EnvError``. ``require_langfuse`` also fails on a missing Langfuse key or base
+    URL before any API is used. ``EXPLORER_TARGET=playground`` in the shell or .env
+    points the agent at the public playground instead of the Cloud service.
+    """
+    path = env_file or ENV_FILE
     shell_target = os.getenv("EXPLORER_TARGET")
-    load_dotenv(DEMO_DIR / ".env", override=True)
+    if path.is_file():
+        for k in [k for k in os.environ if k.startswith("LANGFUSE_")]:
+            del os.environ[k]
+        load_dotenv(path, override=True)
+        source = str(path)
+    elif in_github_actions():
+        source = "the GitHub Actions step env"
+    else:
+        raise EnvError(f"no .env at {path}: copy .env.example to .env and fill it in "
+                       "(shell-exported LANGFUSE_* keys are never used)")
+    if require_langfuse:
+        missing = missing_langfuse_vars(os.environ)
+        if missing:
+            raise EnvError(f"missing from {source}: {', '.join(missing)}")
+        if not os.environ.get("LANGFUSE_BASE_URL", "").strip():
+            os.environ["LANGFUSE_BASE_URL"] = os.environ["LANGFUSE_HOST"].strip()
     if (shell_target or os.getenv("EXPLORER_TARGET", "cloud")) == "playground":
         os.environ.update(PLAYGROUND)
+    return source
 
 
 @dataclass(frozen=True)

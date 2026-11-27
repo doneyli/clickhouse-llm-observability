@@ -61,9 +61,12 @@ unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 
 `verify_demo.py` reads everything back: the agent user is read-only, the table holds
 231.6M rows, a hero-shaped scenario runs warm, the keys map to this project, both prompts
-have a `production` version, the dataset has 15 graded items, the dashboard has all 20
-widgets, and the latest hero trace carries its scores. It exits 1 on a required failure.
-The optional acts (Experiment A runs, the concurrency act, the live view) only warn.
+have a `production` version, the dataset has 15 graded items, the score configs match,
+the dashboard has all 20 widgets, the latest hero trace carries its scores, and both
+Experiment A runs exist for Act 3. Each check prints PASS, FAIL or WARN, and it exits 1
+on any FAIL, including a missing `.env`, a refused key or an unreachable service. The
+optional acts (the concurrency runs, the `candidate-coarse` label) and the live view only
+warn.
 Measured numbers for every act, with the command that produced each, are in
 [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md).
 
@@ -245,8 +248,9 @@ database, and the database does it in milliseconds."
 > Langfuse. Rerun Experiment A the day before (see "The day before") and quote your own
 > numbers.
 
-> **Fallback:** if the two runs aren't in the project, `verify_demo.py` warns about it.
-> Quote the table above as the reference run and show the dataset items instead.
+> **Fallback:** if the two runs aren't in the project, `verify_demo.py` fails on it the
+> day before; run Experiment A then. In the room, quote the table above as the reference
+> run and show the dataset items instead.
 
 ---
 
@@ -366,10 +370,10 @@ Langfuse's Metrics API can't chart metadata; a score makes `db_server_ms` charta
 **4 · Typed server-side parameters — `explorer/ch_client.py:198`**
 `{origin:String}` + `param_origin=…`: no string formatting of values into SQL.
 
-**5 · No query cache — `explorer/config.py:76`**
+**5 · No query cache — `explorer/config.py:122`**
 `use_query_cache=0`: every scenario is computed.
 
-**6 · The sweep — `explorer/agent.py:486`**
+**6 · The sweep — `explorer/agent.py:487`**
 asyncio tasks inherit the current span, so 300 queries nest under one `sweep`.
 
 **7 · Measure, don't search — `explorer/prompts.py:37`**
