@@ -7,7 +7,8 @@ brief; then, for the data question embedded in the ticket, it **samples N=5 SQL
 candidates at high temperature, validates each with `EXPLAIN` against the live
 ClickHouse public playground, executes the valid ones, and majority-votes on the
 result-set signature** (*voting*) — with an LLM tie-break judge only when the
-vote splits.
+vote splits. The ten tickets in `tickets.py` are synthetic; the data questions
+run against the public `sql.clickhouse.com` datasets.
 
 Every branch is a sibling observation under **one Langfuse trace**; the
 aggregators carry the merge inputs and the full vote tally in metadata; and
@@ -16,6 +17,22 @@ consensus confidence is a first-class Langfuse score.
 > Both Anthropic sub-variants of parallelization
 > ([Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents))
 > in one trace: **sectioning** (`analyze-sections`) and **voting** (`vote-sql`).
+
+**The question it answers:** when one model call isn't trustworthy enough, how do you buy
+confidence with parallel calls and still see what it cost and where the samples disagreed?
+
+<!-- demo-card:start -->
+| | |
+|---|---|
+| **Covers** | Trace · Monitor · Experiment · Evaluate |
+| **Stack** | Python · Anthropic SDK · asyncio · ClickHouse · Docker |
+| **Runs as** | Container in the root stack (`demo` profile) |
+| **Langfuse** | Self-hosted · project `LLM Observability Demo` |
+| **Length** | 15–20 min · short path 8 min |
+| **Present it** | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) |
+<!-- demo-card:end -->
+
+- **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md), the talk track act by act (15–20 minutes, 8-minute short path)
 
 ## What it demonstrates
 
@@ -45,40 +62,23 @@ consensus confidence is a first-class Langfuse score.
 Natural pivot from **text-to-sql** (single-shot NL→SQL): *"what if one SQL sample
 isn't trustworthy — buy confidence with N samples and let ClickHouse arbitrate."*
 
-## Quick start
+## What runs where
 
-```bash
-# From the repo root, with Langfuse up (docker compose --profile langfuse up -d)
-# and ANTHROPIC_API_KEY set in .env.
-
-# Seed the 7 managed prompts + 2 datasets, then the independent judge:
-python demos/support-triage-parallel/scripts/seed_all.py
-./scripts/seed-support-triage-evaluators.sh
-./scripts/seed-code-evaluators.sh          # (re)provisions consensus-margin-guard too
-
-# Run the batch of demo tickets:
-docker compose --profile demo run --rm support-triage-parallel python main.py
-
-# Single ticket / interactive / sequential baseline:
-docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-002
-docker compose --profile demo run --rm support-triage-parallel python main.py --interactive
-docker compose --profile demo run --rm support-triage-parallel python main.py --sequential --ticket TCK-001
-
-# Fault injection (dropped branch):
-FAULT=slow-branch docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-005
-
-# Aggregation-strategy experiment (branches fixed, aggregator varied):
-python demos/support-triage-parallel/scripts/run_experiment.py --strategy all
+```
+ you ── docker compose --profile demo run --rm support-triage-parallel python main.py
+          │  container `support-triage-parallel` (python:3.11-slim, demo folder mounted at /app)
+          │  a CLI batch: it serves nothing, although compose maps ${SUPPORT_TRIAGE_PORT:-8009}
+          ├──▶ Anthropic API         Haiku branches · Sonnet synthesis + 5 voters · Opus tie-break
+          ├──▶ sql-clickhouse.clickhouse.com:443   EXPLAIN + read-only execution as user `demo`
+          └──▶ Langfuse web          langfuse-web:3000 inside compose, http://localhost:3001 on the host
+                 project `LLM Observability Demo` (root .env keys)
 ```
 
-The demo runs green **with no Langfuse keys set** — instrumentation degrades to a
-no-op (repo convention). It needs `ANTHROPIC_API_KEY` and outbound access to
-`sql-clickhouse.clickhouse.com` (read-only `demo` user) to actually run.
+What lands in Langfuse, per ticket:
 
-For the presenter walkthrough (acts, talk track, fallbacks) see
-[`DEMO_SCRIPT.md`](DEMO_SCRIPT.md).
-
-## Trace shape
+- **Trace** `triage-support-ticket`; the ticket goes in the root span's input, never in the name.
+- **Session** `triage-<8 hex>`: one per `main.py` invocation, shared by every ticket in that batch or interactive run.
+- **Tags** `support-triage-parallel`, `demo`, plus `fault:<name>` when `FAULT` is set.
 
 ```
 TRACE triage-support-ticket            session_id: triage-<uuid8>   tags: [support-triage-parallel, demo]
@@ -99,59 +99,171 @@ TRACE triage-support-ticket            session_id: triage-<uuid8>   tags: [suppo
    span scores:  policy_flagged, sql_validity_rate
 ```
 
-## Configuration (env)
+After ingestion, two evaluators score `tally-votes`: the code evaluator
+`consensus-margin-guard` and the managed judge `correlated-vote-risk` (see Evaluation).
 
-| Var | Default | Purpose |
+## Set up from scratch
+
+Prerequisites: Docker, an Anthropic API key, outbound HTTPS to
+`sql-clickhouse.clickhouse.com`, and Python 3.10+ on the host for the seed and experiment
+scripts (the readiness check needs only the standard library). From the repo root:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... ./setup.sh     # root stack + .env; also seeds this demo (below)
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+pip install -r demos/support-triage-parallel/requirements.txt   # host deps for the seed scripts
+python demos/support-triage-parallel/scripts/seed_all.py        # 7 prompts + 2 datasets (idempotent)
+./scripts/seed-support-triage-evaluators.sh                     # managed judge: correlated-vote-risk
+./scripts/seed-code-evaluators.sh                               # code evaluator: consensus-margin-guard
+docker compose --profile demo build support-triage-parallel
+docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-001   # one fresh trace
+python demos/support-triage-parallel/scripts/verify_demo.py     # should print READY
+```
+
+`./setup.sh` already runs all three seeders: `seed_all.py` inside the container, then
+`seed-support-triage-evaluators.sh`, and `seed-code-evaluators.sh` with the other code
+evaluators. Run them by hand after a change. `seed_all.py` pins the `sql-voting` dataset's
+expected result signatures by executing each reference query against the playground once,
+so it needs that network access too.
+
+The root `.env` is the only source of `LANGFUSE_*`. Compose resolves `${...}` from the
+shell first, so unset shell-exported keys before running; `verify_demo.py` and a host run
+of `seed_all.py` ignore them. The demo runs with **no Langfuse keys set** too:
+instrumentation degrades to a no-op.
+
+## Before a demo
+
+| When | Do | Why |
 |---|---|---|
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | synthesis + vote-candidate model |
-| `BRANCH_MODEL` | `claude-haiku-4-5` | cheap sectioning branches |
-| `JUDGE_MODEL` | `claude-opus-4-7` | tie-break judge |
-| `VOTE_SAMPLES` | `5` | N SQL candidates per question |
-| `VOTE_TEMPERATURE` | `0.9` | sampling temperature for diversity |
-| `VOTE_STRATEGY` | `result-signature` | `result-signature` \| `majority-exact` \| `judge-consensus` |
-| `BRANCH_TIMEOUT_S` | `30` | per-branch timeout (lower it, e.g. `8`, for a snappier fault demo) |
-| `PUBLIC_CH_HOST` | `sql-clickhouse.clickhouse.com` | read-only playground for EXPLAIN + execution |
-| `FAULT` | (unset) | `slow-branch` drops the sentiment branch to demo degradation |
+| The day before | `python demos/support-triage-parallel/scripts/seed_all.py`, then `docker compose --profile demo build support-triage-parallel` | Prompts and datasets match the code, and the image is built |
+| The day before | `docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-002` until the step log shows `tie_break=True`; pin that trace | Act 3 needs a split vote; never hunt for one live |
+| The day before (optional) | `set -a && source .env && set +a`, then `python demos/support-triage-parallel/scripts/run_experiment.py --strategy all` | Act 6 opens these runs. Calls models: 3 strategies × 10 items × 5 samples |
+| The day before | Create the two Monitors and the dashboard by hand (settings in the script's Act 5) | Nothing seeds them |
+| 30 minutes before | `python demos/support-triage-parallel/scripts/verify_demo.py --links` | Prints READY and the link each act opens |
+| 5 minutes before | Open the links it printed, plus a terminal | Langfuse login: `demo@example.com` / `demodemo1!` |
 
-## Files
+## Run it
+
+```bash
+docker compose --profile demo run --rm support-triage-parallel python main.py                  # the 10-ticket batch
+docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-002 # one ticket
+docker compose --profile demo run --rm support-triage-parallel python main.py --interactive    # type your own ticket
+docker compose --profile demo run --rm support-triage-parallel python main.py --sequential --ticket TCK-001  # latency baseline
+FAULT=slow-branch docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-005  # dropped branch
+```
+
+Each ticket makes at least 10 model calls (4 Haiku branches, 1 Sonnet synthesis, 5 Sonnet
+samples) plus an Opus call on a tie, so the batch makes 100 or more. Cost and duration are
+not measured here; the step log prints wall-clock per ticket.
+
+**What you see in Langfuse:** one `triage-support-ticket` trace per ticket with the tree
+above. The four `branch-*` observations overlap in the Timeline (a staircase with
+`--sequential`); `tally-votes` carries the vote tally in metadata and every candidate in
+its input; the trace has a `consensus_confidence` score, `validate-candidates` a
+`sql_validity_rate` score and `branch-policy-guard` a `policy_flagged` score. Under
+`FAULT=slow-branch`, `branch-sentiment-urgency` is `level=WARNING`, the brief says
+"insufficient data" for sentiment and the trace is tagged `fault:slow-branch`.
+
+## Evaluation
+
+| What | Command | Notes |
+|---|---|---|
+| In-app scores | written by every run | `consensus_confidence` (trace), `sql_validity_rate` and `policy_flagged` (spans) |
+| Code evaluator `consensus-margin-guard` | `./scripts/seed-code-evaluators.sh` | `evaluators/consensus-margin-guard.ts` on `tally-votes`: margin ≥ 2 is `consensus_margin_ok` |
+| Managed judge `correlated-vote-risk` | `./scripts/seed-support-triage-evaluators.sh` | Scores NEW traces only: run again after seeding. Self-hosted only; prints UI steps in cloud mode |
+| Datasets | `python demos/support-triage-parallel/scripts/seed_all.py` | `support-triage/category-branch` (12 items), `support-triage/sql-voting` (10 items, pinned result signatures) |
+| Aggregator experiment | `python demos/support-triage-parallel/scripts/run_experiment.py --strategy all` | Runs `aggregator-<strategy>` on `sql-voting`: per-item `item_accuracy`, run-level `voting_accuracy_rate` and `mean_consensus_confidence` |
+| CI gate | `python demos/support-triage-parallel/scripts/run_experiment.py --strategy result-signature --ci` | Exits 1 when `voting_accuracy_rate` < 0.8. No workflow runs it yet |
+| N sweep | `python demos/support-triage-parallel/scripts/run_experiment.py --vary-n-samples 1,3,5` | Diminishing returns of more samples |
+| Aggregator logic only | `python demos/support-triage-parallel/scripts/run_experiment.py --local-aggregator` | Pure code: no model, network or Langfuse |
+
+`run_experiment.py` reads `LANGFUSE_*` from the environment, not from a file: export the
+root `.env` first with `set -a && source .env && set +a`.
+
+## Configuration
+
+| Variable | Default | Effect |
+|---|---|---|
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | from the root `.env` | Keys for the `LLM Observability Demo` project; without them tracing is a no-op |
+| `LANGFUSE_BASE_URL` | `http://localhost:3001` | Where the host-side scripts read and seed; the container uses `LANGFUSE_INTERNAL_URL` (default `http://langfuse-web:3000`) |
+| `ANTHROPIC_API_KEY` | blank | Every branch, sample and judge |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Synthesis and vote-candidate model |
+| `BRANCH_MODEL` | `claude-haiku-4-5` | Cheap sectioning branches |
+| `JUDGE_MODEL` | `claude-opus-4-7` | Tie-break judge |
+| `SYNTH_TEMPERATURE` | `0.5` | Synthesis temperature |
+| `VOTE_SAMPLES` | `5` | N SQL candidates per question |
+| `VOTE_TEMPERATURE` | `0.9` | Sampling temperature for diversity |
+| `VOTE_STRATEGY` | `result-signature` | `result-signature` \| `majority-exact` \| `judge-consensus` |
+| `BRANCH_TIMEOUT_S` | `30` | Per-branch timeout (lower it, e.g. `8`, for a snappier fault demo) |
+| `FAULT` | unset | `slow-branch` drops the sentiment branch to demo degradation |
+| `PUBLIC_CH_HOST`, `PUBLIC_CH_PORT` | `sql-clickhouse.clickhouse.com`, `443` | Read-only playground for EXPLAIN and execution |
+| `PUBLIC_CH_USER`, `PUBLIC_CH_PASSWORD` | `demo`, blank | Playground credentials |
+| `CH_QUERY_TIMEOUT`, `CH_MAX_ROWS` | `10`, `100` | Per-query timeout in seconds, and the LIMIT appended when a candidate has none |
+| `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` | Project name `verify_demo.py` expects the keys to map to |
+
+## Layout
 
 ```
 demos/support-triage-parallel/
-├── README.md                # this file
-├── DEMO_SCRIPT.md           # presenter runbook (Frame/Show/Land/Ask acts)
-├── Dockerfile               # python:3.11-slim
-├── requirements.txt         # anthropic, langfuse>=3, httpx, sqlglot, clickhouse-connect
-├── main.py                  # batch + --interactive + --sequential + --ticket; one trace per ticket
-├── langfuse_config.py       # v3 wiring: is_langfuse_enabled(), observe() typed ctx mgr, scores, prompts, flush()
-├── llm.py                   # raw Anthropic async/sync call layer (updates the generation with usage/cost)
-├── triage_pipeline.py       # Stage 1: sectioning fan-out + synthesis aggregator + fault injection
-├── sql_voting.py            # Stage 2: voting fan-out + tally + tie-break; 3 pluggable strategies
-├── ch_validator.py          # EXPLAIN validation + read-only LIMIT-enforced execution vs the playground
-├── tickets.py               # deterministic synthetic ticket corpus
-├── scripts/                 # seed_prompts.py, seed_datasets.py, run_experiment.py, seed_all.py
-└── tests/                   # test_vote_tally.py, test_aggregator.py (pure code, no LLM/network)
+├── demo.yaml                manifest: profile, coverage, commands (feeds the index)
+├── README.md                this file
+├── DEMO_SCRIPT.md           the talk track, act by act
+├── Dockerfile               python:3.11-slim image for the root compose `demo` profile
+├── requirements.txt         anthropic, langfuse>=4.7,<5, httpx, sqlglot, clickhouse-connect
+├── pytest.ini
+├── main.py                  batch + --interactive + --sequential + --ticket; one trace per ticket
+├── langfuse_config.py       wiring: is_langfuse_enabled(), observe() typed ctx mgr, scores, prompts, flush()
+├── llm.py                   raw Anthropic async/sync call layer (updates the generation with usage/cost)
+├── triage_pipeline.py       Stage 1: sectioning fan-out + synthesis aggregator + fault injection
+├── sql_voting.py            Stage 2: voting fan-out + tally + tie-break; 3 pluggable strategies
+├── ch_validator.py          EXPLAIN validation + read-only LIMIT-enforced execution vs the playground
+├── tickets.py               deterministic synthetic ticket corpus (10 tickets)
+├── scripts/
+│   ├── seed_all.py          the one seed entry point: prompts + datasets (idempotent)
+│   ├── seed_prompts.py      7 managed prompts; a new version only when the text drifts
+│   ├── seed_datasets.py     2 hosted datasets + the local aggregator cases
+│   ├── run_experiment.py    aggregator-strategy experiment, --ci gate, N sweep
+│   └── verify_demo.py       readiness check: READY or NOT READY, --links
+└── tests/                   no services, no model calls
 ```
-
-Root-level companions: `scripts/seed-support-triage-evaluators.sh` (managed
-`correlated-vote-risk` judge) and `evaluators/consensus-margin-guard.ts` (the 6th
-deterministic code evaluator).
 
 ## Tests
 
 ```bash
-cd demos/support-triage-parallel && python -m pytest    # pure-code tally + aggregator; no services
+cd demos/support-triage-parallel
+pip install -r requirements.txt pytest
+python -m pytest -q          # no services, no model calls, a few seconds
 ```
+
+They cover the vote tally and the synthesis aggregator (`compute_tally`,
+`build_synthesis_input`), `verify_demo.py`'s check, summary and exit-code logic, the
+`.env` override, the Observations v2 → v1 fallback and full runs against a fake Langfuse,
+and which env `seed_all.py` hands the seeders on the host and in the container.
 
 ## Troubleshooting
 
-- **No scores / no traces** — confirm `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY` reach the
-  container (they degrade to a no-op if absent), and that a leaked shell
-  `LANGFUSE_*` isn't overriding `.env` (`unset` them before the demo).
-- **All candidates invalid (`sql_validity_rate = 0`)** — check outbound access to
-  `sql-clickhouse.clickhouse.com`; the validator fails candidates closed on any
-  connection error.
-- **No `correlated-vote-risk` score** — the judge is `NEW`-scoped; regenerate
-  traffic after running `scripts/seed-support-triage-evaluators.sh`, and ensure
-  `./setup.sh` provisioned the Anthropic LLM connection (default eval model).
-- **Fault demo feels slow** — the default branch timeout is 30s; set
-  `BRANCH_TIMEOUT_S=8` for a snappier dropped-branch moment.
+| Symptom | Cause and fix |
+|---|---|
+| No traces, or no scores | The keys did not reach the container, or a shell `LANGFUSE_*` export overrides `.env`. `unset` them and run again; `verify_demo.py` names the project the keys map to |
+| `keys map to project '…' (want 'LLM Observability Demo')` | The root `.env` holds another project's keys. Re-run `./setup.sh` or fix the keys |
+| `Observations v2 answered 404 … read through v1` | Expected on the self-hosted stack: compose pins a v3 Langfuse server, which has no Observations v2 |
+| All candidates invalid (`sql_validity_rate = 0`) | No outbound access to `sql-clickhouse.clickhouse.com`; the validator fails candidates closed on any connection error |
+| No `correlated-vote-risk` score | The judge scores NEW traces only: run again after `./scripts/seed-support-triage-evaluators.sh`, and make sure `./setup.sh` provisioned the Anthropic LLM connection (the default eval model) |
+| `a tie trace for Act 3` warns | The vote split is random at temperature 0.9. Re-run `--ticket TCK-002` until the step log shows `tie_break=True` |
+| Fault demo feels slow | The branch timeout defaults to 30 s; set `BRANCH_TIMEOUT_S=8` |
+
+## Known limits
+
+- The vote split is random at `VOTE_TEMPERATURE=0.9`. TCK-002 is written to be ambiguous,
+  but a given run can still come back 5–0, so the tie trace is pre-run, not live.
+- The voter and the tie-break depend on the public playground. Without outbound access
+  every candidate fails closed and `consensus_confidence` is 0.
+- Cost and latency figures are not measured in this repo. The script's cost Monitor
+  threshold is a placeholder you set from your own budget.
+- Nothing seeds the two Monitors or the "Parallelization economics" dashboard that Act 5
+  shows; you create them in the Langfuse UI, and `verify_demo.py` cannot check them.
+- The `--ci` gate exists, but no GitHub workflow runs it.
+- The managed judge is seeded by a Postgres upsert, so it works only against the
+  self-hosted stack; on Langfuse Cloud the script prints the UI steps instead.
+- The expected order in Act 6 (`result-signature` ≥ `judge-consensus` > `majority-exact`)
+  is the design intent, not a recorded measurement.
