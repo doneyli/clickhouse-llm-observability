@@ -38,7 +38,7 @@ or isn't sure, how do you see it, measure it and fix it?
 | Confidence gating and fallback | Low confidence, out of scope, malformed output, an unknown route or a handler that is down all divert to `fallback-handler` (Act 2) |
 | Human escalation | An `escalate-to-human` event with a machine-readable `reason` (Act 2) |
 | Misroute curation | `routing_correct` (BOOLEAN) recorded after the fact as a score, not a tag (Act 3) |
-| Monitoring | A Router Ops dashboard over 14 days of seeded history: route drift, fallback rate, confidence, misroute rate (Act 4) |
+| Monitoring | A Router Ops dashboard, seeded as code, over 14 days of seeded history: route drift, fallback rate, confidence, misroute rate (Act 4) |
 | Router-accuracy loop | The `query-router-accuracy` dataset and an experiment that varies only the router, scored by a code evaluator and a categorical judge (Act 5) |
 
 ## Who it's for
@@ -92,8 +92,12 @@ docker compose --profile langfuse --profile demo up -d       # router + its thre
 docker compose --profile demo run --rm agentic-rag python ingest.py   # one time: agentic-rag's vector index
 python demos/query-router/scripts/seed_all.py                # idempotent: created / updated / unchanged per item
 docker compose --profile demo run --rm query-router python main.py    # 10 questions, live model calls
-python demos/query-router/scripts/verify_demo.py             # should print READY
+python scripts/run-router-experiment.py --sample 30         # Act 5's runs: 90 router calls (Haiku, Sonnet)
+python demos/query-router/scripts/verify_demo.py             # should print READY (--short: Acts 1-2 only)
 ```
+
+The experiment imports `router.py`, so run it where this demo's requirements are installed
+(`pip install -r demos/query-router/requirements.txt`, Python 3.10+).
 
 The root `.env` is the only source of `LANGFUSE_*`. Compose resolves `${...}` from the
 shell first, so unset shell-exported keys before running; `verify_demo.py` and
@@ -101,18 +105,27 @@ shell first, so unset shell-exported keys before running; `verify_demo.py` and
 which calls the four root `seed-router-*` scripts directly rather than `seed_all.py`; the
 prompt and dataset seeders append on every run, so prefer `seed_all.py` afterwards.
 
-`seed_all.py` makes no model calls. It adds a prompt version only for a label whose text
-or config drifted, creates or updates dataset items by question, seeds 300 backdated router
-traces only when either week of history is thin, and re-applies the code evaluators and the
-`route-plausibility` judge (Postgres upserts, self-hosted only; `--skip-evaluators` skips
-them). `--dry-run` reports without writing.
+`seed_all.py` makes no model calls. It adds a prompt version only for a label whose type,
+text or config drifted; reconciles the dataset definition and creates or updates its items
+by a stable id or by question; creates or repairs the Router Ops dashboard and its four
+widgets through the (unstable) dashboards API; seeds 300 backdated router traces only when
+either week of history is thin, then reads them back before reporting success; and
+re-applies the code evaluators and the `route-plausibility` judge (Postgres upserts,
+self-hosted only; `--skip-evaluators` skips them, and `DEPLOY_MODE=cloud` reports them as
+skipped). Every failed write, rejected ingestion event or non-zero seeder fails the run.
+`--dry-run` reports without writing.
+
+`verify_demo.py` checks the full script by default: every asset Acts 1-5 need is required,
+including the dashboard's widgets and the three Act 5 experiment runs with their
+`route-match` and `avg_route_accuracy` scores. `--short` checks the short path (Opening,
+Acts 1-2, Close), turns the Acts 3-5 assets into warnings and says so in the verdict.
 
 ## Before a demo
 
 | When | Do | Why |
 |---|---|---|
-| The day before | `python demos/query-router/scripts/seed_all.py`, then the batch run | History is backdated from the day it was seeded and ages out; a fresh batch gives Act 1 a dispatched trace per route |
-| The day before | Build the Router Ops dashboard (Act 4 of the script lists the four widgets) | It is built by hand, once per project |
+| The day before | `python demos/query-router/scripts/seed_all.py`, then the batch run | History is backdated from the day it was seeded and ages out; the seed also repairs the dashboard; a fresh batch gives Act 1 a dispatched trace per route |
+| The day before | `python scripts/run-router-experiment.py --sample 30` | Act 5 shows these runs; the full readiness check requires them from the last 30 days |
 | 30 minutes before | `python demos/query-router/scripts/verify_demo.py --links` | READY, and the link each act opens |
 | 5 minutes before | Open the links; restart `vector-rag` if a rehearsal of Act 2 stopped it | Traces, the dashboard, the prompt |
 
@@ -227,8 +240,10 @@ python -m pytest -q                      # no services, no model calls, under a 
 
 They cover the classifier's parsing and gating, dispatch, fallback and escalation, the
 FastAPI endpoints (Anthropic and HTTP stubbed), `verify_demo.py`'s checks, exit code,
-`.env` rule and Observations v2 → v1 fallback against a fake Langfuse, and `seed_all.py`'s
-reconcile decisions for prompts, dataset items and history.
+`.env` rule, paging and the 3.x-server fallbacks, and `seed_all.py`'s reconciliation and
+failure handling (prompts, dataset, dashboard, history read-back), against an in-memory
+Langfuse served through a fake `urlopen` (`tests/fake_langfuse.py`) that checks query
+parameters and field groups. They also cover the root history seeder's exit code.
 
 ## Troubleshooting
 
@@ -240,6 +255,9 @@ reconcile decisions for prompts, dataset items and history.
 | `keys map to project '…' (want 'LLM Observability Demo')` | The root `.env` holds another project's keys; shell exports are ignored |
 | Filtering traces on `route-and-dispatch` shows only fallbacks | Dispatched traces are named after the handler; filter `*-handler`, or open the `--links` output |
 | `router history: … (want 100+ each)` | History ages out of the 14-day window; run `seed_all.py` again |
+| `router history: … still short after 120s` | Ingestion was accepted but not processed; `docker compose restart langfuse-worker`, then seed again |
+| `dashboard 'Router Ops': HTTP 404` | This server has no dashboards API, so the dashboard cannot be seeded or confirmed. Build it by hand (Act 4) and use `--short`, which is then the honest verdict |
+| `experiment run 'router-prompt=…'` fails | Run `python scripts/run-router-experiment.py --sample 30`; runs older than 30 days do not count |
 | Act 4's Metrics API call returns 404 | `/api/public/v2/metrics` needs Langfuse server v4; the self-hosted stack runs 3.x |
 | `route-plausibility` scores never appear | The judge scores only new traffic, 25% sampled, and needs a default eval model: run the batch again and check `./scripts/seed-router-judge.sh` output |
 | `latest run has 0 observation(s)` | The run landed before its observations. Wait 30 seconds and verify again |
@@ -254,8 +272,9 @@ reconcile decisions for prompts, dataset items and history.
 - The default experiment is classification only. It measures routing accuracy, not answer
   quality; `--e2e` dispatches to the live handlers for that.
 - When agentic-rag runs as a handler, its `groundedness` score lands on the router's trace.
-- The Router Ops dashboard is built by hand, and `verify_demo.py` does not check it. The
-  Metrics API call in Act 4 needs a v4 server.
+- The Router Ops dashboard is seeded through Langfuse's unstable dashboards API. A server
+  without that API cannot confirm it, so the full check is NOT READY there. The Metrics
+  API call in Act 4 needs a v4 server.
 - The router history is synthetic: 300 traces with fixed route weights, a planted week-2
   drift and a misroute cluster, generated with no model calls.
 - `./setup.sh` calls the appending seeders directly, so repeated setups leave duplicate

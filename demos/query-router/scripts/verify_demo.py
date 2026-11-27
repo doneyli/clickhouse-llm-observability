@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 """Readiness check for query-router: reads Langfuse back and says READY or NOT READY.
 
-    python demos/query-router/scripts/verify_demo.py            # one PASS / FAIL / WARN line per check
+    python demos/query-router/scripts/verify_demo.py            # the full script (Acts 1-5)
+    python demos/query-router/scripts/verify_demo.py --short    # the short path only (Opening, Acts 1-2, Close)
     python demos/query-router/scripts/verify_demo.py --links    # also print the link each act opens
 
 Run it from the repo root. It reads the root `.env` (a container demo) and ignores
-shell-exported LANGFUSE_* keys. An HTTP 200 proves little on its own (a trace can exist
-before its observations land), so every check counts real rows. Standard library only, so
-it runs in any Python 3.9+ without the demo's dependencies. No model calls; about fifteen
-Langfuse reads and five local health checks, done in seconds.
+shell-exported LANGFUSE_* keys. One PASS / FAIL / WARN line per check, then READY or NOT
+READY with counts; exit 0 only when every required check passed. By default every asset the
+full script needs is required: the prompt labels, the dataset, two weeks of history, the
+Router Ops dashboard and its four widgets, and the Act 5 experiment runs. `--short` makes the
+Acts 3-5 assets warnings and says so in the verdict.
 
-Read APIs: Observations v2 and Scores v3. The self-hosted stack pins Langfuse server 3.x,
-where `GET /api/public/v2/observations` answers 404, so observation reads fall back to the
-v1 observations list there and the output says so. No legacy `/traces` endpoint is used.
+An HTTP 200 proves little on its own (a trace can exist before its observations land), so
+every check counts real rows. Standard library only, so it runs in any Python 3.9+ without
+the demo's dependencies. No model calls and no writes; a few dozen Langfuse reads and five
+local health checks, done in seconds.
+
+Read APIs: projects, prompts v2, datasets v2, Observations v2, Scores v3, experiments and
+experiment items, and the (unstable) dashboards API. The self-hosted stack pins Langfuse
+server 3.221.1, where `GET /api/public/v2/observations` and `GET /api/public/experiments`
+answer 404 (CLAUDE.md, measured per endpoint). Only on that 404 do reads fall back to the
+v1 observations list and to `GET /api/public/datasets/{name}/runs`, and the output says so.
+No legacy `/traces` endpoint is used.
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import json
 import os
@@ -33,14 +44,17 @@ DEMO_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
 
 # --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with server.py, router.py,
-# handlers.py and seed_all.py.
+# handlers.py, seed_all.py and DEMO_SCRIPT.md.
 ROOT_SPAN = "route-and-dispatch"          # server.run() opens this span on every live run
 ROUTER_OBS = "route-query"                # router.classify()'s generation
 ROUTES = ("analytics_sql", "docs_simple", "docs_complex")   # router.ROUTES
+ACT1_ROUTES = ("docs_complex", "analytics_sql")             # the two traces Act 1 opens
 PROMPT_NAME = "query-router-classifier"
-EXPECTED_PROMPT_LABELS = ("production", "baseline")          # seed-router-prompt.py sets both
+SHORT_PROMPT_LABELS = ("production",)     # what the router serves (Acts 1-2)
+FULL_PROMPT_LABELS = ("production", "baseline")              # Act 5 compares baseline with production
 DATASET_NAME = "query-router-accuracy"
 MIN_DATASET_ITEMS = 30                    # seed-router-dataset.py ITEMS; pinned misroutes add more
+VALID_EXPECTED_ROUTES = set(ROUTES) | {"fallback"}
 EXPECTED_SCORES = ["router_confidence"]   # the runtime score every live run writes
 MIN_OBSERVATIONS = 3                      # route-and-dispatch + route-query + dispatch-* or fallback-handler
 MIN_NESTED_OBSERVATIONS = 5               # a dispatched run also carries the handler's own subtree
@@ -48,12 +62,49 @@ HISTORY_DAYS = 14                         # seed-router-history.py --days defaul
 HISTORY_MIN_PER_WEEK = 100                # it seeds ~150 route-query rows per week; the dashboard compares the two
 LOOKBACK_DAYS = 7                         # how far back to look for a live run
 RUNS_SCANNED = 10                         # newest live runs scanned for Act 1 (main.py runs 10 questions)
+EXPERIMENT_LOOKBACK_DAYS = 30             # Act 5 experiment runs older than this do not count
 FRESH_HOURS = 24                          # older than this only warns: re-run the day before
 SEED_CMD = "python demos/query-router/scripts/seed_all.py"
 RUN_CMD = "docker compose --profile demo run --rm query-router python main.py"
 UP_CMD = "docker compose --profile langfuse --profile demo up -d"
 EXPERIMENT_CMD = "python scripts/run-router-experiment.py --sample 30"
+EXPERIMENT_SCRIPT = REPO_ROOT / "scripts" / "run-router-experiment.py"
 TIMEOUT_S = 10
+MAX_PAGES = 20
+
+# The Router Ops dashboard (Act 4). seed_all.py creates exactly these; verify reads them back.
+DASHBOARD_NAME = "Router Ops"
+DASHBOARD_DESCRIPTION = ("query-router: route drift, fallback rate, router confidence and misroute rate "
+                         "(seeded by demos/query-router/scripts/seed_all.py)")
+_name_filter = lambda *names: [{"column": "name", "operator": "any of", "value": list(names),  # noqa: E731
+                                "type": "stringOptions"}]
+WIDGETS: List[Dict[str, Any]] = [
+    {"name": "Router Ops · Route distribution over time",
+     "description": "Dispatches per route and fallbacks per day: watches route drift",
+     "view": "observations", "chartType": "BAR_TIME_SERIES",
+     "dimensions": [{"field": "name"}], "metrics": [{"measure": "count", "agg": "count"}],
+     "filters": _name_filter(*[f"dispatch-{r}" for r in ROUTES], "fallback-handler"),
+     "x": 0, "y": 0, "width": 6, "height": 5},
+    {"name": "Router Ops · Fallback rate",
+     "description": "fallback-handler runs against route-query decisions per day: threshold too tight or taxonomy gaps",
+     "view": "observations", "chartType": "BAR_TIME_SERIES",
+     "dimensions": [{"field": "name"}], "metrics": [{"measure": "count", "agg": "count"}],
+     "filters": _name_filter("route-query", "fallback-handler"),
+     "x": 6, "y": 0, "width": 6, "height": 5},
+    {"name": "Router Ops · Avg router_confidence",
+     "description": "Daily average of the runtime router_confidence score: degradation before misroutes surface",
+     "view": "scores-numeric", "chartType": "LINE_TIME_SERIES",
+     "dimensions": [{"field": "name"}], "metrics": [{"measure": "value", "agg": "avg"}],
+     "filters": _name_filter("router_confidence"),
+     "x": 0, "y": 5, "width": 6, "height": 5},
+    {"name": "Router Ops · Misroute rate",
+     "description": "routing_correct true vs false per day: silent misclassification",
+     "view": "scores-boolean", "chartType": "BAR_TIME_SERIES",
+     "dimensions": [{"field": "booleanValue"}], "metrics": [{"measure": "count", "agg": "count"}],
+     "filters": _name_filter("routing_correct"),
+     "x": 6, "y": 5, "width": 6, "height": 5},
+]
+WIDGET_FIELDS = ("description", "view", "chartType", "dimensions", "metrics", "filters")
 
 RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required, what)
 
@@ -79,7 +130,7 @@ def summary(results: Optional[List[Tuple[str, bool, str]]] = None) -> Tuple[str,
         detail += f", {failed} required failed"
     if warned:
         detail += f", {warned} warning{'s' if warned != 1 else ''}"
-    return (f"NOT READY ({detail})", 1) if failed else (f"READY ({detail})", 0)
+    return (f"NOT READY ({detail})", 1) if failed or not rs else (f"READY ({detail})", 0)
 
 
 # --- Environment and manifest -----------------------------------------------------------
@@ -143,7 +194,11 @@ def manifest_value(text: str, section: str, key: str) -> Optional[str]:
 
 
 def env_file(profile: Optional[str]) -> Path:
-    """Container demos read the root stack's .env; standalone and workshop demos their own."""
+    """Container demos read the root stack's .env; standalone and workshop demos their own.
+
+    The profile comes from demo.yaml (`profile: container`), a positive declaration, not a
+    guess from which files happen to exist.
+    """
     return REPO_ROOT / ".env" if profile == "container" else DEMO_DIR / ".env"
 
 
@@ -177,6 +232,19 @@ def services(environ: Optional[MutableMapping[str, str]] = None) -> List[Tuple[s
     ]
 
 
+def experiment_run_names(source: Optional[str] = None) -> List[str]:
+    """The run names scripts/run-router-experiment.py writes, from its CONFIGS literal.
+
+    Read from the source, not imported: that script needs the Langfuse SDK and router.py.
+    It names each run `router-prompt={label}-model={model}`.
+    """
+    text = EXPERIMENT_SCRIPT.read_text() if source is None else source
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "CONFIGS" for t in node.targets):
+            return [f"router-prompt={label}-model={model}" for label, model in ast.literal_eval(node.value)]
+    raise ValueError("no CONFIGS list in run-router-experiment.py")
+
+
 # --- Langfuse reads -----------------------------------------------------------------------
 
 def iso(t: datetime) -> str:
@@ -194,7 +262,7 @@ def parse_time(value: str) -> datetime:
 
 
 class ApiError(Exception):
-    """An HTTP error (status set) or a network failure (status None)."""
+    """An HTTP error (status set) or a network or protocol failure (status None)."""
 
     def __init__(self, status: Optional[int], message: str) -> None:
         super().__init__(f"HTTP {status}: {message}" if status else message)
@@ -202,8 +270,8 @@ class ApiError(Exception):
 
 
 class Langfuse:
-    """The few public-API calls the demo scripts need: projects, prompts, datasets,
-    Observations v2 (v1 list only where the server has no v2) and Scores v3."""
+    """The public-API calls the demo scripts need. Observations v2 and experiments fall back
+    to their v1 equivalents only on a 404, which the pinned self-hosted 3.x server returns."""
 
     def __init__(self, base_url: str, public_key: str, secret_key: str, timeout: float = TIMEOUT_S) -> None:
         self.base = base_url.rstrip("/")
@@ -212,6 +280,7 @@ class Langfuse:
                         "User-Agent": "demo-verify/1"}
         self.timeout = timeout
         self.observations_api: Optional[str] = None   # "v2" or "v1", decided on first read
+        self.experiments_api: Optional[str] = None    # "experiments" or "dataset-runs"
 
     def request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
                 body: Optional[Any] = None) -> Any:
@@ -240,21 +309,31 @@ class Langfuse:
     def post(self, path: str, body: Any) -> Any:
         return self.request("POST", path, body=body)
 
-    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
+    def patch(self, path: str, body: Any) -> Any:
+        return self.request("PATCH", path, body=body)
+
+    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Follow `meta.cursor` (Observations v2, Scores v3, experiments).
+
+        A page may be empty while a cursor is still returned, so this stops on a missing
+        cursor, not on an empty page. A cursor seen twice, or one still present after
+        `max_pages`, raises instead of returning a silently partial list.
+        """
         out: List[dict] = []
-        cur = None
+        cur, seen = None, set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=min(100, cap), **({"cursor": cur} if cur else {}))) or {}
             out += d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+            if cur in seen:
+                raise ApiError(None, f"{path} returned the same cursor twice")
+            seen.add(cur)
+        raise ApiError(None, f"{path} still had more pages after {max_pages}")
 
-    def pages(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow page-numbered lists (dataset items, the v1 observations list)."""
+    def pages(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Follow page-numbered lists (dataset items, dashboards, the v1 fallbacks)."""
         out: List[dict] = []
         for page in range(1, max_pages + 1):
             d = self.get(path, **dict(params, page=page, limit=min(100, cap))) or {}
@@ -262,15 +341,16 @@ class Langfuse:
             out += rows
             total = (d.get("meta") or {}).get("totalPages") or 0
             if not rows or page >= total or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+        raise ApiError(None, f"{path} still had more pages after {max_pages}")
 
     def observations(self, cap: int = 100, **filters: Any) -> List[dict]:
         """Observations, newest first, filtered by name / traceId / time window.
 
-        Observations v2 first. Langfuse server 3.x (the self-hosted stack) answers 404 on
-        v2, so on that 404 this switches to the v1 list for the rest of the run. Either way
-        each row has id, traceId, parentObservationId, name and startTime.
+        Observations v2 with the `core,basic` field groups (`name` is in `basic`). Langfuse
+        server 3.x answers 404 on v2, so on that 404 this switches to the v1 list for the
+        rest of the run. Either way each row has id, traceId, parentObservationId, name and
+        startTime.
         """
         if self.observations_api != "v1":
             try:
@@ -284,6 +364,26 @@ class Langfuse:
                 self.observations_api = "v1"
         return self.pages("/api/public/observations", filters, cap=cap)
 
+    def experiments(self, dataset_id: str, dataset_name: str, since: datetime) -> List[dict]:
+        """A dataset's experiment runs, newest first, each with `name` and run-level `scores`.
+
+        `GET /api/public/experiments` (with `fields=core,scores`). On the self-hosted 3.x
+        server it answers 404, and only then this reads `GET /datasets/{name}/runs`, whose
+        rows carry no scores; experiment_checks() then looks for the scores in Scores v3.
+        """
+        if self.experiments_api != "dataset-runs":
+            try:
+                rows = self.cursor("/api/public/experiments", {
+                    "datasetId": dataset_id, "fromStartTime": iso(since), "fields": "core,scores"})
+                self.experiments_api = "experiments"
+                return rows
+            except ApiError as e:
+                if e.status != 404 or self.experiments_api == "experiments":
+                    raise
+                self.experiments_api = "dataset-runs"
+        rows = self.pages(f"/api/public/datasets/{urllib.parse.quote(dataset_name, safe='')}/runs", {})
+        return [r for r in rows if (r.get("createdAt") or "") >= iso(since)]
+
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
     """One (label, url) per act of the demo script, in act order."""
@@ -296,9 +396,36 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
     links.append(("Act 2 · traces (find the fallback)", f"{p}/traces"))
     if state.get("dataset_id"):
         links.append(("Act 3 · router-accuracy dataset", f"{p}/datasets/{state['dataset_id']}"))
-    links.append(("Act 4 · dashboards (Router Ops)", f"{p}/dashboards"))
+    if state.get("dashboard_id"):
+        links.append(("Act 4 · Router Ops dashboard", f"{p}/dashboards/{state['dashboard_id']}"))
+    else:
+        links.append(("Act 4 · dashboards", f"{p}/dashboards"))
+    if state.get("dataset_id"):
+        links.append(("Act 5 · experiment runs", f"{p}/datasets/{state['dataset_id']}/runs"))
     links.append(("Act 5 · classifier prompt", f"{p}/prompts/{urllib.parse.quote(PROMPT_NAME, safe='')}"))
     return links
+
+
+def widget_drift(spec: Dict[str, Any], stored: Dict[str, Any]) -> List[str]:
+    """The definition fields where a stored widget differs from its spec."""
+    return [f for f in WIDGET_FIELDS if (stored.get(f) or ([] if f in ("dimensions", "metrics", "filters") else ""))
+            != spec[f]]
+
+
+def run_matches(name: str, run: str) -> bool:
+    """An experiment named `run`, or `run` plus a suffix the SDK may add (a space, ` - <time>`)."""
+    return name == run or (name.startswith(run) and not name[len(run)].isalnum() and name[len(run)] != "-")
+
+
+def find_dashboard(lf: Langfuse) -> Optional[dict]:
+    rows = lf.pages("/api/public/unstable/dashboards", {})
+    return next((d for d in rows if d.get("name") == DASHBOARD_NAME), None)
+
+
+def placed_widget_ids(dashboard: Dict[str, Any]) -> List[str]:
+    """Widget ids placed on a dashboard; `GET /dashboards/{id}` returns them in definition.widgets."""
+    entries = ((dashboard.get("definition") or {}).get("widgets")) or []
+    return [w.get("widgetId") for w in entries if w.get("widgetId")]
 
 
 # --- Checks -------------------------------------------------------------------------------
@@ -326,53 +453,152 @@ def service_checks() -> None:
             check(False, f"{name} not reachable at {url}: {body}", hint=f"run {UP_CMD}")
             continue
         check(status == 200, f"{name} up at {url} ({status})", hint=f"run {UP_CMD}")
-        if name == "query-router" and isinstance(body, dict):
+        if name == "query-router" and status == 200:
             # The router's own view of its handlers, from inside the compose network.
+            body = body if isinstance(body, dict) else {}
             handlers = body.get("handlers") or {}
             down = sorted(f"{r}={s}" for r, s in handlers.items() if s != "ok")
-            check(bool(handlers) and not down,
+            check(set(handlers) >= set(ROUTES) and not down,
                   "router reaches all three handlers" + (f"; not ok: {', '.join(down)}" if down else ""),
                   hint="a down handler degrades its route to the fallback (that is Act 2's planned "
                        "fault, not the default)")
-            check(bool(body.get("langfuse")), "router has Langfuse keys (tracing on)",
+            check(body.get("langfuse") is True, "router has Langfuse keys (tracing on)",
                   hint="the router no-ops tracing without LANGFUSE_PUBLIC_KEY/SECRET_KEY in .env")
 
 
-def seeded_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
-    print("Seeded artifacts")
+def prompt_checks(lf: Langfuse, full: bool) -> None:
+    print("Prompt")
     quoted = urllib.parse.quote(PROMPT_NAME, safe="")
-    for label in EXPECTED_PROMPT_LABELS:
+    for label in FULL_PROMPT_LABELS:
+        required = full or label in SHORT_PROMPT_LABELS
         try:
             p = lf.get(f"/api/public/v2/prompts/{quoted}", label=label) or {}
-            check(True, f"prompt {PROMPT_NAME}: {label} = v{p.get('version')}")
+            ok = (label in (p.get("labels") or [label]) and p.get("type") == "text"
+                  and "{{question}}" in (p.get("prompt") or ""))
+            check(ok, f"prompt {PROMPT_NAME}: {label} = v{p.get('version')}"
+                  + ("" if ok else " (not a text prompt with {{question}})"),
+                  required=required, hint=f"run {SEED_CMD}")
         except ApiError as e:
-            check(False, f"prompt {PROMPT_NAME} with label {label}: {e}",
-                  hint=f"run {SEED_CMD}; without it the router silently uses its local template")
+            check(False, f"prompt {PROMPT_NAME} with label {label}: {e}", required=required,
+                  hint=f"run {SEED_CMD}; without production the router silently uses its local template")
 
+
+def usable_items(items: List[dict]) -> List[dict]:
+    """ACTIVE items with a question and an expected route the router can produce."""
+    out = []
+    for i in items:
+        inp, exp = i.get("input"), i.get("expectedOutput")
+        if ((i.get("status") or "ACTIVE") == "ACTIVE" and isinstance(inp, dict) and (inp.get("question") or "").strip()
+                and isinstance(exp, dict) and exp.get("route") in VALID_EXPECTED_ROUTES):
+            out.append(i)
+    return out
+
+
+def dataset_checks(lf: Langfuse, state: Dict[str, Any], full: bool) -> None:
+    print("Act 3 / Act 5 · dataset")
     try:
         ds = lf.get(f"/api/public/v2/datasets/{urllib.parse.quote(DATASET_NAME, safe='')}") or {}
         state["dataset_id"] = ds.get("id")
         items = lf.pages("/api/public/dataset-items", {"datasetName": DATASET_NAME})
-        active = [i for i in items if (i.get("status") or "ACTIVE") == "ACTIVE"]
-        check(len(active) >= MIN_DATASET_ITEMS,
-              f"dataset {DATASET_NAME}: {len(active)} active item(s) (want {MIN_DATASET_ITEMS}+)",
-              hint=f"run {SEED_CMD}")
     except ApiError as e:
-        check(False, f"dataset {DATASET_NAME}: {e}", hint=f"run {SEED_CMD}")
+        check(False, f"dataset {DATASET_NAME}: {e}", required=full, hint=f"run {SEED_CMD}")
+        return
+    usable = usable_items(items)
+    check(len(usable) >= MIN_DATASET_ITEMS,
+          f"dataset {DATASET_NAME}: {len(usable)} usable ACTIVE item(s) of {len(items)} (want {MIN_DATASET_ITEMS}+)",
+          required=full, hint=f"run {SEED_CMD}; archived items or items without a question and route do not count")
 
-    # Act 4: the Router Ops dashboard compares week 1 with week 2 of seeded history.
+
+def history_checks(lf: Langfuse, now: datetime, full: bool) -> None:
+    print("Act 4 · router history")
+    ok, detail = history_counts(lf, now)
+    if lf.observations_api == "v1":
+        print("  note  this server has no Observations v2 (Langfuse 3.x); reading the v1 list")
+    check(ok, f"router history: {detail} (for the Act 4 drift)", required=full,
+          hint=f"history is backdated from the day it was seeded and ages out; run {SEED_CMD}")
+
+
+def history_counts(lf: Langfuse, now: datetime) -> Tuple[bool, str]:
+    """Both weeks of the history window hold enough route-query rows for the drift story."""
     mid, start = now - timedelta(days=HISTORY_DAYS / 2), now - timedelta(days=HISTORY_DAYS)
     older = lf.observations(cap=HISTORY_MIN_PER_WEEK, name=ROUTER_OBS,
                             fromStartTime=iso(start), toStartTime=iso(mid))
     recent = lf.observations(cap=HISTORY_MIN_PER_WEEK, name=ROUTER_OBS,
                              fromStartTime=iso(mid), toStartTime=iso(now + timedelta(minutes=5)))
-    if lf.observations_api == "v1":
-        print("  note  this server has no Observations v2 (Langfuse 3.x); reading the v1 list")
     shown = lambda rows: f"{len(rows)}{'+' if len(rows) >= HISTORY_MIN_PER_WEEK else ''}"  # noqa: E731
-    check(len(older) >= HISTORY_MIN_PER_WEEK and len(recent) >= HISTORY_MIN_PER_WEEK,
-          f"router history: {shown(older)} '{ROUTER_OBS}' rows in days 8-14, {shown(recent)} in days 1-7 "
-          f"(want {HISTORY_MIN_PER_WEEK}+ each, for the Act 4 drift)",
-          hint=f"history is backdated from the day it was seeded and ages out; run {SEED_CMD}")
+    ok = len(older) >= HISTORY_MIN_PER_WEEK and len(recent) >= HISTORY_MIN_PER_WEEK
+    return ok, (f"{shown(older)} '{ROUTER_OBS}' rows in days 8-14, {shown(recent)} in days 1-7 "
+                f"(want {HISTORY_MIN_PER_WEEK}+ each)")
+
+
+def dashboard_checks(lf: Langfuse, state: Dict[str, Any], full: bool) -> None:
+    print("Act 4 · Router Ops dashboard")
+    try:
+        dash = find_dashboard(lf)
+        if not check(dash is not None, f"dashboard '{DASHBOARD_NAME}' exists", required=full,
+                     hint=f"run {SEED_CMD}"):
+            return
+        state["dashboard_id"] = dash["id"]
+        placed = set(placed_widget_ids(lf.get(f"/api/public/unstable/dashboards/{dash['id']}") or {}))
+        library = {w.get("name"): w for w in lf.pages("/api/public/unstable/dashboard-widgets", {})}
+    except ApiError as e:
+        hint = (f"run {SEED_CMD}" if e.status != 404 else
+                "this server has no dashboards API, so the dashboard cannot be confirmed; build it by hand "
+                "(Act 4) and present the short path, or use a server that serves /api/public/unstable/dashboards")
+        check(False, f"dashboard '{DASHBOARD_NAME}': {e}", required=full, hint=hint)
+        return
+    for spec in WIDGETS:
+        stored = library.get(spec["name"])
+        if stored is None:
+            check(False, f"widget '{spec['name']}' exists", required=full, hint=f"run {SEED_CMD}")
+            continue
+        drift = widget_drift(spec, stored)
+        check(not drift and stored.get("id") in placed,
+              f"widget '{spec['name']}' placed on the dashboard"
+              + (f"; differs in {', '.join(drift)}" if drift else "")
+              + ("" if stored.get("id") in placed else "; not placed"),
+              required=full, hint=f"run {SEED_CMD}")
+
+
+def experiment_checks(lf: Langfuse, state: Dict[str, Any], now: datetime, full: bool) -> None:
+    print("Act 5 · router experiment")
+    try:
+        wanted = experiment_run_names()
+    except (OSError, ValueError, SyntaxError) as e:
+        check(False, f"run names from {EXPERIMENT_SCRIPT.name}: {e}", required=full)
+        return
+    if not state.get("dataset_id"):
+        check(False, "experiment runs: no dataset to read them from", required=full, hint=f"run {SEED_CMD}")
+        return
+    since = now - timedelta(days=EXPERIMENT_LOOKBACK_DAYS)
+    try:
+        rows = lf.experiments(state["dataset_id"], DATASET_NAME, since)
+        if lf.experiments_api == "dataset-runs":
+            print("  note  this server has no experiments API (Langfuse 3.x); reading dataset runs and Scores v3")
+        for run in wanted:
+            matches = sorted((r for r in rows if run_matches(r.get("name") or "", run)),
+                             key=lambda r: r.get("startTime") or r.get("createdAt") or "", reverse=True)
+            if not check(bool(matches), f"experiment run '{run}' in the last {EXPERIMENT_LOOKBACK_DAYS} days",
+                         required=full, hint=f"run {EXPERIMENT_CMD} (90 router calls on Haiku and Sonnet)"):
+                continue
+            if lf.experiments_api == "experiments":
+                latest = matches[0]
+                run_scores = {s.get("name") for s in latest.get("scores") or []}
+                items = lf.cursor("/api/public/experiment-items", {
+                    "experimentId": latest["id"], "fromStartTime": iso(since), "fields": "scores"})
+                scored = [i for i in items if any(s.get("name") == "route-match" for s in i.get("scores") or [])]
+                check("avg_route_accuracy" in run_scores and len(scored) >= 1,
+                      f"run '{run}': {len(items)} item(s), {len(scored)} with route-match, "
+                      f"avg_route_accuracy {'present' if 'avg_route_accuracy' in run_scores else 'missing'}",
+                      required=full, hint=f"re-run {EXPERIMENT_CMD}; a run with no scores is not evidence")
+        if lf.experiments_api == "dataset-runs":
+            window = {"fromTimestamp": iso(since), "toTimestamp": iso(now + timedelta(minutes=5))}
+            for name in ("route-match", "avg_route_accuracy"):
+                found = lf.cursor("/api/public/v3/scores", dict(window, name=name), cap=1)
+                check(bool(found), f"'{name}' scores in the last {EXPERIMENT_LOOKBACK_DAYS} days", required=full,
+                      hint=f"run {EXPERIMENT_CMD}")
+    except ApiError as e:
+        check(False, f"experiment runs: {e}", required=full)
 
 
 def live_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
@@ -382,13 +608,14 @@ def live_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
     and seed-router-history.py writes synthetic `route-query` and `dispatch-*` rows with no
     such span, so the span is the one marker every live run has and history never has.
     """
-    print("Latest run")
+    print("Acts 1-2 · live runs")
     end = iso(now + timedelta(minutes=5))
     roots = lf.observations(cap=RUNS_SCANNED, name=ROOT_SPAN,
                             fromStartTime=iso(now - timedelta(days=LOOKBACK_DAYS)), toStartTime=end)
+    roots = [r for r in roots if r.get("name", ROOT_SPAN) == ROOT_SPAN and r.get("traceId") and r.get("startTime")]
     if not check(bool(roots), f"a live '{ROOT_SPAN}' run in the last {LOOKBACK_DAYS} days", hint=f"run {RUN_CMD}"):
         return
-    roots = sorted(roots, key=lambda r: r.get("startTime") or "", reverse=True)
+    roots = sorted(roots, key=lambda r: r["startTime"], reverse=True)
     trace_obs: Dict[str, List[dict]] = {}
 
     def observations_of(root: dict) -> List[dict]:
@@ -414,8 +641,8 @@ def live_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
     check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
           required=False, hint=f"run {RUN_CMD} the day before")
 
-    # Act 1: one question, one specialist, the handler's subtree nested in the same trace.
-    print("Act 1 · dispatched runs")
+    # Act 1 opens a docs_complex run and an analytics_sql run, each with the handler's
+    # subtree nested in the router's trace.
     seen: Dict[str, int] = {}          # route -> observation count of its newest live trace
     for root in roots:
         rows = observations_of(root)
@@ -423,35 +650,37 @@ def live_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
             route = n[len("dispatch-"):] if n.startswith("dispatch-") else None
             if route in ROUTES and route not in seen:
                 seen[route] = len(rows)
-                if len(rows) >= MIN_NESTED_OBSERVATIONS and not state.get("dispatched_trace_id"):
+                if route == ACT1_ROUTES[0] and len(rows) >= MIN_NESTED_OBSERVATIONS:
                     state["dispatched_trace_id"] = root["traceId"]
         if len(seen) == len(ROUTES):
             break
     for route in ROUTES:
-        check(route in seen, f"a recent live run dispatched to {route}", required=False,
-              hint=f"run {RUN_CMD}; if that question fell back, is its handler up?")
-    best = max(seen.values()) if seen else 0
-    check(best >= MIN_NESTED_OBSERVATIONS,
-          f"a dispatched run carries the handler subtree: {best} observation(s) in one trace "
-          f"(want {MIN_NESTED_OBSERVATIONS}+)",
-          hint="no dispatch, or only the router's spans landed: bring the handlers up and re-run "
-               + RUN_CMD if not seen else "the handler joins via trace_context; is it on the same Langfuse project?")
+        n = seen.get(route)
+        check(n is not None and n >= MIN_NESTED_OBSERVATIONS,
+              f"a recent live run dispatched to {route} with the handler subtree nested: "
+              + (f"{n} observation(s)" if n is not None else "none") + f" (want {MIN_NESTED_OBSERVATIONS}+)",
+              required=route in ACT1_ROUTES,
+              hint=f"run {RUN_CMD}; if that question fell back, is its handler up?" if n is None
+              else "only the router's spans landed: the handler joins via trace_context; same Langfuse project?")
 
 
-def loop_checks(lf: Langfuse, now: datetime) -> None:
-    """Acts 3-5 lean on scores that appear only after live traffic or an experiment."""
-    print("Acts 3-5 · scores in the last 14 days")
+def judge_checks(lf: Langfuse, now: datetime) -> None:
+    """Scores no act depends on: they only warn, in either mode."""
+    print("Extras")
     since = {"fromTimestamp": iso(now - timedelta(days=HISTORY_DAYS)), "toTimestamp": iso(now + timedelta(minutes=5))}
-    for name, why, hint in [
-        ("routing_correct", "Act 3/4 misroute rate", f"seeded by history; run {SEED_CMD}"),
-        ("route-plausibility", "the managed route judge", f"it samples 25% of NEW route-query rows: run {RUN_CMD}"),
-        ("route-match", "Act 5 experiment", f"run {EXPERIMENT_CMD} (cents on Haiku)"),
-    ]:
-        rows = lf.cursor("/api/public/v3/scores", dict(since, name=name), cap=1, max_pages=1)
-        check(bool(rows), f"'{name}' scores exist ({why})", required=False, hint=hint)
+    rows = lf.cursor("/api/public/v3/scores", dict(since, name="route-plausibility"), cap=1)
+    check(bool(rows), "'route-plausibility' judge scores in the last 14 days", required=False,
+          hint=f"it samples 25% of NEW route-query rows: run {RUN_CMD}")
 
 
-def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, Any]:
+def misroute_checks(lf: Langfuse, now: datetime, full: bool) -> None:
+    since = {"fromTimestamp": iso(now - timedelta(days=HISTORY_DAYS)), "toTimestamp": iso(now + timedelta(minutes=5))}
+    rows = lf.cursor("/api/public/v3/scores", dict(since, name="routing_correct"), cap=1)
+    check(bool(rows), "'routing_correct' scores in the last 14 days (the misroute-rate widget)", required=full,
+          hint=f"seeded with the history; run {SEED_CMD}")
+
+
+def langfuse_checks(lf: Langfuse, expected_project: Optional[str], full: bool = True) -> Dict[str, Any]:
     state: Dict[str, Any] = {}
     print("Langfuse")
     try:
@@ -462,48 +691,62 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
         return state
     proj = projects[0] if projects else {}
     state["project_id"] = proj.get("id")
-    if not check(bool(expected_project) and proj.get("name") == expected_project,
+    if not check(bool(expected_project) and bool(proj) and proj.get("name") == expected_project,
                  f"keys map to project '{proj.get('name')}' (want '{expected_project}')",
                  hint="use this project's keys in the root .env, or fix langfuse.project in demo.yaml"):
         return state
 
     now = datetime.now(timezone.utc)
-    try:
-        seeded_checks(lf, state, now)
-        live_run_checks(lf, state, now)
-        loop_checks(lf, now)
-    except ApiError as e:
-        check(False, f"Langfuse read failed: {e}")
+    sections = [
+        lambda: prompt_checks(lf, full),
+        lambda: live_run_checks(lf, state, now),
+        lambda: dataset_checks(lf, state, full),
+        lambda: history_checks(lf, now, full),
+        lambda: misroute_checks(lf, now, full),
+        lambda: dashboard_checks(lf, state, full),
+        lambda: experiment_checks(lf, state, now, full),
+        lambda: judge_checks(lf, now),
+    ]
+    for i, section in enumerate(sections):
+        try:
+            section()
+        except ApiError as e:  # a failed read is a failed check, never a skipped one
+            check(False, f"Langfuse read failed: {e}", required=i < 2 or full)
     return state
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
+    ap.add_argument("--short", action="store_true",
+                    help="check only the short path (Opening, Acts 1-2, Close); Acts 3-5 assets only warn")
     args = ap.parse_args(argv)
     del RESULTS[:]
+    full = not args.short
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     path = env_file(manifest_value(manifest, "", "profile"))
-    print("query-router readiness")
+    print("query-router readiness: " + ("full script (Acts 1-5)" if full else "SHORT PATH ONLY (Opening, Acts 1-2, Close)"))
     print("Config")
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-          hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
+    loaded = check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
+                   hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
     expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
+    if check(loaded and bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
         service_checks()
         lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected)
+        state = langfuse_checks(lf, expected, full)
         if args.links and state.get("project_id"):
             print("\nLinks")
             for label, url in act_links(lf.base, state):
                 print(f"  {label:<36} {url}")
 
     line, code = summary()
+    if not full:
+        line = line.replace("READY (", "READY for the short path only (", 1)
     print(f"\n{line}")
     return code
 

@@ -172,28 +172,39 @@ def main():
     rng = random.Random(args.seed)
     print(f"Seeding {args.count} router traces over {args.days} days -> {HOST}", file=sys.stderr)
 
-    pending, sent, errors = [], 0, 0
+    pending, sent, errors, failed_batches = [], 0, 0, 0
+
+    def flush(batch):
+        """POST one batch; count rejected events and failed batches instead of hiding them."""
+        nonlocal sent, errors, failed_batches
+        sent += 1
+        try:
+            resp = _post_batch(batch)
+        except Exception as e:  # HTTP or network failure: the whole batch is lost
+            print(f"  batch error: {e}", file=sys.stderr)
+            failed_batches += 1
+            errors += len(batch)
+            return
+        rejected = (resp or {}).get("errors", []) or []
+        for err in rejected[:3]:
+            print(f"  rejected event: {err}", file=sys.stderr)
+        errors += len(rejected)
+
     for _ in range(args.count):
         pending.extend(_build_trace(rng, args.days))
         if len(pending) >= args.batch_size * 6:
-            try:
-                resp = _post_batch(pending)
-                errors += len(resp.get("errors", []) or [])
-            except Exception as e:
-                print(f"  batch error: {e}", file=sys.stderr)
-                errors += 1
-            sent += 1
+            flush(pending)
             pending = []
     if pending:
-        try:
-            resp = _post_batch(pending)
-            errors += len(resp.get("errors", []) or [])
-        except Exception as e:
-            print(f"  batch error: {e}", file=sys.stderr)
-            errors += 1
-        sent += 1
+        flush(pending)
 
-    print(f"Done. {args.count} traces in {sent} batch POST(s); ingestion errors: {errors}", file=sys.stderr)
+    print(f"Done. {args.count} traces in {sent} batch POST(s); failed batches: {failed_batches}; "
+          f"rejected or lost events: {errors}", file=sys.stderr)
+    if errors:
+        # Exit non-zero so callers (setup.sh, demos/query-router/scripts/seed_all.py) do not
+        # report history that never landed as seeded.
+        print("History seeding FAILED: some events were not accepted.", file=sys.stderr)
+        sys.exit(1)
     print(f"Build the Router Ops dashboard, then explore: {HOST} -> Traces (name=route-and-dispatch)",
           file=sys.stderr)
 

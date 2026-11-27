@@ -108,7 +108,9 @@ if [ "$TMPL_RC" != "0" ]; then
   warn "Could not create the custom template via SQL (schema-coupled). Details: $(tr '\n' ' ' </tmp/router_judge_tmpl.log)"
   info "Create it once in the UI (Evaluators > New evaluator > Custom): categorical, categories = ${CATEGORIES},"
   info "  variables question<-input.question, decision<-output; then re-run this script to wire the job."
-  exit 0
+  # Non-zero: the judge is NOT provisioned, so callers (setup.sh, demos/query-router/scripts/seed_all.py)
+  # must not report it as seeded. setup.sh treats this as a non-fatal warning.
+  exit 1
 fi
 ok "route-plausibility template (categorical: ${CATEGORIES})"
 

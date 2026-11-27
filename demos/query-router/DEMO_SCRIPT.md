@@ -47,13 +47,13 @@ docker compose --profile langfuse --profile demo up -d   # query-router + text-t
 # One-time: build the agentic-rag vector index if you haven't:
 #   docker compose --profile demo run --rm agentic-rag python ingest.py
 
-# Seed the loop artifacts (idempotent: prompt, dataset, code evaluators, history, judge):
+# Seed the loop artifacts (idempotent: prompt, dataset, code evaluators, dashboard, history, judge):
 python demos/query-router/scripts/seed_all.py
 
 # One fresh batch so every route has a live trace to open:
 docker compose --profile demo run --rm query-router python main.py
 
-# READY, plus the link each act opens:
+# READY for the full script, plus the link each act opens (--short checks Acts 1-2 only):
 python demos/query-router/scripts/verify_demo.py --links
 ```
 
@@ -66,9 +66,11 @@ dashboard and the `query-router-classifier` prompt, all printed by `--links`.
 
 ### The day before
 
-Build the **Router Ops** dashboard once (see Act 4 for the four widgets — about 5 minutes
-of clicks). Run `seed_all.py` again if the seeded history is more than a few days old: it
-is backdated from the day it was seeded and ages out of the 14-day window.
+Run `seed_all.py` again if the seeded history is more than a few days old: it is
+backdated from the day it was seeded and ages out of the 14-day window. It also creates
+or repairs the **Router Ops** dashboard and its four widgets (Act 4). Run the Act 5
+experiment once, `python scripts/run-router-experiment.py --sample 30` (90 router calls),
+so its runs exist; the full readiness check requires them.
 
 ---
 
@@ -211,10 +213,10 @@ today, let alone turn it into a test?"
 
 | Widget | View / measure | Dimension / filter | Watches |
 |---|---|---|---|
-| Route distribution over time | observations · count | `metadata.route`, filter `name=route-query`, daily | **route drift** |
-| Fallback rate | observations · count | filter `metadata.fallback_triggered=true` vs total | threshold too tight / taxonomy gaps |
+| Route distribution over time | observations · count | by `name`, filter `dispatch-*` and `fallback-handler`, daily | **route drift** |
+| Fallback rate | observations · count | by `name`, filter `fallback-handler` vs `route-query`, daily | threshold too tight / taxonomy gaps |
 | Avg `router_confidence` | scores (numeric) · avg | score `router_confidence`, daily | classifier degradation before misroutes surface |
-| Misroute rate | scores · avg of `routing_correct` | daily | **silent misclassification** |
+| Misroute rate | scores (boolean) · count | `routing_correct` true vs false, daily | **silent misclassification** |
 
 Point at the `analytics_sql` **share doubling in week 2** (drift you'd never see
 per-trace) and the misroute cluster. Note the WARNING thresholds:
@@ -373,7 +375,8 @@ the gate at `scripts/run-router-experiment.py:158` exits 1 below the threshold.
 - **The route taxonomy is deliberately distinct** from agentic-rag's internal
   `kb|sql|direct` — this is the *front-door* router over whole demos, not the
   in-graph node.
-- **The router history is synthetic**, and the Router Ops dashboard is built by hand.
+- **The router history is synthetic**, and the Router Ops dashboard needs a server with
+  Langfuse's (unstable) dashboards API; without it, build it by hand and present the short path.
 
 The full list is in the README's [Known limits](README.md#known-limits).
 
@@ -383,7 +386,7 @@ The full list is in the README's [Known limits](README.md#known-limits).
 
 ```bash
 docker compose start vector-rag                               # if Act 2 stopped it
-python demos/query-router/scripts/seed_all.py                 # puts the seeded text back on `production` / `baseline`; tops up aged history
+python demos/query-router/scripts/seed_all.py                 # puts the seeded text back on `production` / `baseline`; repairs the dashboard; tops up aged history
 docker compose --profile demo run --rm query-router python main.py   # a fresh batch
 python demos/query-router/scripts/verify_demo.py              # READY again
 ```
