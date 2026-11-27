@@ -46,6 +46,7 @@ jobs:
       matrix:
         demo:
           - agentic-rag
+          - analytics-agentic-speed
           - cluster-health-investigator
           - query-router
           - real-estate

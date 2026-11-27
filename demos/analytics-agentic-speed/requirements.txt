@@ -1,0 +1,11 @@
+# Analytics at Agentic Speed demo (Python 3.11). Install:
+#   uv venv --python 3.11 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+langfuse>=4.18,<5.0
+anthropic>=2.14,<3
+httpx>=0.27
+python-dotenv>=1.0
+pyyaml>=6.0
+pytest>=8
+pytest-asyncio>=0.23
+fastapi>=0.110
+uvicorn>=0.29
