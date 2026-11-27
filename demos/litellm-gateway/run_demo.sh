@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+# The root .env is the only source of LANGFUSE_*: the proxy container reads it
+# through env_file, so a shell-exported key for another project would make the
+# read-back below look in a different project from the one the proxy exports to.
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+
 if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091

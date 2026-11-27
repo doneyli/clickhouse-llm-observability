@@ -2,9 +2,12 @@ import importlib.util
 import base64
 import json
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
+
+from fake_langfuse import FakeLangfuse, obs
 
 
 CLIENT_PATH = Path(__file__).resolve().parents[1] / "client.py"
@@ -58,91 +61,80 @@ class GatewayClientTests(unittest.TestCase):
             "Gateway observability.",
         )
 
-    def test_trace_check_reads_v2_observations_and_uses_basic_auth(self):
-        """On a v4 server the check must NOT touch the removed v1 trace endpoints."""
-        expected_result = {
-            "data": [{
-                "traceId": "actual-trace-id",
-                "traceName": "litellm-gateway-demo",
-                "name": "completion",
-                "sessionId": "session-3",
-                "isRootObservation": True,
-            }]
-        }
-        with patch.object(client, "request_json", return_value=expected_result) as mocked:
-            trace = client.wait_for_trace(
-                "http://langfuse:3000", "public", "secret", "session-3", 1, 4
-            )
 
-        expected_auth = base64.b64encode(b"public:secret").decode("ascii")
-        self.assertEqual(trace, {"id": "actual-trace-id", "name": "litellm-gateway-demo"})
-        url = mocked.call_args.args[0]
-        self.assertTrue(url.startswith("http://langfuse:3000/api/public/v2/observations?"))
-        self.assertNotIn("/api/public/traces", url)
 
-        query = parse_qs(urlsplit(url).query)
-        # trace_context is what carries traceId/traceName onto each row.
+class TraceCheckTests(unittest.TestCase):
+    """client.py's post-run read-back, through the shared reads in scripts/verify_demo.py."""
+
+    SENT = datetime(2026, 11, 27, 10, 0, tzinfo=timezone.utc)
+
+    def wait(self, fake, session="litellm-gateway-abc12345", timeout=1):
+        with patch("urllib.request.urlopen", side_effect=fake.urlopen), \
+                patch.object(client.time, "sleep"), \
+                patch.object(client, "datetime", FixedDatetime):
+            return client.wait_for_trace("http://lf:3001", "pk-good", "sk-good", session, timeout, self.SENT)
+
+    def test_v4_reads_observations_v2_for_the_session_with_basic_auth(self):
+        fake = FakeLangfuse(observations=[
+            obs("o1", "t1", "2026-11-27T10:00:01.000Z"),
+            obs("o2", "t1", "2026-11-27T10:00:02.000Z", root=False),
+            obs("o9", "t9", "2026-11-27T10:00:03.000Z", session="someone-else"),
+        ])
+        trace = self.wait(fake)
+        self.assertEqual(trace, {"id": "t1", "name": "litellm-gateway-demo",
+                                 "observations": 2, "api": "v2"})
+        first = urlsplit(fake.requests[0])
+        self.assertEqual(first.path, "/api/public/v2/observations")
+        query = parse_qs(first.query)
         self.assertEqual(query["fields"], ["core,basic,trace_context"])
-        self.assertIn("fromStartTime", query)
         # The filter shape is load-bearing: `string`/`=` has returned 200 with
         # zero rows, which is indistinguishable from "the trace never arrived".
         self.assertEqual(
             json.loads(query["filter"][0]),
             [{"type": "stringOptions", "column": "sessionId",
-              "operator": "any of", "value": ["session-3"]}],
+              "operator": "any of", "value": ["litellm-gateway-abc12345"]}],
         )
-        self.assertEqual(
-            mocked.call_args.kwargs["headers"]["Authorization"],
-            f"Basic {expected_auth}",
-        )
+        expected_auth = "Basic " + base64.b64encode(b"pk-good:sk-good").decode("ascii")
+        self.assertEqual(set(fake.auth_headers), {expected_auth})
+        self.assertFalse(any("/api/public/traces" in u for u in fake.requests))
 
-    def test_trace_check_falls_back_to_v1_on_a_v3_server(self):
-        """The self-hosted stack is still 3.x, where v2 observations 404."""
-        expected_result = {
-            "data": [{"id": "actual-trace-id", "sessionId": "session-3", "name": "trace"}]
-        }
-        with patch.object(client, "request_json", return_value=expected_result) as mocked:
-            trace = client.wait_for_trace(
-                "http://langfuse:3000", "public", "secret", "session-3", 1, 3
-            )
+    def test_v3_falls_back_to_v1_observations_on_404_and_never_reads_traces(self):
+        fake = FakeLangfuse(mode="v3", observations=[
+            obs("o0", "t0", "2026-11-27T09:00:00.000Z"),          # before this request
+            obs("o1", "t1", "2026-11-27T10:00:01.000Z"),
+        ])
+        trace = self.wait(fake)
+        self.assertEqual((trace["id"], trace["observations"], trace["api"]), ("t1", 1, "v1"))
+        v1 = [u for u in fake.requests if urlsplit(u).path == "/api/public/observations"]
+        self.assertTrue(v1)
+        self.assertEqual(parse_qs(urlsplit(v1[0]).query)["userId"], ["gateway-demo-user"])
+        self.assertFalse(any("/api/public/traces" in u for u in fake.requests))
 
-        self.assertEqual(trace["id"], "actual-trace-id")
-        self.assertEqual(
-            mocked.call_args.args[0],
-            "http://langfuse:3000/api/public/traces?sessionId=session-3&limit=10",
-        )
+    def test_session_that_never_lands_raises(self):
+        fake = FakeLangfuse(observations=[obs("o9", "t9", "2026-11-27T10:00:03.000Z", session="other")])
+        with self.assertRaises(client.DemoError) as ctx:
+            self.wait(fake, timeout=0.05)
+        self.assertIn("session is not indexed yet", str(ctx.exception))
 
-    def test_api_major_detected_from_health(self):
-        for version, expected in (("4.43.0", 4), ("3.221.1", 3), ("5.0.0", 5)):
-            with self.subTest(version=version):
-                with patch.object(client, "request_json", return_value={"version": version}):
-                    self.assertEqual(
-                        client.detect_api_major("http://langfuse:3000", "auth"), expected
-                    )
+    def test_auth_errors_stop_polling(self):
+        fake = FakeLangfuse(keys=("pk-real", "sk-real"))
+        with self.assertRaises(client.DemoError) as ctx:
+            self.wait(fake, timeout=5)
+        self.assertIn("HTTP 401", str(ctx.exception))
+        self.assertEqual(len(fake.requests), 1)
 
-    def test_api_major_defaults_to_v4_when_health_is_unreadable(self):
-        """Guessing v3 would silently call endpoints that are being removed."""
-        with patch.object(client, "request_json", side_effect=client.DemoError("HTTP 500")):
-            self.assertEqual(client.detect_api_major("http://langfuse:3000", "auth"), 4)
-        with patch.object(client, "request_json", return_value={"version": "not-a-version"}):
-            self.assertEqual(client.detect_api_major("http://langfuse:3000", "auth"), 4)
+    def test_a_non_404_read_error_does_not_fall_back(self):
+        fake = FakeLangfuse(fail={"/api/public/v2/observations": 500})
+        with self.assertRaises(client.DemoError) as ctx:
+            self.wait(fake, timeout=0.05)
+        self.assertIn("HTTP 500", str(ctx.exception))
+        self.assertFalse(any(urlsplit(u).path == "/api/public/observations" for u in fake.requests))
 
-    def test_v4_rows_collapse_to_one_trace_without_requiring_the_root_flag(self):
-        """The gateway's OTLP export owns the trace shape; no flag may be required."""
-        rows = [
-            {"traceId": "t1", "traceName": "litellm-gateway-demo",
-             "name": "child", "sessionId": "session-3"},
-            {"traceId": "t1", "traceName": "litellm-gateway-demo",
-             "name": "parent", "sessionId": "session-3"},
-        ]
-        self.assertEqual(
-            client.pick_trace(rows, "session-3", 4),
-            {"id": "t1", "name": "litellm-gateway-demo"},
-        )
-        self.assertIsNone(client.pick_trace([], "session-3", 4))
-        self.assertIsNone(
-            client.pick_trace([{"traceId": "t1", "sessionId": "other"}], "session-3", 4)
-        )
+
+class FixedDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 11, 27, 10, 0, 5, tzinfo=timezone.utc)
 
 
 if __name__ == "__main__":
