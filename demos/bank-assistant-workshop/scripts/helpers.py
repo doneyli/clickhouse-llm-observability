@@ -21,15 +21,20 @@ def load_data():
     return json.loads((config.ROOT / "data/seed-dataset.json").read_text())
 
 
+def validate_review(data, *, allow_draft):
+    """The reviewed/draft gate. seed_all.py runs it before its unchanged shortcut too."""
+    if allow_draft and any(item["metadata"].get("synthetic") is not True for item in data):
+        raise ValueError("--allow-draft is limited to synthetic rehearsal examples.")
+    if not allow_draft and any(item["metadata"].get("reference_review_required", True) for item in data):
+        raise ValueError("Mark each item's reference_review_required=false only after reviewing its expected behavior.")
+
+
 def seed_dataset(args):
     allow_draft = getattr(args, "allow_draft", False)
     if not args.reviewed and not allow_draft:
         raise ValueError("Review data/seed-dataset.json references against the synthetic KB, then pass --reviewed.")
     data = load_data()
-    if allow_draft and any(item["metadata"].get("synthetic") is not True for item in data):
-        raise ValueError("--allow-draft is limited to synthetic rehearsal examples.")
-    if not allow_draft and any(item["metadata"].get("reference_review_required", True) for item in data):
-        raise ValueError("Mark each item's reference_review_required=false only after reviewing its expected behavior.")
+    validate_review(data, allow_draft=allow_draft)
     lf = config.require_langfuse()
     try:
         lf.get_dataset(DATASET_NAME)
@@ -41,8 +46,10 @@ def seed_dataset(args):
                                     "reference_review_required": any(item["metadata"].get("reference_review_required", True) for item in data)})
     for item in data:
         identifier = hashlib.sha256(f"{DATASET_NAME}/{item['id']}".encode()).hexdigest()[:32]
+        # status: an upsert otherwise leaves an archived item archived, and experiments skip it.
         lf.create_dataset_item(dataset_name=DATASET_NAME, id=identifier, input=item["input"],
-                               expected_output=item["expected_output"], metadata=item["metadata"])
+                               expected_output=item["expected_output"], metadata=item["metadata"],
+                               status="ACTIVE")
     print(f"Upserted {len(data)} items into {DATASET_NAME}. Unlisted remote items are not deleted.")
     if allow_draft:
         print("Synthetic rehearsal only. Human-review markers are preserved; these references are not production ground truth.")

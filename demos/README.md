@@ -62,5 +62,5 @@ out of date.
 
 | Demo | What it shows | Covers | Length | Run | Present |
 |---|---|---|---|---|---|
-| **[Bank Assistant Workshop](bank-assistant-workshop/)** *(draft)* | Nine-module hands-on workshop that adds tracing, prompts, monitoring and experiments to a synthetic bank assistant | Trace · Monitor · Datasets · Experiment · Evaluate · Deploy | 180 min | `cd demos/bank-assistant-workshop && .venv/bin/python workshop.py serve` | WORKSHOP_GUIDE.md *(not written yet)* |
+| **[Bank Assistant Workshop](bank-assistant-workshop/)** *(draft)* | Nine-module hands-on workshop that adds tracing, prompts, monitoring and experiments to a synthetic bank assistant | Trace · Monitor · Datasets · Experiment · Evaluate · Deploy | 180 min | `cd demos/bank-assistant-workshop && .venv/bin/python workshop.py serve` | [WORKSHOP_GUIDE.md](bank-assistant-workshop/WORKSHOP_GUIDE.md) |
 <!-- demo-index:end -->
