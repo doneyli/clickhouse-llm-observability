@@ -137,7 +137,7 @@ class ToolOutcome:
 @dataclass
 class RunState:
     """What the agent DID during one run — read by the reviewer and the policy guardrail."""
-    calls: List[Dict[str, Any]] = field(default_factory=list)          # {"name", "input"} in order
+    calls: List[Dict[str, Any]] = field(default_factory=list)          # inputs, start/completion times, success
     staged_drafts: List[Dict[str, Any]] = field(default_factory=list)
     corrections: List[Dict[str, Any]] = field(default_factory=list)
     checked_claims: List[Dict[str, Any]] = field(default_factory=list)  # verdicts returned
@@ -364,6 +364,11 @@ def check_claims(ctx: ToolContext, claims: List[str]) -> ToolOutcome:
     if ctx.claim_verifier is None:
         raise RuntimeError("check_claims needs a claim_verifier (set by loop.py)")
     verdicts = ctx.claim_verifier(claims, evidence)
+    if len(verdicts) != len(claims) or any(
+            not isinstance(v, dict) or v.get("verdict") not in {"supported", "contradicted", "unsupported"}
+            for v in verdicts):
+        return ToolOutcome({"error": "fact-checker did not return a verdict for every claim"},
+                           level="ERROR", status_message="incomplete fact-check", is_error=True)
     ctx.state.checked_claims.extend(verdicts)
     return ToolOutcome({"results": verdicts},
                        metadata={"index": f"context-manager/{ctx.customer.id}",
@@ -403,13 +408,16 @@ _IMPLS: Dict[str, Callable[..., ToolOutcome]] = {
 
 
 def run_tool(ctx: ToolContext, name: str, args: Dict[str, Any]) -> ToolOutcome:
-    ctx.state.calls.append({"name": name, "input": args})
+    call = {"name": name, "input": args, "started_at": time.monotonic_ns(), "succeeded": False}
+    ctx.state.calls.append(call)
     impl = _IMPLS.get(name)
     if impl is None:
         return ToolOutcome({"error": f"unknown tool {name!r}"}, level="ERROR",
                            status_message="unknown tool", is_error=True)
     try:
-        return impl(ctx, **args)
+        outcome = impl(ctx, **args)
     except TypeError as e:  # wrong/missing arguments from the model
         return ToolOutcome({"error": f"invalid arguments: {e}"}, level="ERROR",
                            status_message="invalid arguments", is_error=True)
+    call.update(completed_at=time.monotonic_ns(), succeeded=not outcome.is_error)
+    return outcome
