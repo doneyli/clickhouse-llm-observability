@@ -1,5 +1,6 @@
 [
   {
+    "id": "rls-demo-01",
     "name": "Q4 earnings narrative generation",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -12,6 +13,7 @@
     "output": { "response": "Meridian Bank delivered record Q4 net income of $4.2B, CET1 ratio of 13.1%, supported by disciplined capital allocation across PCL and trading segments." }
   },
   {
+    "id": "rls-demo-02",
     "name": "Board strategy memo — digital banking pivot",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -24,6 +26,7 @@
     "output": { "response": "The proposed pivot targets a 200bps ROE improvement by 2027 through platform consolidation, AI-assisted advisory, and a 15% reduction in branch footprint." }
   },
   {
+    "id": "rls-demo-03",
     "name": "M&A target evaluation — mid-market wealth",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -36,6 +39,7 @@
     "output": { "response": "Target Co presents a 7x AUM/fee multiple. Integration risk is moderate; primary concern is advisor retention in Ontario and BC markets." }
   },
   {
+    "id": "rls-demo-04",
     "name": "CEO succession planning brief",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -48,6 +52,7 @@
     "output": { "response": "Candidate profiles ranked across strategic vision, operational track record, stakeholder management, and readiness timeline (2–4 years)." }
   },
   {
+    "id": "rls-demo-05",
     "name": "Regulator supervisory letter — executive response draft",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -60,6 +65,7 @@
     "output": { "response": "Meridian Bank acknowledges the findings and commits to a remediation roadmap including IRB model refresh, documentation uplift, and independent validation by Q2 2026." }
   },
   {
+    "id": "rls-demo-06",
     "name": "Board risk appetite statement — capital floors",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -72,6 +78,7 @@
     "output": { "response": "Recommended CET1 floor of 12.5% through 2027, with trigger escalation protocol at 12.0%. Reflects output floor transition impact of ~30bps." }
   },
   {
+    "id": "rls-demo-07",
     "name": "Internal audit executive summary — AML control failures",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -84,6 +91,7 @@
     "output": { "response": "Three high-severity findings: threshold calibration drift, delayed SAR filing (>72h), and gap in PEP screening refresh for dormant accounts." }
   },
   {
+    "id": "rls-demo-08",
     "name": "Capital stress test — adverse macro scenario",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -96,6 +104,7 @@
     "output": { "response": "Under adverse macro scenario, projected CET1 trough is 11.2% at Q2 2027. Management actions (RWA optimization, dividend flex) restore 80bps by Q4." }
   },
   {
+    "id": "rls-demo-09",
     "name": "Private banking revenue concentration risk",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -108,6 +117,7 @@
     "output": { "response": "Top 200 HNW relationships account for 41% of private banking net revenue ($1.1B annualized). Concentration risk is elevated; recommend diversification target of <35% by 2027." }
   },
   {
+    "id": "rls-demo-10",
     "name": "Executive compensation benchmarking",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -120,6 +130,7 @@
     "output": { "response": "Meridian Bank CEO total direct compensation of $18.4M ranks 2nd among peer group. Long-term incentive weighting at 65% is aligned with median. Pay-for-performance correlation: 0.82." }
   },
   {
+    "id": "rls-demo-11",
     "name": "AML transaction monitoring — wire transfer review",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -132,6 +143,7 @@
     "output": { "response": "47 wires flagged: 22 to UAE, 14 to Cayman, 11 to Cyprus. 8 escalated to SAR (suspicious activity report) filing. Average clearing delay: 2.3 days." }
   },
   {
+    "id": "rls-demo-12",
     "name": "Sanctions screening — OFAC list refresh",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -144,6 +156,7 @@
     "output": { "response": "213 potential matches identified at >75% name-match confidence. 12 confirmed true positives frozen pending legal review. 201 cleared after enhanced due diligence." }
   },
   {
+    "id": "rls-demo-13",
     "name": "Regulatory filing — SAR annual compliance report",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -156,6 +169,7 @@
     "output": { "response": "Narrative covers: governance structure, designated compliance officer, risk assessment methodology, training program metrics (94% completion), and transaction monitoring system updates." }
   },
   {
+    "id": "rls-demo-14",
     "name": "AML risk appetite — PEP onboarding thresholds",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -168,6 +182,7 @@
     "output": { "response": "Recommend raising risk score floor from 62 to 71 with mandatory senior approval at >80. Projected false positive reduction: 22%. Expected true positive retention: 97%." }
   },
   {
+    "id": "rls-demo-15",
     "name": "Regulatory capital — DFAST submission draft",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -180,6 +195,7 @@
     "output": { "response": "Narrative covers capital planning governance (Board oversight, ALCO), scenario development methodology, results review process, and use of stress test results in planning." }
   },
   {
+    "id": "rls-demo-16",
     "name": "Compliance breach investigation — data exfiltration",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -192,6 +208,7 @@
     "output": { "response": "Exfiltration occurred 11 days post-termination via unrevoked VPN credential. Affected: 4,218 retail clients. The regulator was notified and a data protection breach report was filed." }
   },
   {
+    "id": "rls-demo-17",
     "name": "Model risk — IRB credit model validation",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -204,6 +221,7 @@
     "output": { "response": "Validation identifies PD underestimation of 8bps in the 55-65 LTV bucket. RWA impact: +$340M. Recommended recalibration timeline: 60 days." }
   },
   {
+    "id": "rls-demo-18",
     "name": "Credit risk model — mortgage default prediction",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -216,6 +234,7 @@
     "output": { "response": "Top features: LTV ratio (0.31 importance), DSR (0.27), credit bureau score (0.22). Gini coefficient: 0.71. Model outperforms incumbent by 4.2 Gini points." }
   },
   {
+    "id": "rls-demo-19",
     "name": "PCL forecast — retail portfolio Q1 2026",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -228,6 +247,7 @@
     "output": { "response": "Base scenario PCL: $420M (+12% YoY). Downside (100bps rate shock): $580M. Key driver: variable rate mortgage renewal cliff peaking Q2 2026 affecting ~190K accounts." }
   },
   {
+    "id": "rls-demo-20",
     "name": "Counterparty exposure — derivatives book review",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -240,6 +260,7 @@
     "output": { "response": "Top 10 counterparties account for 68% of total IRS exposure. Largest single counterparty: Deutsche Bank at $2.1B current / $3.4B PFE. All within approved ISDA limits." }
   },
   {
+    "id": "rls-demo-21",
     "name": "Customer churn propensity — retail banking",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -252,6 +273,7 @@
     "output": { "response": "Top churn predictors: declining transaction frequency (>40% drop MoM), absence of direct deposit, and single-product relationship. Churn rate for 3+ predictor cohort: 18.2%." }
   },
   {
+    "id": "rls-demo-22",
     "name": "Product performance — Meridian Rewards Visa growth analysis",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -264,6 +286,7 @@
     "output": { "response": "Total Meridian Rewards spend +11% YoY. Fastest growing categories: travel (+28%), dining (+19%). Declining: grocery (-3%) due to competitive loyalty program launches. Net revenue per card: +$14." }
   },
   {
+    "id": "rls-demo-23",
     "name": "Net Promoter Score trend — personal banking",
     "userId": "alice",
     "tags": ["rls-demo"],
@@ -276,6 +299,7 @@
     "output": { "response": "NPS: Q4 2024: 38, Q1 2025: 41, Q2 2025: 39, Q3 2025: 43. Top detractor themes: branch wait times (32%), mobile app stability (27%), dispute resolution speed (21%)." }
   },
   {
+    "id": "rls-demo-24",
     "name": "Small business lending — application funnel analysis",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -288,6 +312,7 @@
     "output": { "response": "Funnel: 12,400 applications → 9,800 complete → 7,200 approved → 5,900 funded. Largest drop-off: document verification (21%). Average time to fund: 8.3 days." }
   },
   {
+    "id": "rls-demo-25",
     "name": "Operational risk — branch incident dashboard",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -300,6 +325,7 @@
     "output": { "response": "Total incidents: 847. Top categories: cash discrepancies (34%), system outages (28%), customer disputes (22%). 3 locations with >5 repeat incidents flagged for regional review." }
   },
   {
+    "id": "rls-demo-26",
     "name": "Training completion — AML awareness program",
     "userId": "bob",
     "tags": ["rls-demo"],
@@ -312,6 +338,7 @@
     "output": { "response": "Overall completion: 91.4%. Lowest: Capital Markets Toronto (78%) and Wealth Management Vancouver (82%). Completion deadline extended 2 weeks for lagging units." }
   },
   {
+    "id": "rls-demo-27",
     "name": "Retail deposit growth — geographic breakdown",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -324,6 +351,7 @@
     "output": { "response": "National deposit growth: +4.2% YoY. GIC growth leads at +18% (rate-driven). Ontario and BC account for 62% of total deposit base. Prairie provinces outperform at +7.1%." }
   },
   {
+    "id": "rls-demo-28",
     "name": "Digital adoption — mobile banking engagement",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -336,6 +364,7 @@
     "output": { "response": "MAU: 5.2M (+9% YoY). Top features by session time: e-Transfer (2.1 min avg), bill payment (1.8 min), account overview (1.4 min), AI money insights (1.1 min), credit score (0.9 min)." }
   },
   {
+    "id": "rls-demo-29",
     "name": "Risk model — customer lifetime value segmentation",
     "userId": "carol",
     "tags": ["rls-demo"],
@@ -348,6 +377,7 @@
     "output": { "response": "Top CLV decile (avg $18,400 NPV): 3+ product relationships, tenure >7 years, Meridian Rewards cardholder, mortgage customer, and mobile app MAU. Represents 38% of total retail revenue." }
   },
   {
+    "id": "rls-demo-30",
     "name": "Branch network optimization — closure impact model",
     "userId": "carol",
     "tags": ["rls-demo"],

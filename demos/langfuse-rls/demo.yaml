@@ -16,21 +16,4 @@ commands:
   run: npm run dev
   verify: bash scripts/verify.sh
   test: npm test
-addons: []
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-README-05
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-05
-    reason: predates the standard
-  - rule: DS-SPEC-01
-    reason: predates the standard
-  - rule: DS-TEST-01
-    reason: predates the standard
+addons: [spec]

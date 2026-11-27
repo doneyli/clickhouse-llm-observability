@@ -12,6 +12,10 @@ three personas, one shared Langfuse project, and each persona sees a different
 filtered subset of the same 30 bank-flavored traces.
 
 - **App:** `http://localhost:3000` (Next.js, standalone — own `npm` + `.env`)
+- **Observability:** self-hosted Langfuse (`http://localhost:3001`), the demo's own project
+  (`RLS Demo`, or the name in `LANGFUSE_PROJECT_NAME`); 30 seeded traces tagged `rls-demo`,
+  no live traces during the demo
+- **Models:** none — the prompts and responses are pre-written fixtures
 - **Data:** 30 seeded traces in your local Langfuse (`http://localhost:3001`),
   fetched via the public API and filtered by an in-app policy engine
 - **Personas:** Alice (executive, `ceo-only`) sees **30/30**, Bob (compliance,
@@ -33,6 +37,9 @@ room. Here the Ask beats matter even more than usual: this demo exists because a
 customer requirement has no native answer yet, so what you're really doing is
 qualifying *their* requirement precisely enough to feed the roadmap conversation.
 
+There is no separately measured short path. As a rider on a broader demo, Act 1 carries the
+interaction; Acts 2 and 3 are where the time goes when the room engages.
+
 ---
 
 ## 0 · Pre-flight (do this BEFORE the meeting)
@@ -41,11 +48,16 @@ Requires the Langfuse stack up on `:3001` and Node 18+.
 
 ```bash
 cd demos/langfuse-rls
-npm install                      # one-time
-cp .env.example .env             # set LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
-npm run seed                     # push the 30 fixture traces into Langfuse
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+npm ci                           # one-time
+cp .env.example .env             # one-time: set the keys and LANGFUSE_PROJECT_NAME
+npm run seed                     # idempotent: creates or repairs the 30 fixture traces
 npm run dev                      # app on http://localhost:3000
+bash scripts/verify.sh --links   # second terminal: READY, plus the four tabs below
 ```
+
+`npm run dev` lets shell-exported `LANGFUSE_*` beat `.env`, which is why the `unset` comes
+first; the seeder and the check read only `.env`.
 
 Sanity-check the money numbers before the meeting — they're deterministic:
 
@@ -199,7 +211,7 @@ are all in `demos/langfuse-rls/`; the `/design` page *is* the leave-behind.
 
 ---
 
-## Under the hood — the whole mechanism (for the "show me" moment)
+## Show me the code
 
 The enforcement is deliberately small — that's the point; it's a spec, not a product.
 
@@ -233,9 +245,10 @@ before any row leaves the store.
 *Why it matters:* swap these for your customer's real teams/attributes and the
 demo becomes *their* requirement in ten minutes.
 
-**4 · The data path — `lib/langfuse-client.ts:44`**
+**4 · The data path — `lib/trace-read.ts:176`**
 ```ts
-// paginated fetch of ${host}/api/public/traces with Basic auth (pk:sk), 60s cache
+// GET ${host}/api/public/v2/observations: root rows, cursor-paged, Basic auth (pk:sk), 60s cache
+// one trace per root observation, which carries the RLS metadata the policy reads
 ```
 *Why it matters:* everything rides the public Langfuse API — no forked Langfuse,
 no direct ClickHouse access. The prototype changes nothing about the stack it
@@ -265,13 +278,40 @@ critiques.
 
 ---
 
+## Known limits
+
+Say these before the room does; the full list is in the README's
+[Known limits](README.md#known-limits).
+
+- **It's a mock.** Langfuse sends every trace to the app server and the app filters; anyone
+  with the API keys, or a seat in the project, sees everything.
+- **No push-down, no audit log.** The filter runs after the data leaves the store, and nothing
+  records who was denied what. Exports and the Langfuse UI are not covered.
+- **Unknown labels fail open.** A trace with a classification outside the three levels, or no
+  classification at all, is shown to every persona — a real policy would default-deny it.
+- **The banner shows five.** The "hidden by RLS policy" list names at most five of the denied
+  traces.
+
+---
+
 ## Reset / re-run
 
+Nothing in the demo changes state: switching personas only reads. To re-run, refresh the app.
+
 ```bash
-npm run seed          # re-push the 30 fixture traces (idempotent for the demo's purposes)
-npm run dev           # app on :3000
-bash scripts/verify.sh   # trace count + classification distribution via langfuse-cli
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+npm run dev                      # app on :3000
+bash scripts/verify.sh --links   # READY; prints the project id in the Langfuse link
 ```
 
-If the app shows an empty state, Langfuse isn't reachable on `:3001` or the
-`.env` keys are wrong — fix `.env`, reseed, refresh.
+`npm run seed` is safe to re-run: it repairs a fixture that drifted and writes nothing
+otherwise. If the check reports more than 30 traces because an older seeder appended
+duplicates, delete just those (the run lists them as `legacy` first):
+
+```bash
+npm run seed -- --prune-legacy   # deletes only rls-demo traces that copy a fixture under another id
+bash scripts/verify.sh           # wait 60 s for the app cache
+```
+
+If the app shows an empty state, Langfuse isn't reachable on `:3001` or the app started with
+the wrong keys: unset shell `LANGFUSE_*`, fix `.env`, restart `npm run dev`.
