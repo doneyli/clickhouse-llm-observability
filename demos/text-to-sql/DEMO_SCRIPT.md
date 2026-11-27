@@ -101,7 +101,8 @@ docker compose run --rm text-to-sql python main.py
 docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine
 
 # READY, plus the link each act opens; exit 1 names what to fix. A second line
-# says whether the short path (Opening, Acts 1–2, Close) is ready on its own.
+# says whether the short path (Opening, Acts 1–2, Close) is ready on its own. The
+# full verdict stays NOT READY until the --refine run above has landed.
 python demos/text-to-sql/scripts/verify_demo.py --links
 ```
 

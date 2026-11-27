@@ -89,7 +89,12 @@ and verify scripts are standard library only; nothing needs installing on the ho
 
 `verify_demo.py` prints a verdict for the full presentation (Acts 1–5) and, on the line
 above it, whether the short path (Opening, Acts 1–2, Close) is ready on its own. Datasets
-count only ACTIVE items that match the seeded definition.
+count only ACTIVE items that match the seeded definition. The full verdict also needs a
+prepared `--refine` run for Act 3, and an ordinary run does not count: a `sql-refine-loop`
+span under a `text-to-sql` root, with `generate-sql`, `gather-evidence` and `critique-sql`
+under it, a recorded stop reason, and the `converged` and `iterations_to_accept` scores. A
+malformed `LANGFUSE_BASE_URL`, an unreadable `.env` or an unexpected error is a FAIL line,
+and the verdict still prints.
 
 ## Before a demo
 
@@ -216,6 +221,9 @@ hostile shell exports, the Observations v1 fallback and `--link-latest`.
 | `retrieve-context` shows `[MCP unavailable: …]` | The chain still answers from the catalog in its prompt. Check `docker compose logs mcp-clickhouse` |
 | `dataset …: 0/8 seeded items ACTIVE and unchanged` | Items were archived or edited: `python demos/text-to-sql/scripts/seed_all.py` restores them in place |
 | `… still differ after scripts/seed-app-prompts.py` | The root prompt seeder did not write that field; the prompt is left as it was and the run exits 1 |
+| `a 'sql-refine-loop' span in the last 7 days` fails | No prepared refine run; the short path is unaffected. `docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine` |
+| `refine loop stages: …; missing …` or `refine loop recorded how it ended` fails | The newest refine run stopped part-way (a crash or a timeout). Run `--refine` again |
+| `LANGFUSE_BASE_URL '…' is not a valid URL` | Fix the URL in the root `.env`: `http(s)://host[:port]`, and a bracketed host must be a real IPv6 address |
 | Refine traces never converge | No egress to `sql-clickhouse.clickhouse.com:443`; the loop records the connection error as evidence |
 | Traces land in another project | A shell-exported key won over the `.env`: `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL` and run again |
 

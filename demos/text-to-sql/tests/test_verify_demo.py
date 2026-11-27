@@ -190,6 +190,9 @@ def test_ready_against_a_seeded_server(server, capsys):
     assert out.strip().splitlines()[-1].startswith("Full presentation: READY (")
     assert "Short path (Opening, Acts 1–2, Close): READY" in out
     assert "http://lf.test/project/p1/traces/t1" in out
+    assert "PASS  refine loop stages: generate-sql ×1, gather-evidence ×1, critique-sql ×1" in out
+    assert "PASS  refine loop recorded how it ended: stop_reason='accepted', iterations=1" in out
+    assert "Act 3 · the prepared refine run" in out and "http://lf.test/project/p1/traces/r1" in out
     assert "http://lf.test/project/p1/datasets/" in out
     assert all(m == "GET" for m, *_ in server.requests)                  # read-only
     assert not any(p.startswith("/api/public/observations") for _, p, *_ in server.requests)  # v2 answered
@@ -200,6 +203,7 @@ def test_v2_404_falls_back_to_v1_observations(server, capsys):
     code, out = run(capsys)
     assert code == 0, out
     assert "Observations v1" in out and "latest run has 6 observation(s)" in out
+    assert "PASS  refine loop stages: generate-sql ×1" in out
 
 
 def test_empty_cursor_pages_are_followed(server, capsys):
@@ -291,9 +295,11 @@ def test_no_run_is_not_ready(server, capsys):
 def test_an_old_run_only_warns(server, capsys):
     server.observations = []
     server.scores = []
-    server.add_run(start=(v.datetime.now(v.timezone.utc) - v.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    old = (v.datetime.now(v.timezone.utc) - v.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    server.add_refine_run(start=old)
+    server.add_run(start=old)
     code, out = run(capsys)
-    assert code == 0 and "WARN  latest run is" in out
+    assert code == 0 and "WARN  latest run is" in out and "WARN  refine run is" in out
 
 
 def test_service_down_is_not_ready(server, monkeypatch, capsys):
@@ -307,9 +313,204 @@ def test_service_down_is_not_ready(server, monkeypatch, capsys):
 
 
 def test_links_cover_every_act():
-    state = {"project_id": "p1", "trace_id": "t1",
+    state = {"project_id": "p1", "trace_id": "t1", "refine_trace_id": "r1",
              "dataset_ids": {"text-to-sql/converged-sql": "dc", "text-to-sql-analysis-step": "ds"}}
     links = v.act_links("https://lf.example", state)
     assert [label.split(" ·")[0] for label, _ in links] == \
-        ["Act 1", "Act 2", "Act 3", "Act 4", "Act 5", "Act 5", "Act 6"]
+        ["Act 1", "Act 2", "Act 3", "Act 3", "Act 4", "Act 5", "Act 5", "Act 6"]
+    assert ("Act 3 · the prepared refine run", "https://lf.example/project/p1/traces/r1") in links
     assert all(url.startswith("https://lf.example/project/p1/") for _, url in links)
+
+
+# --- Act 3: a prepared refine run, not just any run (131-4) -------------------------------------
+
+def drop_refine_run(server):
+    server.observations = [o for o in server.observations if o["traceId"] != "r1"]
+    server.scores = [sc for sc in server.scores if sc["traceId"] != "r1"]
+
+
+def full_only_failure(out):
+    assert "Short path (Opening, Acts 1–2, Close): READY" in out
+    assert "Full presentation: NOT READY" in out
+
+
+def test_a_normal_chain_alone_is_not_full_ready(server, capsys):
+    """Six observations plus gate-pass and sql-risk used to pass the full verdict."""
+    drop_refine_run(server)
+    code, out = run(capsys)
+    assert code == 1
+    assert "PASS  latest run has 6 observation(s)" in out and "PASS  latest run has a 'sql-risk' score" in out
+    assert "FAIL  a 'sql-refine-loop' span in the last 7 days" in out and "--refine" in out
+    full_only_failure(out)
+
+
+def test_the_refine_reads_ask_for_the_field_groups_they_use(server, capsys):
+    code, _ = run(capsys)
+    assert code == 0
+    v2 = [q for m, p, q, _ in server.requests if p == "/api/public/v2/observations"]
+    loop = [q for q in v2 if q.get("name") == "sql-refine-loop"]
+    stages = [q for q in v2 if q.get("traceId") == "r1"]
+    assert loop and all({"basic", "io"} <= set(q["fields"].split(",")) for q in loop)
+    assert stages and all("basic" in q["fields"].split(",") for q in stages)
+
+
+@pytest.mark.parametrize("stages,missing", [
+    (("generate-sql", "gather-evidence"), "critique-sql"),
+    (("generate-sql",), "gather-evidence, critique-sql"),
+    ((), "generate-sql, gather-evidence, critique-sql"),
+])
+def test_missing_refine_stages_fail_the_full_verdict(server, capsys, stages, missing):
+    drop_refine_run(server)
+    server.add_refine_run(stages=stages)
+    code, out = run(capsys)
+    assert code == 1 and f"missing {missing}" in out and "FAIL  refine loop stages" in out
+    full_only_failure(out)
+
+
+def test_stages_outside_the_loop_span_do_not_count(server, capsys):
+    drop_refine_run(server)
+    server.add_refine_run()
+    for o in server.observations:
+        if o["traceId"] == "r1" and o["name"] in v.REFINE_STAGES:
+            o["parentObservationId"] = "r1-root"
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  refine loop stages: generate-sql ×0" in out
+
+
+def test_a_loop_span_without_a_text_to_sql_root_fails(server, capsys):
+    drop_refine_run(server)
+    server.add_refine_run(root=False)
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  refine run r1 has a 'text-to-sql' root" in out
+    full_only_failure(out)
+
+
+@pytest.mark.parametrize("output", [
+    {},                                                        # the loop never wrote its output
+    {"iterations": 2, "critic_scores": [0.4, 0.95]},           # no stop reason
+    {"stop_reason": "running", "iterations": 1},               # not a reason the loop ends with
+    {"stop_reason": "accepted", "iterations": 0},
+    "not json",
+])
+def test_a_loop_that_did_not_record_how_it_ended_fails(server, capsys, output):
+    drop_refine_run(server)
+    server.add_refine_run(output=output)
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  refine loop recorded how it ended" in out
+    full_only_failure(out)
+
+
+@pytest.mark.parametrize("score", v.REFINE_SCORES)
+def test_a_missing_convergence_score_fails(server, capsys, score):
+    server.scores = [sc for sc in server.scores if not (sc["traceId"] == "r1" and sc["name"] == score)]
+    code, out = run(capsys)
+    assert code == 1 and f"FAIL  refine run has a '{score}' score" in out
+    full_only_failure(out)
+
+
+@pytest.mark.parametrize("stop,iterations", [("oscillation", 2), ("max_iterations", 3)])
+def test_a_loop_that_stopped_without_converging_is_still_a_prepared_run(server, capsys, stop, iterations):
+    """Act 3 can show a run that hit its budget; what it needs is a run that ended."""
+    drop_refine_run(server)
+    server.add_refine_run(iterations=iterations,
+                          output={"converged": False, "iterations": iterations, "stop_reason": stop})
+    code, out = run(capsys)
+    assert code == 0, out
+    assert f"generate-sql ×{iterations}" in out
+
+
+def test_a_refine_read_error_fails_only_the_full_verdict(server, capsys):
+    server.fail[("GET", "/api/public/v3/scores")] = [None, 500]   # the latest run's read, then the refine run's
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  Langfuse read failed (Act 3 refine run): ApiError: HTTP 500" in out
+    full_only_failure(out)
+
+
+# --- Every failure reaches the verdict (131-5) -----------------------------------------------------
+
+def env_with(server, tmp_path, monkeypatch, content):
+    path = tmp_path / "bad.env"
+    path.write_bytes(content if isinstance(content, bytes) else content.encode())
+    monkeypatch.setattr(v, "env_file", lambda profile: path)
+    return path
+
+
+def verdict_counts(out):
+    last = out.strip().splitlines()[-1]
+    assert last.startswith("Full presentation: NOT READY (") and "required failed" in last
+    return last
+
+
+@pytest.mark.parametrize("url", ["http://[::gg]", "http://[::gg]:3001", "lf.test", "ftp://lf.test",
+                                 "http://lf.test:99999"])
+def test_a_malformed_base_url_is_a_failed_check_with_a_verdict(server, tmp_path, monkeypatch, capsys, url):
+    env_with(server, tmp_path, monkeypatch,
+             f"LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL={url}\n")
+    code, out = run(capsys)
+    assert code == 1
+    assert "PASS  env loaded from" in out
+    assert "FAIL  LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and a valid LANGFUSE_BASE_URL set" in out
+    assert repr(url) in out
+    verdict_counts(out)
+    assert server.requests == []                                   # failed before any API use
+
+
+def test_request_construction_errors_are_api_errors(monkeypatch):
+    """The client's own boundary, for a URL that slipped past config (a caller's)."""
+    monkeypatch.setattr(v.urllib.request, "urlopen", lambda *a, **k: pytest.fail("no request expected"))
+    with pytest.raises(v.ApiError, match="cannot build the request"):
+        v.Langfuse("lf.test", "pk", "sk").get("/api/public/projects")
+
+
+@pytest.mark.parametrize("kind", ["bad-utf8", "no-permission"])
+def test_an_unreadable_env_file_is_a_failed_check_with_a_verdict(server, tmp_path, monkeypatch, capsys, kind):
+    if kind == "bad-utf8":
+        env_with(server, tmp_path, monkeypatch, b"LANGFUSE_PUBLIC_KEY=\xff\xfe\n")
+    else:
+        if os.geteuid() == 0:
+            pytest.skip("root reads any file")
+        path = env_with(server, tmp_path, monkeypatch, "LANGFUSE_PUBLIC_KEY=pk\n")
+        path.chmod(0)
+    code, out = run(capsys)
+    assert code == 1
+    assert "FAIL  env loaded from" in out and "cannot read" in out
+    verdict_counts(out)
+    assert server.requests == []
+
+
+def test_an_unexpected_response_shape_is_a_failed_check_with_a_verdict(server, monkeypatch, capsys):
+    monkeypatch.setattr(server, "_projects", lambda *a: (200, [{"id": "p1"}]))   # a list, not {"data": [...]}
+    code, out = run(capsys)
+    assert code == 1
+    assert "PASS  env loaded from" in out                          # earlier rows are kept
+    assert "FAIL  verifier stopped: AttributeError" in out
+    verdict_counts(out)
+
+
+def test_an_unexpected_error_mid_run_keeps_the_rows_before_it(server, monkeypatch, capsys):
+    real = server._scores_v3
+    monkeypatch.setattr(server, "_scores_v3", lambda *a: (200, {"data": ["not-a-score"], "meta": {}})
+                        if a[1].get("traceId") == "t1" else real(*a))
+    code, out = run(capsys)
+    assert code == 1
+    assert "PASS  prompt text-to-sql-analysis: production" in out and "PASS  latest run has 6 observation(s)" in out
+    assert "FAIL  verifier stopped: AttributeError" in out
+    verdict_counts(out)
+
+
+def test_help_and_usage_errors_still_exit_as_argparse_does(capsys):
+    with pytest.raises(SystemExit) as ok:
+        v.main(["--help"])
+    assert ok.value.code == 0
+    with pytest.raises(SystemExit) as bad:
+        v.main(["--bogus"])
+    assert bad.value.code == 2
+
+
+def test_keyboard_interrupt_is_not_swallowed(monkeypatch):
+    def interrupt(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(v, "runtime_config", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])

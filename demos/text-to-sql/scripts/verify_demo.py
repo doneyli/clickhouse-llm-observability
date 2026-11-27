@@ -15,7 +15,14 @@ dependencies. No model calls and no writes; a handful of Langfuse reads, done in
 The verdict is for the full presentation: Opening, Acts 1–5 and the Close. Act 6 is
 optional and checks nothing here. A second line says whether the short path (Opening,
 Acts 1–2, Close) is ready on its own, so a presenter with a red full verdict knows what
-they can still run.
+they can still run. Act 3 opens a prepared `--refine` run, so the full verdict also needs
+one: a `sql-refine-loop` span under a `text-to-sql` root, with the generate-sql,
+gather-evidence and critique-sql stages under it, a recorded stop reason, and the
+`converged` and `iterations_to_accept` scores. An ordinary run does not count.
+
+Every failure reaches the verdict: a malformed LANGFUSE_BASE_URL, an unreadable env file,
+a failed or unparseable read, or an unexpected error is a FAIL line, and the closing
+NOT READY line still prints with its counts.
 
 Read APIs: projects, prompts v2, datasets v2 and dataset items, Scores API v3, and
 Observations API v2. The self-hosted stack pins Langfuse server 3.221.1, where
@@ -28,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import re
@@ -65,6 +73,13 @@ SHORT_PATH_SCORES = ["gate-pass"]
 FULL_SCORES = ["sql-risk"]
 EXPECTED_SCORES = SHORT_PATH_SCORES + FULL_SCORES
 MIN_OBSERVATIONS = 5                            # root, analysis, gate-database-selection, retrieve-context, response, ...
+# Act 3's prepared --refine run (sql_refine_loop.py): one loop span under the root, its
+# per-iteration stages as direct children, the stop reason in the loop span's output, and
+# the trace scores the loop writes when it ends.
+REFINE_SPAN = "sql-refine-loop"
+REFINE_STAGES = ["generate-sql", "gather-evidence", "critique-sql"]
+REFINE_STOP_REASONS = {"accepted", "oscillation", "max_iterations"}
+REFINE_SCORES = ["converged", "iterations_to_accept"]
 LOOKBACK_DAYS = 7                               # how far back to look for a run
 FRESH_HOURS = 24                                # older than this only warns: re-run the day before
 # Local services the acts need: (name, host, port). mcp-clickhouse speaks SSE, so a TCP
@@ -72,6 +87,7 @@ FRESH_HOURS = 24                                # older than this only warns: re
 SERVICES: List[Tuple[str, str, int]] = [("mcp-clickhouse", "localhost", 8001)]
 SEED_CMD = "python demos/text-to-sql/scripts/seed_all.py"
 RUN_CMD = "docker compose --profile demo run --rm text-to-sql python main.py"
+REFINE_CMD = "docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine"
 TIMEOUT_S = 10
 
 RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required, what)
@@ -201,6 +217,24 @@ class Config(NamedTuple):
     secret_key: str
     source: str            # where LANGFUSE_* came from, for the check line
     error: str             # empty when usable
+    loaded: bool = True    # False when the env file is missing or unreadable
+
+
+def base_url_error(base: str) -> str:
+    """Why `base` cannot be the Langfuse URL, or "" when it can: http(s), a host, a valid
+    port, and a bracketed host that is a real IPv6 address. Python 3.9's urlsplit accepts
+    `http://[::gg]` that 3.11's rejects, so the address is checked here either way."""
+    try:
+        u = urllib.parse.urlsplit(base)
+        host = u.hostname
+        u.port  # noqa: B018 - raises ValueError on a port out of range
+        if "[" in u.netloc:
+            ipaddress.ip_address(host or "")
+    except ValueError as e:
+        return f"LANGFUSE_BASE_URL {base!r} is not a valid URL: {e}"
+    if u.scheme not in ("http", "https") or not host:
+        return f"LANGFUSE_BASE_URL {base!r} is not an http(s)://host[:port] URL"
+    return ""
 
 
 def in_container() -> bool:
@@ -223,13 +257,18 @@ def runtime_config(environ: Optional[MutableMapping[str, str]] = None,
         manifest = manifest_path.read_text() if manifest_path.is_file() else ""
         path = env_file(manifest_value(manifest, "", "profile"))
         source = str(path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path)
-        if not load_env(path, env):
-            return Config("", "", "", source, f"no env file at {source}: run ./setup.sh at the repo root")
+        try:
+            loaded = load_env(path, env)
+        except (OSError, UnicodeDecodeError) as e:
+            return Config("", "", "", source, f"cannot read {source}: {type(e).__name__}: {e}", loaded=False)
+        if not loaded:
+            return Config("", "", "", source, f"no env file at {source}: run ./setup.sh at the repo root",
+                          loaded=False)
     base = (env.get("LANGFUSE_BASE_URL") or env.get("LANGFUSE_HOST") or "").rstrip("/")
     pk, sk = env.get("LANGFUSE_PUBLIC_KEY", ""), env.get("LANGFUSE_SECRET_KEY", "")
     missing = [k for k, val in (("LANGFUSE_PUBLIC_KEY", pk), ("LANGFUSE_SECRET_KEY", sk),
                                 ("LANGFUSE_BASE_URL", base)) if not val]
-    error = f"{', '.join(missing)} not set in {source}" if missing else ""
+    error = f"{', '.join(missing)} not set in {source}" if missing else base_url_error(base)
     return Config(base, pk, sk, source, error)
 
 
@@ -273,10 +312,10 @@ class Langfuse:
         query = {k: (str(v).lower() if isinstance(v, bool) else v)
                  for k, v in (params or {}).items() if v is not None}
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
-        data = None if body is None else json.dumps(body).encode()
-        headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
+            data = None if body is None else json.dumps(body).encode()
+            headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
@@ -284,6 +323,8 @@ class Langfuse:
             raise ApiError(e.code, detail or e.reason) from None
         except (urllib.error.URLError, OSError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except (ValueError, TypeError) as e:  # a malformed URL (http.client.InvalidURL is one) or body
+            raise ApiError(None, f"cannot build the request to {url!r}: {type(e).__name__}: {e}") from None
         try:
             return json.loads(raw) if raw else None
         except ValueError:
@@ -319,30 +360,64 @@ class Langfuse:
 
 # --- Observations: v2, or v1 on a server that predates it ----------------------------------
 
-def latest_root(lf: Langfuse, now: datetime) -> Tuple[Optional[dict], str]:
-    """The newest root observation named TRACE_NAME in the lookback window, and the API that
-    answered ("v2" or "v1"). Server 3.221.1 has no Observations v2, so a 404 falls back to v1."""
+def latest_named(lf: Langfuse, now: datetime, name: str, fields: str,
+                 root: bool) -> Tuple[Optional[dict], str]:
+    """The newest observation called `name` in the lookback window (a root one when `root`),
+    with the field groups in `fields`, and the API that answered ("v2" or "v1"). Server
+    3.221.1 has no Observations v2, so a 404 falls back to the v1 list, which returns every
+    field."""
     window = {"fromStartTime": iso(now - timedelta(days=LOOKBACK_DAYS)),
               "toStartTime": iso(now + timedelta(minutes=5))}
     try:
         # Newest first. A page can be empty while a cursor remains, so follow it to the first row.
-        rows = lf.cursor("/api/public/v2/observations", dict(name=TRACE_NAME, isRootObservation=True,
-                                                             fields="core,basic", **window), cap=1)
+        params = dict(name=name, fields=fields, **window)
+        if root:
+            params["isRootObservation"] = True
+        rows = lf.cursor("/api/public/v2/observations", params, cap=1)
         return (rows[0] if rows else None), "v2"
     except ApiError as e:
         if e.status != 404:
             raise
+    rows = v1_pages(lf, f"observations named {name!r} in the lookback window", name=name, **window)
+    rows = [r for r in rows if r.get("startTime") and (not root or not r.get("parentObservationId"))]
+    rows.sort(key=lambda r: parse_time(r["startTime"]), reverse=True)
+    return (rows[0] if rows else None), "v1"
+
+
+def v1_pages(lf: Langfuse, what: str, max_pages: int = 20, **params: Any) -> List[dict]:
+    """Every row of the v1 observations list for `params`, or an error past `max_pages`."""
     rows: List[dict] = []
-    for page in range(1, 21):
-        d = lf.get("/api/public/observations", name=TRACE_NAME, limit=100, page=page, **window) or {}
+    for page in range(1, max_pages + 1):
+        d = lf.get("/api/public/observations", limit=100, page=page, **params) or {}
         rows += d.get("data") or []
         if page >= ((d.get("meta") or {}).get("totalPages") or 1):
-            break
-    else:
-        raise ApiError(None, "observations v1: more than 20 pages of runs in the lookback window")
-    roots = [r for r in rows if not r.get("parentObservationId") and r.get("startTime")]
-    roots.sort(key=lambda r: parse_time(r["startTime"]), reverse=True)
-    return (roots[0] if roots else None), "v1"
+            return rows
+    raise ApiError(None, f"observations v1: more than {max_pages} pages of {what}")
+
+
+def latest_root(lf: Langfuse, now: datetime) -> Tuple[Optional[dict], str]:
+    """The newest root observation named TRACE_NAME in the lookback window."""
+    return latest_named(lf, now, TRACE_NAME, "core,basic", root=True)
+
+
+def trace_observations(lf: Langfuse, trace_id: str, started: datetime, now: datetime, api: str,
+                       fields: str) -> List[dict]:
+    """Every observation of one trace, with the field groups in `fields` on v2."""
+    if api == "v2":
+        return lf.cursor("/api/public/v2/observations", {
+            "traceId": trace_id, "fields": fields,
+            "fromStartTime": iso(started - timedelta(hours=1)), "toStartTime": iso(now + timedelta(minutes=5))})
+    return v1_pages(lf, f"observations in trace {trace_id}", traceId=trace_id)
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    """An observation's output as a dict: the API may return it parsed or as a JSON string."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return value if isinstance(value, dict) else {}
 
 
 def count_observations(lf: Langfuse, trace_id: str, started: datetime, now: datetime, api: str) -> int:
@@ -376,6 +451,8 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
     trace = f"{p}/traces/{state['trace_id']}" if state.get("trace_id") else f"{p}/traces"
     links = [("Act 1 · the latest run", trace),
              ("Act 2 · its gate spans", trace)]
+    if state.get("refine_trace_id"):
+        links.append(("Act 3 · the prepared refine run", f"{p}/traces/{state['refine_trace_id']}"))
     if ds.get("text-to-sql/converged-sql"):
         links.append(("Act 3 · converged-sql runs", f"{p}/datasets/{ds['text-to-sql/converged-sql']}"))
     links.append(("Act 4 · scores", f"{p}/scores"))
@@ -454,37 +531,83 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
                  hint="use this project's keys in the root .env, or set DEMO_LANGFUSE_PROJECT"):
         return state
 
+    now = datetime.now(timezone.utc)
+    read_errors = (ApiError, RuntimeError, KeyError, ValueError, TypeError)
     try:
         print("Seeded artifacts")
         prompt_checks(lf, SHORT_PATH_PROMPTS, short=True)
         prompt_checks(lf, FULL_PROMPTS, short=False)
         dataset_checks(lf, state)
-
-        print("Latest run")
-        now = datetime.now(timezone.utc)
-        latest, api = latest_root(lf, now)
-        state["observations_api"] = api
-        if not check(latest is not None, f"a '{TRACE_NAME}' run in the last {LOOKBACK_DAYS} days"
-                     + (" (Observations v1: this server predates v2)" if api == "v1" else ""),
-                     hint=f"run {RUN_CMD}"):
-            return state
-        state["trace_id"] = trace_id = latest["traceId"]
-        started = parse_time(latest["startTime"])
-        n = count_observations(lf, trace_id, started, now, api)
-        check(n >= MIN_OBSERVATIONS, f"latest run has {n} observation(s) (want {MIN_OBSERVATIONS}+)",
-              hint="observations may still be landing: wait 30 s and re-run")
-        names = {sc.get("name") for sc in lf.cursor("/api/public/v3/scores", {"traceId": trace_id})}
-        for score in EXPECTED_SCORES:
-            check(score in names, f"latest run has a '{score}' score",
-                  short=score in SHORT_PATH_SCORES,
-                  hint="code evaluators score about 30 s after ingest; if still missing, run "
-                       "./scripts/seed-code-evaluators.sh")
-        age_h = (now - started).total_seconds() / 3600
-        check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
-              required=False, hint=f"run {RUN_CMD} the day before")
-    except (ApiError, RuntimeError, KeyError, ValueError, TypeError) as e:
+        latest_run_checks(lf, now, state)
+    except read_errors as e:
         check(False, f"Langfuse read failed: {type(e).__name__}: {e}")
+    try:
+        refine_checks(lf, now, state)
+    except read_errors as e:   # Act 3 only: it cannot turn the short path red
+        check(False, f"Langfuse read failed (Act 3 refine run): {type(e).__name__}: {e}", short=False)
     return state
+
+
+def latest_run_checks(lf: Langfuse, now: datetime, state: Dict[str, Any]) -> None:
+    """Acts 1, 2 and 4: the newest run, its observations and the code evaluators' scores."""
+    print("Latest run")
+    latest, api = latest_root(lf, now)
+    state["observations_api"] = api
+    if not check(latest is not None, f"a '{TRACE_NAME}' run in the last {LOOKBACK_DAYS} days"
+                 + (" (Observations v1: this server predates v2)" if api == "v1" else ""),
+                 hint=f"run {RUN_CMD}"):
+        return
+    state["trace_id"] = trace_id = latest["traceId"]
+    started = parse_time(latest["startTime"])
+    n = count_observations(lf, trace_id, started, now, api)
+    check(n >= MIN_OBSERVATIONS, f"latest run has {n} observation(s) (want {MIN_OBSERVATIONS}+)",
+          hint="observations may still be landing: wait 30 s and re-run")
+    names = {sc.get("name") for sc in lf.cursor("/api/public/v3/scores", {"traceId": trace_id})}
+    for score in EXPECTED_SCORES:
+        check(score in names, f"latest run has a '{score}' score",
+              short=score in SHORT_PATH_SCORES,
+              hint="code evaluators score about 30 s after ingest; if still missing, run "
+                   "./scripts/seed-code-evaluators.sh")
+    age_h = (now - started).total_seconds() / 3600
+    check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
+          required=False, hint=f"run {RUN_CMD} the day before")
+
+
+def refine_checks(lf: Langfuse, now: datetime, state: Dict[str, Any]) -> None:
+    """Act 3 opens a prepared --refine run (sql_refine_loop.run_refine_loop). An ordinary
+    run has no loop span, so it cannot stand in: the newest `sql-refine-loop` span must sit
+    under a TRACE_NAME root, have every stage as a direct child, carry the stop reason the
+    loop writes to its output, and its trace the convergence scores. Full presentation only."""
+    print("Act 3 · prepared refine run")
+    loop, api = latest_named(lf, now, REFINE_SPAN, "core,basic,io", root=False)
+    if not check(loop is not None, f"a '{REFINE_SPAN}' span in the last {LOOKBACK_DAYS} days",
+                 short=False, hint=f"run {REFINE_CMD} (needs egress to sql-clickhouse.clickhouse.com:443)"):
+        return
+    trace_id = loop["traceId"]
+    started = parse_time(loop["startTime"])
+    obs = trace_observations(lf, trace_id, started, now, api, "core,basic")
+    root_ok = any(o.get("name") == TRACE_NAME and not o.get("parentObservationId") for o in obs)
+    check(root_ok, f"refine run {trace_id} has a '{TRACE_NAME}' root", short=False, hint=f"run {REFINE_CMD}")
+    if root_ok:
+        state["refine_trace_id"] = trace_id
+    counts = {st: sum(1 for o in obs if o.get("name") == st and o.get("parentObservationId") == loop.get("id"))
+              for st in REFINE_STAGES}
+    missing = [st for st, n in counts.items() if not n]
+    check(not missing, "refine loop stages: " + ", ".join(f"{st} ×{n}" for st, n in counts.items())
+          + (f"; missing {', '.join(missing)}" if missing else ""),
+          short=False, hint=f"the loop ended before its first critique; run {REFINE_CMD}")
+    out = _as_dict(loop.get("output"))
+    stop, iters = out.get("stop_reason"), out.get("iterations")
+    ended = stop in REFINE_STOP_REASONS and isinstance(iters, int) and not isinstance(iters, bool) and iters >= 1
+    check(ended, f"refine loop recorded how it ended: stop_reason={stop!r}, iterations={iters!r}",
+          short=False, hint=f"the run did not finish the loop; run {REFINE_CMD}")
+    names = {sc.get("name") for sc in lf.cursor("/api/public/v3/scores", {"traceId": trace_id})}
+    for score in REFINE_SCORES:
+        check(score in names, f"refine run has a '{score}' score", short=False,
+              hint=f"the loop writes it as it ends; run {REFINE_CMD}")
+    age_h = (now - started).total_seconds() / 3600
+    check(age_h <= FRESH_HOURS, f"refine run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
+          required=False, hint=f"run {REFINE_CMD} the day before")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -494,29 +617,37 @@ def main(argv: Optional[List[str]] = None) -> int:
     del RESULTS[:]
     del SHORT_PATH_FAILS[:]
 
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     print(f"{TRACE_NAME} readiness")
-    print("Config")
-    cfg = runtime_config()
-    check(not cfg.error.startswith("no env file"),
-          f"env loaded from {cfg.source}; shell-exported LANGFUSE_* ignored",
-          hint="run ./setup.sh at the repo root")
-    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-    if check(not cfg.error, "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set",
-             hint=cfg.error):
-        service_checks()
-        lf = Langfuse(cfg.base, cfg.public_key, cfg.secret_key)
-        state = langfuse_checks(lf, expected)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<36} {url}")
+    try:
+        readiness(args.links)
+    except Exception as e:  # noqa: BLE001 - any failure is a FAIL row; KeyboardInterrupt still stops it
+        check(False, f"verifier stopped: {type(e).__name__}: {e}")
 
     line, code = summary()
     print(f"\n{short_path_line()}")
     print(f"Full presentation: {line}")
     return code
+
+
+def readiness(links: bool) -> None:
+    """Every check, in order. main() keeps what this records when it raises."""
+    manifest_path = DEMO_DIR / "demo.yaml"
+    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    print("Config")
+    cfg = runtime_config()
+    check(cfg.loaded, f"env loaded from {cfg.source}; shell-exported LANGFUSE_* ignored",
+          hint=cfg.error if not cfg.loaded else "")
+    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
+    if not check(not cfg.error, "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and a valid LANGFUSE_BASE_URL set",
+                 hint=cfg.error):
+        return
+    service_checks()
+    lf = Langfuse(cfg.base, cfg.public_key, cfg.secret_key)
+    state = langfuse_checks(lf, expected)
+    if links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state):
+            print(f"  {label:<36} {url}")
 
 
 if __name__ == "__main__":

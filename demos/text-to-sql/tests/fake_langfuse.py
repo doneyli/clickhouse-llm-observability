@@ -281,11 +281,41 @@ class FakeServer:
                                       "name": f"step-{i}"})
         self.scores += [{"name": n, "traceId": trace_id} for n in scores]
 
+    def add_refine_run(self, trace_id: str = "r1", start: Optional[str] = None,
+                       stages: Tuple[str, ...] = ("generate-sql", "gather-evidence", "critique-sql"),
+                       iterations: int = 1, output: Optional[dict] = None,
+                       scores: Tuple[str, ...] = ("converged", "iterations_to_accept", "gate-pass", "sql-risk"),
+                       root: bool = True) -> None:
+        """One --refine run (two hours ago unless `start` says otherwise), shaped like
+        sql_refine_loop.run_refine_loop writes it: a `sql-refine-loop` span under the root,
+        `iterations` copies of each stage as its direct children, and the loop's output."""
+        if start is None:
+            t = datetime.now(timezone.utc) - timedelta(hours=2)
+            start = t.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        if root:
+            self.observations.append({"id": f"{trace_id}-root", "traceId": trace_id, "startTime": start,
+                                      "parentObservationId": None, "type": "SPAN", "name": "text-to-sql"})
+        loop = f"{trace_id}-loop"
+        if output is None:
+            output = {"converged": True, "iterations": iterations, "stop_reason": "accepted",
+                      "critic_scores": [0.95] * iterations}
+        self.observations.append({"id": loop, "traceId": trace_id, "startTime": start,
+                                  "parentObservationId": f"{trace_id}-root" if root else None,
+                                  "type": "SPAN", "name": "sql-refine-loop", "input": "Q?", "output": output})
+        kinds = {"generate-sql": "GENERATION", "gather-evidence": "TOOL", "critique-sql": "EVALUATOR"}
+        for i in range(1, iterations + 1):
+            for st in stages:
+                self.observations.append({"id": f"{trace_id}-{st}-{i}", "traceId": trace_id, "startTime": start,
+                                          "parentObservationId": loop, "type": kinds.get(st, "SPAN"),
+                                          "name": st, "metadata": {"iteration": i}})
+        self.scores += [{"name": n, "traceId": trace_id} for n in scores]
+
 
 def ready_server(monkeypatch: Any) -> FakeServer:
     """A server holding everything a full presentation needs, behind a patched urlopen:
     the seeded prompts (written straight from seed_all's definitions), the three datasets
-    (written by the real seeders), and one fresh run with its scores."""
+    (written by the real seeders), one fresh run with its scores, and an older prepared
+    --refine run for Act 3."""
     import seed_all as s
     import seed_refine_datasets
     import seed_step_dataset
@@ -301,6 +331,7 @@ def ready_server(monkeypatch: Any) -> FakeServer:
     quiet = lambda status, what: None  # noqa: E731
     assert seed_step_dataset.seed(lf, False, report=quiet) == 0
     assert seed_refine_datasets.seed(lf, False, quiet) == 0
+    server.add_refine_run()
     server.add_run()
     server.requests.clear()
     return server

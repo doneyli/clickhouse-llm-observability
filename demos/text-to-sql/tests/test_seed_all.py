@@ -210,6 +210,16 @@ def test_no_env_file_fails_before_any_request(tmp_path, monkeypatch, capsys):
     assert "no env file" in capsys.readouterr().err
 
 
+def test_a_malformed_base_url_fails_before_any_request(tmp_path, monkeypatch, capsys):
+    env = tmp_path / ".env"
+    env.write_text("LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL=http://[::gg]\n")
+    monkeypatch.setattr(v, "env_file", lambda profile: env)
+    monkeypatch.setattr(v, "in_container", lambda: False)
+    monkeypatch.setattr(v, "Langfuse", None)
+    assert s.main([]) == 1
+    assert "is not a valid URL" in capsys.readouterr().err
+
+
 def test_the_prompt_seeder_covers_every_text_to_sql_prompt_the_app_fetches():
     names = {sp["name"] for sp in SPECS}
     assert {"text-to-sql-analysis", "text-to-sql-response", "text-to-sql-gate-grounding",
