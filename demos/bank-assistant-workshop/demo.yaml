@@ -7,30 +7,14 @@ covers: [trace, monitor, datasets, experiment, evaluate, deploy]
 stack: [python, langgraph, mcp, fastapi, anthropic-sdk, openai-sdk]
 langfuse:
   target: cloud
-  project: bank-workshop
+  project: banking-workshop   # the instructor's rehearsal project (docs/2026-10-12-live-rehearsal.md); attendees set DEMO_LANGFUSE_PROJECT
 length:
   full_min: 180
 commands:
   install: uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
-  seed: .venv/bin/python scripts/seed_all.py   # to be written: wraps prompt publish and dataset upload
+  seed: .venv/bin/python scripts/seed_all.py   # idempotent: workshop.py prompt + dataset, only on drift
   run: .venv/bin/python workshop.py serve
-  verify: .venv/bin/python scripts/verify_demo.py   # to be written: wraps workshop.py preflight
+  verify: .venv/bin/python scripts/verify_demo.py   # workshop.py preflight + Langfuse read-back
   test: .venv/bin/python -m unittest discover -s tests -t .
-addons: []
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-README-05
-    reason: predates the standard
-  - rule: DS-SCRIPT-01
-    reason: predates the standard
-  - rule: DS-SEED-01
-    reason: predates the standard
-  - rule: DS-SPEC-01
-    reason: predates the standard
-  - rule: DS-VERIFY-01
-    reason: predates the standard
+addons:
+  - spec
