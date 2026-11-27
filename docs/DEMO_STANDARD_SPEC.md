@@ -1,6 +1,11 @@
 # Demo Standard Spec
 
-**Status:** proposed, not implemented · **Written:** 2026-11-26
+**Status:** phases 0 and 1 implemented (2026-11-27); phase 2 migrations pending · **Written:** 2026-11-26
+
+> The living standard is [`demos/CONTRIBUTING.md`](../demos/CONTRIBUTING.md). Two details were settled
+> during the build and are recorded there, not here: an add-on can point at differently named files
+> with a one-key mapping (for decision D8), and a beat label may carry a bracketed qualifier, such as
+> `**Show (gate pass).**`.
 
 This is the build plan for one consistent structure across every demo in `demos/`.
 Once it is implemented, `demos/CONTRIBUTING.md` is the living standard and this file

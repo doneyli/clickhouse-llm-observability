@@ -1,0 +1,45 @@
+name: bank-assistant
+title: Northwind Bank Assistant
+pitch: A bilingual retail-bank assistant on LangGraph and MCP with guardrails, PII masking, judge calibration, prompt lifecycle and a CI quality gate
+profile: standalone
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate, deploy, governance]
+stack: [python, langgraph, langchain, mcp, anthropic-sdk, openai-sdk, fastapi, n8n, docker]
+langfuse:
+  target: either
+  project: retail-assistant
+length:
+  full_min: 120
+commands:
+  install: uv venv --python 3.12 .venv && uv pip install -p .venv/bin/python -r requirements.txt
+  seed: .venv/bin/python scripts/seed_all.py      # to be written: wraps seed_prompts, seed_datasets, seed_evals and the dashboard seeders
+  run: ./scripts/run_portal.sh
+  verify: .venv/bin/python scripts/verify_demo.py
+  test: .venv/bin/python -m unittest discover -s tests -t .
+scripts:
+  - file: DEMO_SCRIPT_EVALS_FIRST.md
+    title: Evals-first 30-minute demo
+    length_min: 30
+addons:
+  - cicd: [cicd/README.md, cicd/thresholds.json, ../../.github/workflows/northwind-prompt-gate.yml]   # existing name kept (D8)
+  - capability-matrix
+  - architecture
+  - labs
+  - portal
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-02
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SEED-01
+    reason: predates the standard
+  - rule: DS-SPEC-01
+    reason: predates the standard

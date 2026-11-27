@@ -1,0 +1,3 @@
+# Runtime dependencies. scripts/verify_demo.py and scripts/seed_all.py need none of these.
+langfuse>=4.7,<5.0
+python-dotenv>=1.0

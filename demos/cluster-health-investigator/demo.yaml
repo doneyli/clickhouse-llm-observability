@@ -1,0 +1,37 @@
+# Manifest for the cluster-health-investigator container demo (see docs/DEMO_STANDARD_SPEC.md §6)
+name: cluster-health-investigator
+title: Cluster Health Investigator
+pitch: Orchestrator-workers agent that decides at runtime how many system-table analyses to run, then diagnoses the stack's own ClickHouse
+profile: container
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate]
+stack: [python, langgraph, langchain, clickhouse, docker]
+langfuse:
+  target: self-hosted
+  project: LLM Observability Demo
+length:
+  full_min: 20
+  short_min: 8
+commands:
+  install: pip install -r requirements.txt pytest
+  seed: python demos/cluster-health-investigator/scripts/seed_all.py
+  run: docker compose --profile langfuse --profile demo run --rm cluster-health python main.py
+  verify: python demos/cluster-health-investigator/scripts/verify_demo.py   # to be written
+  test: python -m pytest -q
+addons:
+  - questions: DEMO_SYMPTOMS.md   # existing name kept (decision D8)
+waivers:
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SCRIPT-05
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

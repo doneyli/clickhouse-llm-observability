@@ -1,0 +1,41 @@
+name: grocery-assistant
+title: Grocery Assistant
+pitch: One shopping agent instrumented well and badly, plus which evaluators to build first, with deterministic checks before any judge
+profile: standalone
+status: active
+covers: [trace, monitor, datasets, experiment, evaluate]
+stack: [typescript, vercel-ai-sdk, anthropic-sdk]
+langfuse:
+  target: either
+  project: grocery-assistant
+length:
+  full_min: 25-30
+  short_min: 12
+commands:
+  install: npm ci
+  seed: npm run seed:dataset
+  run: npm run demo
+  verify: npx tsx scripts/verify_demo.ts   # to be written
+  test: npm test
+addons: []
+waivers:
+  - rule: DS-ENV-01
+    reason: predates the standard
+  - rule: DS-README-02
+    reason: predates the standard
+  - rule: DS-README-03
+    reason: predates the standard
+  - rule: DS-README-04
+    reason: predates the standard
+  - rule: DS-README-05
+    reason: predates the standard
+  - rule: DS-SCRIPT-02
+    reason: predates the standard
+  - rule: DS-SCRIPT-03
+    reason: predates the standard
+  - rule: DS-SCRIPT-04
+    reason: predates the standard
+  - rule: DS-SPEC-01
+    reason: predates the standard
+  - rule: DS-VERIFY-01
+    reason: predates the standard

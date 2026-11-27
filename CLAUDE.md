@@ -12,6 +12,9 @@ Lifecycle tasks have project skills in `.agents/skills/` (auto-discovered via
 - **run-demo** — present/rehearse a demo: pre-flight, fresh traces, act-by-act guidance
 - **troubleshoot** — triage order and recovery ladder for a broken stack
 - **langfuse** — query Langfuse data via CLI, access Langfuse docs
+- **new-demo** — start a demo or bring one up to the standard: scaffold, spec, build, check, register
+
+**Adding or changing a demo:** follow [demos/CONTRIBUTING.md](demos/CONTRIBUTING.md).
 
 For presenter-facing material, see [docs/SA_FIELD_GUIDE.md](docs/SA_FIELD_GUIDE.md)
 (demo selection, talk track, objections) and [docs/USE_CASES.md](docs/USE_CASES.md)
@@ -46,6 +49,9 @@ python scripts/seed-app-prompts.py      # Prompt management (Deploy node): seed 
 cd demos/real-estate && ./.venv/bin/python scripts/prompt_gate.py --prompt-label first-draft   # exits 1: gate blocks a bad prompt
 ./scripts/seed-librechat-agents.sh      # Create LibreChat agents with MCP tools
 ./scripts/langfuse-cli.sh api observations list  # Langfuse CLI (npm i -g @langfuse/cli); `api` is required, and span data is read via `observations` — `traces list` is removed in v4
+python scripts/new-demo.py <name> --profile standalone  # Scaffold a demo from demos/_template (also container, workshop)
+python scripts/check-demo-structure.py  # Demo standard checker (DS-* rules); --demo NAME, --strict, --format github
+python scripts/gen-demo-index.py        # Regenerate the demo index in demos/README.md + each README's demo card; --check in CI
 ```
 
 ## Dataset & Import Scripts
@@ -104,18 +110,7 @@ docker compose --profile tools run --rm test-scenarios           # 40 test scena
 setup.sh                    # Idempotent setup script
 docker-compose.yaml         # Service orchestration (profiles: langfuse, demo, tools)
 .env.example                # Environment template (DEPLOY_MODE, keys, ports)
-demos/                      # The distinct LLM-app demos (see demos/README.md)
-  text-to-sql/              #   Text-to-SQL demo (Python, LangChain, Langfuse SDK)
-  vector-rag/               #   Vector RAG demo (Python, LangChain, ChromaDB)
-  agentic-rag/              #   Self-correcting RAG on ClickHouse-native vectors (LangGraph)
-  litellm-gateway/          #   LiteLLM proxy + Langfuse OTLP tracing MVP
-  real-estate/              #   Standalone agentic concierge — the loop end-to-end (own venv/.env)
-  grocery-assistant/        #   Retail-grocery assistant (TypeScript/Vercel AI SDK 7) — good vs
-                            #   broken instrumentation + evaluator-selection teaching demo (own .env)
-  analytics-agentic-speed/  #   Standalone: agent sweeps 100s of what-if scenarios on ClickHouse Cloud;
-                            #   per-query DB latency on Langfuse spans (own venv/.env, Cloud project)
-  brand-promo-multi-agent/  #   Standalone multi-agent promo assistant (LangGraph + CrewAI, uv)
-  langfuse-rls/             #   Standalone trace RLS prototype (Next.js)
+demos/                      # One folder per demo; demos/README.md is the generated index, demos/CONTRIBUTING.md the standard
 librechat/                  # LibreChat customizations (Dockerfile.api, entrypoint.sh, nginx.conf)
 test-scenarios/             # 40 synthetic traces for evaluation testing
 evaluators/                 # Langfuse code evaluators (TypeScript, seeded into Langfuse by setup)
@@ -124,6 +119,6 @@ mcp-clickhouse/             # ClickHouse MCP Server
 scripts/                    # Utility scripts (seed, reset, validate, CLI, import, datasets)
 docs/                       # Documentation (see docs/README.md for the persona-based index)
 .github/workflows/          # Prompt CI: eval a changed prompt version, block the deploy on a regression
-.agents/skills/             # Project skills (deploy-demo, run-demo, troubleshoot, langfuse)
+.agents/skills/             # Project skills (deploy-demo, run-demo, troubleshoot, langfuse, new-demo)
 .claude/settings.json       # Shared Claude Code permissions for this repo's common commands
 ```
