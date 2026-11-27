@@ -4,36 +4,29 @@
     python demos/text-to-sql/scripts/seed_all.py              # prints created / updated / unchanged per item; exit 1 on failure
     python demos/text-to-sql/scripts/seed_all.py --dry-run    # report what would change, write nothing
 
-Run it from the repo root. It reads the root `.env` (this is a `container` demo), ignores
-shell-exported LANGFUSE_* keys, and hands the seeders below one Langfuse URL as both
-LANGFUSE_BASE_URL and LANGFUSE_HOST (they disagree on which one they read).
+Run it from the repo root. It reads the root `.env` (this is a `container` demo) and drops
+shell-exported LANGFUSE_* first (verify_demo.runtime_config). It runs the seeders this demo
+already has, in this order:
 
-It wraps the seeders this demo already has, in this order:
+1. `scripts/seed-app-prompts.py` (root): the managed prompts. A prompt is in place when
+   the version its label serves is a text prompt with the checked-in text and config.
+   This script compares every field first and runs the seeder only when something
+   differs, then compares again: a prompt the seeder left different is a failure, never
+   reported as updated. An unchanged run writes no version.
+2. `scripts/seed-code-evaluators.sh` (root): the code evaluators that score every trace
+   at ingest (`chain-gate-check` -> `gate-pass`, `sql-safety-guard` -> `sql-risk`, ...).
+   Self-hosted only; it upserts the rows in place. `./setup.sh` also runs it.
+3. `seed_step_dataset.py`: the `text-to-sql-analysis-step` dataset and its 8 curated items.
+4. `seed_refine_datasets.py`: `text-to-sql/critic-accuracy` and `text-to-sql/converged-sql`.
 
-1. `scripts/seed-app-prompts.py` (root): the managed prompts. A prompt gets a new version,
-   carrying the label, when its text differs from what the label serves. This script
-   compares first and reports per prompt, then runs the seeder only if something differs.
-2. `scripts/seed-code-evaluators.sh` (root): the code evaluators that score every trace at
-   ingest (`chain-gate-check` -> `gate-pass`, `sql-safety-guard` -> `sql-risk`, ...).
-   Self-hosted only; it upserts the rows and reconciles source and filters. `./setup.sh`
-   also runs it.
-3. `seed_step_dataset.py`: the `text-to-sql-analysis-step` dataset. That seeder appends
-   every item on every run, so it runs only when the dataset does not exist yet. Otherwise
-   this script adds the curated items that are missing and updates those whose expected
-   output drifted, matching on the question.
-4. `seed_refine_datasets.py`: the two refine-loop datasets. Items have stable ids, so the
-   seeder upserts them; it always runs.
-
-Steps 3 (on a fresh project) and 4 import the `langfuse` package. Run this with a Python
-that has the demo's requirements (`pip install -r demos/text-to-sql/requirements.txt`), or
-pass `--python`. The rest is standard library only, like verify_demo.py, whose .env loading
-and API client this reuses.
+Steps 3 and 4 run in this process, through dataset_sync.py: only a missing, changed or
+archived item is written, and it is written ACTIVE. Every step runs even when an earlier
+one failed, and any failure makes the exit code 1. Standard library only.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
-import os
 import subprocess
 import sys
 import urllib.parse
@@ -42,13 +35,14 @@ from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import seed_refine_datasets  # noqa: E402
+import seed_step_dataset  # noqa: E402
 import verify_demo as v  # noqa: E402  (same folder; stdlib only)
 
-SCRIPTS = Path(__file__).resolve().parent
 PROMPT_SEEDER = v.REPO_ROOT / "scripts" / "seed-app-prompts.py"
 EVALUATOR_SEEDER = v.REPO_ROOT / "scripts" / "seed-code-evaluators.sh"
-STEP_SEEDER = SCRIPTS / "seed_step_dataset.py"
-REFINE_SEEDER = SCRIPTS / "seed_refine_datasets.py"
+STEP_SEEDER = Path(seed_step_dataset.__file__)
+REFINE_SEEDER = Path(seed_refine_datasets.__file__)
 
 Runner = Callable[[List[str], Dict[str, str]], int]
 
@@ -65,12 +59,18 @@ def load_module(name: str, path: Path) -> ModuleType:
 
 def run(cmd: List[str], env: Dict[str, str]) -> int:
     """Run one seeder from the repo root, its output streamed, and return its exit code."""
-    return subprocess.call(cmd, cwd=str(v.REPO_ROOT), env=env)
+    try:
+        return subprocess.call(cmd, cwd=str(v.REPO_ROOT), env=env)
+    except OSError as e:
+        print(f"  cannot start {cmd[0]}: {e}", file=sys.stderr)
+        return 127
 
 
 def child_env(base: str) -> Dict[str, str]:
-    """The environment the seeders get: the loaded .env, with one Langfuse URL under both
-    names. seed-app-prompts.py reads LANGFUSE_HOST, the SDK reads LANGFUSE_BASE_URL first."""
+    """The environment the subprocess seeders get: the loaded .env, with one Langfuse URL
+    under both names. seed-app-prompts.py reads LANGFUSE_HOST, the SDK LANGFUSE_BASE_URL."""
+    import os
+
     env = dict(os.environ)
     env["LANGFUSE_BASE_URL"] = env["LANGFUSE_HOST"] = base
     return env
@@ -78,82 +78,75 @@ def child_env(base: str) -> Dict[str, str]:
 
 # --- 1. Prompts ----------------------------------------------------------------------------
 
-def prompt_plan(lf: Any, entries: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
-    """(name, label, created | updated | unchanged) per seeder entry, by the seeder's own rule:
-    a new version only when the label's text differs from the checked-in text."""
-    plan = []
-    for name, label, text in entries:
-        try:
-            current = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(name, safe='')}", label=label)
-        except v.ApiError as e:
-            if e.status != 404:
-                raise
-            current = None
-        if current is None:
-            plan.append((name, label, "created"))
-        elif (current.get("prompt") or "").strip() == text.strip():
-            plan.append((name, label, "unchanged"))
-        else:
-            plan.append((name, label, "updated"))
-    return plan
+PromptSpec = Dict[str, Any]  # name, label, type, prompt, config
 
 
-def prompt_entries(mod: ModuleType) -> List[Tuple[str, str, str]]:
-    """(name, label, text) for every prompt the root seeder writes."""
+def prompt_specs(mod: ModuleType) -> List[PromptSpec]:
+    """The complete definition of every prompt the root seeder writes: name, label, type,
+    text and config. The seeder writes every prompt as type `text`."""
     out = []
     for entry in mod.PROMPTS:
-        name, text, _message, label, _config = mod._unpack(entry)
-        out.append((name, label, text))
+        name, text, _message, label, config = mod._unpack(entry)
+        out.append({"name": name, "label": label, "type": "text", "prompt": text,
+                    "config": dict(config or mod.CONFIG)})
     return out
 
 
-# --- 3. The per-step dataset -----------------------------------------------------------------
+def prompt_drift(served: Optional[dict], spec: PromptSpec, exists: bool = True) -> List[str]:
+    """What differs between the version a label serves and the definition: `missing` when
+    the prompt has no version at all, `label` when no version carries the label, else any
+    of `type`, `text`, `config`. Empty means in place."""
+    if served is None:
+        return ["label"] if exists else ["missing"]
+    drift = []
+    if served.get("type") != spec["type"]:
+        drift.append("type")
+    if served.get("prompt") != spec["prompt"]:       # exact, as the seeder compares it
+        drift.append("text")
+    if (served.get("config") or {}) != spec["config"]:
+        drift.append("config")
+    if spec["label"] not in (served.get("labels") or [spec["label"]]):
+        drift.append("label")
+    return drift
 
-def existing_items(lf: v.Langfuse, dataset: str) -> List[dict]:
-    rows: List[dict] = []
-    for page in range(1, 21):
-        d = lf.get("/api/public/dataset-items", datasetName=dataset, limit=100, page=page) or {}
-        rows += d.get("data") or []
-        if page >= ((d.get("meta") or {}).get("totalPages") or 1):
-            break
-    return rows
 
-
-def step_plan(curated: List[Any], rows: List[dict]) -> List[Tuple[str, Any, Optional[str]]]:
-    """(created | updated | unchanged, curated item, existing item id) per curated item.
-
-    Items are matched on `input.question`. Rows that `seed_step_dataset.py --link-latest`
-    minted from traces (`metadata.linked_from`) are left alone, and archived rows are
-    ignored. When a question appears more than once, the first match is compared."""
-    by_question: Dict[str, dict] = {}
-    for row in rows:
-        meta = row.get("metadata") or {}
-        if row.get("status") == "ARCHIVED" or (isinstance(meta, dict) and meta.get("linked_from")):
-            continue
-        q = (row.get("input") or {}).get("question") if isinstance(row.get("input"), dict) else None
-        if q and q not in by_question:
-            by_question[q] = row
+def prompt_plan(lf: Any, specs: List[PromptSpec]) -> List[Tuple[PromptSpec, List[str]]]:
+    """Each definition with its drift, read through the label. Only a 404 means missing;
+    any other read error propagates."""
     plan = []
-    for item in curated:
-        row = by_question.get(item.input["question"])
-        if row is None:
-            plan.append(("created", item, None))
-        elif row.get("expectedOutput") != item.expected_output or (row.get("metadata") or {}) != item.metadata:
-            plan.append(("updated", item, row.get("id")))
-        else:
-            plan.append(("unchanged", item, row.get("id")))
+    for spec in specs:
+        exists = True
+        try:
+            served = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(spec['name'], safe='')}",
+                            label=spec["label"])
+        except v.ApiError as e:
+            if e.status != 404:
+                raise
+            served = None
+            listed = lf.get("/api/public/v2/prompts", name=spec["name"], limit=1) or {}
+            exists = any(p.get("name") == spec["name"] for p in listed.get("data") or [])
+        plan.append((spec, prompt_drift(served, spec, exists)))
     return plan
 
 
-def apply_step_plan(lf: v.Langfuse, dataset: str, plan: List[Tuple[str, Any, Optional[str]]]) -> None:
-    for action, item, item_id in plan:
-        if action == "unchanged":
-            continue
-        body = {"datasetName": dataset, "input": item.input,
-                "expectedOutput": item.expected_output, "metadata": item.metadata}
-        if item_id:
-            body["id"] = item_id  # an existing id upserts in place
-        lf.post("/api/public/dataset-items", body)
+def seed_prompts(lf: Any, specs: List[PromptSpec], env: Dict[str, str], dry_run: bool,
+                 runner: Runner, report: Callable[[str, str], None]) -> None:
+    before = prompt_plan(lf, specs)
+    after = before
+    if not dry_run and any(d for _, d in before):
+        if runner([sys.executable, str(PROMPT_SEEDER)], env) != 0:
+            report("failed", "prompts: scripts/seed-app-prompts.py exited non-zero")
+        after = prompt_plan(lf, specs)
+    for (spec, was), (_, now) in zip(before, after):
+        what = f"prompt {spec['name']} (label {spec['label']})"
+        if not was:
+            report("unchanged", what)
+        elif now and not dry_run:
+            report("failed", f"{what}: {', '.join(now)} still differ after scripts/seed-app-prompts.py")
+        elif was == ["missing"]:
+            report("created", what)
+        else:
+            report("updated", what + (": label added" if was == ["label"] else f": {', '.join(was)}"))
 
 
 # --- Main ----------------------------------------------------------------------------------
@@ -167,97 +160,52 @@ class Tally:
         print(f"  {result:<10} {what}")
 
     def line(self) -> str:
-        return ", ".join(f"{n} {k}" for k, n in self.counts.items() if n or k in ("created", "updated", "unchanged", "failed"))
+        return ", ".join(f"{n} {k}" for k, n in self.counts.items()
+                         if n or k in ("created", "updated", "unchanged", "failed"))
 
 
-def has_langfuse(python: str) -> bool:
-    return subprocess.call([python, "-c", "import langfuse"], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL) == 0
-
-
-def seed(lf: v.Langfuse, env: Dict[str, str], python: str, dry_run: bool,
-         runner: Runner = run, langfuse_ok: Optional[Callable[[], bool]] = None) -> Tally:
+def seed(lf: Any, env: Dict[str, str], dry_run: bool, runner: Runner = run,
+         prompt_module: Optional[ModuleType] = None) -> Tally:
     t = Tally()
-    langfuse_ok = langfuse_ok or (lambda: has_langfuse(python))
-    need_pkg = (f"{python} cannot import langfuse: pip install -r demos/text-to-sql/requirements.txt, "
-                "or pass --python")
 
-    print("1 · Managed prompts (scripts/seed-app-prompts.py)")
-    prompts = load_module("seed_app_prompts", PROMPT_SEEDER)
-    plan = prompt_plan(lf, prompt_entries(prompts))
-    if not dry_run and any(r != "unchanged" for _, _, r in plan):
-        if runner([python, str(PROMPT_SEEDER)], env) != 0:
-            t.add("failed", "prompts: scripts/seed-app-prompts.py exited non-zero")
-            plan = []
-    for name, label, result in plan:
-        t.add(result, f"prompt {name} (label {label})")
+    def step(title: str, fn: Callable[[], None]) -> None:
+        print(title)
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001 - any failure is this step's, the rest still run
+            t.add("failed", f"{title.split('·', 1)[-1].strip()}: {type(e).__name__}: {e}")
 
-    print("2 · Code evaluators (scripts/seed-code-evaluators.sh)")
-    if dry_run:
-        t.add("skipped", "code evaluators: not run in a dry run (the seeder upserts Postgres rows)")
-    elif runner([str(EVALUATOR_SEEDER)], env) == 0:
-        t.add("ran", "code evaluators: upserted (cloud mode prints UI steps instead)")
-    else:
-        t.add("failed", "code evaluators: scripts/seed-code-evaluators.sh exited non-zero")
+    def prompts() -> None:
+        mod = prompt_module or load_module("seed_app_prompts", PROMPT_SEEDER)
+        seed_prompts(lf, prompt_specs(mod), env, dry_run, runner, t.add)
 
-    print("3 · Per-step dataset (seed_step_dataset.py)")
-    step = load_module("seed_step_dataset", STEP_SEEDER)
-    name = step.DATASET_NAME
-    if name not in v.find_datasets(lf, [name]):
+    def evaluators() -> None:
         if dry_run:
-            t.add("created", f"dataset {name} with {len(step.CURATED_ITEMS)} items (would run the seeder)")
-        elif not langfuse_ok():
-            t.add("failed", f"dataset {name}: {need_pkg}")
-        elif runner([python, str(STEP_SEEDER)], env) == 0:
-            t.add("created", f"dataset {name} with {len(step.CURATED_ITEMS)} items")
+            t.add("skipped", "code evaluators: not run in a dry run (the seeder upserts Postgres rows)")
+        elif runner([str(EVALUATOR_SEEDER)], env) == 0:
+            t.add("ran", "code evaluators: upserted in place (cloud mode prints UI steps instead)")
         else:
-            t.add("failed", f"dataset {name}: seed_step_dataset.py exited non-zero")
-    else:
-        splan = step_plan(step.CURATED_ITEMS, existing_items(lf, name))
-        if not dry_run:
-            apply_step_plan(lf, name, splan)
-        for result, item, _ in splan:
-            t.add(result, f"item '{item.input['question'][:60]}' in {name}")
+            t.add("failed", "code evaluators: scripts/seed-code-evaluators.sh exited non-zero")
 
-    print("4 · Refine-loop datasets (seed_refine_datasets.py)")
-    if dry_run:
-        t.add("skipped", "refine datasets: not run in a dry run (the seeder upserts items by stable id)")
-    elif not langfuse_ok():
-        t.add("failed", f"refine datasets: {need_pkg}")
-    elif runner([python, str(REFINE_SEEDER)], env) == 0:
-        t.add("ran", "refine datasets: text-to-sql/critic-accuracy and text-to-sql/converged-sql upserted")
-    else:
-        t.add("failed", "refine datasets: seed_refine_datasets.py exited non-zero")
+    step("1 · Managed prompts (scripts/seed-app-prompts.py)", prompts)
+    step("2 · Code evaluators (scripts/seed-code-evaluators.sh)", evaluators)
+    step("3 · Per-step dataset (seed_step_dataset.py)", lambda: seed_step_dataset.seed(lf, dry_run, report=t.add))
+    step("4 · Refine-loop datasets (seed_refine_datasets.py)", lambda: seed_refine_datasets.seed(lf, dry_run, t.add))
     return t
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
-    ap.add_argument("--python", default=sys.executable,
-                    help="interpreter for the seeders that import langfuse (default: this one)")
     args = ap.parse_args(argv)
 
-    manifest_path = v.DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    env_path = v.env_file(v.manifest_value(manifest, "", "profile"))
-    if not v.load_env(env_path):
-        print(f"no env file at {env_path}: run ./setup.sh at the repo root", file=sys.stderr)
+    cfg = v.runtime_config()
+    if cfg.error:
+        print(cfg.error, file=sys.stderr)
         return 1
-    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if not (base and pk and sk):
-        print(f"LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL must be set in {env_path}",
-              file=sys.stderr)
-        return 1
-    lf = v.Langfuse(base, pk, sk)
-
-    print(f"Seeding text-to-sql at {base}" + (" (dry run)" if args.dry_run else ""))
-    try:
-        tally = seed(lf, child_env(base), args.python, args.dry_run)
-    except v.ApiError as e:
-        print(f"\nfailed: Langfuse read or write: {e}", file=sys.stderr)
-        return 1
+    lf = v.Langfuse(cfg.base, cfg.public_key, cfg.secret_key)
+    print(f"Seeding text-to-sql at {cfg.base}" + (" (dry run)" if args.dry_run else ""))
+    tally = seed(lf, child_env(cfg.base), args.dry_run)
     print("\n" + tally.line())
     return 1 if tally.counts["failed"] else 0
 

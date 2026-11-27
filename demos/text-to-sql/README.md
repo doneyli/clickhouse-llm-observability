@@ -75,17 +75,21 @@ Prerequisites: Docker and the root stack, set up with `./setup.sh` (it needs an
 ```bash
 ./setup.sh                          # the root stack and its .env (idempotent)
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
-pip install -r demos/text-to-sql/requirements.txt   # the seeders import langfuse on the host
 python demos/text-to-sql/scripts/seed_all.py       # idempotent: created / updated / unchanged per item
 docker compose --profile demo run --rm text-to-sql python main.py   # 10 questions, one trace each
-python demos/text-to-sql/scripts/verify_demo.py     # should print READY
+python demos/text-to-sql/scripts/verify_demo.py     # should print READY (read-only, no model calls)
 ```
 
 The root `.env` is the only source of `LANGFUSE_*`. Compose resolves `${...}` from the
 shell first, so unset shell-exported keys before running; `verify_demo.py` and
 `seed_all.py` ignore them. `./setup.sh` runs `scripts/seed-code-evaluators.sh` but not
 the rest of this demo's seed, so run `seed_all.py` yourself. It also seeds the
-`vector-rag-generation` prompt, because the root prompt seeder covers both apps.
+`vector-rag-generation` prompt, because the root prompt seeder covers both apps. The seed
+and verify scripts are standard library only; nothing needs installing on the host.
+
+`verify_demo.py` prints a verdict for the full presentation (Acts 1–5) and, on the line
+above it, whether the short path (Opening, Acts 1–2, Close) is ready on its own. Datasets
+count only ACTIVE items that match the seeded definition.
 
 ## Before a demo
 
@@ -175,8 +179,9 @@ demos/text-to-sql/
 │   ├── seed_all.py         the one seed entry point (idempotent, reconciles drift)
 │   ├── verify_demo.py      readiness check: READY or NOT READY
 │   ├── seed_step_dataset.py, seed_refine_datasets.py   dataset seeders seed_all.py wraps
+│   ├── dataset_sync.py     the one rule for "this item is in place", used by seed and verify
 │   └── run_experiment.py, run_refine_experiment.py     the experiments
-├── tests/                  no services, no model calls
+├── tests/                  no services, no model calls; fake_langfuse.py is the fake API
 ├── requirements.txt
 ├── requirements-dev.txt
 └── pytest.ini
@@ -191,9 +196,13 @@ python -m pytest -q                    # no services, no model calls, under a se
 ```
 
 They cover both gates and the chain's retry and routing, the refine loop and its
-evidence checks (fake ClickHouse client, scripted model), `verify_demo.py`'s checks,
-summary, exit code, `.env` override and Observations v1 fallback against a fake Langfuse,
-and `seed_all.py`'s per-prompt and per-item reconcile decisions.
+evidence checks (fake ClickHouse client, scripted model), and the seed and verify scripts
+against an HTTP-level fake Langfuse (`tests/fake_langfuse.py`): the real client builds
+every request, and the fake rejects unknown parameters, projects observation field groups
+and pages by cursor, including empty pages. The cases include unchanged reseeding (no
+writes), type, text, config and label drift, archived and edited items, partial and total
+write failures, failed reads, wrong or empty projects, a missing or partial `.env` under
+hostile shell exports, the Observations v1 fallback and `--link-latest`.
 
 ## Troubleshooting
 
@@ -205,7 +214,8 @@ and `seed_all.py`'s per-prompt and per-item reconcile decisions.
 | `latest run's scores: …; missing gate-pass` | Code evaluators score about 30 s after ingest. Still missing: `./scripts/seed-code-evaluators.sh`, then a fresh run |
 | `mcp-clickhouse not reachable on localhost:8001` | `docker compose --profile langfuse up -d`; the service has no profile and starts with any `up` |
 | `retrieve-context` shows `[MCP unavailable: …]` | The chain still answers from the catalog in its prompt. Check `docker compose logs mcp-clickhouse` |
-| `seed_all.py`: `cannot import langfuse` | Install the demo's requirements on the host Python, or pass `--python` |
+| `dataset …: 0/8 seeded items ACTIVE and unchanged` | Items were archived or edited: `python demos/text-to-sql/scripts/seed_all.py` restores them in place |
+| `… still differ after scripts/seed-app-prompts.py` | The root prompt seeder did not write that field; the prompt is left as it was and the run exits 1 |
 | Refine traces never converge | No egress to `sql-clickhouse.clickhouse.com:443`; the loop records the connection error as evidence |
 | Traces land in another project | A shell-exported key won over the `.env`: `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL` and run again |
 
@@ -223,9 +233,8 @@ and `seed_all.py`'s per-prompt and per-item reconcile decisions.
 - The code evaluators are self-hosted only. In cloud mode the seeder prints UI steps, and
   `verify_demo.py` reports the missing `gate-pass` and `sql-risk` scores until they exist.
 - The Monitors are a one-time UI step: the pinned server has no stable Monitors API.
-- `seed-app-prompts.py` compares prompt text only, so a changed model or temperature in a
-  prompt's config is not reconciled. `seed_step_dataset.py` on its own appends every item
-  on every run; `seed_all.py` calls it only for a missing dataset and reconciles items
-  itself otherwise.
+- Earlier versions of `seed_step_dataset.py` appended every item on every run, so an
+  older project can hold duplicate step items. Reseeding leaves them alone (they are
+  user data to it); archive them in the UI if they matter.
 - The managed judges in Act 6 score the test scenarios, not live `text-to-sql` traffic.
 - Experiment cost and time are not measured yet.

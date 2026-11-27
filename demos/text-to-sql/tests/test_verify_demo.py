@@ -1,6 +1,6 @@
 """verify_demo.py offline: results, summary and exit code, the .env rule, the manifest parse,
-the Observations v1 fallback, and full runs against a fake Langfuse. No network, no
-Langfuse, no model calls."""
+and full runs against an HTTP-level fake Langfuse (fake_langfuse.py), so the real client
+builds every request. No network, no Langfuse, no model calls."""
 from __future__ import annotations
 
 import os
@@ -9,17 +9,17 @@ import urllib.error
 import pytest
 
 import verify_demo as v
-
-NOW = "2099-01-01T00:00:00.000Z"  # always newer than the lookback window start
-
+from fake_langfuse import FakeServer, ready_server
 
 @pytest.fixture(autouse=True)
 def isolated():
     """Fresh results, and os.environ restored: load_env writes to it."""
     saved = dict(os.environ)
     del v.RESULTS[:]
+    del v.SHORT_PATH_FAILS[:]
     yield
     del v.RESULTS[:]
+    del v.SHORT_PATH_FAILS[:]
     os.environ.clear()
     os.environ.update(saved)
 
@@ -107,24 +107,56 @@ def test_network_failure_is_an_api_error_not_a_traceback(monkeypatch):
     assert e.value.status is None
 
 
+# --- Configuration: the root .env is the only source -----------------------------------------
+
+HOSTILE = {"LANGFUSE_PUBLIC_KEY": "pk-other-project", "LANGFUSE_SECRET_KEY": "sk-other",
+           "LANGFUSE_HOST": "https://other.example", "LANGFUSE_BASE_URL": "https://other.example"}
+
+
+def test_missing_env_file_with_hostile_shell_fails_before_any_request(tmp_path, monkeypatch, capsys):
+    for k, val in HOSTILE.items():
+        monkeypatch.setenv(k, val)
+    monkeypatch.setattr(v, "env_file", lambda profile: tmp_path / ".env")
+    monkeypatch.setattr(v, "in_container", lambda: False)
+    monkeypatch.setattr(v, "Langfuse", None)  # any request would raise
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  env loaded from" in out and "NOT READY" in out
+
+
+def test_partial_env_file_names_what_is_missing(tmp_path, monkeypatch):
+    for k, val in HOSTILE.items():
+        monkeypatch.setenv(k, val)
+    env = tmp_path / ".env"
+    env.write_text("LANGFUSE_PUBLIC_KEY=pk-file\n")
+    monkeypatch.setattr(v, "env_file", lambda profile: env)
+    cfg = v.runtime_config(container=False)
+    assert cfg.public_key == "pk-file"
+    assert "LANGFUSE_SECRET_KEY" in cfg.error and "LANGFUSE_BASE_URL" in cfg.error  # shell values dropped
+
+
+def test_inside_the_container_compose_env_is_used(monkeypatch):
+    env = {"LANGFUSE_PUBLIC_KEY": "pk", "LANGFUSE_SECRET_KEY": "sk", "LANGFUSE_BASE_URL": "http://langfuse-web:3000"}
+    cfg = v.runtime_config(env, container=True)
+    assert (cfg.base, cfg.error) == ("http://langfuse-web:3000", "")
+
+
 # --- What a ready demo looks like ------------------------------------------------------------
 
 def test_expectations_match_the_seeders():
-    """verify expects exactly what seed-app-prompts.py and the dataset seeders write."""
+    """verify expects exactly the prompts seed-app-prompts.py writes and the datasets the seeders own."""
     import seed_all as s
 
     seeded = {}
-    for name, label, _ in s.prompt_entries(s.load_module("seed_app_prompts", s.PROMPT_SEEDER)):
-        seeded.setdefault(name, []).append(label)
-    expected = dict(v.EXPECTED_PROMPTS, **v.OPTIONAL_PROMPTS)
-    assert {k: sorted(x) for k, x in expected.items()} == \
-        {k: sorted(x) for k, x in seeded.items() if k.startswith("text-to-sql-")}
-
-    step = s.load_module("seed_step_dataset", s.STEP_SEEDER)
-    assert v.EXPECTED_DATASETS == {step.DATASET_NAME: len(step.CURATED_ITEMS)}
-    refine = s.load_module("seed_refine_datasets", s.REFINE_SEEDER)
-    assert v.OPTIONAL_DATASETS == {refine.CRITIC_DATASET: len(refine.CRITIC_ITEMS),
-                                   refine.CONVERGED_DATASET: len(refine.CONVERGED_ITEMS)}
+    for spec in s.prompt_specs(s.load_module("seed_app_prompts", s.PROMPT_SEEDER)):
+        seeded.setdefault(spec["name"], set()).add(spec["label"])
+    expected = {}
+    for group in (v.SHORT_PATH_PROMPTS, v.FULL_PROMPTS):
+        for name, labels in group.items():
+            expected.setdefault(name, set()).update(labels)
+    assert expected == {k: x for k, x in seeded.items() if k.startswith("text-to-sql-")}
+    assert sorted(v.dataset_definitions()) == sorted(v.FULL_DATASETS)
+    assert [len(x) for x in v.dataset_definitions().values()] == [8, 10, 6]
 
 
 def test_trace_name_matches_the_app():
@@ -135,163 +167,143 @@ def test_trace_name_matches_the_app():
     assert inspect.signature(langfuse_config.langfuse_trace).parameters["trace_name"].default == v.TRACE_NAME
 
 
-# --- A fake Langfuse ---------------------------------------------------------------------------
-
-class FakeLangfuse:
-    """Answers the reads verify_demo makes, from canned rows. Class attributes are the knobs."""
-
-    project = "unused"
-    scores = list(v.EXPECTED_SCORES)
-    roots = [{"traceId": "t1", "startTime": NOW}]
-    v1_only = False                 # a 3.221.1 server: no Observations v2
-    missing_prompts: set = set()    # (name, label) pairs that 404
-    datasets = dict(v.EXPECTED_DATASETS, **v.OPTIONAL_DATASETS)  # name -> item count
-    calls: list = []
-
-    def __init__(self, base, pk, sk):
-        self.base = base
-
-    def get(self, path, **params):
-        type(self).calls.append(path)
-        if path == "/api/public/projects":
-            return {"data": [{"id": "p1", "name": self.project}]}
-        if path.startswith("/api/public/v2/prompts/"):
-            name = v.urllib.parse.unquote(path.rsplit("/", 1)[1])
-            if (name, params.get("label")) in self.missing_prompts:
-                raise v.ApiError(404, "not found")
-            return {"version": 3}
-        if path == "/api/public/v2/datasets":
-            return {"data": [{"id": f"d-{n}", "name": n} for n in self.datasets], "meta": {"totalPages": 1}}
-        if path == "/api/public/dataset-items":
-            return {"data": [], "meta": {"totalItems": self.datasets[params["datasetName"]]}}
-        if path == "/api/public/v2/observations":
-            if self.v1_only:
-                raise v.ApiError(404, "not found")
-            assert params["fromStartTime"] and params["toStartTime"]  # every read is time-bounded
-            return {"data": self.roots[:1]}
-        if path == "/api/public/observations":
-            if "traceId" in params:
-                return {"data": [{"id": "o1"}], "meta": {"totalItems": 7, "totalPages": 7}}
-            assert params["fromStartTime"] and params["toStartTime"]
-            older = {"traceId": "t0", "startTime": "2098-12-31T00:00:00Z", "parentObservationId": None}
-            child = {"traceId": "t1", "startTime": NOW, "parentObservationId": "x"}
-            return {"data": [older, child] + [dict(r, parentObservationId=None) for r in self.roots],
-                    "meta": {"totalPages": 1}}
-        raise AssertionError(path)
-
-    def cursor(self, path, params, cap=1000):
-        if path == "/api/public/v2/observations":
-            return [{"id": f"o{i}"} for i in range(v.MIN_OBSERVATIONS)]
-        if path == "/api/public/v3/scores":
-            return [{"name": n} for n in self.scores]
-        raise AssertionError(path)
-
+# --- Full runs against the fake server ---------------------------------------------------------
 
 @pytest.fixture
-def fake(tmp_path, monkeypatch):
+def server(tmp_path, monkeypatch):
     env = tmp_path / ".env"
-    env.write_text("LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL=https://lf.example\n")
+    env.write_text("LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL=http://lf.test\n")
     monkeypatch.setattr(v, "env_file", lambda profile: env)
-    monkeypatch.setenv("DEMO_LANGFUSE_PROJECT", "demo-project")
-    monkeypatch.setattr(v, "Langfuse", FakeLangfuse)
-    monkeypatch.setattr(v, "SERVICES", [])
-    monkeypatch.setattr(FakeLangfuse, "project", "demo-project")
-    monkeypatch.setattr(FakeLangfuse, "calls", [])
-    return FakeLangfuse
+    monkeypatch.setattr(v, "in_container", lambda: False)
+    monkeypatch.delenv("DEMO_LANGFUSE_PROJECT", raising=False)
+    return ready_server(monkeypatch)
 
 
-def test_ready_against_a_fake_langfuse(fake, capsys):
-    assert v.main(["--links"]) == 0
-    out = capsys.readouterr().out
-    assert "READY (" in out and "NOT READY" not in out
-    assert "https://lf.example/project/p1/traces/t1" in out
-    assert "https://lf.example/project/p1/datasets/d-text-to-sql-analysis-step" in out
-    assert "/api/public/observations" not in fake.calls  # v2 answered: no fallback
+def run(capsys, *argv):
+    code = v.main(list(argv))
+    return code, capsys.readouterr().out
 
 
-def test_v2_404_falls_back_to_v1_observations(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "v1_only", True)
-    assert v.main([]) == 0
-    out = capsys.readouterr().out
-    assert "Observations v1" in out and "latest run has 7 observation(s)" in out
-    assert "/api/public/observations" in fake.calls
+def test_ready_against_a_seeded_server(server, capsys):
+    code, out = run(capsys, "--links")
+    assert code == 0
+    assert out.strip().splitlines()[-1].startswith("Full presentation: READY (")
+    assert "Short path (Opening, Acts 1–2, Close): READY" in out
+    assert "http://lf.test/project/p1/traces/t1" in out
+    assert "http://lf.test/project/p1/datasets/" in out
+    assert all(m == "GET" for m, *_ in server.requests)                  # read-only
+    assert not any(p.startswith("/api/public/observations") for _, p, *_ in server.requests)  # v2 answered
 
 
-def test_v1_fallback_picks_the_newest_root():
-    class V1(FakeLangfuse):
-        v1_only = True
-
-    latest, api = v.latest_root(V1("b", "pk", "sk"), v.parse_time("2099-01-01T00:00:00Z"))
-    assert api == "v1" and latest["traceId"] == "t1"
-
-
-def test_other_observation_errors_are_not_swallowed():
-    class Broken(FakeLangfuse):
-        def get(self, path, **params):
-            raise v.ApiError(500, "boom")
-
-    with pytest.raises(v.ApiError):
-        v.latest_root(Broken("b", "pk", "sk"), v.parse_time("2099-01-01T00:00:00Z"))
+def test_v2_404_falls_back_to_v1_observations(server, capsys):
+    server.v2_observations = False
+    code, out = run(capsys)
+    assert code == 0, out
+    assert "Observations v1" in out and "latest run has 6 observation(s)" in out
 
 
-def test_wrong_project_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "project", "someone-elses-project")
-    assert v.main([]) == 1
-    assert "NOT READY" in capsys.readouterr().out
+def test_empty_cursor_pages_are_followed(server, capsys):
+    server.empty_pages = True
+    code, out = run(capsys)
+    assert code == 0, out
+    assert "latest run has 6 observation(s)" in out and "has a 'gate-pass' score" in out
 
 
-def test_missing_score_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "scores", ["gate-pass"])
-    assert v.main([]) == 1
-    assert "missing sql-risk" in capsys.readouterr().out
+def test_a_repeated_cursor_is_a_failed_read_not_a_hang(server, capsys):
+    server.repeat_cursor = True
+    server.observations += [dict(o, id=o["id"] + f"-{i}") for i in range(200) for o in server.observations[:1]]
+    code, out = run(capsys)
+    assert code == 1 and "repeated a cursor" in out
 
 
-def test_missing_required_prompt_label_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "missing_prompts", {("text-to-sql-analysis", "candidate")})
-    assert v.main([]) == 1
-    assert "FAIL  prompt text-to-sql-analysis with label candidate" in capsys.readouterr().out
+def test_archived_only_dataset_is_not_ready(server, capsys):
+    for row in server.items["text-to-sql-analysis-step"]:
+        row["status"] = "ARCHIVED"
+    code, out = run(capsys)
+    assert code == 1
+    assert "FAIL  dataset text-to-sql-analysis-step: 0/8 seeded items ACTIVE and unchanged" in out
+    assert "Short path (Opening, Acts 1–2, Close): READY" in out   # Act 5 only
 
 
-def test_act3_gaps_only_warn(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "missing_prompts", {("text-to-sql-critic", "opinion-only")})
-    monkeypatch.setattr(fake, "datasets", {"text-to-sql-analysis-step": 8, "text-to-sql/converged-sql": 2})
-    assert v.main([]) == 0
-    out = capsys.readouterr().out
-    assert "WARN  prompt text-to-sql-critic with label opinion-only (Act 3)" in out
-    assert "WARN  dataset text-to-sql/critic-accuracy (Act 3) is missing" in out
-    assert "WARN  dataset text-to-sql/converged-sql: 2 item(s)" in out
-    assert out.strip().splitlines()[-1].startswith("READY")
+def test_an_edited_item_does_not_count(server, capsys):
+    server.items["text-to-sql/critic-accuracy"][0]["expectedOutput"] = {"verdict": "accept"}
+    code, out = run(capsys)
+    assert code == 1 and "9/10 seeded items" in out and "crit-01" in out
 
 
-def test_short_step_dataset_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "datasets", dict(v.OPTIONAL_DATASETS, **{"text-to-sql-analysis-step": 3}))
-    assert v.main([]) == 1
-    assert "FAIL  dataset text-to-sql-analysis-step: 3 item(s) (want 8+)" in capsys.readouterr().out
+def test_missing_dataset_is_not_ready(server, capsys):
+    del server.datasets["text-to-sql/converged-sql"]
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  dataset text-to-sql/converged-sql is missing" in out
 
 
-def test_no_run_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "roots", [])
-    assert v.main([]) == 1
-    assert "docker compose --profile demo run --rm text-to-sql python main.py" in capsys.readouterr().out
+@pytest.mark.parametrize("project", ["someone-elses-project", None])
+def test_wrong_or_empty_project_is_not_ready(server, capsys, project):
+    server.projects = [{"id": "p9", "name": project}] if project else []
+    code, out = run(capsys)
+    assert code == 1 and "keys map to project" in out and "NOT READY" in out
 
 
-def test_service_down_is_not_ready(fake, monkeypatch, capsys):
+def test_missing_short_path_label_fails_both_verdicts(server, capsys):
+    for p in server.prompts["text-to-sql-gate-grounding"]:
+        p["labels"] = []
+    code, out = run(capsys)
+    assert code == 1
+    assert "FAIL  prompt text-to-sql-gate-grounding with label production" in out
+    assert "Short path (Opening, Acts 1–2, Close): NOT READY" in out
+
+
+def test_missing_act3_label_fails_only_the_full_verdict(server, capsys):
+    for p in server.prompts["text-to-sql-critic"]:
+        p["labels"] = [x for x in p["labels"] if x != "opinion-only"]
+    code, out = run(capsys)
+    assert code == 1
+    assert "FAIL  prompt text-to-sql-critic with label opinion-only" in out
+    assert "Short path (Opening, Acts 1–2, Close): READY" in out
+    assert "Full presentation: NOT READY" in out
+
+
+def test_a_prompt_read_error_is_a_failure(server, capsys):
+    server.fail[("GET", "/api/public/v2/prompts/text-to-sql-generator")] = 500
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  prompt text-to-sql-generator with label production: HTTP 500" in out
+
+
+def test_a_dataset_read_error_reaches_the_verdict(server, capsys):
+    server.fail[("GET", "/api/public/dataset-items")] = 503
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  Langfuse read failed" in out and "NOT READY" in out
+
+
+def test_missing_score_is_not_ready(server, capsys):
+    server.scores = [sc for sc in server.scores if sc["name"] != "sql-risk"]
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  latest run has a 'sql-risk' score" in out
+    assert "Short path (Opening, Acts 1–2, Close): READY" in out
+
+
+def test_no_run_is_not_ready(server, capsys):
+    server.observations = []
+    code, out = run(capsys)
+    assert code == 1 and "docker compose --profile demo run --rm text-to-sql python main.py" in out
+
+
+def test_an_old_run_only_warns(server, capsys):
+    server.observations = []
+    server.scores = []
+    server.add_run(start=(v.datetime.now(v.timezone.utc) - v.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    code, out = run(capsys)
+    assert code == 0 and "WARN  latest run is" in out
+
+
+def test_service_down_is_not_ready(server, monkeypatch, capsys):
     def refuse(*a, **k):
         raise ConnectionRefusedError()
 
     monkeypatch.setattr(v, "SERVICES", [("mcp-clickhouse", "localhost", 8001)])
     monkeypatch.setattr(v.socket, "create_connection", refuse)
-    assert v.main([]) == 1
-    assert "FAIL  mcp-clickhouse not reachable on localhost:8001" in capsys.readouterr().out
-
-
-def test_no_keys_is_not_ready_without_any_request(tmp_path, monkeypatch, capsys):
-    empty = tmp_path / ".env"
-    empty.write_text("# nothing yet\n")
-    monkeypatch.setattr(v, "env_file", lambda profile: empty)
-    monkeypatch.setattr(v, "Langfuse", None)  # any request would raise
-    assert v.main([]) == 1
-    assert "NOT READY" in capsys.readouterr().out
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  mcp-clickhouse not reachable on localhost:8001" in out
 
 
 def test_links_cover_every_act():

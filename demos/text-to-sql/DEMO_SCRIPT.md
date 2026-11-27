@@ -91,7 +91,7 @@ docker compose --profile demo build text-to-sql
 # the managed prompts (incl. the gate's rubric, the `candidate` analysis prompt and
 # the refine loop's generator + critic), the code evaluators (`chain-gate-check` →
 # gate-pass on every gate span), the per-step analysis dataset (Act 5) and the
-# refine-loop datasets (Act 3). Needs the demo's requirements on the host Python.
+# refine-loop datasets (Act 3). Standard library only.
 python demos/text-to-sql/scripts/seed_all.py
 
 # Generate fresh traces (10 questions, ~2 min; scores land ~30s after)
@@ -100,7 +100,8 @@ docker compose run --rm text-to-sql python main.py
 # (Act 3 only) fresh REFINE traces — executes bounded read-only SQL
 docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine
 
-# READY, plus the link each act opens; exit 1 names what to fix
+# READY, plus the link each act opens; exit 1 names what to fix. A second line
+# says whether the short path (Opening, Acts 1–2, Close) is ready on its own.
 python demos/text-to-sql/scripts/verify_demo.py --links
 ```
 

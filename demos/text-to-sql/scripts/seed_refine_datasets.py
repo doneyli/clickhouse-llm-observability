@@ -13,27 +13,39 @@
    generate-sql observation, so a new config can be tested for reaching that
    endpoint in fewer iterations.
 
-Idempotent: dataset-item ids are stable, so create_dataset_item upserts.
+Idempotent: items have stable ids (`crit-NN`, `conv-NN`). Only a missing, changed or
+archived item is written, and it is written ACTIVE (see dataset_sync.py), so an
+unchanged run writes nothing.
 
-Run (from demos/text-to-sql/, after sourcing repo .env):
-    python scripts/seed_refine_datasets.py
-    # optionally derive one converged-sql item from a REAL Correction:
-    python scripts/seed_refine_datasets.py \
+Run (from the repo root; seed_all.py runs the default mode):
+    python demos/text-to-sql/scripts/seed_refine_datasets.py
+    python demos/text-to-sql/scripts/seed_refine_datasets.py --dry-run
+    # optionally derive one converged-sql item from a REAL Correction (needs the
+    # langfuse package, for the CORRECTION score):
+    python demos/text-to-sql/scripts/seed_refine_datasets.py \
         --from-trace <trace_id> --from-observation <final generate-sql obs id> \
         --correction "SELECT town, round(avg(price)) ... LIMIT 10"
+
+Environment: the root `.env` (shell-exported LANGFUSE_* are ignored; see
+verify_demo.runtime_config). Standard library only, except --from-trace.
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
+from typing import Any, Callable, Dict, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import langfuse_config as lf  # noqa: E402
+import dataset_sync  # noqa: E402
+import verify_demo as v  # noqa: E402
 
 CRITIC_DATASET = "text-to-sql/critic-accuracy"
 CONVERGED_DATASET = "text-to-sql/converged-sql"
+DATASET_METADATA = {"source": "demos/text-to-sql", "pattern": "evaluator-optimizer"}
+CRITIC_DESCRIPTION = "Tests the SQL critic in isolation (collusion detection): candidate + evidence -> verdict."
+CONVERGED_DESCRIPTION = "Golden refine endpoints: task + critique history -> fully-refined SQL (Corrections)."
 
 
 # --- critic-accuracy items (candidate SQL + evidence -> known verdict) ---------
@@ -146,84 +158,95 @@ CONVERGED_ITEMS = [
 ]
 
 
-def _create_dataset(client, name, description):
+def critic_specs() -> List[Dict[str, Any]]:
+    return [{"label": f"crit-{i:02d}", "id": f"crit-{i:02d}", "input": item["input"],
+             "expectedOutput": item["expected_output"],
+             "metadata": {"kind": "must-" + item["expected_output"]["verdict"]}}
+            for i, item in enumerate(CRITIC_ITEMS, 1)]
+
+
+def converged_specs() -> List[Dict[str, Any]]:
+    return [{"label": f"conv-{i:02d}", "id": f"conv-{i:02d}", "input": item["input"],
+             "expectedOutput": item["expected_output"], "metadata": item.get("metadata", {})}
+            for i, item in enumerate(CONVERGED_ITEMS, 1)]
+
+
+def seed(lf: v.Langfuse, dry_run: bool, report: Callable[[str, str], None] = print) -> int:
+    """Reconcile both datasets and their items; return the failure count."""
+    return (dataset_sync.sync(lf, CRITIC_DATASET, CRITIC_DESCRIPTION, DATASET_METADATA,
+                              critic_specs(), dry_run, report)
+            + dataset_sync.sync(lf, CONVERGED_DATASET, CONVERGED_DESCRIPTION, DATASET_METADATA,
+                                converged_specs(), dry_run, report))
+
+
+def capture_correction(lf: v.Langfuse, trace_id: str, observation_id: str, correction: str,
+                       report: Callable[[str, str], None]) -> int:
+    """One converged-sql item from a REAL Correction on a live trace, giving the dataset
+    genuine trace lineage (field guide §Build Datasets). The CORRECTION score goes through
+    the SDK; the item through the same reconcile rule as the rest."""
     try:
-        client.create_dataset(name=name, description=description,
-                              metadata={"source": "demos/text-to-sql", "pattern": "evaluator-optimizer"})
-        print(f"✓ Created dataset: {name}")
-    except Exception as e:
-        if "already exists" in str(e).lower() or "409" in str(e):
-            print(f"• Dataset already exists: {name} (upserting items)")
-        else:
-            print(f"! create_dataset warning ({name}): {e}")
+        import langfuse_config as lfc  # needs the langfuse package
+
+        client = lfc.get_langfuse_client()
+        if client is None:
+            raise RuntimeError("Langfuse not configured")
+        client.create_score(
+            trace_id=trace_id, observation_id=observation_id,
+            name="output", data_type="CORRECTION", value=correction,
+            comment="golden refined SQL captured as a Correction",
+        )
+        client.flush()
+    except Exception as e:  # noqa: BLE001
+        report("failed", f"Correction score on trace {trace_id[:8]}: {e}")
+        return 1
+    spec = {"label": "conv-correction", "id": "conv-correction",
+            "input": {"question": "(from corrected trace)", "critique_history": ["captured via Correction"]},
+            "expectedOutput": {"sql": correction}, "metadata": {"origin": "correction"},
+            "sourceTraceId": trace_id, "sourceObservationId": observation_id}
+    failures = 0
+    for status, label, err in dataset_sync.reconcile_items(lf, CONVERGED_DATASET, [spec], dry_run=False):
+        report(status, f"item {label} in {CONVERGED_DATASET}" + (f": {err}" if err else ""))
+        failures += status == "failed"
+    return failures
 
 
-def main():
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true", help="Report what would change, write nothing")
     ap.add_argument("--from-trace", default=None,
                     help="Trace id of a real refine run — derive a converged-sql item from a Correction")
     ap.add_argument("--from-observation", default=None,
                     help="The final generate-sql observation id on that trace")
     ap.add_argument("--correction", default=None,
                     help="The corrected/golden SQL text to store as a CORRECTION score")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
-    client = lf.get_langfuse_client()
-    if client is None:
-        raise SystemExit("Langfuse not configured (LANGFUSE_PUBLIC_KEY / _SECRET_KEY). Source .env first.")
+    cfg = v.runtime_config()
+    if cfg.error:
+        print(cfg.error, file=sys.stderr)
+        return 1
+    lf = v.Langfuse(cfg.base, cfg.public_key, cfg.secret_key)
+    print(f"Refine-loop datasets at {cfg.base}" + (" (dry run)" if args.dry_run else ""))
 
-    # 1) critic-accuracy ------------------------------------------------------
-    _create_dataset(client, CRITIC_DATASET,
-                    "Tests the SQL critic in isolation (collusion detection): candidate + evidence -> verdict.")
-    for i, item in enumerate(CRITIC_ITEMS, 1):
-        client.create_dataset_item(
-            id=f"crit-{i:02d}", dataset_name=CRITIC_DATASET,
-            input=item["input"], expected_output=item["expected_output"],
-            metadata={"kind": "must-" + item["expected_output"]["verdict"]},
-        )
-    print(f"  ✓ {len(CRITIC_ITEMS)} items in {CRITIC_DATASET}")
+    def report(status: str, what: str) -> None:
+        print(f"  {status:<10} {what}")
 
-    # 2) converged-sql --------------------------------------------------------
-    _create_dataset(client, CONVERGED_DATASET,
-                    "Golden refine endpoints: task + critique history -> fully-refined SQL (Corrections).")
-
-    # Optionally capture ONE item from a REAL Correction on a live trace, giving
-    # the dataset genuine trace lineage (field guide §Build Datasets).
-    if args.from_trace and args.from_observation and args.correction:
-        try:
-            client.create_score(
-                trace_id=args.from_trace, observation_id=args.from_observation,
-                name="output", data_type="CORRECTION", value=args.correction,
-                comment="golden refined SQL captured as a Correction",
-            )
-            client.create_dataset_item(
-                id="conv-correction", dataset_name=CONVERGED_DATASET,
-                input={"question": "(from corrected trace)", "critique_history": ["captured via Correction"]},
-                expected_output={"sql": args.correction},
-                source_trace_id=args.from_trace, source_observation_id=args.from_observation,
-                metadata={"origin": "correction"},
-            )
-            print("  ✓ converged-sql item captured from a Correction "
-                  f"(trace={args.from_trace[:8]}…)")
-        except Exception as e:
-            print(f"  ! Correction capture failed: {e}")
+    failures = seed(lf, args.dry_run, report)
+    given = [args.from_trace, args.from_observation, args.correction]
+    if any(given) and not all(given):
+        report("failed", "--from-trace, --from-observation and --correction go together")
+        failures += 1
+    elif all(given) and args.dry_run:
+        report("skipped", "Correction capture: not run in a dry run")
+    elif all(given):
+        failures += capture_correction(lf, args.from_trace, args.from_observation, args.correction, report)
     else:
-        print("  (no --from-trace/--from-observation/--correction — seeding static golden items only.\n"
-              "   To add real trace lineage: run a refine trace, add a Correction on its final\n"
-              "   generate-sql, then re-run with --from-trace/--from-observation/--correction.)")
-
-    for i, item in enumerate(CONVERGED_ITEMS, 1):
-        client.create_dataset_item(
-            id=f"conv-{i:02d}", dataset_name=CONVERGED_DATASET,
-            input=item["input"], expected_output=item["expected_output"],
-            metadata=item.get("metadata", {}),
-        )
-    print(f"  ✓ {len(CONVERGED_ITEMS)} items in {CONVERGED_DATASET}")
-
-    if hasattr(client, "flush"):
-        client.flush()
-    print("\nDone. View: Langfuse UI > Datasets.")
+        print("  (static golden items only. To add real trace lineage: run a refine trace, add a\n"
+              "   Correction on its final generate-sql, then re-run with\n"
+              "   --from-trace/--from-observation/--correction.)")
+    print(f"\n{'FAILED' if failures else 'Done'}: {failures} failure(s). View: Langfuse UI > Datasets.")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

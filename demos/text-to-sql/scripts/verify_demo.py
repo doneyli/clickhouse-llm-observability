@@ -8,16 +8,21 @@ Run it from the repo root. It reads the root `.env` (this is a `container` demo)
 ignores shell-exported LANGFUSE_* keys.
 
 An HTTP 200 proves little on its own (a trace can exist before its observations land), so
-every check counts real rows. Standard library only, so it runs in any Python 3.9+ without
-the demo's dependencies. No model calls; a handful of Langfuse reads, done in seconds.
+every check counts real rows: a dataset counts only ACTIVE items that match the seeded
+definition. Standard library only, so it runs in any Python 3.9+ without the demo's
+dependencies. No model calls and no writes; a handful of Langfuse reads, done in seconds.
 
-Read APIs: prompts v2, datasets v2 and dataset items, Scores API v3, and Observations API
-v2. The self-hosted stack pins Langfuse server 3.221.1, where `/api/public/v2/observations`
-returns 404, so on a 404 the observation reads fall back to the v1 observations list that
-server still serves (the same boundary `api.legacy.observations_v1` covers in the SDK).
-Langfuse Cloud answers v2, so the fallback never runs there.
+The verdict is for the full presentation: Opening, Acts 1–5 and the Close. Act 6 is
+optional and checks nothing here. A second line says whether the short path (Opening,
+Acts 1–2, Close) is ready on its own, so a presenter with a red full verdict knows what
+they can still run.
 
-Checks for Act 3 (the refine loop) and Act 6 only warn: both acts are optional.
+Read APIs: projects, prompts v2, datasets v2 and dataset items, Scores API v3, and
+Observations API v2. The self-hosted stack pins Langfuse server 3.221.1, where
+`/api/public/v2/observations` returns 404, so on a 404 the observation reads fall back to
+the v1 observations list that server still serves (the same boundary
+`api.legacy.observations_v1` covers in the SDK). Langfuse Cloud answers v2, so the
+fallback never runs there.
 """
 from __future__ import annotations
 
@@ -33,31 +38,32 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, MutableMapping, Optional, Tuple
+from typing import Any, Dict, List, MutableMapping, NamedTuple, Optional, Tuple
 
 DEMO_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
 
 # --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with main.py and seed_all.py.
 TRACE_NAME = "text-to-sql"                      # root observation langfuse_trace() opens (langfuse_config.py)
-# prompt name -> labels scripts/seed-app-prompts.py sets. Required: Acts 1, 2 and 5.
-EXPECTED_PROMPTS: Dict[str, List[str]] = {
-    "text-to-sql-analysis": ["production", "candidate"],
+# prompt name -> labels scripts/seed-app-prompts.py sets.
+SHORT_PATH_PROMPTS: Dict[str, List[str]] = {    # Acts 1 and 2: the chain and both gates
+    "text-to-sql-analysis": ["production"],
     "text-to-sql-response": ["production"],
     "text-to-sql-gate-grounding": ["production"],
 }
-# The refine loop's prompts (Act 3, optional): a missing one only warns.
-OPTIONAL_PROMPTS: Dict[str, List[str]] = {
+FULL_PROMPTS: Dict[str, List[str]] = {          # Act 3 (refine loop), Act 5 (experiment)
+    "text-to-sql-analysis": ["candidate"],
     "text-to-sql-generator": ["production", "candidate"],
     "text-to-sql-critic": ["production", "opinion-only"],
 }
-# dataset name -> minimum item count (seed_step_dataset.py, seed_refine_datasets.py)
-EXPECTED_DATASETS: Dict[str, int] = {"text-to-sql-analysis-step": 8}                   # Act 5
-OPTIONAL_DATASETS: Dict[str, int] = {"text-to-sql/critic-accuracy": 10,               # Act 3
-                                     "text-to-sql/converged-sql": 6}
-# Scores the code evaluators (scripts/seed-code-evaluators.sh) write on every text-to-sql
-# trace at ingest: chain-gate-check on each gate-* span, sql-safety-guard on each generation.
-EXPECTED_SCORES = ["gate-pass", "sql-risk"]
+# Datasets the full presentation needs (Act 3's Experiment B, Act 5's experiment). Their
+# definitions come from the seeders, so verify and seed share one rule (dataset_sync.py).
+FULL_DATASETS = ["text-to-sql-analysis-step", "text-to-sql/critic-accuracy", "text-to-sql/converged-sql"]
+# Scores the code evaluators (scripts/seed-code-evaluators.sh) write at ingest:
+# chain-gate-check on each gate-* span (Act 2), sql-safety-guard on each generation (Act 4).
+SHORT_PATH_SCORES = ["gate-pass"]
+FULL_SCORES = ["sql-risk"]
+EXPECTED_SCORES = SHORT_PATH_SCORES + FULL_SCORES
 MIN_OBSERVATIONS = 5                            # root, analysis, gate-database-selection, retrieve-context, response, ...
 LOOKBACK_DAYS = 7                               # how far back to look for a run
 FRESH_HOURS = 24                                # older than this only warns: re-run the day before
@@ -69,17 +75,27 @@ RUN_CMD = "docker compose --profile demo run --rm text-to-sql python main.py"
 TIMEOUT_S = 10
 
 RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required, what)
-
+SHORT_PATH_FAILS: List[str] = []                # required checks the short path also needs, that failed
 
 
 # --- Result helpers ---------------------------------------------------------------------
 
-def check(ok: bool, what: str, *, required: bool = True, hint: str = "") -> bool:
-    """Record one check and print its line. A failed optional check is a WARN, not a FAIL."""
+def check(ok: bool, what: str, *, required: bool = True, hint: str = "", short: bool = True) -> bool:
+    """Record one check and print its line. A failed optional check is a WARN, not a FAIL.
+    `short=False` marks a check only the full presentation needs, not the short path."""
     status = "PASS" if ok else ("FAIL" if required else "WARN")
     RESULTS.append((status, required, what))
+    if status == "FAIL" and short:
+        SHORT_PATH_FAILS.append(what)
     print(f"  {status}  {what}" + (f"  ->  {hint}" if hint and not ok else ""))
     return ok
+
+
+def short_path_line() -> str:
+    """Whether the Opening, Acts 1–2 and the Close can run, from the same checks."""
+    if SHORT_PATH_FAILS:
+        return f"Short path (Opening, Acts 1–2, Close): NOT READY ({len(SHORT_PATH_FAILS)} of its checks failed)"
+    return "Short path (Opening, Acts 1–2, Close): READY"
 
 
 def summary(results: Optional[List[Tuple[str, bool, str]]] = None) -> Tuple[str, int]:
@@ -179,6 +195,44 @@ def load_env(path: Path, environ: Optional[MutableMapping[str, str]] = None) -> 
     return True
 
 
+class Config(NamedTuple):
+    base: str
+    public_key: str
+    secret_key: str
+    source: str            # where LANGFUSE_* came from, for the check line
+    error: str             # empty when usable
+
+
+def in_container() -> bool:
+    """True inside a Docker container, identified by the marker file Docker creates."""
+    return Path("/.dockerenv").is_file()
+
+
+def runtime_config(environ: Optional[MutableMapping[str, str]] = None,
+                   container: Optional[bool] = None) -> Config:
+    """LANGFUSE_* for this process. On the host: the env file the profile names (the root
+    .env here) is the only source, shell exports are dropped first, and a missing file or
+    key is an error before any API call. Inside the demo container, compose already set
+    them from that same .env (and the container-side URL), so they are used as they are."""
+    env = os.environ if environ is None else environ
+    container = in_container() if container is None else container
+    if container:
+        source = "the container environment (compose env_file)"
+    else:
+        manifest_path = DEMO_DIR / "demo.yaml"
+        manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+        path = env_file(manifest_value(manifest, "", "profile"))
+        source = str(path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path)
+        if not load_env(path, env):
+            return Config("", "", "", source, f"no env file at {source}: run ./setup.sh at the repo root")
+    base = (env.get("LANGFUSE_BASE_URL") or env.get("LANGFUSE_HOST") or "").rstrip("/")
+    pk, sk = env.get("LANGFUSE_PUBLIC_KEY", ""), env.get("LANGFUSE_SECRET_KEY", "")
+    missing = [k for k, val in (("LANGFUSE_PUBLIC_KEY", pk), ("LANGFUSE_SECRET_KEY", sk),
+                                ("LANGFUSE_BASE_URL", base)) if not val]
+    error = f"{', '.join(missing)} not set in {source}" if missing else ""
+    return Config(base, pk, sk, source, error)
+
+
 # --- Langfuse reads -----------------------------------------------------------------------
 
 def iso(t: datetime) -> str:
@@ -243,16 +297,23 @@ class Langfuse:
 
     def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
         """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
+        is still returned, so stop on a missing cursor, not on an empty page.
+
+        A cursor the server already returned would loop forever, and running out of pages
+        while a cursor remains would silently undercount: both raise instead."""
         out: List[dict] = []
         cur = None
+        seen = set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
             out += d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+            if cur in seen:
+                raise ApiError(None, f"{path}: the server repeated a cursor")
+            seen.add(cur)
+        raise ApiError(None, f"{path}: more than {max_pages} pages")
 
 
 
@@ -264,18 +325,21 @@ def latest_root(lf: Langfuse, now: datetime) -> Tuple[Optional[dict], str]:
     window = {"fromStartTime": iso(now - timedelta(days=LOOKBACK_DAYS)),
               "toStartTime": iso(now + timedelta(minutes=5))}
     try:
-        rows = (lf.get("/api/public/v2/observations", name=TRACE_NAME, isRootObservation=True,
-                       fields="core,basic", limit=1, **window) or {}).get("data") or []  # newest first
+        # Newest first. A page can be empty while a cursor remains, so follow it to the first row.
+        rows = lf.cursor("/api/public/v2/observations", dict(name=TRACE_NAME, isRootObservation=True,
+                                                             fields="core,basic", **window), cap=1)
         return (rows[0] if rows else None), "v2"
     except ApiError as e:
         if e.status != 404:
             raise
     rows: List[dict] = []
-    for page in range(1, 6):
+    for page in range(1, 21):
         d = lf.get("/api/public/observations", name=TRACE_NAME, limit=100, page=page, **window) or {}
         rows += d.get("data") or []
         if page >= ((d.get("meta") or {}).get("totalPages") or 1):
             break
+    else:
+        raise ApiError(None, "observations v1: more than 20 pages of runs in the lookback window")
     roots = [r for r in rows if not r.get("parentObservationId") and r.get("startTime")]
     roots.sort(key=lambda r: parse_time(r["startTime"]), reverse=True)
     return (roots[0] if roots else None), "v1"
@@ -292,24 +356,17 @@ def count_observations(lf: Langfuse, trace_id: str, started: datetime, now: date
     return int(total) if total is not None else len(d.get("data") or [])
 
 
-def find_datasets(lf: Langfuse, names: List[str]) -> Dict[str, dict]:
-    """Datasets by name, from the paged v2 list. Listing avoids putting a name such as
-    `text-to-sql/critic-accuracy` into a URL path, where the slash would be ambiguous."""
-    found: Dict[str, dict] = {}
-    for page in range(1, 11):
-        d = lf.get("/api/public/v2/datasets", page=page, limit=100) or {}
-        for row in d.get("data") or []:
-            if row.get("name") in names:
-                found[row["name"]] = row
-        if len(found) == len(names) or page >= ((d.get("meta") or {}).get("totalPages") or 1):
-            break
-    return found
+def dataset_definitions() -> Dict[str, List[dict]]:
+    """dataset name -> the seeders' item definitions, as dataset_sync specs. Imported from
+    the seeders (standard library only) so verify can never expect something seed does not
+    write."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import seed_refine_datasets as refine
+    import seed_step_dataset as step
 
-
-def dataset_item_count(lf: Langfuse, name: str) -> int:
-    d = lf.get("/api/public/dataset-items", datasetName=name, limit=1, page=1) or {}
-    total = (d.get("meta") or {}).get("totalItems")
-    return int(total) if total is not None else len(d.get("data") or [])
+    return {step.DATASET_NAME: step.curated_specs(),
+            refine.CRITIC_DATASET: refine.critic_specs(),
+            refine.CONVERGED_DATASET: refine.converged_specs()}
 
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -344,29 +401,41 @@ def service_checks() -> None:
                   hint="docker compose --profile langfuse up -d (mcp-clickhouse has no profile and starts with it)")
 
 
-def prompt_checks(lf: Langfuse, prompts: Dict[str, List[str]], required: bool, act: str) -> None:
+def prompt_checks(lf: Langfuse, prompts: Dict[str, List[str]], short: bool) -> None:
+    """Each label must serve a text prompt. A 404 means unseeded; any other error is a
+    failed read and fails the check the same way."""
     for name, labels in prompts.items():
         for label in labels:
             try:
                 p = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(name, safe='')}", label=label) or {}
-                check(True, f"prompt {name}: {label} = v{p.get('version')}", required=required)
             except ApiError as e:
-                check(False, f"prompt {name} with label {label}{act}: {e}", required=required,
-                      hint=f"run {SEED_CMD}")
+                check(False, f"prompt {name} with label {label}: {e}", short=short,
+                      hint=f"run {SEED_CMD}" if e.status == 404 else "")
+                continue
+            ok = p.get("type") == "text" and bool((p.get("prompt") or "").strip())
+            check(ok, f"prompt {name}: {label} = v{p.get('version')}"
+                  + ("" if ok else f" is not a non-empty text prompt (type {p.get('type')!r})"),
+                  short=short, hint=f"run {SEED_CMD}")
 
 
-def dataset_checks(lf: Langfuse, datasets: Dict[str, int], required: bool, act: str,
-                   state: Dict[str, Any]) -> None:
-    found = find_datasets(lf, list(datasets))
-    for name, want in datasets.items():
-        row = found.get(name)
-        if not row:
-            check(False, f"dataset {name}{act} is missing", required=required, hint=f"run {SEED_CMD}")
+def dataset_checks(lf: Any, state: Dict[str, Any]) -> None:
+    """Every seeded item must be in place: ACTIVE, and the same input, expected output and
+    metadata as the seeder's definition (dataset_sync.in_place). Archived rows and edited
+    rows do not count, so an archived dataset cannot pass on its item total."""
+    import dataset_sync
+
+    for name, specs in dataset_definitions().items():
+        if name not in FULL_DATASETS:
+            continue
+        row = dataset_sync.find_dataset(lf, name)
+        if row is None:
+            check(False, f"dataset {name} is missing", short=False, hint=f"run {SEED_CMD}")
             continue
         state.setdefault("dataset_ids", {})[name] = row.get("id")
-        n = dataset_item_count(lf, name)
-        check(n >= want, f"dataset {name}: {n} item(s) (want {want}+)", required=required,
-              hint=f"run {SEED_CMD}")
+        n, missing = dataset_sync.usable(specs, dataset_sync.list_items(lf, name))
+        check(not missing, f"dataset {name}: {n}/{len(specs)} seeded items ACTIVE and unchanged"
+              + (f"; not in place: {', '.join(missing[:3])}{' …' if len(missing) > 3 else ''}" if missing else ""),
+              short=False, hint=f"run {SEED_CMD}")
 
 
 def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, Any]:
@@ -387,10 +456,9 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
 
     try:
         print("Seeded artifacts")
-        prompt_checks(lf, EXPECTED_PROMPTS, True, "")
-        prompt_checks(lf, OPTIONAL_PROMPTS, False, " (Act 3)")
-        dataset_checks(lf, EXPECTED_DATASETS, True, " (Act 5)", state)
-        dataset_checks(lf, OPTIONAL_DATASETS, False, " (Act 3)", state)
+        prompt_checks(lf, SHORT_PATH_PROMPTS, short=True)
+        prompt_checks(lf, FULL_PROMPTS, short=False)
+        dataset_checks(lf, state)
 
         print("Latest run")
         now = datetime.now(timezone.utc)
@@ -405,17 +473,17 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
         n = count_observations(lf, trace_id, started, now, api)
         check(n >= MIN_OBSERVATIONS, f"latest run has {n} observation(s) (want {MIN_OBSERVATIONS}+)",
               hint="observations may still be landing: wait 30 s and re-run")
-        names = sorted({s.get("name") for s in lf.cursor("/api/public/v3/scores", {"traceId": trace_id})})
-        missing = [x for x in EXPECTED_SCORES if x not in names]
-        check(not missing, f"latest run's scores: {', '.join(names) or 'none'}"
-              + (f"; missing {', '.join(missing)}" if missing else ""),
-              hint="code evaluators score about 30 s after ingest; if still missing, run "
-                   "./scripts/seed-code-evaluators.sh")
+        names = {sc.get("name") for sc in lf.cursor("/api/public/v3/scores", {"traceId": trace_id})}
+        for score in EXPECTED_SCORES:
+            check(score in names, f"latest run has a '{score}' score",
+                  short=score in SHORT_PATH_SCORES,
+                  hint="code evaluators score about 30 s after ingest; if still missing, run "
+                       "./scripts/seed-code-evaluators.sh")
         age_h = (now - started).total_seconds() / 3600
         check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
               required=False, hint=f"run {RUN_CMD} the day before")
-    except ApiError as e:
-        check(False, f"Langfuse read failed: {e}")
+    except (ApiError, RuntimeError, KeyError, ValueError, TypeError) as e:
+        check(False, f"Langfuse read failed: {type(e).__name__}: {e}")
     return state
 
 
@@ -424,21 +492,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
     args = ap.parse_args(argv)
     del RESULTS[:]
+    del SHORT_PATH_FAILS[:]
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
     print(f"{TRACE_NAME} readiness")
     print("Config")
-    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-          hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
+    cfg = runtime_config()
+    check(not cfg.error.startswith("no env file"),
+          f"env loaded from {cfg.source}; shell-exported LANGFUSE_* ignored",
+          hint="run ./setup.sh at the repo root")
     expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
+    if check(not cfg.error, "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set",
+             hint=cfg.error):
         service_checks()
-        lf = Langfuse(base, pk, sk)
+        lf = Langfuse(cfg.base, cfg.public_key, cfg.secret_key)
         state = langfuse_checks(lf, expected)
         if args.links and state.get("project_id"):
             print("\nLinks")
@@ -446,7 +514,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"  {label:<36} {url}")
 
     line, code = summary()
-    print(f"\n{line}")
+    print(f"\n{short_path_line()}")
+    print(f"Full presentation: {line}")
     return code
 
 

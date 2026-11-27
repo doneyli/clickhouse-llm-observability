@@ -8,47 +8,45 @@ in isolation from "did the response step ruin a good analysis". The existing
 end-to-end evaluation (test scenarios) remains the E2E complement.
 
 Two modes:
-  * default            — seed ~8 curated items (question -> expected database(s)).
-  * --link-latest N     — mine the last N `text-to-sql` traces and add items whose
-                          source_trace_id + source_observation_id point at the
+  * default            — reconcile the 8 curated items (question -> expected database(s)).
+  * --link-latest N     — also add items for the last N `text-to-sql` runs whose
+                          sourceTraceId + sourceObservationId point at the
                           ANALYSIS generation (not the trace root), so click-through
                           from a dataset item lands on the exact step it was minted
                           from (pattern guide §6-Datasets).
 
-Usage (from repo root, after sourcing .env):
+Idempotent: a curated item is matched on its question, a linked item on a stable id
+(`step-link-<observation id>`). Only a missing, changed or archived item is written, and
+it is written ACTIVE (see dataset_sync.py). Runs are found through Observations API v2,
+or the v1 observations list on the pinned self-hosted server, which predates v2; never
+the trace endpoints Langfuse Cloud removed.
+
+Usage (from the repo root; seed_all.py runs the default mode):
     python demos/text-to-sql/scripts/seed_step_dataset.py
     python demos/text-to-sql/scripts/seed_step_dataset.py --dry-run
     python demos/text-to-sql/scripts/seed_step_dataset.py --link-latest 10
 
-Environment:
-    LANGFUSE_HOST / LANGFUSE_BASE_URL  (default: http://localhost:3001)
-    LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+Environment: the root `.env` (shell-exported LANGFUSE_* are ignored; see
+verify_demo.runtime_config). Standard library only.
 """
 
 import argparse
-import base64
 import json
-import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-# Make the demo package importable (parent of this scripts/ dir) for CATALOG_DATABASES.
+# Make the demo package importable (parent of this scripts/ dir) for CATALOG_DATABASES,
+# and this folder for the shared client and dataset rule.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gates import CATALOG_DATABASES  # noqa: E402
+import dataset_sync  # noqa: E402
+import verify_demo as v  # noqa: E402
 
 DATASET_NAME = "text-to-sql-analysis-step"
-
-HOST = os.getenv("LANGFUSE_HOST", os.getenv("LANGFUSE_BASE_URL", "http://localhost:3001")).rstrip("/")
-PK = os.getenv("LANGFUSE_PUBLIC_KEY", "pk-lf-1234567890")
-SK = os.getenv("LANGFUSE_SECRET_KEY", "sk-lf-1234567890")
-
-_auth = base64.b64encode(f"{PK}:{SK}".encode()).decode()
-_HEADERS = {"Authorization": f"Basic {_auth}", "Content-Type": "application/json"}
 
 
 @dataclass
@@ -82,37 +80,119 @@ CURATED_ITEMS: List[DatasetItem] = [
 ]
 
 
-# --------------- REST helpers (mining traces for --link-latest) ---------------
+# --------------- Definitions as dataset_sync specs ---------------
 
-def _get(path: str):
-    url = f"{HOST}{path}"
-    req = urllib.request.Request(url, headers=_HEADERS, method="GET")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+DESCRIPTION = ("Per-step regression set for the text-to-sql ANALYSIS stage "
+               "(gate: gate-database-selection). Isolates 'did analysis pick "
+               "the right database' from the response step.")
+DATASET_METADATA = {"source": "seed_step_dataset.py", "chain_step": "analysis"}
 
 
-def _latest_analysis_observations(limit: int):
-    """Yield (trace_id, observation_id, question) for the analysis generation of
-    the most recent `text-to-sql` traces."""
-    data = _get(f"/api/public/traces?name=text-to-sql&limit={int(limit)}")
-    for trace in data.get("data", []):
-        tid = trace.get("id")
-        if not tid:
-            continue
-        full = _get(f"/api/public/traces/{urllib.parse.quote(tid)}")
-        obs = full.get("observations", [])
-        analysis = next(
-            (o for o in obs
-             if (o.get("metadata") or {}).get("purpose") == "query_analysis"),
-            None,
-        )
-        if analysis is None:
-            continue
-        question = ""
-        tin = full.get("input")
-        if isinstance(tin, dict):
-            question = tin.get("question", "") or ""
-        yield tid, analysis.get("id"), question
+def curated_specs() -> List[Dict[str, Any]]:
+    """The curated items, identified by question (they predate stable ids)."""
+    return [{"label": it.input["question"][:60], "input": it.input,
+             "expectedOutput": it.expected_output, "metadata": it.metadata}
+            for it in CURATED_ITEMS]
+
+
+# --------------- --link-latest: the analysis step of recent runs ---------------
+
+TRACE_NAME = "text-to-sql"
+LINK_LOOKBACK_DAYS = 30
+
+
+def _purpose(obs: Dict[str, Any]) -> Any:
+    """`purpose` from observation metadata, nested or flattened (`langchain.purpose`)."""
+    meta = obs.get("metadata")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            return None
+    if not isinstance(meta, dict):
+        return None
+    if "purpose" in meta:
+        return meta["purpose"]
+    return next((v for k, v in meta.items() if k.endswith(".purpose")), None)
+
+
+def _question_from(obs: Dict[str, Any]) -> str:
+    inp = obs.get("input")
+    if isinstance(inp, str):
+        try:
+            inp = json.loads(inp)
+        except ValueError:
+            return ""
+    q = inp.get("question") if isinstance(inp, dict) else None
+    # A retry or a demo fault appends "\n\n[...]" to the question: keep the user's words.
+    return q.split("\n\n[")[0].strip() if isinstance(q, str) else ""
+
+
+def analysis_link(observations: List[Dict[str, Any]]) -> Optional[Tuple[str, str]]:
+    """(observation id, question) for one trace: the first analysis GENERATION, and the
+    question from the analysis step's input. None when the trace has no analysis step."""
+    steps = sorted((o for o in observations if _purpose(o) == "query_analysis"),
+                   key=lambda o: o.get("startTime") or "")
+    gen = next((o for o in steps if o.get("type") == "GENERATION" and o.get("id")), None)
+    question = next((q for q in map(_question_from, steps) if q), "")
+    return (gen["id"], question) if gen and question else None
+
+
+def _v1_pages(lf: v.Langfuse, **params: Any) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for page in range(1, 21):
+        d = lf.get("/api/public/observations", limit=100, page=page, **params) or {}
+        rows += d.get("data") or []
+        if page >= ((d.get("meta") or {}).get("totalPages") or 1):
+            return rows
+    raise v.ApiError(None, "observations v1: more than 20 pages")
+
+
+def latest_analysis_observations(lf: v.Langfuse, limit: int,
+                                 now: Optional[datetime] = None) -> List[Tuple[str, str, str]]:
+    """(trace id, analysis observation id, question) for the newest `limit` runs.
+
+    Observations API v2; on a 404 (self-hosted server 3.221.1 predates it) the v1
+    observations list. No trace endpoints: Langfuse Cloud removed them."""
+    now = now or datetime.now(timezone.utc)
+    window = {"fromStartTime": v.iso(now - timedelta(days=LINK_LOOKBACK_DAYS)),
+              "toStartTime": v.iso(now + timedelta(minutes=5))}
+    try:
+        roots = lf.cursor("/api/public/v2/observations", dict(name=TRACE_NAME, isRootObservation=True,
+                                                              fields="core,basic", **window), cap=limit)
+        api = "v2"
+    except v.ApiError as e:
+        if e.status != 404:
+            raise
+        roots = [r for r in _v1_pages(lf, name=TRACE_NAME, **window) if not r.get("parentObservationId")]
+        roots.sort(key=lambda r: r.get("startTime") or "", reverse=True)
+        roots, api = roots[:limit], "v1"
+    out = []
+    for root in roots:
+        tid = root["traceId"]
+        if api == "v2":
+            started = v.parse_time(root["startTime"])
+            obs = lf.cursor("/api/public/v2/observations", {
+                "traceId": tid, "fields": "core,basic,io,metadata",
+                "fromStartTime": v.iso(started - timedelta(hours=1)), "toStartTime": window["toStartTime"]})
+        else:
+            obs = _v1_pages(lf, traceId=tid)
+        link = analysis_link(obs)
+        if link:
+            out.append((tid, link[0], link[1]))
+    return out
+
+
+def linked_specs(links: List[Tuple[str, str, str]]) -> List[Dict[str, Any]]:
+    """One item per linked run, with a stable id so re-linking the same run upserts."""
+    return [{"label": f"{q[:40]} (trace {tid[:8]})", "id": f"step-link-{oid}",
+             "input": {"question": q},
+             "expectedOutput": {"databases": _infer_expected(q),
+                                "criteria": "analysis names at least one relevant catalog database"},
+             "metadata": {"chain_step": "analysis", "gate": "gate-database-selection",
+                          "linked_from": "trace"},
+             "sourceTraceId": tid, "sourceObservationId": oid}
+            for tid, oid, q in links]
 
 
 def _infer_expected(question: str) -> List[str]:
@@ -122,92 +202,51 @@ def _infer_expected(question: str) -> List[str]:
     return sorted(db for db in CATALOG_DATABASES if db in q)
 
 
+def seed(lf: v.Langfuse, dry_run: bool, link_latest: int = 0,
+         report: Callable[[str, str], None] = print) -> int:
+    """Reconcile the dataset and its curated items (plus linked ones); return the failure count."""
+    failures = dataset_sync.sync(lf, DATASET_NAME, DESCRIPTION, DATASET_METADATA, curated_specs(),
+                                 dry_run, report)
+    if link_latest:
+        try:
+            links = latest_analysis_observations(lf, link_latest)
+        except (v.ApiError, KeyError, ValueError) as e:
+            report("failed", f"--link-latest: reading recent runs: {e}")
+            return failures + 1
+        if not links:
+            report("unchanged", f"--link-latest: no '{TRACE_NAME}' run with an analysis step found")
+        for status, label, err in dataset_sync.reconcile_items(lf, DATASET_NAME, linked_specs(links), dry_run):
+            report(status, f"linked item {label}" + (f": {err}" if err else ""))
+            failures += status == "failed"
+    return failures
+
+
 # --------------- Main ---------------
 
-def parse_args():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Seed the per-step analysis dataset for text-to-sql")
-    ap.add_argument("--dry-run", action="store_true", help="Preview without creating")
+    ap.add_argument("--dry-run", action="store_true", help="Report what would change, write nothing")
     ap.add_argument("--link-latest", type=int, default=0, metavar="N",
-                    help="Also mine the last N text-to-sql traces and link items to the analysis step")
-    return ap.parse_args()
+                    help="Also link items to the analysis step of the last N text-to-sql runs")
+    return ap.parse_args(argv)
 
 
-def main():
-    args = parse_args()
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    cfg = v.runtime_config()
+    if cfg.error:
+        print(cfg.error, file=sys.stderr)
+        return 1
+    lf = v.Langfuse(cfg.base, cfg.public_key, cfg.secret_key)
+    print(f"Per-step dataset '{DATASET_NAME}' at {cfg.base}" + (" (dry run)" if args.dry_run else ""))
 
-    print(f"Per-step dataset '{DATASET_NAME}' at {HOST}", file=sys.stderr)
-    print(f"  curated items: {len(CURATED_ITEMS)}", file=sys.stderr)
+    def report(status: str, what: str) -> None:
+        print(f"  {status:<10} {what}")
 
-    if args.dry_run:
-        print("\n  ** DRY RUN — no data will be created **", file=sys.stderr)
-        for it in CURATED_ITEMS:
-            print(f"    - {it.input['question'][:70]}  -> {it.expected_output['databases']}", file=sys.stderr)
-        if args.link_latest:
-            print(f"  would also link the analysis observation of the last "
-                  f"{args.link_latest} text-to-sql traces", file=sys.stderr)
-        return
-
-    try:
-        from langfuse import Langfuse
-    except ImportError:
-        print("Error: langfuse package not installed. Run: pip install 'langfuse>=3.0,<4.0'", file=sys.stderr)
-        sys.exit(1)
-
-    client = Langfuse(public_key=PK, secret_key=SK, host=HOST)
-
-    try:
-        client.create_dataset(
-            name=DATASET_NAME,
-            description="Per-step regression set for the text-to-sql ANALYSIS stage "
-                        "(gate: gate-database-selection). Isolates 'did analysis pick "
-                        "the right database' from the response step.",
-            metadata={"source": "seed_step_dataset.py", "chain_step": "analysis"},
-        )
-        print(f"  created dataset: {DATASET_NAME}", file=sys.stderr)
-    except Exception as e:
-        if "already exists" in str(e).lower() or "409" in str(e):
-            print(f"  dataset exists: {DATASET_NAME} (adding items)", file=sys.stderr)
-        else:
-            print(f"  warning creating dataset: {e}", file=sys.stderr)
-
-    created = 0
-    for it in CURATED_ITEMS:
-        try:
-            client.create_dataset_item(
-                dataset_name=DATASET_NAME,
-                input=it.input,
-                expected_output=it.expected_output,
-                metadata=it.metadata,
-            )
-            created += 1
-        except Exception as e:
-            print(f"    error adding item: {e}", file=sys.stderr)
-    print(f"  added {created} curated item(s)", file=sys.stderr)
-
-    if args.link_latest:
-        linked = 0
-        try:
-            for tid, oid, question in _latest_analysis_observations(args.link_latest):
-                client.create_dataset_item(
-                    dataset_name=DATASET_NAME,
-                    input={"question": question},
-                    expected_output={
-                        "databases": _infer_expected(question),
-                        "criteria": "analysis names at least one relevant catalog database",
-                    },
-                    metadata={"chain_step": "analysis", "gate": "gate-database-selection",
-                              "linked_from": "trace"},
-                    source_trace_id=tid,
-                    source_observation_id=oid,  # the analysis generation, not the trace root
-                )
-                linked += 1
-        except Exception as e:
-            print(f"  warning mining traces: {e}", file=sys.stderr)
-        print(f"  linked {linked} item(s) to the analysis observation of recent traces", file=sys.stderr)
-
-    client.flush()
-    print(f"\nDone. View: {HOST} → Datasets → {DATASET_NAME}", file=sys.stderr)
+    failures = seed(lf, args.dry_run, args.link_latest, report)
+    print(f"\n{'FAILED' if failures else 'Done'}: {failures} failure(s). View: {cfg.base} → Datasets → {DATASET_NAME}")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
