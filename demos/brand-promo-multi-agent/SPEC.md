@@ -31,9 +31,12 @@ workflow with a CI gate).
 | 2 | One multi-agent, multi-framework run is one tree | Act 2: a `promo_planner_run` trace; Act 3: a live `PromoPlanner` trace with crew generations nested under the LangGraph nodes | A live `PromoPlanner` run in the last 7 days with 3+ observations; 3+ generations warns otherwise |
 | 3 | A compliance violation is blocked, fail-closed | Act 3: `q2_compliance_catch` returns REJECTED | `tests/test_compliance_agent.py`: a tool error yields ERROR, never APPROVED |
 | 4 | Evals catch a hallucination | Act 3: `q5_hallucination_catch`, `sku_validity` and `response_factuality` | `tests/test_evaluators.py` |
-| 5 | A release gate decides what ships | Act 4: `run_experiment.py --ci` exits 1 when `certification_gate` fails | Dataset has 75+ items; 20 score configs; experiment runs exist (warn) |
-| 6 | A prompt change is an experiment | Act 5: baseline against `strategy-v2` on the same items | `PROMO_SYSTEM_PROMPT_OVERRIDE` reaches the strategist's backstory |
-| 7 | Humans review the ambiguous slice | Act 6: the `PromoPlanner Human Review` queue | Queue exists with items (warn) |
+| 5 | A release gate decides what ships | Act 4: `run_experiment.py --ci` exits 1 when `certification_gate` fails | 75+ ACTIVE dataset items; 20 score configs; the three online judges enabled |
+| 6 | A prompt change is an experiment | Act 5: baseline against `strategy-v2` on the same items | A `baseline`-labelled experiment run exists; `PROMO_SYSTEM_PROMPT_OVERRIDE` reaches the strategist's backstory |
+| 7 | Humans review the ambiguous slice | Act 6: the `PromoPlanner Human Review` queue | Queue exists with PENDING items |
+
+Every acceptance check is required for the full script. `verify_demo.py --short-path`
+covers rows 1–4 only, for the 10–12 minute path.
 
 ## 4. The fictional company and data
 
@@ -60,13 +63,13 @@ OpenInference CrewAI instrumentor for the crews' own LLM and tool calls
 |---|---|---|
 | Trace (live) | `PromoPlanner` | One per `run_live_demo.py` run; root input is the query, root output the brief; session `live-<UTC timestamp>-<6 hex>`; tag `live_demo` |
 | Trace (experiment) | `PromoPlanner` | One per dataset item; session = run name; tags `experiment` and the label; fault injection off |
-| Trace (history) | `promo_planner_run`, `<agent>_run` | About 50k over 30 days from `generate_history.py`; tags `synthetic` and the agent; no model calls |
-| Prompts | 12 under `promo-planner/` | Label `production`, from `scripts/seed_prompts.py`; the app reads its prompt text from `src/prompts/`, not from Langfuse |
+| Trace (history) | `promo_planner_run`, `<agent>_run` | About 50k over 30 days from `generate_history.py`; tags `synthetic` and the agent; no model calls. Ids derive from a batch key (inputs plus UTC day), so a re-run upserts; a complete batch from the last 7 days makes it a no-op |
+| Prompts | 12 under `promo-planner/` | Label `production`, from `scripts/seed_prompts.py`, which writes a version only when the text, type, config or label drifted; the app reads its prompt text from `src/prompts/`, not from Langfuse |
 | Score configs | 20 | `scripts/setup_score_configs.py`: 10 item-level, 8 run averages, `certification_gate`, `human_brief_review` |
 | Dataset | `promo-planner-golden-v1` | 75 items; ids are content hashes, so re-seeding upserts |
 | Online judges | `tool-call-correctness`, `response-factuality`, `compliance-adherence` | Trace target, 10% sampling, created in the UI from a printed checklist |
 | Dashboards | `Executive - Agent Fleet`, `Ops - Agent Health`, `Engineer - PromoPlanner Deep Dive` | Created in the UI from a printed checklist |
-| Annotation queue | `PromoPlanner Human Review` | Created by `seed_annotation_queue.py`; items from `run_experiment.py --queue-failures` |
+| Annotation queue | `PromoPlanner Human Review` | Created by `seed_annotation_queue.py` with the `human_brief_review` config; up to 10 seeded traces whose `response-factuality` is 0.6–0.8 (Scores v3 joined to Observations v2), plus `run_experiment.py --queue-failures` |
 
 ## 7. Act plan
 
@@ -95,12 +98,13 @@ about 20 s for 104 tests on a laptop.
 
 - The history ages out of the 30-day window, so a demo weeks after seeding has an empty
   Act 1. `verify_demo.py` catches it.
-- The dashboards and online judges depend on a manual UI step that nobody re-checks
-  between demos except `verify_demo.py`.
-- `seed_annotation_queue.py` reads the legacy traces endpoint that Langfuse Cloud removed
-  on 2026-11-16, and `seed_dashboards.py` posts to an endpoint Cloud answers with 404.
-  Moving both to current APIs (Observations v2, the unstable dashboards API) is open work.
-- `verify_demo.py` needs Observations v2, which a self-hosted v3 server does not serve.
+- The dashboards and online judges depend on a manual UI step. `seed_all.py` exits 2
+  until they exist, and `verify_demo.py` fails without them.
+- A history batch past the 7-day reuse window is replaced by a fresh one, not rewritten;
+  the old batch stays until it ages out of view.
+- `verify_demo.py` and the queue seeder need Observations v2, which a self-hosted v3
+  server does not serve. Only the history read-back falls back to the v1 observations
+  list there, so `generate_history.py` stays idempotent on the pinned local server.
 
 ## 10. Decisions
 
@@ -114,4 +118,6 @@ about 20 s for 104 tests on a laptop.
 | D6 | Model tiers | Sonnet for orchestration and research, Opus for strategy and judging | Cost by role is part of the story |
 | D7 | Gate | Every dimension present must meet its threshold; thresholds are flags | The quality bar is versioned config, and `--ci` turns it into an exit code |
 | D8 | Re-theming | Every domain name from `demo.config.yaml` | A new customer is an edit, not a rewrite |
-| D9 | Isolation | Own `uv` env, `.env` and Langfuse project; `.env` keys win over the shell | A shell-exported key would otherwise send traces to another project silently |
+| D9 | Isolation | Own `uv` env, `.env` and Langfuse project; every inherited `LANGFUSE_*` is dropped before the `.env` is applied | A shell-exported key or base URL would otherwise send traces to another project silently |
+| D10 | Seeding | Every seeder reads back and reconciles; `seed_all.py` exits 1 on any failed step and 2 when only a manual step is left | An unchanged re-run must write nothing, and a failure must not look like success |
+| D11 | Readiness | `verify_demo.py` requires every act's assets; `--short-path` is the explicit Acts 1–3 mode | A READY that leaves Acts 5 and 6 empty is not ready |

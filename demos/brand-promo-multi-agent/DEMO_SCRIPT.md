@@ -71,9 +71,12 @@ uv run python scripts/verify_demo.py --links                                    
 ```
 
 `verify_demo.py` reads the project back: the prompts, score configs and
-dataset, the seeded history (it ages out after 30 days — re-run
-`generate_history.py`), the three dashboards, a live run from the last 7 days,
-and, as warnings only, the online judges, experiment runs and review queue.
+dataset, the seeded history for every fleet agent in your `demo.config.yaml`
+(it ages out after 30 days — re-run `generate_history.py`), the three
+dashboards, a live run from the last 7 days, the three online judges, the
+`baseline` run the rehearsal above writes (Act 5 compares against it), and
+PENDING items in the review queue. Presenting only the short path? Run it
+with `--short-path`: it checks Acts 1–3 and says so in its verdict.
 
 **Checklist (from the runbook):** Traces list shows ~50k; the 3 dashboards
 render; Prompts shows ~12 under `promo-planner/`; dataset
@@ -474,14 +477,15 @@ Say these as beats, not footnotes. The full list is in the
 ## Reset / re-run
 
 ```bash
-uv run scripts/seed_all.py                    # re-seed everything (dataset upserts by hash; prompt seeding mints a new version each run)
-uv run scripts/generate_history.py            # append more synthetic history (--total N --seed 42)
+uv run scripts/seed_all.py                    # reconcile everything: writes only what is missing or drifted
+uv run scripts/generate_history.py            # no-op while a batch from the last 7 days is complete; --force re-sends today's
 uv run scripts/run_live_demo.py play-all      # regenerate the 5 live traces
 uv run python scripts/run_experiment.py --run-name fresh --sample 10 --evaluators deterministic
 uv run pytest -q                              # regression tests: no services, no model calls
 uv run python scripts/verify_demo.py          # READY before the next demo
 ```
 
-No teardown script ships — "reset" is re-seeding (safe to repeat, though each
-run adds prompt versions) or clearing the Langfuse project in the UI. Health
-check: `curl http://localhost:3001/api/public/health`.
+No teardown script ships — "reset" is re-seeding, which is safe to repeat:
+an unchanged re-run adds no prompt versions, dataset items, history or queue
+items. It restores prompts, score configs and dataset items that were edited
+or archived. Health check: `curl http://localhost:3001/api/public/health`.

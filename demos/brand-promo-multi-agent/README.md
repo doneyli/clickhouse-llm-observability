@@ -68,7 +68,9 @@ agent in depth.
 ```
 
 `scripts/generate_history.py` writes the history through the batch ingestion API with no
-model calls. `scripts/run_experiment.py` runs the same graph per dataset item with fault
+model calls. A batch is keyed on its inputs and its UTC day, and its trace and observation
+ids derive from that key, so re-sending it upserts instead of duplicating
+(`src/synthetic/history_batch.py`). `scripts/run_experiment.py` runs the same graph per dataset item with fault
 injection switched off.
 
 ## Set up from scratch
@@ -83,14 +85,19 @@ cd demos/brand-promo-multi-agent
 uv sync --extra dev
 cp .env.example .env                              # then fill in the keys
 cp demo.config.example.yaml demo.config.yaml      # optional: the example is the default
-uv run scripts/seed_all.py                        # prompts, score configs, dataset, history, queue; several minutes
+uv run scripts/seed_all.py                        # prompts, score configs, dataset, history, queue; several minutes the first time
 uv run scripts/run_live_demo.py play-all          # five real runs; model calls on your Anthropic key
+uv run python scripts/run_experiment.py --run-name rehearsal --sample 10 --evaluators deterministic   # the baseline run Act 5 compares with
 uv run python scripts/verify_demo.py              # should print READY
 ```
 
-`seed_all.py` also prints two checklists for what the API cannot create: the three
-dashboards and the three online judges. Work through both in the UI once. The judges
-need an Anthropic LLM connection in the project first (Settings → LLM Connections).
+Every seed step reconciles: it reads its assets back, writes only what is missing or
+drifted, and prints created / updated / unchanged / failed counts, so a second run with
+nothing changed writes nothing. `seed_all.py` exits 0 when everything is in place, 1 when
+any step failed (its summary names the step), and 2 when only a manual UI step is left.
+Two things the API cannot create are manual: the three dashboards and the three online
+judges. `seed_all.py` reads both back and prints a checklist for whatever is missing. The
+judges need an Anthropic LLM connection in the project first (Settings → LLM Connections).
 
 The `.env` is the only source of the Langfuse keys and host: `src/config.py` sets them
 from the file over any shell export, and `verify_demo.py` drops shell-exported
@@ -100,9 +107,9 @@ from the file over any shell export, and `verify_demo.py` drops shell-exported
 
 | When | Do | Why |
 |---|---|---|
-| Within 30 days | `uv run scripts/generate_history.py` | The history is backdated 30 days from when it was written and ages out of Act 1 |
+| Within 30 days | `uv run scripts/generate_history.py` | The history is backdated 30 days from its batch day and ages out of Act 1. A no-op while a batch from the last 7 days is complete |
 | The day before | `uv run scripts/run_live_demo.py play-all`, then the rehearsal experiment below | A fresh live trace for Act 3 and a run in the Runs tab for Acts 4 and 5 |
-| 30 minutes before | `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL`, then `uv run python scripts/verify_demo.py --links` | Prints READY and the link each act opens |
+| 30 minutes before | `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL`, then `uv run python scripts/verify_demo.py --links` | Prints READY for the full script and the link each act opens. For the 10–12 minute path, `--short-path` checks Acts 1–3 only and says so |
 | 5 minutes before | Open the links it printed | Traces, the three dashboards, the dataset, the review queue, and a terminal |
 
 ## Run it
@@ -138,6 +145,7 @@ judge-style scores for the dashboards.
 | Prompt A/B | `uv run python scripts/run_experiment.py --run-name strategy-v2 --label strategy-v2 --system-prompt-file prompts/strategy_v2.md --sample 10` | Compare against a `--label baseline` run in Datasets → Runs |
 | CI gate | `uv run python scripts/run_experiment.py --run-name ci-check --evaluators deterministic --ci` | Exits 1 when `certification_gate` fails |
 | Route failures to review | `uv run python scripts/run_experiment.py --run-name flagged --sample 20 --queue-failures` | Needs the queue from `scripts/seed_annotation_queue.py` |
+| Fill the review queue | `uv run scripts/seed_annotation_queue.py` | Up to 10 seeded traces with a `response-factuality` score of 0.6–0.8; never grows past 10 on re-runs |
 
 - **Dataset:** `promo-planner-golden-v1`, 25 hand-authored items (`scripts/seed_dataset.py`)
   plus 50 generated from the config's brands, regions and retailers
@@ -197,9 +205,10 @@ demos/brand-promo-multi-agent/
 │   ├── prompts/               prompt text, also seeded to Langfuse under promo-planner/
 │   ├── evals/                 evaluators, gate, dataset builder
 │   ├── experiment_backends/   Langfuse experiment adapter
-│   ├── synthetic/             synthetic history generator
+│   ├── synthetic/             synthetic history generator and its batch identity
 │   ├── data/                  mock sales, inventory, promos, brand and regulatory rules
 │   ├── observability.py       callbacks, run config, CrewAI instrumentation
+│   ├── langfuse_rest.py       the seeders' REST client: errors raise, paging is bounded
 │   └── config.py              config and .env loading
 ├── scripts/
 │   ├── seed_all.py            the one seed entry point; calls the seeders below
@@ -217,14 +226,16 @@ demos/brand-promo-multi-agent/
 ```bash
 cd demos/brand-promo-multi-agent
 uv sync --extra dev
-uv run pytest -q              # no services, no model calls, about 20 s
+uv run pytest -q              # no services, no model calls, about 15 s
 ```
 
 They cover the deterministic evaluators and the gate, the compliance graph's fail-closed
 aggregation, the tools and their injected faults, config loading and the `.env` key
 override, the observability factory and the CrewAI instrumentation, an orchestrator smoke
-run with mocked model calls, the synthetic trace generator, the trace's root input and
-output, and `verify_demo.py`'s checks, summary and exit code against a fake Langfuse.
+run with mocked model calls, the synthetic trace generator and its deterministic batches,
+the trace's root input and output, every seeder's reconcile and failure paths, and
+`verify_demo.py`'s checks and verdicts. The seeders and `verify_demo.py` run against
+in-memory fakes that reject parameters and field groups the real API rejects.
 
 ## Troubleshooting
 
@@ -232,6 +243,9 @@ output, and `verify_demo.py`'s checks, summary and exit code against a fake Lang
 |---|---|
 | `keys map to project '…' (want 'brand-promo-demo')` | The `.env` holds another project's keys. Put this project's keys there; shell exports are ignored |
 | `seeded 'promo_planner_run' traces in the last 30 days` fails | The history aged out or was never written: `uv run scripts/generate_history.py` |
+| `… fleet agents in the seeded history; missing <name>_run` | The fleet in `demo.config.yaml` changed since the history was written. Re-run `generate_history.py`; the new fleet changes the batch key |
+| `seed_all.py` exits 2 | Only a manual step is left: build the dashboards or judges from the checklist it printed, then re-run |
+| `0 'baseline' experiment run(s)` | Acts 4–5 have nothing to compare with: run the rehearsal experiment above, which is labelled `baseline` |
 | `persona dashboards` fails | The dashboards API cannot create them. Build them from the `seed_dashboards.py` checklist, with the exact names |
 | `Langfuse read failed: HTTP 404` on `/api/public/v2/observations` | A self-hosted v3 server has no Observations v2. Run against Cloud or a v4 server |
 | The online judge setup fails in the UI | The project has no Anthropic LLM connection. Add one under Settings → LLM Connections |
@@ -244,15 +258,13 @@ output, and `verify_demo.py`'s checks, summary and exit code against a fake Lang
 - The 50,000-trace history and the scores on it are synthetic. Live runs and experiments
   are real executions. The history is backdated from when it was written, so it ages out
   of a 30-day view.
-- The dashboards and the online judges are created by hand. `seed_dashboards.py` posts to
-  `/api/public/dashboards`, which Langfuse Cloud answers with 404, and `seed_evaluators.py`
-  only prints a checklist.
-- `seed_annotation_queue.py` finds traces with the legacy `GET /api/public/traces`, which
-  Langfuse Cloud removed on 2026-11-16, so on Cloud it adds no items. Items reach the queue
-  from `run_experiment.py --queue-failures`.
-- `seed_all.py` is not fully idempotent: each run writes a new version of every prompt and
-  another full synthetic history. Re-run `generate_history.py` on its own when only the
-  history is stale.
+- The dashboards and the online judges are created by hand. `seed_dashboards.py` and
+  `seed_evaluators.py` read them back and print the checklist; they do not create them.
+- A history batch older than the 7-day reuse window is not replaced: the next run writes
+  a fresh batch and the old one stays in the project until it ages out of view. The same
+  happens when the synthetic-history settings, fleet or models change.
+- Score-config descriptions cannot be updated through the API; `setup_score_configs.py`
+  reports a description drift but leaves it.
 - The compliance checks are keyword and regex rules over the brief. They show the shape
   of a fail-closed gate, not a policy engine.
 - The market tool returns canned insights unless `TAVILY_API_KEY` is set.
