@@ -11,6 +11,10 @@ import json
 import re
 from typing import Any, Iterable
 
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
+
 from .ch_client import UnsafeSQLError, check_sql
 from .models import Lever, Plan
 
@@ -27,8 +31,8 @@ class PlanError(ValueError):
 # A template measures ONE scenario; these functions are how a template searches
 # candidate values internally (what the agent did before the rule existed).
 _SEARCH_FUNCS = re.compile(
-    r"\b(arrayJoin|arrayFirst\w*|arrayLast\w*|arrayMap|arrayFilter|arrayMin|arrayMax|arrayReduce\w*|"
-    r"arraySort|arrayReverseSort|range|numbers|argMax|argMin|topK\w*|groupArray\w*)\s*\(",
+    r"array\w*|range|numbers\w*|argMax\w*|argMin\w*|topK\w*|groupArray\w*|groupUniqArray\w*|"
+    r"quantile\w*|median\w*",
     re.IGNORECASE,
 )
 
@@ -49,13 +53,51 @@ _METRIC_AGGS = re.compile(
 )
 
 
-def check_template_measures(sql: str) -> None:
-    m = _SEARCH_FUNCS.search(sql)
-    if m:
-        raise PlanError(
-            f"the template uses {m.group(1)}(), which searches over candidate values inside the SQL. "
-            "A template measures ONE scenario: make every value you want to try a lever and let the "
-            "sweep run them.")
+def check_template_measures(sql: str, *, allowed_tables: list[str]) -> exp.Select:
+    """Accept a single aggregate over one table, with no SQL-side candidate search.
+
+    Parse the original ClickHouse placeholders, rather than scanning keywords: nested
+    SELECTs, ARRAY JOIN and quoted function names must obey the same grammar too.
+    Quantiles/medians are deliberately excluded from this demo's scenario grammar:
+    otherwise padding questions can be solved without ever sweeping a buffer lever.
+    """
+    try:
+        statements = sqlglot.parse(sql, read="clickhouse")
+    except SqlglotError as e:
+        raise PlanError(f"can't parse scenario template: {e}") from None
+    if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+        raise PlanError("a template must be one aggregate SELECT, with no set operations")
+    tree = statements[0]
+    if len(list(tree.find_all(exp.Select))) != 1 or tree.find(exp.Subquery, exp.Window):
+        raise PlanError("a template measures ONE scenario: no subqueries or window functions")
+    # A narrow grammar also rules out GROUP BY ... ORDER BY ... LIMIT 1, DISTINCT,
+    # CTEs and joins that select a winner before the sweep sees the results.
+    for clause, value in tree.args.items():
+        if value and clause not in {"expressions", "from_", "where"}:
+            raise PlanError(f"a template measures ONE scenario: {clause} is not allowed")
+    source = tree.args.get("from_")
+    table = source.this if source is not None else None
+    if not isinstance(table, exp.Table) or not isinstance(table.this, exp.Identifier):
+        raise PlanError("a template must read the demo table directly, with no table functions")
+    ref = f"{table.db}.{table.name}" if table.db else table.name
+    allowed = {t.lower() for t in allowed_tables}
+    allowed.update(t.rsplit(".", 1)[-1] for t in list(allowed))
+    if table.catalog or ref.lower() not in allowed or any(
+        v for k, v in table.args.items() if k not in {"this", "db", "catalog", "alias"}
+    ):
+        raise PlanError(f"scenario table {ref!r} is not allowed")
+    for fn in tree.find_all(exp.Func):
+        name = fn.name if isinstance(fn, (exp.Anonymous, exp.CombinedAggFunc, exp.ParameterizedAgg)) else fn.sql_name()
+        if isinstance(fn, exp.Explode) or (
+            not isinstance(fn, exp.Array) and _SEARCH_FUNCS.fullmatch(name.replace("_", ""))
+        ):
+            raise PlanError(
+                f"the template uses {name}(), which searches over candidate values inside the SQL. "
+                "A template measures ONE scenario: make every value you want to try a lever and let the "
+                "sweep run them.")
+    if not tree.find(exp.AggFunc):
+        raise PlanError("a template must aggregate its rows into ONE scenario result")
+    return tree
 
 
 def check_lookup(sql: str) -> None:
@@ -121,7 +163,7 @@ def validate(plan: Plan, *, allowed_tables: list[str], max_scenarios: int) -> No
         check_sql(plan.sql_template, allowed_tables=allowed_tables)
     except UnsafeSQLError as e:
         raise PlanError(f"template rejected: {e}") from None
-    check_template_measures(plan.sql_template)
+    tree = check_template_measures(plan.sql_template, allowed_tables=allowed_tables)
     ph = placeholders(plan.sql_template)
     names = [lv.name for lv in plan.levers]
     if len(set(names)) != len(names):
@@ -140,10 +182,13 @@ def validate(plan: Plan, *, allowed_tables: list[str], max_scenarios: int) -> No
             raise PlanError(f"lever {lv.name!r} has no values")
         for v in lv.values:
             cast_value(v, t)
-    if not re.search(r"(?i)\bas\s+metric\b", plan.sql_template):
+    aliases = [e.alias.lower() for e in tree.expressions]
+    if "metric" not in aliases:
         raise PlanError("the template must return a column named `metric` (… AS metric)")
-    if not re.search(r"(?i)\bas\s+support\b", plan.sql_template):
+    if "support" not in aliases:
         raise PlanError("the template must return a column named `support` (count() AS support)")
+    if aliases.count("metric") != 1 or aliases.count("support") != 1:
+        raise PlanError("metric and support must each be returned exactly once")
     n = grid_size(plan.levers)
     if n > max_scenarios:
         raise PlanError(f"grid has {n} scenarios; the budget is {max_scenarios}. Shrink it.")

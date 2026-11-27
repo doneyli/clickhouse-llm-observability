@@ -157,6 +157,25 @@ def test_errored_item_counts_as_wrong_and_as_an_error(gate):
     assert m["accuracy"] == pytest.approx(2 / 3) and m["errors"] == 1
 
 
+def test_gate_blocks_verification_failures_with_correct_leftover_answers(gate, thresholds):
+    results = [_result("q-padding" if i == 0 else f"q-{i}", HERO_WANT, HERO_WANT,
+                       error="ClickHouseError: verify failed") for i in range(15)]
+    metrics = gate.gate_metrics(results, _readback(15), thresholds["must_pass"])
+    rows, blocked = gate.evaluate(thresholds, metrics, 15)
+    assert metrics["accuracy"] == 0 and metrics["errors"] == 15
+    assert blocked and _rows_by_name(rows)["must_pass:q-padding"]["status"] == "FAIL"
+
+
+@pytest.mark.parametrize("missing", [None, float("nan"), float("inf"), -1, True])
+def test_gate_cannot_average_away_one_unknown_cost(gate, thresholds, missing):
+    results = _good_run()
+    results[1].output["run_cost_usd"] = missing
+    metrics = gate.gate_metrics(results, _readback(3), thresholds["must_pass"])
+    rows, blocked = gate.evaluate(thresholds, metrics, 3)
+    assert metrics["mean_run_cost_usd"] is None
+    assert blocked and _rows_by_name(rows)["mean_run_cost_usd"]["status"] == "MISSING"
+
+
 def test_one_minute_off_on_the_hero_fails_must_pass(gate):
     run = _good_run()
     run[0] = _result("q-padding", HERO_WANT, {"origin": "LAX", "buffer_minutes": 10})  # a 5-minute grid
@@ -333,6 +352,57 @@ def test_prompt_versions_aborts_when_a_prompt_lacks_the_label(gate):
 
     with pytest.raises(gate.GateAbort, match="BOTH prompts"):
         gate.prompt_versions(LF(), "candidate-coarse")
+
+
+def test_gate_passes_resolved_pair_to_every_task(gate, thresholds, monkeypatch):
+    from explorer import tracing
+
+    class LF:
+        current = 1
+        fetches = []
+
+        def get_prompt(self, name, **kw):
+            self.fetches.append((name, kw))
+            return SimpleNamespace(version=kw.get("version", self.current), is_fallback=False)
+
+        def run_experiment(self, **kw):
+            return SimpleNamespace(item_results=_good_run(), dataset_run_id="run", dataset_run_url="url")
+
+        def flush(self):
+            pass
+
+    lf, captured = LF(), {}
+    monkeypatch.setattr(gate, "load_env", lambda: None)
+    monkeypatch.setenv("CH_HOST", "fake.test")
+    monkeypatch.setenv("CH_USER", "reader")
+    monkeypatch.setattr(tracing, "get_langfuse", lambda: lf)
+    monkeypatch.setattr(gate, "check_project", lambda *a: "analytics-agentic-speed")
+
+    def probe(settings):
+        lf.current = 2  # a label move after resolution must not alter the task's pair
+        return 231000000
+
+    def task(**kw):
+        captured.update(kw)
+        return object()
+
+    monkeypatch.setattr(gate, "check_clickhouse", probe)
+    monkeypatch.setattr(gate, "load_items", lambda *a: ([r.item for r in _good_run()], 3))
+    monkeypatch.setattr(gate.rx, "make_task", task)
+    monkeypatch.setattr(gate.rx, "read_back", lambda *a, **kw: _readback(3))
+    a = SimpleNamespace(prompt_label="staging", model=None, project_name="analytics-agentic-speed",
+                        limit=None, run_name=None, item_timeout=1, concurrency=3, readback_wait=0)
+    md, blocked = gate.run_gate(a, thresholds)
+    assert not blocked and "planner v1, analyst v1" in md
+    assert captured["cfg"].prompt_versions == {P.PLANNER: 1, P.ANALYST: 1}
+    assert lf.current == 2
+    assert sum("label" in kw for _, kw in lf.fetches) == 2  # exactly once per prompt
+
+
+def test_unpriced_gate_model_aborts_before_any_service_call(gate, thresholds, monkeypatch):
+    monkeypatch.setattr(gate, "load_env", lambda: None)
+    with pytest.raises(gate.GateAbort, match="No pricing configured"):
+        gate.run_gate(SimpleNamespace(prompt_label="staging", model="unpriced-model"), thresholds)
 
 
 def test_check_project_refuses_another_project(gate):

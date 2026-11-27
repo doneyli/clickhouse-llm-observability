@@ -55,7 +55,9 @@ question ─► profile (5 queries) ─► plan (LLM: ONE SQL template + a lever
   also makes every scenario its own span with its own timing.
 - **Measure, don't search.** The template measures one point; the code expands the grid.
   Lookups may list candidates but not measure outcomes. Both rules are enforced in
-  `explorer/scenarios.py`, not just asked for in the prompt.
+  `explorer/scenarios.py`, not just asked for in the prompt. SQLGlot checks that a template
+  is one aggregate over the demo table: no subqueries, grouping, joins, windows, or
+  quantile/median shortcuts that solve a threshold without sweeping it.
 - **Typed server-side parameters.** The template uses `{origin:String}` and
   `{buffer:UInt16}`. Values bind through ClickHouse query parameters, never string
   formatting. The rails are a read-only user, an SQL allow-list and per-query limits.
@@ -151,7 +153,10 @@ server p50/p95 per level.
 - **Prompt CI gate:** `scripts/prompt_gate.py` runs the dataset on a candidate prompt label
   and blocks the deploy when it misses `cicd/thresholds.json`. The workflow is
   `.github/workflows/analytics-agentic-speed-prompt-gate.yml`. Setup and the
-  blocked-prompt beat are in [cicd/README.md](cicd/README.md).
+  blocked-prompt beat are in [cicd/README.md](cicd/README.md). The gate pins both prompt
+  version IDs before running any task. Errored answers receive no credit, even if they
+  retain matching values from before verification failed. Models require explicit
+  pricing in `explorer/config.py`; unknown spend blocks the cost check.
 
 ## Troubleshooting
 

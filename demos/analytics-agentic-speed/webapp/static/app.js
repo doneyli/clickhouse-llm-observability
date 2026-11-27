@@ -17,6 +17,7 @@ let ticker = null;
 const fmtS = (ms) => (ms == null ? "–" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)} s`);
 const fmtMs = (ms) => (ms == null ? "–" : ms < 10 ? ms.toFixed(1) : Math.round(ms).toString());
 const pct = (x) => `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
+const fmtCost = (cost) => cost == null ? "cost unknown" : `$${cost.toFixed(3)}`;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtVal = (v) => (Array.isArray(v) ? v.join(",") : typeof v === "number" ? (Number.isInteger(v) ? v : +v.toPrecision(4)) : v);
 function quantile(arr, q) {
@@ -139,7 +140,7 @@ function onPhase(e) {
     if (e.phase === "lookups" && e.server_ms) extra = `ClickHouse ${e.server_ms.map((x, k) => ((e.rejected || [])[k] ? "rejected (measured an outcome)" : x == null ? "error" : `${fmtMs(x)} ms`)).join(", ")}`;
     endStep(key, e.ms, extra);
     $("t-llm").textContent = S.llmCalls;
-    $("t-llm-f").textContent = `$${S.cost.toFixed(3)} so far`;
+    $("t-llm-f").textContent = `${fmtCost(S.cost)} so far`;
   }
 }
 
@@ -265,7 +266,7 @@ function onDone(r) {
   const err = r.error ? `<p class="badge warn">! ${esc(r.error)}</p>` : "";
   $("answer").innerHTML = `${err}<p class="summary">${esc(r.summary || "(no summary)")}</p><div class="chips">${chips}</div>${grounded}
     ${r.trace_url ? `<br><a class="tracelink" href="${esc(r.trace_url)}" target="_blank" rel="noopener">Open the trace in Langfuse ↗</a>` : ""}`;
-  addStep("done", "other", `Done · ${r.stop_reason}`); endStep("done", r.wall_ms, `${r.scenarios_evaluated} scenarios, ${r.llm_calls} model calls, $${r.cost_usd.toFixed(3)}`);
+  addStep("done", "other", `Done · ${r.stop_reason}`); endStep("done", r.wall_ms, `${r.scenarios_evaluated} scenarios, ${r.llm_calls} model calls, ${fmtCost(r.cost_usd)}`);
 }
 
 // ------------------------------------------------------------------ render
@@ -319,7 +320,7 @@ function renderTiles(final = false) {
     if (s > 0.15) $("t-qps").textContent = Math.round(S.sweepCount / s).toLocaleString();
   }
   if (final && S.done) {
-    $("t-llm").textContent = S.done.llm_calls; $("t-llm-f").textContent = `$${S.done.cost_usd.toFixed(3)} for the run`;
+    $("t-llm").textContent = S.done.llm_calls; $("t-llm-f").textContent = `${fmtCost(S.done.cost_usd)} for the run`;
   }
   renderSplit();
 }

@@ -6,6 +6,8 @@ by moving a label, and every generation links to the exact version that produced
 """
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 PLANNER = "analytics-agentic-speed-planner"
 ANALYST = "analytics-agentic-speed-analyst"
 
@@ -106,3 +108,15 @@ empty. The template rules are the same as for the first plan:
 """
 
 PROMPTS: dict[str, str] = {PLANNER: PLANNER_TEXT, ANALYST: ANALYST_TEXT}
+
+
+def get_prompt(lf: Any, name: str, *, label: str, versions: Mapping[str, int]) -> Any:
+    """Pinned experiments fail closed; live runs retain the local fallback."""
+    if versions:
+        if set(versions) != set(PROMPTS) or any(type(v) is not int or v < 1 for v in versions.values()):
+            raise ValueError("Pin a positive version of BOTH planner and analyst prompts")
+        prompt = lf.get_prompt(name, version=versions[name])
+        if getattr(prompt, "is_fallback", False) or prompt.version != versions[name]:
+            raise ValueError(f"Prompt {name!r} did not resolve to pinned version {versions[name]}")
+        return prompt
+    return lf.get_prompt(name, label=label, fallback=PROMPTS[name])

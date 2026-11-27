@@ -17,7 +17,7 @@ from explorer.scenarios import check_template_measures, placeholders  # noqa: E4
 def test_hero_probe_passes_the_agents_own_rules():
     sql = v.HERO_SCENARIO.replace("{table}", "flights.ontime")
     check_sql(sql, allowed_tables=["flights.ontime"])
-    check_template_measures(sql)
+    check_template_measures(sql, allowed_tables=["flights.ontime"])
     assert placeholders(sql) == {"origin": "String", "buffer": "UInt16"}
     assert "Year = 2019" in sql  # filters on the sort key, like the fixed hero question asks
 

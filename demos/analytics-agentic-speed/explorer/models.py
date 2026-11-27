@@ -80,7 +80,7 @@ class RunResult:
     db_server_ms_total: float
     db_wait_ms_total: float
     wall_ms: float
-    cost_usd: float
+    cost_usd: Optional[float]  # None when a served model has no known price
     recommendation_grounded: Optional[bool]
     trace_url: Optional[str] = None
     error: Optional[str] = None

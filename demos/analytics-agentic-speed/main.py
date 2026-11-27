@@ -96,7 +96,8 @@ async def amain(args: argparse.Namespace) -> int:
     llm_s = (res.wall_ms - res.db_wait_ms_total) / 1000
     print(f"stop reason        {res.stop_reason}" + (f"  ({res.error})" if res.error else ""))
     print(f"scenarios          {res.scenarios_evaluated} over {res.rounds} round(s)")
-    print(f"LLM calls          {res.llm_calls}  (${res.cost_usd:.3f})")
+    cost = f"${res.cost_usd:.3f}" if res.cost_usd is not None else "cost unknown"
+    print(f"LLM calls          {res.llm_calls}  ({cost})")
     print(f"run wall time      {res.wall_ms/1000:.1f} s")
     print(f"waiting on DB      {res.db_wait_ms_total/1000:.2f} s  = {res.db_time_share:.1%} of the run")
     print(f"DB server time     {res.db_server_ms_total/1000:.2f} s summed over all queries")

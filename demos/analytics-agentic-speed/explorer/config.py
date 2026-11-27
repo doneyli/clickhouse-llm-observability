@@ -79,10 +79,24 @@ DEFAULT_QUERY_SETTINGS: dict[str, str] = {
 # USD per million tokens (input, output, cache read). Passed to Langfuse as cost_details
 # so run cost is right even before Langfuse Cloud knows a model's price.
 MODEL_PRICES: dict[str, tuple[float, float, float]] = {
+    "claude-fable-5-2": (8.00, 40.00, 0.20),
     "claude-opus-5-5": (4.00, 20.00, 0.20),
     "claude-sonnet-5-5": (2.00, 10.00, 0.10),
     "claude-haiku-5-5": (0.10, 0.50, 0.01),
 }
+
+
+class UnknownModelPriceError(ValueError):
+    """Spend cannot be measured safely for this model."""
+
+
+def model_prices(model: str) -> tuple[float, float, float]:
+    try:
+        return MODEL_PRICES[model]
+    except KeyError:
+        raise UnknownModelPriceError(
+            f"No pricing configured for model {model!r}; add verified pricing to MODEL_PRICES before running it."
+        ) from None
 
 
 @dataclass
@@ -98,3 +112,5 @@ class RunConfig:
     prompt_label: str = field(default_factory=lambda: os.getenv("EXPLORER_PROMPT_LABEL", "production"))
     # One NUMERIC score per query span (db_server_ms). Off = round/trace aggregates only.
     score_each_query: bool = True
+    # A gate resolves the pair once. An empty mapping keeps normal live label lookup.
+    prompt_versions: dict[str, int] = field(default_factory=dict)

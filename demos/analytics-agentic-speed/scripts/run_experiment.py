@@ -157,7 +157,7 @@ def task_output(res: Any, cfg: RunConfig) -> dict[str, Any]:
         "db_wait_ms_total": round(res.db_wait_ms_total, 2),
         "db_time_share": round(res.db_time_share, 6),
         "wall_ms": round(res.wall_ms, 1),
-        "run_cost_usd": round(res.cost_usd, 6),
+        "run_cost_usd": round(res.cost_usd, 6) if res.cost_usd is not None else None,
         "recommendation_grounded": res.recommendation_grounded,
         "max_scenarios_per_round": cfg.max_scenarios_per_round,
         "model": cfg.model,

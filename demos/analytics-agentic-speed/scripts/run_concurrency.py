@@ -135,7 +135,8 @@ def summarize(level: int, server_ms: list[float], failures: int, wall_s: float, 
         "queries_per_s": len(server_ms) / wall_s if wall_s else 0.0,
         "scenarios": sum(getattr(r, "scenarios_evaluated", 0) for r in ok),
         "llm_calls": sum(getattr(r, "llm_calls", 0) for r in ok),
-        "cost_usd": sum(getattr(r, "cost_usd", 0.0) for r in ok),
+        "cost_usd": (sum(r.cost_usd for r in ok)
+                     if all(getattr(r, "cost_usd", None) is not None for r in ok) else None),
     }
 
 
@@ -236,8 +237,9 @@ async def run_level(level: int, questions: list[Question], cfg: RunConfig, ch: R
     s["session_id"] = sid
     print(f"  ClickHouse time per query: p50 {_ms(s['p50'])} ms, p95 {_ms(s['p95'])} ms, "
           f"p99 {_ms(s['p99'])} ms over {s['queries']} queries ({s['query_errors']} failed)")
+    cost = f"${s['cost_usd']:.2f}" if s["cost_usd"] is not None else "cost unknown"
     print(f"  wall {wall_s:.1f}s, {s['queries_per_s']:.1f} queries/s, {s['scenarios']} scenarios, "
-          f"{s['llm_calls']} LLM calls, ${s['cost_usd']:.2f}; runs ok {s['runs_ok']}/{level}")
+          f"{s['llm_calls']} LLM calls, {cost}; runs ok {s['runs_ok']}/{level}")
     return s
 
 

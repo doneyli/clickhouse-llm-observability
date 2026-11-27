@@ -48,7 +48,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import run_experiment as rx  # noqa: E402
 
 from explorer import prompts as P  # noqa: E402
-from explorer.config import ClickHouseSettings, RunConfig, load_env  # noqa: E402
+from explorer.config import ClickHouseSettings, RunConfig, load_env, model_prices, UnknownModelPriceError  # noqa: E402
 from explorer.evaluators import answer_correct, load_questions, summarize  # noqa: E402
 
 THRESHOLDS_PATH = ROOT / "cicd" / "thresholds.json"
@@ -126,13 +126,16 @@ def gate_metrics(item_results: list[Any], readback: Optional[Mapping[str, Any]],
     """Everything the thresholds can name, from the run's item results (the same evaluator
     functions Langfuse scored them with) and the read-back of what landed in Langfuse."""
     s = summarize(item_results)
+    costs = [_field(r.output, "run_cost_usd") for r in item_results]
+    # An unknown or absent cost on even one item cannot be averaged away.
+    costs_known = bool(costs) and all(type(c) in (int, float) and math.isfinite(c) and c >= 0 for c in costs)
     wall = s.get("mean_wall_ms")
     m: dict[str, Optional[float]] = {
         "items_evaluated": float(len(item_results)),
         "items_in_langfuse": float(readback["scored_items"]) if readback and "scored_items" in readback else None,
         "accuracy": s.get("accuracy"),
         "errors": float(s.get("errors", 0)),
-        "mean_run_cost_usd": s.get("mean_run_cost_usd"),
+        "mean_run_cost_usd": s.get("mean_run_cost_usd") if costs_known else None,
         "mean_wall_s": wall / 1000.0 if wall is not None else None,
         "mean_db_time_share": s.get("mean_db_time_share"),
         "mean_scenarios_evaluated": s.get("mean_scenarios_evaluated"),
@@ -291,10 +294,14 @@ def make_run_name(label: str, versions: Mapping[str, Any], template: Optional[st
 def prompt_versions(lf: Any, label: str) -> dict[str, int]:
     """{prompt name: version} at ``label``; GateAbort when either prompt lacks it."""
     try:
-        rx._check_prompt_labels(lf, [label])
-    except SystemExit as e:
-        raise GateAbort(f"{e} Put the label on a version of BOTH prompts (the agent fetches them as a pair).") from None
-    return {name: lf.get_prompt(name, label=label, cache_ttl_seconds=0).version for name in GATED_PROMPTS}
+        versions = {name: lf.get_prompt(name, label=label, cache_ttl_seconds=0).version for name in GATED_PROMPTS}
+        # Resolve each label exactly once; all subsequent fetches use immutable IDs.
+        for name in GATED_PROMPTS:
+            P.get_prompt(lf, name, label=label, versions=versions)
+        return versions
+    except Exception as e:
+        raise GateAbort(f"Could not pin label {label!r} on BOTH prompts ({type(e).__name__}: {e}). "
+                        "Put the label on a version of BOTH prompts.") from None
 
 
 def check_project(lf: Any, expected: str) -> str:
@@ -352,6 +359,14 @@ def load_items(lf: Any, dataset_name: str, limit: Optional[int]) -> tuple[list[A
 def run_gate(a: argparse.Namespace, t: Mapping[str, Any]) -> tuple[str, bool]:
     """Pre-flight, run, read back, evaluate. Returns (markdown, blocked); raises GateAbort."""
     load_env()
+    base = RunConfig()
+    cfg = replace(base, max_scenarios_per_round=t["config"]["max_scenarios_per_round"],
+                  max_rounds=t["config"]["max_rounds"], prompt_label=a.prompt_label,
+                  model=a.model or base.model)
+    try:
+        model_prices(cfg.model)
+    except UnknownModelPriceError as e:
+        raise GateAbort(str(e)) from None
     try:
         settings = ClickHouseSettings.from_env()
     except KeyError as e:
@@ -365,13 +380,10 @@ def run_gate(a: argparse.Namespace, t: Mapping[str, Any]) -> tuple[str, bool]:
     lf = get_langfuse()
     check_project(lf, a.project_name)
     versions = prompt_versions(lf, a.prompt_label)
+    cfg = replace(cfg, prompt_versions=versions)
     rows_in_table = check_clickhouse(settings)
     items, n_dataset = load_items(lf, t["dataset"], a.limit)
 
-    base = RunConfig()
-    cfg = replace(base, max_scenarios_per_round=t["config"]["max_scenarios_per_round"],
-                  max_rounds=t["config"]["max_rounds"], prompt_label=a.prompt_label,
-                  model=a.model or base.model)
     key = f"gate-{a.prompt_label}"
     run_name = make_run_name(a.prompt_label, versions, a.run_name, rx.utc_stamp())
     description = (f"Prompt gate: label {a.prompt_label} (planner v{versions[P.PLANNER]}, analyst "

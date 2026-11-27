@@ -126,3 +126,44 @@ def test_lookup_may_not_measure(sql, msg):
 def test_template_may_not_search(bad):
     with pytest.raises(PlanError, match="searches over candidate values"):
         validate(plan(sql_template=bad), allowed_tables=T, max_scenarios=10)
+
+
+@pytest.mark.parametrize("metric", [
+    "quantileExact(0.85)(ArrDelay) - 15", "quantileTDigest(0.85)(ArrDelay) - 15",
+    "median(ArrDelay)", '`quantileExact` /* gap */ (0.85)(ArrDelay) - 15',
+])
+def test_threshold_cannot_be_solved_without_sweeping_it(metric):
+    sql = f"SELECT {metric} AS metric, count() AS support FROM flights.ontime WHERE Origin = {{origin:String}}"
+    p = plan(sql_template=sql, levers=[Lever("origin", "String", ["ATL", "LAX"])])
+    with pytest.raises(PlanError, match="searches over candidate values"):
+        validate(p, allowed_tables=T, max_scenarios=10)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT avg(ArrDelay) AS metric, count() AS support FROM flights.ontime GROUP BY Origin ORDER BY metric LIMIT 1",
+    "SELECT metric, support FROM (SELECT avg(ArrDelay) AS metric, count() AS support FROM flights.ontime GROUP BY Origin) LIMIT 1",
+    "WITH best AS (SELECT avg(ArrDelay) AS metric, count() AS support FROM flights.ontime) SELECT * FROM best",
+    "SELECT avg(ArrDelay) OVER () AS metric, count() OVER () AS support FROM flights.ontime LIMIT 1",
+    "SELECT avg(ArrDelay) AS metric, count() AS support FROM flights.ontime UNION ALL SELECT 1, 1",
+    "SELECT count() AS metric, count() AS support FROM flights.ontime ARRAY JOIN [1,2,3] AS n",
+    "SELECT arrayJoin([1,2,3]) AS metric, count() AS support FROM flights.ontime",
+    "SELECT avg(ArrDelay) AS metric, count() AS support FROM flights.ontime JOIN flights.ontime AS b USING (Origin)",
+    "SELECT 1 AS metric, 1 AS support FROM flights.ontime",
+    "SELECT count() AS metric, count() AS support FROM secret",
+])
+def test_template_rejects_sql_side_search_and_non_scalar_shapes(sql):
+    with pytest.raises(PlanError):
+        validate(plan(sql_template=sql, levers=[]), allowed_tables=T, max_scenarios=10)
+
+
+def test_template_parser_preserves_scalar_guards_and_typed_arrays():
+    sql = ("SELECT if(count() >= 500, round(sum(WeatherDelay) / nullIf(sum(ArrDelay), 0), 4), NULL) AS metric, "
+           "count() AS support FROM flights.ontime WHERE Origin IN {origins:Array(String)} AND Year={year:UInt16}")
+    p = plan(sql_template=sql, levers=[Lever("origins", "Array(String)", [["LAX", "ORD"]]),
+                                     Lever("year", "UInt16", [2019])])
+    validate(p, allowed_tables=T, max_scenarios=10)
+
+
+def test_function_names_in_literals_do_not_trigger_search_rule():
+    p = plan(sql_template=TEMPLATE + " AND DepTimeBlk != 'quantileExact(0.85)' AND Month IN [1,2,3]")
+    validate(p, allowed_tables=T, max_scenarios=10)

@@ -11,6 +11,10 @@ and aborts if either lacks it: the agent would otherwise fall back to its in-cod
 word, and the gate would grade a prompt nobody wrote. To stage a planner-only change, put the
 same label on the analyst's current production version too.
 
+The label is resolved once per prompt during pre-flight. Every task then fetches those
+exact version IDs, without a local fallback, so a later label move cannot change the pair
+being evaluated. The run summary records the same IDs the tasks use.
+
 It then runs the `scenario-explorer-questions` dataset (15 what-if questions whose answers come
 from exact reference SQL, so no LLM judge is involved) at the standard Experiment A wide config:
 300 scenarios per round, 2 rounds, against the ClickHouse Cloud flights table. It reuses
@@ -46,6 +50,13 @@ beyond that baseline (a test keeps it that way), so run-to-run noise doesn't fai
 A **missing** metric fails a hard rule. The thresholds are calibrated on all 15 questions: with
 `--limit` the verdict is a smoke test and the summary says so (per-question costs range from $0.056
 to $0.285, so a subset's mean isn't comparable).
+
+One missing or unknown item cost makes the run's cost metric missing; it cannot be
+averaged away. An unpriced requested model is rejected before any model call. If the
+provider serves an unpriced fallback, the task fails, records its token usage, and reports
+unknown cost rather than zero. Add verified model prices to `explorer/config.py` before
+evaluating a new model. A task that errors after producing an answer receives zero full
+and partial credit.
 
 ## How it's triggered
 

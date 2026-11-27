@@ -73,7 +73,8 @@ async def _think(llm: "LLM", lf: Any, *, name: str, **kw: Any) -> dict:
         return await llm.structured(lf, name=name, **kw)
     finally:
         _p({"type": "phase", "phase": name, "state": "end", "ms": round((time.perf_counter() - t0) * 1000),
-            "llm_calls": llm.calls, "cost_usd": round(llm.cost_usd, 4)})
+            "llm_calls": llm.calls,
+            "cost_usd": round(llm.cost_usd, 4) if getattr(llm, "cost_known", True) else None})
 
 
 @dataclass
@@ -219,8 +220,9 @@ def _results_table(rec: RoundRecord, *, top: int = 25, bottom: int = 5) -> str:
              f"{sum(1 for o in rec.outcomes if o.error)} errors; objective: {rec.plan.objective} "
              f"{rec.plan.metric_name}.", f"Template:\n{rec.plan.sql_template}",
              f"Best {min(top, len(ranked))}:", head, *[line(o) for o in ranked[:top]]]
-    if len(ranked) > top:
-        parts += [f"Worst {min(bottom, len(ranked) - top)}:", head, *[line(o) for o in ranked[-bottom:]]]
+    if bottom > 0 and len(ranked) > top:
+        tail = min(bottom, len(ranked) - top)
+        parts += [f"Worst {tail}:", head, *[line(o) for o in ranked[-tail:]]]
     errs = [o for o in rec.outcomes if o.error][:3]
     if errs:
         parts.append("Sample errors: " + " | ".join(f"{o.scenario}: {o.error[:200]}" for o in errs))
@@ -297,7 +299,8 @@ async def _run_question(question: Question, cfg: RunConfig, *, ch: ClickHouseCli
                    "answer_keys": question.answer_keys,
                    "config": {"max_scenarios_per_round": cfg.max_scenarios_per_round,
                               "max_rounds": cfg.max_rounds, "concurrency": cfg.concurrency,
-                              "model": cfg.model, "effort": cfg.effort}},
+                              "model": cfg.model, "effort": cfg.effort,
+                              "prompt_versions": cfg.prompt_versions}},
         ) as root:
             trace_id = root.trace_id
             try:
@@ -308,7 +311,7 @@ async def _run_question(question: Question, cfg: RunConfig, *, ch: ClickHouseCli
                 _p({"type": "phase", "phase": "profile", "state": "end",
                     "ms": round((time.perf_counter() - t_prof) * 1000)})
                 plan = await _plan(lf, llm, ch, meter, cfg, question, schema, prof, emit)
-                analyst_prompt = lf.get_prompt(P.ANALYST, label=cfg.prompt_label, fallback=P.ANALYST_TEXT)
+                analyst_prompt = P.get_prompt(lf, P.ANALYST, label=cfg.prompt_label, versions=cfg.prompt_versions)
                 for r in range(1, cfg.max_rounds + 1):
                     rec = await _run_round(lf, ch, meter, cfg, plan, r, emit)
                     rounds.append(rec)
@@ -349,7 +352,8 @@ async def _run_question(question: Question, cfg: RunConfig, *, ch: ClickHouseCli
                 metric_value=decision.get("metric_value") if decision.get("decision") == "answer" else None,
                 rounds=len(rounds), scenarios_evaluated=scen, llm_calls=llm.calls,
                 db_server_ms_total=meter.total_server_ms, db_wait_ms_total=meter.wait_ms,
-                wall_ms=wall_ms, cost_usd=llm.cost_usd, recommendation_grounded=grounded, error=error,
+                wall_ms=wall_ms, cost_usd=llm.cost_usd if getattr(llm, "cost_known", True) else None,
+                recommendation_grounded=grounded, error=error,
             )
             root.update(output={"summary": result.summary, "answer_values": answer_values,
                                 "best_scenario": best, "metric_value": result.metric_value,
@@ -371,7 +375,7 @@ async def _run_question(question: Question, cfg: RunConfig, *, ch: ClickHouseCli
 
 async def _plan(lf, llm: LLM, ch: ClickHouseClient, meter: DbMeter, cfg: RunConfig, question: Question,
                 schema: str, prof: str, emit) -> Plan:
-    prompt = lf.get_prompt(P.PLANNER, label=cfg.prompt_label, fallback=P.PLANNER_TEXT)
+    prompt = P.get_prompt(lf, P.PLANNER, label=cfg.prompt_label, versions=cfg.prompt_versions)
     system = prompt.compile(table=ch.settings.qualified_table, schema=schema, profile=prof,
                             max_scenarios=str(cfg.max_scenarios_per_round))
     user = f"Question: {question.text}"
@@ -610,7 +614,8 @@ def _score_trace(root: Any, res: RunResult, meter: DbMeter) -> None:
         "run_cost_usd": res.cost_usd,
     }
     for name, val in numeric.items():
-        root.score_trace(name=name, value=round(float(val), 4), data_type="NUMERIC")
+        if val is not None:
+            root.score_trace(name=name, value=round(float(val), 4), data_type="NUMERIC")
     root.score_trace(name="stop_reason", value=res.stop_reason, data_type="CATEGORICAL")
     if res.recommendation_grounded is not None:
         root.score_trace(name="recommendation_grounded", value=1.0 if res.recommendation_grounded else 0.0,

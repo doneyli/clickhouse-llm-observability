@@ -130,6 +130,15 @@ def test_error_output_scores_incorrect_with_reason():
     assert ev.value == 0.0 and "boom" in ev.comment
 
 
+@pytest.mark.parametrize("failure", [{"error": "ClickHouseError: verification failed"}, {"stop_reason": "error"}])
+def test_error_after_answer_cannot_earn_credit(failure):
+    o = out(EXPECTED, **failure)
+    assert answer_correct(input={}, output=o, expected_output=EXPECTED).value == 0.0
+    assert answer_key_match(input={}, output=o, expected_output=EXPECTED).value == 0.0
+    assert summarize([_item_result(EXPECTED, o)])["accuracy"] == 0.0
+    assert summarize([_item_result(EXPECTED, o)])["errors"] == 1
+
+
 def test_no_expected_output_is_not_correct():
     assert answer_correct(input={}, output=out({"origin": "LAX"}), expected_output=None).value == 0.0
 
@@ -231,6 +240,11 @@ def _fake_result(**kw):
                 db_wait_ms_total=5100.0, wall_ms=60000.0, cost_usd=0.25, recommendation_grounded=True)
     base.update(kw)
     return RunResult(**base)
+
+
+def test_task_output_preserves_unknown_cost():
+    rx = _load_script("run_experiment")
+    assert rx.task_output(_fake_result(cost_usd=None), RunConfig())["run_cost_usd"] is None
 
 
 async def test_task_wraps_a_successful_run():

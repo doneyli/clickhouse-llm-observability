@@ -6,7 +6,7 @@ from typing import Any, Optional
 
 import anthropic
 
-from .config import MODEL_PRICES
+from .config import UnknownModelPriceError, model_prices
 
 _LEVER = {
     "type": "object",
@@ -66,7 +66,7 @@ class LLMError(RuntimeError):
 
 
 def cost_usd(model: str, usage: Any) -> dict[str, float]:
-    p_in, p_out, p_cache = MODEL_PRICES.get(model, (0.0, 0.0, 0.0))
+    p_in, p_out, p_cache = model_prices(model)
     inp = getattr(usage, "input_tokens", 0) or 0
     out = getattr(usage, "output_tokens", 0) or 0
     cread = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -80,11 +80,13 @@ class LLM:
     """Counts calls and spend for one agent run (budget enforcement + scores)."""
 
     def __init__(self, model: str, effort: str, client: Optional[anthropic.AsyncAnthropic] = None):
+        model_prices(model)  # fail before opening a client or making a billable call
         self.model = model
         self.effort = effort
         self.client = client or anthropic.AsyncAnthropic()
         self.calls = 0
         self.cost_usd = 0.0
+        self.cost_known = True
         self.llm_ms = 0.0
 
     async def structured(self, lf: Any, *, name: str, system: str, user: str,
@@ -122,7 +124,15 @@ class LLM:
                 finally:
                     self.llm_ms += (time.perf_counter() - t0) * 1000.0
                 self.calls += 1
-                c = cost_usd(resp.model or self.model, resp.usage)
+                try:
+                    c = cost_usd(resp.model or self.model, resp.usage)
+                except UnknownModelPriceError:
+                    self.cost_known = False
+                    gen.update(level="ERROR", status_message="served model has no configured price",
+                               usage_details={"input": resp.usage.input_tokens or 0,
+                                              "output": resp.usage.output_tokens or 0},
+                               metadata={"served_model": resp.model, "pricing_missing": True})
+                    raise
                 self.cost_usd += c["total"]
                 cost = {k: round(cost[k] + c[k], 6) for k in cost}
                 usage["input"] += resp.usage.input_tokens or 0

@@ -113,14 +113,17 @@ def key_results(expected_output: Any, output: Any) -> dict[str, bool]:
     """Per answer key: did the run report the expected value?"""
     expected = _expected_dict(expected_output)
     answer = _answer_dict(output)
-    return {k: values_match(v, answer.get(k.lower())) for k, v in expected.items()}
+    # Verification can fail after the model has populated answer_values. Those
+    # leftover values must not earn full or partial credit, including in summaries.
+    failed = _error_of(output) is not None
+    return {k: not failed and values_match(v, answer.get(k.lower())) for k, v in expected.items()}
 
 
 def _error_of(output: Any) -> Optional[str]:
     if not isinstance(output, Mapping):
         return "task returned no output"
     err = output.get("error")
-    return str(err) if err else None
+    return str(err) if err else ("run stopped with an error" if output.get("stop_reason") == "error" else None)
 
 
 def is_correct(expected_output: Any, output: Any) -> bool:
@@ -195,7 +198,7 @@ def summarize(item_results: list[Any]) -> dict[str, Any]:
 
     return {
         "items": len(item_results),
-        "errors": sum(1 for o in outputs if o.get("error")) + sum(1 for r in item_results if not isinstance(r.output, Mapping)),
+        "errors": sum(1 for r in item_results if _error_of(r.output)),
         "accuracy": _mean(correct),
         "mean_db_time_share": _mean(col("db_time_share")),
         "mean_wall_ms": _mean(col("wall_ms")),

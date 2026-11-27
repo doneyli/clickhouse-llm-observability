@@ -12,6 +12,11 @@ the network path.
 fraction of a run's wall time spent waiting on ClickHouse (`db_time_share`, measured as
 wait time, so concurrent queries are not double-counted).
 
+The historical comparisons below predate the PR review fixes: stricter scenario SQL,
+zero accuracy credit for errored runs, pinned gate prompt versions, explicit model
+pricing, and bounded earlier-round history. Rerun Experiment A and the full prompt gate
+before using these figures as a baseline for the fixed code.
+
 ## The data
 
 Measured with `scripts/load_data.py`.
