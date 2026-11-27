@@ -245,9 +245,10 @@ before any row leaves the store.
 *Why it matters:* swap these for your customer's real teams/attributes and the
 demo becomes *their* requirement in ten minutes.
 
-**4 · The data path — `lib/langfuse-client.ts:52`**
+**4 · The data path — `lib/trace-read.ts:176`**
 ```ts
-// paginated fetch of ${host}/api/public/traces with Basic auth (pk:sk), 60s cache
+// GET ${host}/api/public/v2/observations: root rows, cursor-paged, Basic auth (pk:sk), 60s cache
+// one trace per root observation, which carries the RLS metadata the policy reads
 ```
 *Why it matters:* everything rides the public Langfuse API — no forked Langfuse,
 no direct ClickHouse access. The prototype changes nothing about the stack it

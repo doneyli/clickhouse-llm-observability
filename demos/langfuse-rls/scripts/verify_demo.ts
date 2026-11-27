@@ -8,20 +8,20 @@
 // persona sees through the app's policy engine. Node built-ins only (fetch, fs), so it needs
 // nothing beyond `tsx`. Read-only: no model calls, no writes.
 //
-// Why there is no observation or score check: the seeded traces are trace-create events with
-// no observations and no scores. The app reads them with `GET /api/public/traces`
-// (lib/langfuse-client.ts), which only the pinned self-hosted v3 server serves. The trace
-// count here uses Metrics API v1, the read CLAUDE.md names for self-hosted v3 code;
-// Observations v2 and Metrics v2 404 on that server. Fixture identity and content are read
-// through the app's own route, so this script makes no legacy trace reads.
+// Langfuse is read through the same path the app uses (lib/trace-read.ts): Observations API
+// v2, rebuilt into one trace per root observation, or the legacy trace list only when v2
+// answers 404 (the self-hosted v3 server). On v2 the check also requires each fixture's root
+// observation, which holds the input, output and RLS metadata v4 has no trace-level place for.
+// There is no score check: the demo seeds none.
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PERSONAS } from "../lib/personas";
 import { evaluate } from "../lib/rls-policy";
+import type { ReadError, TraceRead } from "../lib/trace-read";
 import type { LangfuseTrace, Subject, TracesApiResponse } from "../lib/types";
 import { type Env, ENV_PATH, expectedProject, langfuseSettings, loadEnv, readManifest, REPO_ROOT } from "./demo_env";
-import { type Fixture, fixtureDrift, loadFixtures } from "./fixtures";
-import { ApiError, type Fetch, LangfuseHttp, requestJson, TIMEOUT_MS } from "./langfuse_http";
+import { type Fixture, fixtureDrift, loadFixtures, rootObservationId } from "./fixtures";
+import { type Fetch, LangfuseHttp, requestJson, TIMEOUT_MS } from "./langfuse_http";
 
 // --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with scripts/seed-traces.ts.
 export const DEFAULT_APP_URL = "http://localhost:3000";
@@ -75,26 +75,6 @@ export function expectedVisible(fixtures: Fixture[], personas: Subject[] = PERSO
   return out;
 }
 
-/** The one number in a Metrics API response (`count_count` comes back as a string or a number). */
-export function metricCount(resp: unknown): number | undefined {
-  const row = (resp as { data?: Array<Record<string, unknown>> } | null)?.data?.[0];
-  if (!row) return 0; // no rows: nothing matched
-  const v = row.count_count ?? Object.values(row).find((x) => !Number.isNaN(Number(x)));
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-export function traceCountQuery(now: Date): string {
-  return JSON.stringify({
-    view: "traces",
-    metrics: [{ measure: "count", aggregation: "count" }],
-    dimensions: [],
-    filters: [],
-    fromTimestamp: "2020-01-01T00:00:00Z",
-    toTimestamp: new Date(now.getTime() + 5 * 60_000).toISOString(),
-  });
-}
-
 // --- Checks -------------------------------------------------------------------------------
 
 export interface RunOptions {
@@ -113,7 +93,7 @@ interface State {
 }
 
 async function langfuseChecks(c: Checker, lf: LangfuseHttp, want: string | undefined,
-  fixtureCount: number, now: Date, state: State): Promise<void> {
+  fixtures: Fixture[], now: Date, state: State): Promise<void> {
   c.print("Langfuse");
   let proj: { id?: string; name?: string };
   try {
@@ -127,16 +107,28 @@ async function langfuseChecks(c: Checker, lf: LangfuseHttp, want: string | undef
   if (!c.check(Boolean(want) && proj.name === want, `keys map to project '${proj.name ?? ""}' (want '${want ?? ""}')`,
     { hint: "use this project's keys in .env, or set LANGFUSE_PROJECT_NAME to its name" })) return;
 
+  let read: TraceRead;
   try {
-    const n = metricCount(await lf.get("/api/public/metrics", { query: traceCountQuery(now) }));
-    const hint = n !== undefined && n > fixtureCount
-      ? `the app reads every trace in the project: remove the extras (old-seeder duplicates: ${SEED_CMD} -- --prune-legacy)`
-      : `run ${SEED_CMD}; traces take a few seconds to land`;
-    c.check(n === fixtureCount, `project holds ${n ?? "?"} trace(s) (want ${fixtureCount}, one per fixture)`, { hint });
+    read = await lf.traces({ now });
   } catch (e) {
-    const err = e as ApiError;
-    c.check(false, `trace count read failed: ${err.message}`,
-      { hint: err.status === 404 ? "Metrics v1 is missing: this demo needs the self-hosted v3 server" : "is Langfuse healthy?" });
+    const err = e as ReadError;
+    c.check(false, `trace read failed: ${err.message}`, { hint: "is Langfuse healthy? (bash ../../setup.sh --status)" });
+    return;
+  }
+  const via = read.source === "observations-v2" ? "Observations v2" : "legacy trace list: Observations v2 404s on this v3 server";
+  const n = read.traces.length;
+  const wantTraces = fixtures.length;
+  c.check(n === wantTraces, `project holds ${n} trace(s) (want ${wantTraces}, one per fixture; read via ${via})`, {
+    hint: n > wantTraces
+      ? `the app reads every trace in the project: remove the extras (old-seeder duplicates: ${SEED_CMD} -- --prune-legacy)`
+      : `run ${SEED_CMD}; on a v4 server batch-ingested traces can take up to 15 minutes to appear in Observations v2`,
+  });
+  if (read.source === "observations-v2") {
+    const byId = new Map(read.traces.map((t) => [t.id, t]));
+    const noRoot = fixtures.filter((f) => byId.get(f.id)?.rootObservationId !== rootObservationId(f.id)).map((f) => f.id);
+    c.check(!noRoot.length, `every fixture has its root observation (rls-demo-NN-root) with the input, output and RLS metadata`
+      + (noRoot.length ? `; missing for ${list(noRoot)}` : ""),
+      { hint: `run ${SEED_CMD}: traces seeded before the root observation existed are repaired in place` });
   }
 }
 
@@ -193,9 +185,12 @@ async function appChecks(c: Checker, f: Fetch, appUrl: string, fixtures: Fixture
       const visible = resp?.visible?.length ?? 0;
       const total = visible + (resp?.denied?.count ?? 0);
       const ok = !resp?.error && visible === want && total === n;
+      const bare = (resp?.visible ?? []).filter((t) => !t.metadata?.classification).length;
       const hint = resp?.error
         ? `${resp.error} Check the keys the app was started with (shell exports beat .env in next dev)`
-        : total !== n
+        : bare
+          ? `${bare} trace(s) carry no RLS metadata, so the policy treats them as public: run ${SEED_CMD} (writes the root observations)`
+          : total !== n
           ? `app sees ${total} traces, want ${n}; it caches for 60 s, so wait and re-run after a reseed`
           : "the policy engine disagrees with the fixtures: run npm test";
       c.check(ok, `${p.name} (${p.clearance}) sees ${visible}/${total} (want ${want}/${n})`, { hint });
@@ -253,7 +248,7 @@ async function checks(c: Checker, opts: RunOptions): Promise<void> {
   if (!configured || !fixturesOk) return; // configuration failures stop before any request
 
   const lf = new LangfuseHttp(settings!, f);
-  await langfuseChecks(c, lf, expectedProject(env, opts.manifest ?? readManifest()), fixtures.length, now, state);
+  await langfuseChecks(c, lf, expectedProject(env, opts.manifest ?? readManifest()), fixtures, now, state);
   const appUrl = (env.DEMO_APP_URL || DEFAULT_APP_URL).replace(/\/+$/, "");
   await appChecks(c, f, appUrl, fixtures);
 

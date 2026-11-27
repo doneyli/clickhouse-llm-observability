@@ -46,15 +46,18 @@ credit risk and churn. Inputs and outputs are pre-written; no model is called.
 ```
  browser ── Next.js :3000
               app/api/traces/route.ts
-                listTraces()      lib/langfuse-client.ts   GET /api/public/traces, paginated, 60 s cache
+                listTraces()      lib/langfuse-client.ts   60 s cache
+                readTraces()      lib/trace-read.ts        GET /api/public/v2/observations, root rows,
+                                                           cursor-paged; legacy GET /api/public/traces
+                                                           only when v2 answers 404 (v3 server)
                 evaluateBatch()   lib/rls-policy.ts        evaluate() per trace, in-process
               returns {visible[], denied{count, samples[≤5]}, persona}
- Langfuse :3001 (self-hosted v3)
+ Langfuse :3001 (self-hosted: 4.79.0 on the live stack; 3.221.1 where the committed compose pins it)
 ```
 
 One process. The seeder (`scripts/seed-traces.ts`) is a separate one-shot run: it reads the
-project's `rls-demo` traces, then sends `trace-create` events only for fixtures that are
-missing or have drifted.
+project's `rls-demo` traces through the same `readTraces()`, then sends a `trace-create` and a
+root `span-create` only for fixtures that are missing or have drifted.
 
 ## 6. What lands in Langfuse
 
@@ -64,7 +67,8 @@ missing or have drifted.
 | Tag | `rls-demo` | On every seeded trace |
 | `userId` | `alice`, `bob`, `carol` | The persona who owns the topic; 10 each |
 | Metadata | `classification`, `team`, `topic` | Read by the policy engine; `team` is display and audit only |
-| Observations, scores, sessions | none | The demo is about row visibility, not tracing |
+| Root observation | `rls-demo-NN-root`, a span named like the trace | One per trace, at the trace's timestamp; carries `input`, `output` and the RLS `metadata`, which v4 keeps only on observations |
+| Child observations, scores, sessions | none | The demo is about row visibility, not tracing |
 
 ## 7. Act plan
 
@@ -84,10 +88,12 @@ predates the standard and has not been re-measured.
 
 ## 9. Risks and open questions
 
-- The app reads `GET /api/public/traces`, which Langfuse Cloud removed on 2026-11-16 and which
-  a v4 server no longer serves. The demo runs only against the self-hosted v3 server until the
-  read moves to Observations v2 and the seeder to OTLP with the v5 `@langfuse/*` SDK
-  (`docs/LANGFUSE_V4_MIGRATION_SPEC.md` §15).
+- The seeder writes through the batch ingestion API, which Langfuse Cloud deprecates, and a v4
+  server can take up to 15 minutes to show those events in Observations v2. Moving the seeder to
+  OTLP with the `x-langfuse-ingestion-version: 4` header would make them real-time, but OTel trace
+  ids are 32 hex characters, so the stable `rls-demo-NN` ids would have to change.
+- The legacy trace-list fallback (D8) exists only for a v3 server and goes when the repo stops
+  pinning 3.221.1.
 - Projects seeded before the stable ids hold copies under random ids. `npm run seed` reports them;
   `--prune-legacy` deletes only those, after the operator asks for it.
 - An unknown classification ranks below `general` and fails open; a production policy would
@@ -101,6 +107,7 @@ predates the standard and has not been re-measured.
 | D2 | Policy model | Clearance rank ceiling plus default deny | Easy to review and argue about; maps to attribute-based access control |
 | D3 | Team-based allow | Removed | `allow-own-team` let a general-clearance analyst read `ceo-only` traces their team owned |
 | D4 | Traces without RLS metadata | Public | Keeps unrelated traces visible; recorded as a limit, since it fails open |
-| D5 | Readiness check | `scripts/verify.sh` wraps `scripts/verify_demo.ts`; Metrics v1 for the Langfuse count, the app's own route for the persona counts | The seeded traces have no observations, so Observations v2 has nothing to count, and Observations v2 and Metrics v2 404 on the v3 server. Reading through the app checks the path the audience sees |
-| D6 | Seeding | Stable fixture ids; read, compare, write only what is missing or drifted; raw ingestion API | An unchanged run writes nothing. The 207 response names each failed event, which the legacy SDK's queue swallowed. A trace update keeps its timestamp so the v3 table does not keep a second row |
+| D5 | Readiness check | `scripts/verify.sh` wraps `scripts/verify_demo.ts`; the shared `readTraces()` for the Langfuse count and the root-observation check, the app's own route for the persona counts | One read path for app, seeder and check, so the check cannot pass on a read the app does not make. Reading through the app checks the path the audience sees |
+| D6 | Seeding | Stable fixture ids; read, compare, write only what is missing or drifted; raw ingestion API; a trace plus a root observation `rls-demo-NN-root` per fixture | An unchanged run writes nothing. The 207 response names each failed event, which the legacy SDK's queue swallowed. A trace update keeps its timestamp so the v3 table does not keep a second row. v4 has no trace-level input, output or metadata, so the root observation carries them; a trace without it is drift and is repaired in place |
 | D7 | Old-seeder duplicates | Reported by default, deleted only with `--prune-legacy`, and only tagged traces that copy a fixture's name under another id | Never wipe a project or delete what the seeder does not own |
+| D8 | Which read API | Observations v2 (`fields=core,basic,io,metadata,trace_context`, `isRootObservation`, tag and time bounds in `filter`, `meta.cursor` followed through empty pages, bounded, repeated cursor is an error), grouped by `traceId`; the legacy `GET /api/public/traces` only when v2 answers the first request with 404 | v2 is the current read on v4 and Cloud, and the live stack runs 4.79.0. The repo's committed compose still pins 3.221.1, where v2 404s, so that server keeps working; any other v2 failure is an error, never a silent fallback |

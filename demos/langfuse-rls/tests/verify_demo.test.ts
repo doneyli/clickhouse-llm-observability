@@ -1,5 +1,6 @@
 // scripts/verify_demo.ts offline: results, summary and exit code, the .env rule, the manifest
-// parse, the metric parse, and full runs against the fake Langfuse and app. No network.
+// parse, and full runs against the fake Langfuse (v4 by default, v3 for the fallback) and app.
+// No network.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { type Env, expectedProject, langfuseSettings, loadEnv, manifestValue, parseEnv } from "../scripts/demo_env";
 import { type Fixture, loadFixtures } from "../scripts/fixtures";
 import {
-  actLinks, Checker, expectedVisible, fixtureProblems, metricCount, run, summary, traceCountQuery,
+  actLinks, Checker, expectedVisible, fixtureProblems, run, summary,
 } from "../scripts/verify_demo";
 import { APP, ENV_TEXT, FakeLangfuse, HOSTILE_SHELL, LF } from "./fake_langfuse";
 
@@ -81,19 +82,6 @@ describe("expected data", () => {
     expect(expectedVisible(FIXTURES)).toEqual({ alice: 30, bob: 20, carol: 10 });
   });
 
-  it("parses the metric whether it comes back as a string, a number or no row", () => {
-    expect(metricCount({ data: [{ count_count: "30" }] })).toBe(30);
-    expect(metricCount({ data: [{ count_count: 12 }] })).toBe(12);
-    expect(metricCount({ data: [] })).toBe(0);
-    expect(metricCount({ data: [{ count_count: "n/a" }] })).toBeUndefined();
-  });
-
-  it("queries the traces view with a window that ends after now", () => {
-    const q = JSON.parse(traceCountQuery(new Date("2026-11-27T00:00:00Z")));
-    expect(q).toMatchObject({ view: "traces", metrics: [{ measure: "count", aggregation: "count" }] });
-    expect(q.toTimestamp > "2026-11-27T00:00:00").toBe(true);
-  });
-
   it("finds missing and drifted fixtures by stable id", () => {
     const visible = FIXTURES.slice(1).map((f) => (f.id === "rls-demo-02" ? { ...f, output: { response: "x" } } : f));
     expect(fixtureProblems(FIXTURES, visible)).toEqual({ missing: ["rls-demo-01"], drifted: ["rls-demo-02"] });
@@ -111,7 +99,7 @@ describe("expected data", () => {
 let lf: FakeLangfuse;
 beforeEach(() => {
   lf = new FakeLangfuse();
-  for (const f of FIXTURES) lf.add({ ...f });
+  for (const f of FIXTURES) lf.addWithRoot({ ...f });
 });
 
 async function runIn(opts: { env?: string | null; shell?: Env; argv?: string[] } = {}) {
@@ -127,10 +115,31 @@ async function runIn(opts: { env?: string | null; shell?: Env; argv?: string[] }
 describe("run", () => {
   it("is READY when Langfuse holds the 30 fixtures and the app shows 30 / 20 / 10", async () => {
     const { code, out, text } = await runIn({ argv: ["--links"] });
-    expect(out.at(-1)).toBe("\nREADY (12/12 checks passed)");
+    expect(out.at(-1)).toBe("\nREADY (13/13 checks passed)");
     expect(code).toBe(0);
     expect(text).toContain(`${LF}/project/p1/traces`);
+    expect(text).toMatch(/PASS {2}project holds 30 trace\(s\) .*read via Observations v2/);
+    expect(text).toMatch(/PASS {2}every fixture has its root observation/);
     expect(text).toMatch(/PASS {2}all 30 fixtures present under their stable ids/);
+    expect(lf.reads("/api/public/traces")).toHaveLength(0);
+  });
+
+  it("is READY on the self-hosted v3 server through the legacy list, only after v2 404s", async () => {
+    lf.server = "v3";
+    const { code, out, text } = await runIn();
+    expect(out.at(-1)).toBe("\nREADY (12/12 checks passed)");
+    expect(code).toBe(0);
+    expect(text).toMatch(/read via legacy trace list: Observations v2 404s on this v3 server/);
+    expect(text).not.toMatch(/root observation/);
+  });
+
+  it("fails traces the old seeder left without root observations: the case the review found", async () => {
+    lf.observations.clear();
+    const { code, text } = await runIn();
+    expect(code).toBe(1);
+    expect(text).toMatch(/FAIL {2}every fixture has its root observation .*missing for rls-demo-01.*npm run seed/);
+    // With no metadata to read, every trace looks public: the policy cannot split them.
+    expect(text).toMatch(/FAIL {2}Bob Singh \(restricted\) sees 30\/30 \(want 20\/30\) .*carry no RLS metadata.*npm run seed/);
   });
 
   it("makes only reads", async () => {
@@ -183,20 +192,22 @@ describe("run", () => {
   });
 
   it("fails a drifted or missing fixture even when the counts still add up", async () => {
-    const t = lf.traces.get("rls-demo-07")!;
-    lf.traces.set("rls-demo-07", { ...t, output: { response: "edited by hand" } });
+    const r = lf.root("rls-demo-07")!;
+    lf.observations.set(r.id, { ...r, output: { response: "edited by hand" } });
     lf.traces.delete("rls-demo-08");
-    lf.add({ ...FIXTURES[7], id: "random-id" }); // same content as rls-demo-08, wrong id
+    lf.observations.delete("rls-demo-08-root");
+    lf.addWithRoot({ ...FIXTURES[7], id: "random-id" }); // same content as rls-demo-08, wrong id
     const { code, text } = await runIn();
     expect(code).toBe(1);
     expect(text).toMatch(/FAIL {2}all 30 fixtures .*; missing rls-demo-08; drifted rls-demo-07/);
   });
 
-  it("names the v3 server when Metrics v1 404s", async () => {
-    lf.metricsStatus = 404;
+  it("a v2 failure other than 404 is a FAIL, never a fallback to the legacy list", async () => {
+    lf.listStatus = 500;
     const { code, text } = await runIn();
     expect(code).toBe(1);
-    expect(text).toMatch(/trace count read failed.*self-hosted v3 server/);
+    expect(text).toMatch(/FAIL {2}trace read failed: HTTP 500/);
+    expect(lf.reads("/api/public/traces")).toHaveLength(0);
   });
 
   it("fails when the app is down, and tells you to start it", async () => {

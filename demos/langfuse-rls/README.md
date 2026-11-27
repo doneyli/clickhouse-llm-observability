@@ -62,20 +62,26 @@ the index in [`demos/README.md`](../README.md).
               │  /api/traces?persona=<id>   app/api/traces/route.ts
               │    listTraces()             lib/langfuse-client.ts  (60 s in-memory cache)
               │    evaluateBatch()          lib/rls-policy.ts       (filter in-process)
-              ▼  GET /api/public/traces, Basic auth, paginated
- Langfuse :3001 (self-hosted v3, root compose `langfuse` profile)
+              │                             lib/trace-read.ts       (shared by the app, seed and verify)
+              ▼  GET /api/public/v2/observations, root rows, cursor-paged, Basic auth
+                 (GET /api/public/traces only if v2 answers 404: a self-hosted v3 server)
+ Langfuse :3001 (root compose `langfuse` profile)
    project `RLS Demo` (or the name in LANGFUSE_PROJECT_NAME)
    30 traces from npm run seed · tag `rls-demo` · userId alice | bob | carol
-   metadata {classification, team, topic} · input {query} · output {response}
-   no observations, no scores, no sessions
+   each with one root observation `rls-demo-NN-root` carrying
+     metadata {classification, team, topic} · input {query} · output {response}
+   no scores, no sessions
 
  npm run seed ── scripts/seed-traces.ts
-   GET /api/public/traces?tags=rls-demo   read what exists
-   POST /api/public/ingestion             trace-create, only for missing or drifted fixtures
+   the same read, filtered to tag rls-demo   what exists
+   POST /api/public/ingestion                trace-create + span-create (the root), only for
+                                             missing or drifted fixtures
 ```
 
 Each fixture has a stable trace id (`rls-demo-01` … `rls-demo-30`), so re-seeding updates the
-same 30 traces. The app reads **every** trace in the project, not only the tagged ones, so keep
+same 30 traces. v4 keeps no input, output or metadata at trace level, so the app rebuilds each
+trace from its root observation; on a v3 server the legacy trace list carries them directly. The
+app reads **every** trace in the project, not only the tagged ones, so keep
 the project to these 30. A trace without `classification` and `team` metadata counts as public and is shown to
 every persona.
 
@@ -173,7 +179,8 @@ demos/langfuse-rls/
 │   ├── rls-policy.ts          evaluate() and evaluateBatch(): the policy engine
 │   ├── policies.ts            the two rules
 │   ├── personas.ts            Alice, Bob, Carol
-│   ├── langfuse-client.ts     paginated GET /api/public/traces with a 60 s cache
+│   ├── langfuse-client.ts     the app's read, with a 60 s cache
+│   ├── trace-read.ts          Observations v2 read and trace rebuild; legacy list only on a v2 404
 │   └── types.ts
 ├── scripts/
 │   ├── seed-traces.ts         npm run seed: idempotent upsert of the 30 fixtures; --prune-legacy
@@ -199,10 +206,13 @@ that a team match never widens access, the no-metadata rule, `evaluateBatch()`, 
 committed fixtures produce the 30 / 20 / 10 split. `tests/seed_traces.test.ts` covers the
 seeder: missing or partial `.env` with hostile shell exports, the wrong project, two unchanged
 reruns that write nothing, drift repair, a changed fixture, partial and total write failures, a
-failed read, pagination, and old-seeder duplicates. `tests/verify_demo.test.ts` covers the
-readiness check: verdicts and exit codes, the `.env` rule, the metric parse, and full runs. Both
-run against `tests/fake_langfuse.ts`, an in-memory Langfuse and app that reject unknown query
-parameters. `npm run typecheck` runs `tsc --noEmit`.
+failed read, cursor paging, repairing traces the old seeder left without a root observation,
+the v3 fallback, and old-seeder duplicates. `tests/verify_demo.test.ts` covers the readiness
+check: verdicts and exit codes, the `.env` rule, and full runs on v4 and v3.
+`tests/trace_read.test.ts` covers the shared read and the app's `listTraces()`: field groups,
+truncated metadata, the 404-only fallback, and rebuilding traces from root rows. All run against
+`tests/fake_langfuse.ts`, an in-memory Langfuse (v4 or v3) and app that reject unknown query
+parameters, field groups and filter conditions, and return only the field groups asked for. `npm run typecheck` runs `tsc --noEmit`.
 
 ## Troubleshooting
 
@@ -212,10 +222,11 @@ parameters. `npm run typecheck` runs `tsc --noEmit`.
 | `keys map to project '…' (want '…')` | The keys belong to another project, or `LANGFUSE_PROJECT_NAME` does not match the project's name |
 | `project holds 60 trace(s) (want 30 …)`, persona counts 60 / 40 / 20 | Duplicates from the old appending seeder (random ids). `npm run seed` lists them as `legacy`; `npm run seed -- --prune-legacy` deletes just those |
 | Persona counts lag a reseed or a prune | The app caches the trace list for 60 seconds. Wait, then refresh |
-| `trace count read failed: HTTP 404 … self-hosted v3 server` | The server is Langfuse v4, which drops the reads this demo uses (`GET /traces` in the app, Metrics v1 in the check) |
+| `every fixture has its root observation … missing`, Bob and Carol see all 30 | The traces predate the root observations (the old seeder wrote trace-create only), so a v4 server has no metadata to filter on. `npm run seed` repairs them in place |
+| `trace read failed: HTTP …` | Observations v2 failed for a reason other than 404 (a 404 switches to the legacy list). Check Langfuse is healthy: `../../setup.sh --status` |
 | Port 3000 already in use | `lsof -ti:3000 \| xargs kill`, or `PORT=3002 npm run dev` and `DEMO_APP_URL=http://localhost:3002 bash scripts/verify.sh` |
 | Mermaid diagrams blank on `/design` | Mermaid renders client-side only. Wait a moment or hard-refresh |
-| Seed says done but no traces appear | The SDK flushes asynchronously and the seeder awaits `flushAsync()`. Check the keys belong to this project and the worker is processing (`docker compose restart langfuse-worker` after a long uptime) |
+| Seed says done but no traces appear | Ingestion is asynchronous, and a v4 server can take up to 15 minutes to show batch-ingested events in Observations v2. Wait before re-running `verify.sh` or the seeder. If they never appear, check the worker is processing (`docker compose restart langfuse-worker` after a long uptime) |
 
 ## Known limits
 
@@ -223,7 +234,7 @@ parameters. `npm run typecheck` runs `tsc --noEmit`.
   the app server; anyone with the project's API keys, or a seat in the project, bypasses the
   policy entirely.
 - **App-layer filtering only.** No predicate push-down into ClickHouse, so cost grows with the
-  project's trace count; `lib/langfuse-client.ts` stops at 100 pages of 50.
+  project's trace count; `lib/trace-read.ts` stops at 200 pages of 1,000 root rows.
 - **No audit log** of allowed or denied reads, and exports, the public API and the Langfuse UI
   are not covered.
 - **An unknown classification fails open.** A trace whose `metadata.classification` is not one
@@ -231,9 +242,11 @@ parameters. `npm run typecheck` runs `tsc --noEmit`.
   classification or team. `tests/rls-policy.test.ts` pins this behaviour.
 - **The denied banner lists at most 5** of the hidden traces (`app/api/traces/route.ts`), not
   all of them.
-- **Self-hosted v3 only.** The app and the seeder read `GET /api/public/traces`, which Langfuse
-  Cloud removed and a v4 server does not serve, and the seeder writes `trace-create` events to
-  `POST /api/public/ingestion`. Run it against the root stack's v3 server only; there is no
-  tested current-API path yet (`lib/langfuse-client.ts` says what replacing it needs).
-- **Traces only.** The seeded traces have no observations, scores or sessions, and no model is
-  called; the demo is about who sees rows, not about tracing.
+- **Self-hosted only.** The app reads Observations v2 on a v4 server and falls back to the legacy
+  trace list only on a v3 server, but the seeder writes through the batch ingestion API
+  (`POST /api/public/ingestion`), which Langfuse Cloud deprecates. The demo targets the root
+  stack's self-hosted server; it is not set up for Cloud.
+- **Seeded traces show up late on v4.** Batch-ingested events can take up to 15 minutes to reach
+  Observations v2, so seed well before the demo.
+- **One root observation per trace, nothing more.** No child observations, scores or sessions,
+  and no model is called; the demo is about who sees rows, not about tracing.

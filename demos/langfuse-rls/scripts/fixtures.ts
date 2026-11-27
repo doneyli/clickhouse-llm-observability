@@ -18,6 +18,11 @@ export interface Fixture {
   output: Record<string, unknown>;
 }
 
+/** The stable id of a fixture's root observation, which holds its input, output and metadata. */
+export function rootObservationId(fixtureId: string): string {
+  return `${fixtureId}-root`;
+}
+
 /** The fields a seeded trace must match, as Langfuse returns them. */
 export interface TraceLike {
   id: string;
@@ -28,6 +33,8 @@ export interface TraceLike {
   input?: unknown;
   output?: unknown;
   timestamp?: string;
+  /** The trace's real root observation (Observations v2 reads only). */
+  rootObservationId?: string;
 }
 
 const CLASSIFICATIONS = ["ceo-only", "restricted", "general"];

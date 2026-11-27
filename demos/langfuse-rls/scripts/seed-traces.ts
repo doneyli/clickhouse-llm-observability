@@ -13,49 +13,24 @@
 // missing file or value fails before any request. The keys must map to the expected project
 // (LANGFUSE_PROJECT_NAME, else langfuse.project in demo.yaml) before anything is written.
 //
-// Reads and writes on the pinned self-hosted v3 server (3.221.1), which is this demo's only
-// supported target: the traces carry no observations, and Observations v2 404s on v3, so the
-// current state is read with `GET /api/public/traces?tags=rls-demo` (the same read the app
-// makes in lib/langfuse-client.ts). Writes are `trace-create` events on `POST
-// /api/public/ingestion`, whose 207 response lists per-event errors, so partial failures are
-// reported instead of being swallowed by an SDK queue.
+// The current state is read through the same path the app uses (lib/trace-read.ts):
+// Observations API v2 on a v4 server, the legacy trace list only when v2 answers 404 (the
+// self-hosted v3 server). v4 has no trace-level input, output or metadata, so every fixture is
+// written as a trace plus one root observation, `rls-demo-NN-root`, that carries the fixture's
+// input, output and RLS metadata; a trace without it is drift ("root") and is repaired. Writes
+// go to `POST /api/public/ingestion`, whose 207 response lists per-event errors, so partial
+// failures are reported instead of being swallowed by an SDK queue.
 import { randomUUID } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { ReadSource } from "../lib/trace-read";
 import { type Env, ENV_PATH, expectedProject, langfuseSettings, loadEnv, readManifest, REPO_ROOT } from "./demo_env";
-import { DEMO_TAG, type Fixture, fixtureDrift, loadFixtures, type TraceLike } from "./fixtures";
-import { ApiError, type Fetch, LangfuseHttp } from "./langfuse_http";
+import { DEMO_TAG, type Fixture, fixtureDrift, loadFixtures, rootObservationId, type TraceLike } from "./fixtures";
+import { type Fetch, LangfuseHttp } from "./langfuse_http";
 
-export const PAGE_LIMIT = 100;
-export const MAX_PAGES = 50;
+export { rootObservationId };
+
 const DELETE_CHUNK = 1000;
-
-// --- Reading the current state ------------------------------------------------------------
-
-interface TracesPage {
-  data?: TraceLike[];
-  meta?: { page?: number; totalPages?: number };
-}
-
-/**
- * Every trace in the project tagged `rls-demo`, following page numbers until `totalPages`.
- * Bounded to MAX_PAGES, and it fails rather than loops if a page repeats ids already seen.
- */
-export async function listTaggedTraces(lf: LangfuseHttp): Promise<TraceLike[]> {
-  const out: TraceLike[] = [];
-  const seen = new Set<string>();
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const d = ((await lf.get("/api/public/traces", { tags: DEMO_TAG, page, limit: PAGE_LIMIT })) ?? {}) as TracesPage;
-    const rows = d.data ?? [];
-    const fresh = rows.filter((t) => !seen.has(t.id));
-    if (rows.length && !fresh.length) throw new ApiError(undefined, `trace list repeated page ${page}; stopping`);
-    for (const t of fresh) seen.add(t.id);
-    out.push(...fresh);
-    const total = d.meta?.totalPages ?? 0;
-    if (!rows.length || page >= total) return out;
-  }
-  throw new ApiError(undefined, `trace list still had pages after ${MAX_PAGES} x ${PAGE_LIMIT}`);
-}
 
 // --- Planning -----------------------------------------------------------------------------
 
@@ -69,7 +44,11 @@ export interface Plan {
   foreign: TraceLike[];
 }
 
-export function plan(fixtures: Fixture[], existing: TraceLike[]): Plan {
+/**
+ * `checkRoot` (Observations v2 reads) also requires each fixture's root observation: without
+ * it a v4 server has nowhere to keep the input, output and metadata the app reads.
+ */
+export function plan(fixtures: Fixture[], existing: TraceLike[], opts: { checkRoot?: boolean } = {}): Plan {
   const byId = new Map(existing.map((t) => [t.id, t]));
   const ids = new Set(fixtures.map((f) => f.id));
   const names = new Set(fixtures.map((f) => f.name));
@@ -79,6 +58,7 @@ export function plan(fixtures: Fixture[], existing: TraceLike[]): Plan {
     if (!t) p.create.push(f);
     else {
       const fields = fixtureDrift(f, t);
+      if (opts.checkRoot && t.rootObservationId !== rootObservationId(f.id)) fields.push("root");
       if (fields.length) p.update.push({ fixture: f, existing: t, fields });
       else p.unchanged.push(f);
     }
@@ -92,18 +72,36 @@ export function plan(fixtures: Fixture[], existing: TraceLike[]): Plan {
 
 // --- Writing ------------------------------------------------------------------------------
 
-export interface IngestionEvent {
+export interface TraceEvent {
   id: string;
   type: "trace-create";
   timestamp: string;
   body: Fixture & { timestamp: string };
 }
 
+export interface RootEvent {
+  id: string;
+  type: "span-create";
+  timestamp: string;
+  body: {
+    id: string;
+    traceId: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    input: Fixture["input"];
+    output: Fixture["output"];
+    metadata: Fixture["metadata"];
+  };
+}
+
+export type IngestionEvent = TraceEvent | RootEvent;
+
 /**
  * One trace-create event. An update keeps the trace's existing timestamp: the v3 traces table
  * is ordered by the trace's date, so moving it would leave a second row behind.
  */
-export function traceEvent(fixture: Fixture, now: Date, existingTimestamp?: string, eventId: string = randomUUID()): IngestionEvent {
+export function traceEvent(fixture: Fixture, now: Date, existingTimestamp?: string, eventId: string = randomUUID()): TraceEvent {
   const { id, name, userId, tags, metadata, input, output } = fixture;
   return {
     id: eventId,
@@ -113,30 +111,62 @@ export function traceEvent(fixture: Fixture, now: Date, existingTimestamp?: stri
   };
 }
 
+/**
+ * The fixture's root observation, at the trace's timestamp, carrying what v4 reads from the
+ * root: input, output and the RLS metadata. Its id is stable, so a repair upserts it.
+ */
+export function rootEvent(fixture: Fixture, now: Date, existingTimestamp?: string, eventId: string = randomUUID()): RootEvent {
+  const at = existingTimestamp ?? now.toISOString();
+  return {
+    id: eventId,
+    type: "span-create",
+    timestamp: now.toISOString(),
+    body: {
+      id: rootObservationId(fixture.id),
+      traceId: fixture.id,
+      name: fixture.name,
+      startTime: at,
+      endTime: at,
+      input: fixture.input,
+      output: fixture.output,
+      metadata: fixture.metadata,
+    },
+  };
+}
+
+/** The trace and root-observation events that write one fixture. */
+export function fixtureEvents(fixture: Fixture, now: Date, existingTimestamp?: string): IngestionEvent[] {
+  return [traceEvent(fixture, now, existingTimestamp), rootEvent(fixture, now, existingTimestamp)];
+}
+
+function fixtureIdOf(ev: IngestionEvent): string {
+  return ev.type === "trace-create" ? ev.body.id : ev.body.traceId;
+}
+
 interface IngestionResponse {
   successes?: Array<{ id: string; status?: number }>;
   errors?: Array<{ id: string; status?: number; message?: string; error?: unknown }>;
 }
 
-/** Send the events; returns the error message per trace id for every event not acknowledged. */
+/** Send the events; returns the error message per fixture id for every event not acknowledged. */
 export async function ingest(lf: LangfuseHttp, events: IngestionEvent[]): Promise<Map<string, string>> {
   const failed = new Map<string, string>();
   if (!events.length) return failed;
-  const traceOf = new Map(events.map((e) => [e.id, e.body.id]));
+  const traceOf = new Map(events.map((e) => [e.id, fixtureIdOf(e)]));
   let resp: IngestionResponse;
   try {
     resp = ((await lf.request("POST", "/api/public/ingestion", { body: { batch: events } })) ?? {}) as IngestionResponse;
   } catch (e) {
-    for (const ev of events) failed.set(ev.body.id, (e as Error).message);
+    for (const ev of events) failed.set(fixtureIdOf(ev), (e as Error).message);
     return failed;
   }
   const ok = new Set((resp.successes ?? []).map((s) => s.id));
   for (const err of resp.errors ?? []) {
     const traceId = traceOf.get(err.id);
-    if (traceId) failed.set(traceId, `${err.status ?? "?"} ${err.message ?? JSON.stringify(err.error ?? "")}`.trim());
+    if (traceId && !failed.has(traceId)) failed.set(traceId, `${err.status ?? "?"} ${err.message ?? JSON.stringify(err.error ?? "")}`.trim());
   }
   for (const ev of events) {
-    if (!ok.has(ev.id) && !failed.has(ev.body.id)) failed.set(ev.body.id, "not acknowledged by the ingestion API");
+    if (!ok.has(ev.id) && !failed.has(fixtureIdOf(ev))) failed.set(fixtureIdOf(ev), "not acknowledged by the ingestion API");
   }
   return failed;
 }
@@ -190,6 +220,7 @@ export async function seed(opts: SeedOptions = {}): Promise<number> {
 
   // 2. The keys must belong to the demo's project before anything is written.
   let existing: TraceLike[];
+  let source: ReadSource;
   try {
     const proj = await lf.project();
     if (!want || proj.name !== want) {
@@ -197,17 +228,20 @@ export async function seed(opts: SeedOptions = {}): Promise<number> {
       return 1;
     }
     out(`Seeding ${fixtures.length} fixtures into project '${proj.name}' at ${lf.base}`);
-    existing = await listTaggedTraces(lf);
+    const read = await lf.traces({ tags: [DEMO_TAG], now });
+    existing = read.traces;
+    source = read.source;
+    if (source === "legacy-traces") out("Observations v2 returned 404 (self-hosted v3 server): reading the legacy trace list.");
   } catch (e) {
     out(`FAILED: reading Langfuse: ${(e as Error).message}. Nothing was written.`);
     return 1;
   }
 
   // 3. Write only what is missing or has drifted.
-  const p = plan(fixtures, existing);
+  const p = plan(fixtures, existing, { checkRoot: source === "observations-v2" });
   const events = [
-    ...p.create.map((f) => traceEvent(f, now)),
-    ...p.update.map((u) => traceEvent(u.fixture, now, u.existing.timestamp)),
+    ...p.create.flatMap((f) => fixtureEvents(f, now)),
+    ...p.update.flatMap((u) => fixtureEvents(u.fixture, now, u.existing.timestamp)),
   ];
   const failed = await ingest(lf, events);
   const changed = new Map(p.update.map((u) => [u.fixture.id, u.fields]));
@@ -240,7 +274,12 @@ export async function seed(opts: SeedOptions = {}): Promise<number> {
     `${p.unchanged.length} unchanged, ${nFailed} failed` +
     (p.legacy.length ? `; ${p.legacy.length} old-seeder duplicate(s) ${legacyLeft ? "kept" : "deleted"}` : "") + ".");
   if (legacyLeft) out("The app reads every trace in the project, so the duplicates break the 30 / 20 / 10 split. Run: npm run seed -- --prune-legacy");
-  if (events.length || (prune && p.legacy.length)) out("Ingestion and deletion are asynchronous: allow a few seconds, then bash scripts/verify.sh.");
+  if (events.length || (prune && p.legacy.length)) {
+    out(source === "observations-v2"
+      ? "Ingestion is asynchronous, and a v4 server can take up to 15 minutes to show batch-ingested events in Observations v2:"
+        + " wait before bash scripts/verify.sh, and before re-running the seeder."
+      : "Ingestion and deletion are asynchronous: allow a few seconds, then bash scripts/verify.sh.");
+  }
   return nFailed || legacyLeft ? 1 : 0;
 }
 

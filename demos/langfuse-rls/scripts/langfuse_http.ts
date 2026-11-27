@@ -1,5 +1,6 @@
 // Minimal JSON-over-HTTP for the seeder and the readiness check. Node built-ins only (fetch).
 // Every failure becomes an ApiError: HTTP errors carry the status, network errors carry none.
+import { type ReadOptions, readTraces, type TraceRead } from "../lib/trace-read";
 import type { LangfuseSettings } from "./demo_env";
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
@@ -72,6 +73,11 @@ export class LangfuseHttp {
 
   get(path: string, params?: Record<string, string | number | string[] | undefined>): Promise<unknown> {
     return this.request("GET", path, { params });
+  }
+
+  /** The project's traces, through the same read the app makes (lib/trace-read.ts). */
+  traces(opts: ReadOptions = {}): Promise<TraceRead> {
+    return readTraces({ ...this.settings, fetch: this.fetchFn }, opts);
   }
 
   /** The project these keys belong to (a project key sees exactly one). */
