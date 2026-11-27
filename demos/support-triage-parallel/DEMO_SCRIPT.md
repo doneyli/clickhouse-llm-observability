@@ -52,6 +52,10 @@ FAULT= docker compose --profile demo run --rm support-triage-parallel python mai
 #   → confirm the step log shows "tie_break=True"; open that trace in Langfuse and pin the tab.
 #   If needed later, filter Traces by score consensus_confidence < 1.
 
+# Pre-run the Act 6 comparison, so its three runs are there even if the live run is slow
+# (reads keys from the environment; calls models: 3 strategies x 10 items x 5 samples):
+(set -a && source .env && set +a && python demos/support-triage-parallel/scripts/run_experiment.py --strategy all)
+
 # Create the two Monitors (Langfuse → Monitors → New) — settings in Act 5.
 
 # 30 minutes before: READY, plus the link for every act (incl. the tie trace).
@@ -59,8 +63,9 @@ python demos/support-triage-parallel/scripts/verify_demo.py --links
 ```
 
 `verify_demo.py` exits 1 when a required check fails; fix what it names before the
-meeting. Optional acts only warn: no tie trace yet (Act 3), no aggregator runs (Act 6),
-no evaluator scores.
+meeting. It checks the full script: the tie trace (Act 3), all three aggregator runs (Act 6)
+and both evaluator scores are required. For the short path run it with `--short`: the tie
+trace is still required, Act 6 and the evaluator scores only warn.
 
 **Browser tabs ready:** the links `--links` printed — the latest run, the TCK-002 tie
 trace, Dashboards, the `sql-voting` dataset runs — plus Langfuse Traces (`:3001`,
@@ -417,7 +422,7 @@ def observe(name, as_type="span", ...):
         yield _NullObs(); return           # obs.update(...) is always safe
 ```
 
-**7 · Readiness counts real rows — `scripts/verify_demo.py:409`**
+**7 · Readiness counts real rows — `scripts/verify_demo.py:468`**
 It finds the latest `triage-support-ticket` root (Observations v2, or v1 on the v3
 server), checks that trace has every stage observation, and reads its scores through
 Scores API v3. An HTTP 200 alone is not proof.

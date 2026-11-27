@@ -122,14 +122,19 @@ python demos/support-triage-parallel/scripts/verify_demo.py     # should print R
 
 `./setup.sh` already runs all three seeders: `seed_all.py` inside the container, then
 `seed-support-triage-evaluators.sh`, and `seed-code-evaluators.sh` with the other code
-evaluators. Run them by hand after a change. `seed_all.py` pins the `sql-voting` dataset's
-expected result signatures by executing each reference query against the playground once,
-so it needs that network access too.
+evaluators. Run them by hand after a change. `seed_all.py` reconciles: a prompt gets a new
+version only when its type, text or config drifted, an item is written only when it is
+missing, archived or changed, and an unchanged project gets no writes. It prints created /
+updated / unchanged and exits 1 if anything failed. It pins the `sql-voting` dataset's
+expected result signatures by executing each reference query against the playground, so it
+needs that network access too; an outage keeps the signatures pinned earlier.
 
 The root `.env` is the only source of `LANGFUSE_*`. Compose resolves `${...}` from the
-shell first, so unset shell-exported keys before running; `verify_demo.py` and a host run
-of `seed_all.py` ignore them. The demo runs with **no Langfuse keys set** too:
-instrumentation degrades to a no-op.
+shell first, so unset shell-exported keys before running. `verify_demo.py` and a host run
+of `seed_all.py` clear them and read only the root `.env`, and stop before any Langfuse
+call when it or a key is missing. Inside the container (`/app` plus Docker's `/.dockerenv`)
+`seed_all.py` uses the compose environment instead. The demo itself runs with **no
+Langfuse keys set** too: instrumentation degrades to a no-op.
 
 ## Before a demo
 
@@ -137,9 +142,9 @@ instrumentation degrades to a no-op.
 |---|---|---|
 | The day before | `python demos/support-triage-parallel/scripts/seed_all.py`, then `docker compose --profile demo build support-triage-parallel` | Prompts and datasets match the code, and the image is built |
 | The day before | `docker compose --profile demo run --rm support-triage-parallel python main.py --ticket TCK-002` until the step log shows `tie_break=True`; pin that trace | Act 3 needs a split vote; never hunt for one live |
-| The day before (optional) | `set -a && source .env && set +a`, then `python demos/support-triage-parallel/scripts/run_experiment.py --strategy all` | Act 6 opens these runs. Calls models: 3 strategies × 10 items × 5 samples |
+| The day before (full script) | `set -a && source .env && set +a`, then `python demos/support-triage-parallel/scripts/run_experiment.py --strategy all` | Act 6 opens these runs; the full-script check requires all three. Calls models: 3 strategies × 10 items × 5 samples |
 | The day before | Create the two Monitors and the dashboard by hand (settings in the script's Act 5) | Nothing seeds them |
-| 30 minutes before | `python demos/support-triage-parallel/scripts/verify_demo.py --links` | Prints READY and the link each act opens |
+| 30 minutes before | `python demos/support-triage-parallel/scripts/verify_demo.py --links` | READY for the full script, and the link each act opens. Add `--short` for the short path (Acts 1–3), where Act 6 and the evaluator scores only warn |
 | 5 minutes before | Open the links it printed, plus a terminal | Langfuse login: `demo@example.com` / `demodemo1!` |
 
 ## Run it
@@ -236,9 +241,12 @@ python -m pytest -q          # no services, no model calls, a few seconds
 ```
 
 They cover the vote tally and the synthesis aggregator (`compute_tally`,
-`build_synthesis_input`), `verify_demo.py`'s check, summary and exit-code logic, the
-`.env` override, the Observations v2 → v1 fallback and full runs against a fake Langfuse,
-and which env `seed_all.py` hands the seeders on the host and in the container.
+`build_synthesis_input`). `verify_demo.py` and `seed_all.py` run against a fake Langfuse
+at the urllib level (`tests/fake_langfuse.py`), which rejects unknown query parameters,
+honours field projection and paginates with empty cursor pages: every READY / NOT READY
+state, the v2 → v1 fallback, archived items, missing tie and experiment evidence, a
+missing or partial `.env` with hostile shell keys, unchanged reseeding, config-only drift,
+and partial and total write failures.
 
 ## Troubleshooting
 
@@ -248,8 +256,10 @@ and which env `seed_all.py` hands the seeders on the host and in the container.
 | `keys map to project '…' (want 'LLM Observability Demo')` | The root `.env` holds another project's keys. Re-run `./setup.sh` or fix the keys |
 | `Observations v2 answered 404 … read through v1` | Expected on the self-hosted stack: compose pins a v3 Langfuse server, which has no Observations v2 |
 | All candidates invalid (`sql_validity_rate = 0`) | No outbound access to `sql-clickhouse.clickhouse.com`; the validator fails candidates closed on any connection error |
-| No `correlated-vote-risk` score | The judge scores NEW traces only: run again after `./scripts/seed-support-triage-evaluators.sh`, and make sure `./setup.sh` provisioned the Anthropic LLM connection (the default eval model) |
-| `a tie trace for Act 3` warns | The vote split is random at temperature 0.9. Re-run `--ticket TCK-002` until the step log shows `tie_break=True` |
+| No `correlated-vote-risk` score (`evaluator score … on 0 demo run(s)`) | The judge scores NEW traces only: run again after `./scripts/seed-support-triage-evaluators.sh`, and make sure `./setup.sh` provisioned the Anthropic LLM connection (the default eval model) |
+| `Act 3 tie trace` fails | No demo run with a split `result-signature` vote yet; the split is random at temperature 0.9. Re-run `--ticket TCK-002` until the step log shows `tie_break=True` |
+| `aggregator runs … missing` fails | Act 6 needs `aggregator-result-signature`, `-majority-exact` and `-judge-consensus`: run `run_experiment.py --strategy all`, or check with `--short` |
+| `expected items ACTIVE and usable` fails | An item is missing, archived, edited or has no pinned signature: `seed_all.py` re-activates and re-pins it |
 | Fault demo feels slow | The branch timeout defaults to 30 s; set `BRANCH_TIMEOUT_S=8` |
 
 ## Known limits

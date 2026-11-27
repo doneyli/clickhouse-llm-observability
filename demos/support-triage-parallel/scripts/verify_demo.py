@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Readiness check for support-triage-parallel: reads Langfuse back and says READY or NOT READY.
 
-    python demos/support-triage-parallel/scripts/verify_demo.py            # one PASS / FAIL / WARN line per check
+    python demos/support-triage-parallel/scripts/verify_demo.py            # the full script (Acts 1-7)
+    python demos/support-triage-parallel/scripts/verify_demo.py --short    # the 8-minute short path (Acts 1-3)
     python demos/support-triage-parallel/scripts/verify_demo.py --links    # also print the link each act opens
 
 Run it from the repo root. It reads the root `.env` (this is a `container` demo) and ignores
@@ -10,16 +11,21 @@ before its observations land), so every check counts real rows. Standard library
 it runs in any Python 3.9+ without the demo's dependencies. No model calls; a handful of
 Langfuse reads and one ping to the ClickHouse playground, done in seconds.
 
-What it checks: the keys map to the `LLM Observability Demo` project; the ClickHouse
-playground the voter executes against answers; the 7 prompts and 2 datasets that
-`scripts/seed_all.py` seeds; and the latest `triage-support-ticket` run with every stage
-observation and its 3 scores. Optional acts only warn: the pinned tie trace (Act 3), the
-aggregator experiment runs (Act 6) and the 2 evaluator scores.
+What it requires, for either path: the keys map to the `LLM Observability Demo` project;
+the ClickHouse playground the voter executes against answers; the 7 prompts that
+`scripts/seed_all.py` seeds carry `production`; both datasets hold every expected item
+ACTIVE with the checked-in content (and, for sql-voting, a pinned signature); the latest
+`triage-support-ticket` run has every stage observation and its 3 scores; and a demo run
+whose vote split, so the tie-break judge fired (Act 3, pre-run in the pre-flight).
 
-Observations: Observations API v2 first. The root compose pins a v3 Langfuse server
-(3.221.1), where v2 returns 404, so on a 404 only it falls back to the v1 read
-`GET /api/public/observations`. Experiments likewise fall back to the dataset-runs read.
-Scores always come from Scores API v3, which the v3 server serves.
+The full script also requires the three `aggregator-<strategy>` experiment runs (Act 6) and
+the two evaluator scores (`correlated-vote-risk`, `consensus_margin_ok`) on a demo run; with
+`--short` those two only warn. A stale run or a prompt edited since seeding always warns.
+
+Reads: projects, prompts, datasets, dataset items, Observations API v2, Scores API v3 and
+the experiments read. The root compose pins a v3 Langfuse server (3.221.1), where
+Observations v2 and `/experiments` answer 404, so on a 404 only it falls back to the v1
+`GET /api/public/observations` and `GET /api/public/datasets/{name}/runs`. No /traces reads.
 """
 from __future__ import annotations
 
@@ -57,7 +63,7 @@ EXPECTED_DATASETS = {                           # what scripts/seed_datasets.py 
     "support-triage/sql-voting": 10,
 }
 EXPERIMENT_DATASET = "support-triage/sql-voting"
-EXPERIMENT_RUN_PREFIX = "aggregator-"           # scripts/run_experiment.py run names
+STRATEGIES = ["result-signature", "majority-exact", "judge-consensus"]  # run_experiment.py
 STAGE_OBSERVATIONS = [                          # one run of main.py, triage_pipeline.py + sql_voting.py
     TRACE_NAME,
     "analyze-sections",
@@ -74,6 +80,7 @@ STAGE_OBSERVATIONS = [                          # one run of main.py, triage_pip
     "tally-votes",
 ]
 TIE_OBSERVATION = "tie-break-judge"             # present only when the vote split (Act 3)
+TIE_STRATEGY = "result-signature"               # judge-consensus fires the judge on every run
 EXPECTED_SCORES = ["consensus_confidence", "sql_validity_rate", "policy_flagged"]
 EVALUATOR_SCORES = ["correlated-vote-risk", "consensus_margin_ok"]  # managed judge, code evaluator
 LOOKBACK_DAYS = 7                               # how far back to look for a run
@@ -83,6 +90,7 @@ PLAYGROUND_DEFAULT = "sql-clickhouse.clickhouse.com"
 SEED_CMD = "python demos/support-triage-parallel/scripts/seed_all.py"
 RUN_CMD = "docker compose --profile demo run --rm support-triage-parallel python main.py"
 TIE_CMD = RUN_CMD + " --ticket TCK-002"
+MAX_PAGES = 20
 EXPERIMENT_CMD = "python demos/support-triage-parallel/scripts/run_experiment.py --strategy all"
 EVALUATOR_CMD = "./scripts/seed-support-triage-evaluators.sh && ./scripts/seed-code-evaluators.sh"
 TIMEOUT_S = 10
@@ -259,28 +267,34 @@ class Langfuse:
     def post(self, path: str, body: Any) -> Any:
         return self.request("POST", path, body=body)
 
-    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
+    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Follow `meta.cursor` (Observations v2, Scores v3, experiments) to the end, or to
+        `cap` rows. A page may be empty while a cursor is still returned, so stop on a missing
+        cursor, not on an empty page. A cursor that repeats, or more pages than `max_pages`,
+        is an error, not a silently short result."""
         out: List[dict] = []
-        cur = None
+        cur, seen = None, set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
             out += d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+            if cur in seen:
+                raise ApiError(None, f"{path} returned the same cursor twice")
+            seen.add(cur)
+        raise ApiError(None, f"{path} did not finish within {max_pages} pages")
 
-    def pages(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 10) -> List[dict]:
-        """Follow page numbers (the v1 observations read, datasets, dataset items)."""
+    def pages(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Follow page numbers (v1 observations, datasets, dataset items, dataset runs) to the
+        last page, or to `cap` rows. More pages than `max_pages` is an error."""
         out: List[dict] = []
         for page in range(1, max_pages + 1):
             d = self.get(path, **dict(params, limit=100, page=page)) or {}
             out += d.get("data") or []
             if page >= ((d.get("meta") or {}).get("totalPages") or 1) or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+        raise ApiError(None, f"{path} did not finish within {max_pages} pages")
 
 
 class Observations:
@@ -326,14 +340,43 @@ def stage_gaps(observations: List[dict]) -> List[str]:
     return [n for n in STAGE_OBSERVATIONS if n not in have]
 
 
-def run_names(rows: List[dict]) -> List[str]:
-    """Names of experiment runs from either the experiments read or the dataset-runs read."""
-    names = []
-    for r in rows:
-        for key in ("name", "runName", "datasetRunName"):
-            if isinstance(r.get(key), str):
-                names.append(r[key])
-    return sorted(set(names))
+def strategy_of_run(name: str) -> Optional[str]:
+    """The strategy of a `run_experiment.py` comparison run, or None for anything else.
+
+    Run names are `aggregator-<strategy>`, optionally `-<label>`; the N sweep's
+    `aggregator-<strategy>-n<N>` runs are not the 5-sample comparison Act 6 shows.
+    """
+    for strategy in STRATEGIES:
+        stem = f"aggregator-{strategy}"
+        if name == stem or (name.startswith(stem + "-") and not re.match(r"n\d+(-|$)", name[len(stem) + 1:])):
+            return strategy
+    return None
+
+
+def expected_items() -> Dict[str, Dict[str, Tuple[Any, Any]]]:
+    """Dataset -> item id -> (input, expected output to match) from seed_datasets.py. For
+    sql-voting only canonical_sql is fixed; the signature is pinned at seed time."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import seed_datasets  # noqa: E402  (stdlib at import; the playground is used only when seeding)
+    return {
+        seed_datasets.CATEGORY_DATASET: {i: (inp, out) for i, inp, out in seed_datasets.category_items()},
+        seed_datasets.SQL_VOTING_DATASET: {i: (inp, {"canonical_sql": sql})
+                                           for i, inp, sql in seed_datasets.sql_voting_items()},
+    }
+
+
+def item_problem(row: Optional[dict], want_input: Any, want_output: Dict[str, Any], pinned: bool) -> str:
+    """Why one dataset item is not a usable ACTIVE example, or "" when it is."""
+    if row is None:
+        return "missing"
+    if str(row.get("status") or "ACTIVE").upper() != "ACTIVE":
+        return str(row.get("status")).lower()
+    got = row.get("expectedOutput") or {}
+    if row.get("input") != want_input or any(got.get(k) != v for k, v in want_output.items()):
+        return "content differs from seed_datasets.py"
+    if pinned and not got.get("result_signature"):
+        return "no pinned result signature"
+    return ""
 
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -368,18 +411,24 @@ def playground_check(host: str) -> None:
               hint="every candidate fails closed without it: check outbound HTTPS")
 
 
-def expected_prompt_texts() -> Dict[str, str]:
-    """The production text scripts/seed_prompts.py seeds per prompt (stdlib-only import)."""
+def expected_prompts() -> Dict[str, Tuple[str, Dict[str, Any]]]:
+    """The production (text, config) scripts/seed_prompts.py seeds per prompt (stdlib-only)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import seed_prompts  # noqa: E402  (same folder; reads env only for its own HOST/keys)
-    texts = {name: text for name, text, _config, _msg in seed_prompts.SINGLE_VERSION}
-    texts[VERSIONED_PROMPT] = seed_prompts.SQL_VOTER_V2
-    return texts
+    defs = {name: (text, config) for name, text, config, _msg in seed_prompts.SINGLE_VERSION}
+    defs[VERSIONED_PROMPT] = (seed_prompts.SQL_VOTER_V2, seed_prompts.VOTER_CONFIG)
+    return defs
+
+
+def expected_prompt_texts() -> Dict[str, str]:
+    return {name: text for name, (text, _config) in expected_prompts().items()}
 
 
 def seeded_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
     print("Seeded artifacts")
-    texts = expected_prompt_texts()
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import seed_prompts  # noqa: E402
+    defs = expected_prompts()
     for name in SEED_PROMPTS:
         try:
             p = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(name, safe='')}", label=PROMPT_LABEL) or {}
@@ -387,8 +436,9 @@ def seeded_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
             check(False, f"prompt {name} with label {PROMPT_LABEL}: {e}", hint=f"run {SEED_CMD}")
             continue
         check(True, f"prompt {name}: {PROMPT_LABEL} = v{p.get('version')}")
-        if (p.get("prompt") or "").strip() != texts.get(name, "").strip():
-            check(False, f"prompt {name}: {PROMPT_LABEL} text differs from scripts/seed_prompts.py",
+        text, config = defs[name]
+        if not seed_prompts.matches(p, text, config):
+            check(False, f"prompt {name}: {PROMPT_LABEL} type, text or config differs from scripts/seed_prompts.py",
                   required=False, hint=f"a rehearsal edit? {SEED_CMD} puts it back")
         if name == VERSIONED_PROMPT:
             check((p.get("version") or 0) >= 2, f"prompt {name} has version history "
@@ -396,14 +446,23 @@ def seeded_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
                   hint="seed_prompts.py seeds v1 then v2 only on a fresh project")
 
     datasets = {d.get("name"): d for d in lf.pages("/api/public/v2/datasets", {})}
+    wanted = expected_items()
     for name, want in EXPECTED_DATASETS.items():
         if not check(name in datasets, f"dataset {name} exists", hint=f"run {SEED_CMD}"):
             continue
         if name == EXPERIMENT_DATASET:
             state["experiment_dataset_id"] = datasets[name].get("id")
-        d = lf.get("/api/public/dataset-items", datasetName=name, limit=1, page=1) or {}
-        n = (d.get("meta") or {}).get("totalItems", len(d.get("data") or []))
-        check(n >= want, f"dataset {name}: {n} item(s) (want {want})", hint=f"run {SEED_CMD}")
+        rows = {r.get("id"): r for r in lf.pages("/api/public/dataset-items", {"datasetName": name}, cap=10000)}
+        problems = {}
+        for item_id, (inp, out) in wanted[name].items():
+            why = item_problem(rows.get(item_id), inp, out, pinned=name == EXPERIMENT_DATASET)
+            if why:
+                problems[item_id] = why
+        usable = len(wanted[name]) - len(problems)
+        detail = "; ".join(f"{i} {w}" for i, w in sorted(problems.items())[:4]) + (" ..." if len(problems) > 4 else "")
+        check(not problems and usable >= want,
+              f"dataset {name}: {usable}/{want} expected items ACTIVE and usable" + (f" ({detail})" if detail else ""),
+              hint=f"run {SEED_CMD}; it re-activates archived items and re-pins signatures")
 
 
 def latest_run_checks(lf: Langfuse, obs: Observations, state: Dict[str, Any]) -> None:
@@ -428,48 +487,90 @@ def latest_run_checks(lf: Langfuse, obs: Observations, state: Dict[str, Any]) ->
     check(not missing, f"latest run's scores: {', '.join(names) or 'none'}"
           + (f"; missing {', '.join(missing)}" if missing else ""),
           hint="scores land after the trace: wait and re-run")
-    no_eval = [n for n in EVALUATOR_SCORES if n not in names]
-    check(not no_eval, "evaluator scores on the latest run" + (f": missing {', '.join(no_eval)}" if no_eval else ""),
-          required=False, hint=f"both score NEW traces only: {EVALUATOR_CMD}, then run again")
     age_h = (now - started).total_seconds() / 3600
     check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
           required=False, hint=f"run {RUN_CMD} the day before")
 
-    # Act 3: a demo run whose vote split, so the tie-break judge fired. Experiment traces
-    # also have tie-break judges, so keep only the ones under a triage-support-ticket root.
-    demo_traces = {r["traceId"] for r in roots}
+    state["demo_traces"] = demo_traces = {r["traceId"] for r in roots}
+    tie_checks(lf, obs, state, demo_traces, since, until)
+
+
+def is_split_vote(scores: List[dict]) -> bool:
+    """A trace's consensus_confidence shows a split vote under result-signature voting: below
+    1, with the strategy tally_votes writes into the comment (sql_voting.py:251-253)."""
+    for s in scores:
+        if s.get("name") != "consensus_confidence":
+            continue
+        try:
+            value = float(s.get("value"))
+        except (TypeError, ValueError):
+            return False
+        return value < 1 and (s.get("comment") or "").endswith(f"strategy={TIE_STRATEGY}")
+    return False
+
+
+def tie_checks(lf: Langfuse, obs: "Observations", state: Dict[str, Any], demo_traces: set,
+               since: datetime, until: datetime) -> None:
+    """Act 3 (in the short path too): a demo run whose vote split, so the tie-break judge
+    fired. Experiment traces also have tie-break judges, so only judges under a
+    triage-support-ticket root count, and the run's consensus must show the split."""
     ties = [t for t in obs.list(since, until, name=TIE_OBSERVATION)
             if t.get("traceId") in demo_traces and t.get("startTime")]
     ties.sort(key=lambda t: parse_time(t["startTime"]), reverse=True)
-    if check(bool(ties), f"a tie trace for Act 3 ({TIE_OBSERVATION} fired) in the last {LOOKBACK_DAYS} days",
-             required=False, hint=f"run {TIE_CMD} until the step log shows tie_break=True"):
-        state["tie_trace_id"] = ties[0]["traceId"]
+    for t in ties[:10]:
+        if is_split_vote(lf.cursor("/api/public/v3/scores", {"traceId": t["traceId"]})):
+            state["tie_trace_id"] = t["traceId"]
+            break
+    found = bool(state.get("tie_trace_id"))
+    check(found, f"Act 3 tie trace: a demo run where {TIE_OBSERVATION} broke a split {TIE_STRATEGY} vote "
+          f"in the last {LOOKBACK_DAYS} days" + (f" ({len(ties)} judge run(s), none a split)" if ties and not found else ""),
+          hint=f"run {TIE_CMD} until the step log shows tie_break=True")
 
 
-def experiment_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
-    """Act 6: the aggregator runs on the sql-voting dataset. Optional."""
-    print("Act 6 · experiment")
+def evaluator_checks(lf: Langfuse, state: Dict[str, Any], required: bool) -> None:
+    """The two evaluators the Close and the objections cite, on any recent demo run."""
+    print("Evaluators")
+    since = iso(datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS))
+    demo_traces = state.get("demo_traces") or set()
+    for name in EVALUATOR_SCORES:
+        rows = lf.cursor("/api/public/v3/scores", {"name": name, "fromTimestamp": since, "fields": "subject"})
+        hits = [r for r in rows if (r.get("subject") or {}).get("traceId") in demo_traces]
+        check(bool(hits), f"evaluator score {name} on {len(hits)} demo run(s) in the last {LOOKBACK_DAYS} days",
+              required=required, hint=f"both score NEW traces only: {EVALUATOR_CMD}, then run again")
+
+
+def experiment_runs(lf: Langfuse, dataset_id: str) -> Tuple[List[str], str]:
+    """Run names on the sql-voting dataset, and which read answered. The experiments read
+    first; the dataset-runs read only when it 404s (the pinned v3 server has no
+    /experiments)."""
     since = datetime.now(timezone.utc) - timedelta(days=EXPERIMENT_LOOKBACK_DAYS)
     try:
-        if not state.get("experiment_dataset_id"):
-            raise ApiError(404, "dataset not seeded")
-        rows = (lf.get("/api/public/experiments", datasetId=state["experiment_dataset_id"],
-                       fromStartTime=iso(since), limit=100) or {}).get("data") or []
+        rows = lf.cursor("/api/public/experiments", {"datasetId": dataset_id, "fromStartTime": iso(since)})
+        return [r["name"] for r in rows if isinstance(r.get("name"), str)], "experiments"
     except ApiError as e:
         if e.status != 404:
             raise
-        try:
-            rows = lf.pages(f"/api/public/datasets/{urllib.parse.quote(EXPERIMENT_DATASET, safe='')}/runs", {})
-        except ApiError as e2:
-            if e2.status != 404:
-                raise
-            rows = []
-    runs = [n for n in run_names(rows) if n.startswith(EXPERIMENT_RUN_PREFIX)]
-    check(bool(runs), f"aggregator runs on {EXPERIMENT_DATASET}: {', '.join(runs) or 'none'}",
-          required=False, hint=f"{EXPERIMENT_CMD}  (calls models: 3 strategies x 10 items x 5 samples)")
+    rows = lf.pages(f"/api/public/datasets/{urllib.parse.quote(EXPERIMENT_DATASET, safe='')}/runs", {})
+    return [r["name"] for r in rows if isinstance(r.get("name"), str)], "dataset runs"
 
 
-def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, Any]:
+def experiment_checks(lf: Langfuse, state: Dict[str, Any], required: bool) -> None:
+    """Act 6: one comparison run per aggregation strategy on the sql-voting dataset."""
+    print("Act 6 · experiment")
+    if not state.get("experiment_dataset_id"):
+        check(False, f"aggregator runs: dataset {EXPERIMENT_DATASET} is not seeded", required=required,
+              hint=f"run {SEED_CMD}, then {EXPERIMENT_CMD}")
+        return
+    names, source = experiment_runs(lf, state["experiment_dataset_id"])
+    have = {strategy_of_run(n) for n in names} - {None}
+    missing = [s for s in STRATEGIES if s not in have]
+    check(not missing, f"aggregator runs on {EXPERIMENT_DATASET} ({source} read): "
+          f"{len(STRATEGIES) - len(missing)}/{len(STRATEGIES)} strategies"
+          + (f"; missing {', '.join('aggregator-' + m for m in missing)}" if missing else ""),
+          required=required, hint=f"{EXPERIMENT_CMD}  (calls models: 3 strategies x 10 items x 5 samples)")
+
+
+def langfuse_checks(lf: Langfuse, expected_project: Optional[str], short: bool = False) -> Dict[str, Any]:
     state: Dict[str, Any] = {}
     print("Langfuse")
     try:
@@ -487,7 +588,8 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
     try:
         seeded_checks(lf, state)
         latest_run_checks(lf, Observations(lf), state)
-        experiment_checks(lf, state)
+        evaluator_checks(lf, state, required=not short)
+        experiment_checks(lf, state, required=not short)
     except ApiError as e:
         check(False, f"Langfuse read failed: {e}")
     return state
@@ -496,13 +598,15 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
+    ap.add_argument("--short", action="store_true",
+                    help="readiness for the short path (Opening, Acts 1-3, Close): Act 6 and the evaluators only warn")
     args = ap.parse_args(argv)
     del RESULTS[:]
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     path = env_file(manifest_value(manifest, "", "profile"))
-    print("support-triage-parallel readiness")
+    print("support-triage-parallel readiness: " + ("short path (Acts 1-3)" if args.short else "full script (Acts 1-7)"))
     print("Config")
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
     check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
@@ -515,7 +619,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
         playground_check(os.environ.get("PUBLIC_CH_HOST") or PLAYGROUND_DEFAULT)
         lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected)
+        state = langfuse_checks(lf, expected, short=args.short)
         if args.links and state.get("project_id"):
             print("\nLinks")
             for label, url in act_links(lf.base, state):
