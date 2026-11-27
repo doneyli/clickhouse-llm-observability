@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import re
@@ -139,19 +140,43 @@ def env_path_for(profile: Optional[str]) -> Optional[Path]:
     return REPO_ROOT / ".env" if profile == "container" else None
 
 
-def load_env(path: Path, environ: MutableMapping[str, str]) -> bool:
+def load_env(path: Path, environ: MutableMapping[str, str]) -> str:
     """Make `path` the only source of Langfuse keys: drop inherited ones, then apply the file.
 
-    Inherited LANGFUSE_* and LITELLM_LANGFUSE_* are dropped even when the file is missing, so a
-    missing file fails the config check instead of reading another project. Every key the file
-    sets overrides the shell. Returns whether the file was loaded.
+    Inherited LANGFUSE_* and LITELLM_LANGFUSE_* are dropped even when the file is missing or
+    unreadable, so either fails the config check instead of reading another project. Every key
+    the file sets overrides the shell. Returns "" when loaded, else why it was not.
     """
     for k in [k for k in environ if k.startswith(KEY_PREFIXES)]:
         del environ[k]
     if not path.is_file():
-        return False
-    environ.update(parse_env(path.read_text()))
-    return True
+        return "not found"
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        return f"unreadable ({type(e).__name__}: {e})"
+    environ.update(parse_env(text))
+    return ""
+
+
+def url_problem(url: str) -> str:
+    """Why `url` cannot be requested, or "" for a usable http(s) URL. Checked before any API
+    use, so a malformed value such as http://[::gg] fails a config check instead of a request."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        parts.port  # raises ValueError for a non-numeric or out-of-range port
+    except ValueError as e:
+        return str(e)
+    if parts.scheme not in ("http", "https"):
+        return f"scheme must be http or https, not {parts.scheme!r}"
+    if not parts.hostname:
+        return "no host"
+    if "[" in parts.netloc:
+        try:
+            ipaddress.IPv6Address(parts.hostname.split("%", 1)[0])
+        except ValueError:
+            return f"invalid IPv6 host [{parts.hostname}]"
+    return ""
 
 
 def resolve_settings(env: MutableMapping[str, str]) -> Tuple[Optional[Dict[str, str]], str]:
@@ -174,6 +199,10 @@ def resolve_settings(env: MutableMapping[str, str]) -> Tuple[Optional[Dict[str, 
     if missing:
         return None, f"missing {', '.join(missing)} ({source})"
     gateway = env.get("LITELLM_BASE_URL") or f"http://localhost:{env.get('LITELLM_PORT') or '4000'}"
+    for label, url in (("base URL", base), ("gateway URL", gateway)):
+        problem = url_problem(url)
+        if problem:
+            return None, f"{label} {url!r} is not a usable http(s) URL: {problem}"
     return {"base": base.rstrip("/"), "pk": pk, "sk": sk, "source": source,
             "gateway": gateway.rstrip("/")}, ""
 
@@ -217,8 +246,8 @@ class Langfuse:
         query = {k: (str(v).lower() if isinstance(v, bool) else v)
                  for k, v in params.items() if v is not None}
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
-        req = urllib.request.Request(url, headers=self.headers, method="GET")
-        try:
+        try:  # request construction is inside the boundary: a bad URL is an ApiError too
+            req = urllib.request.Request(url, headers=self.headers, method="GET")
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
@@ -226,6 +255,8 @@ class Langfuse:
             raise ApiError(e.code, detail or str(e.reason)) from None
         except (urllib.error.URLError, OSError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except ValueError as e:  # includes http.client.InvalidURL
+            raise ApiError(None, f"invalid request URL: {e}") from None
         try:
             return json.loads(raw) if raw else {}
         except ValueError:
@@ -327,6 +358,8 @@ def gateway_up(url: str) -> Tuple[bool, str]:
         return False, f"HTTP {e.code}"
     except (urllib.error.URLError, OSError) as e:
         return False, type(e).__name__
+    except ValueError as e:  # a malformed URL, including http.client.InvalidURL
+        return False, f"invalid URL: {e}"
 
 
 def langfuse_checks(v: Verdict, lf: Langfuse, expected_project: str, now: datetime) -> Dict[str, Any]:
@@ -385,6 +418,13 @@ def langfuse_checks(v: Verdict, lf: Langfuse, expected_project: str, now: dateti
 
 def run(argv: Optional[List[str]] = None, environ: Optional[MutableMapping[str, str]] = None,
         now: Optional[datetime] = None) -> int:
+    """Parse the arguments, run every check inside one error boundary, print the verdict.
+
+    Argument parsing stays outside the boundary, so --help and usage errors behave as usual.
+    Any Exception a check raises becomes one more FAIL line in the same collector, so the
+    checks already recorded are kept and the verdict is the normal counted NOT READY.
+    KeyboardInterrupt and SystemExit are not caught.
+    """
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
     args = ap.parse_args(argv)
@@ -393,46 +433,58 @@ def run(argv: Optional[List[str]] = None, environ: Optional[MutableMapping[str, 
     v = Verdict()
 
     print("litellm-gateway readiness")
-    print("Config")
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_path_for(manifest_value(manifest, "", "profile"))
-    settings: Optional[Dict[str, str]] = None
-    expected: Optional[str] = None
-    if v.check(path is not None, "demo.yaml declares profile: container (reads the root .env)",
-               hint="restore demos/litellm-gateway/demo.yaml"):
-        if v.check(load_env(path, env), f"env loaded from {path.relative_to(REPO_ROOT)}; inherited "
-                   "LANGFUSE_* and LITELLM_LANGFUSE_* ignored", hint="run ./setup.sh at the repo root"):
-            settings, reason = resolve_settings(env)
-            v.check(settings is not None, "Langfuse keys and base URL set" + (f": {reason}" if reason else ""),
-                    hint="run ./setup.sh, or set both LITELLM_LANGFUSE_* keys")
-            expected = env.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-            v.check(bool(expected), f"expected project: '{expected or ''}'",
-                    hint="set langfuse.project in demo.yaml or DEMO_LANGFUSE_PROJECT in the root .env")
-
-    if settings and expected:
-        print("Services")
-        up, detail = gateway_up(settings["gateway"])
-        v.check(up, f"litellm-proxy live at {settings['gateway']} ({detail})", hint=f"run {RUN_CMD} to start it")
-        lf = Langfuse(settings["base"], settings["pk"], settings["sk"])
-        state = langfuse_checks(v, lf, expected, now)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state["project_id"], state.get("trace"), settings["gateway"]):
-                print(f"  {label:<30} {url}")
-
+    try:
+        checks(v, args.links, env, now)
+    except Exception as e:  # noqa: BLE001 - every unforeseen failure still reaches the verdict
+        v.check(False, f"verification stopped by an unexpected error: {type(e).__name__}: {e}",
+                hint="the checks above still count; report this line with the command you ran")
     line, code = v.summary()
     print(f"\n{line}")
     return code
 
 
-def main() -> int:
+def checks(v: Verdict, links: bool, env: MutableMapping[str, str], now: datetime) -> None:
+    """Config first; Services and Langfuse only once the configuration is valid."""
+    print("Config")
+    manifest_path = DEMO_DIR / "demo.yaml"
     try:
-        return run()
-    except Exception as e:  # anything unforeseen still ends in a verdict
-        print(f"  FAIL  unexpected error: {type(e).__name__}: {e}")
-        print("\nNOT READY (verification crashed)")
-        return 1
+        manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    except (OSError, UnicodeDecodeError) as e:
+        v.check(False, f"demo.yaml readable: {type(e).__name__}: {e}", hint="restore demos/litellm-gateway/demo.yaml")
+        return
+    path = env_path_for(manifest_value(manifest, "", "profile"))
+    if not v.check(path is not None, "demo.yaml declares profile: container (reads the root .env)",
+                   hint="restore demos/litellm-gateway/demo.yaml"):
+        return
+    shown = path.relative_to(REPO_ROOT)
+    problem = load_env(path, env)
+    if not v.check(not problem, f"env loaded from {shown}; inherited LANGFUSE_* and LITELLM_LANGFUSE_* ignored"
+                   + (f": {problem}" if problem else ""),
+                   hint="run ./setup.sh at the repo root, or make the file readable"):
+        return
+    settings, reason = resolve_settings(env)
+    v.check(settings is not None, "Langfuse keys and base URL set" + (f": {reason}" if reason else ""),
+            hint="run ./setup.sh, set both LITELLM_LANGFUSE_* keys, or fix the URL in the root .env")
+    expected = env.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
+    v.check(bool(expected), f"expected project: '{expected or ''}'",
+            hint="set langfuse.project in demo.yaml or DEMO_LANGFUSE_PROJECT in the root .env")
+    if not (settings and expected):
+        return
+
+    print("Services")
+    up, detail = gateway_up(settings["gateway"])
+    v.check(up, f"litellm-proxy live at {settings['gateway']} ({detail})", hint=f"run {RUN_CMD} to start it")
+    lf = Langfuse(settings["base"], settings["pk"], settings["sk"])
+    state = langfuse_checks(v, lf, expected, now)
+    if links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state["project_id"], state.get("trace"), settings["gateway"]):
+            print(f"  {label:<30} {url}")
+
+
+def main(argv: Optional[List[str]] = None, environ: Optional[MutableMapping[str, str]] = None,
+         now: Optional[datetime] = None) -> int:
+    return run(argv, environ, now)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,10 @@
 """scripts/verify_demo.py against an offline fake: no network, Langfuse, Docker or model calls."""
 import importlib.util
 import io
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -206,11 +209,111 @@ class ReadFailureTests(VerifyHarness):
         self.assertEqual(code, 1)
         self.assertIn("FAIL  litellm-proxy live at http://localhost:4000", out)
 
-    def test_unexpected_crash_still_ends_in_a_verdict(self):
+
+
+class FailureBoundaryTests(VerifyHarness):
+    """Malformed URLs, unreadable config and unexpected errors, driven through main() and the
+    real CLI: each reaches a counted NOT READY, keeps the checks already recorded, exits 1."""
+
+    def run_main(self, fake, env_text=GOOD_ENV, argv=None):
+        if env_text is not None:
+            (self.root / ".env").write_text(env_text)
         out = io.StringIO()
-        with patch.object(verify, "run", side_effect=RuntimeError("boom")), redirect_stdout(out):
-            self.assertEqual(verify.main(), 1)
-        self.assertIn("NOT READY", out.getvalue())
+        with patch("urllib.request.urlopen", side_effect=fake.urlopen), redirect_stdout(out):
+            code = verify.main(argv or [], dict(HOSTILE_SHELL), NOW)
+        return code, out.getvalue()
+
+    def verdict_line(self, out):
+        return out.strip().splitlines()[-1]
+
+    def test_malformed_langfuse_url_fails_config_before_any_request(self):
+        fake = FakeLangfuse(observations=fresh_trace())
+        code, out = self.run_main(fake, GOOD_ENV.replace("http://lf:3001", "http://[::gg]"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  Langfuse keys and base URL set: base URL 'http://[::gg]' is not a usable "
+                      "http(s) URL: invalid IPv6 host [::gg]", out)
+        self.assertIn("PASS  env loaded from .env", out)
+        self.assertEqual(self.verdict_line(out), "NOT READY (3/4 checks passed, 1 required failed)")
+        self.assertEqual(fake.requests, [])
+
+    def test_malformed_gateway_url_fails_config_before_any_request(self):
+        fake = FakeLangfuse(observations=fresh_trace())
+        code, out = self.run_main(fake, GOOD_ENV + "LITELLM_BASE_URL=http://[::gg]:4000\n")
+        self.assertEqual(code, 1, out)
+        self.assertIn("gateway URL 'http://[::gg]:4000' is not a usable http(s) URL", out)
+        self.assertEqual(self.verdict_line(out), "NOT READY (3/4 checks passed, 1 required failed)")
+        self.assertEqual(fake.requests, [])
+
+    def test_non_numeric_port_fails_config(self):
+        fake = FakeLangfuse(observations=fresh_trace())
+        code, out = self.run_main(fake, GOOD_ENV + "LITELLM_PORT=abc\n")
+        self.assertEqual(code, 1, out)
+        self.assertIn("gateway URL 'http://localhost:abc' is not a usable http(s) URL", out)
+        self.assertEqual(fake.requests, [])
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads any file")
+    def test_unreadable_env_is_a_counted_failure(self):
+        env = self.root / ".env"
+        env.write_text(GOOD_ENV)
+        env.chmod(0)
+        self.addCleanup(env.chmod, 0o600)
+        fake = FakeLangfuse(observations=fresh_trace())
+        code, out = self.run_main(fake, env_text=None)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL  env loaded from .env; inherited LANGFUSE_* and LITELLM_LANGFUSE_* ignored: "
+                      "unreadable (PermissionError", out)
+        self.assertEqual(self.verdict_line(out), "NOT READY (1/2 checks passed, 1 required failed)")
+        self.assertEqual(fake.requests, [])
+
+    def test_unexpected_error_keeps_recorded_checks_and_counts(self):
+        # A malformed projects payload (a string where an object belongs) makes the real
+        # project check raise AttributeError mid-run, after five checks have been recorded.
+        fake = FakeLangfuse(projects=["not-an-object"], observations=fresh_trace())
+        code, out = self.run_main(fake)
+        self.assertEqual(code, 1, out)
+        for kept in ("PASS  demo.yaml declares profile: container", "PASS  env loaded from .env",
+                     "PASS  Langfuse keys and base URL set", "PASS  litellm-proxy live at",
+                     "PASS  keys resolve to a project"):
+            self.assertIn(kept, out)
+        self.assertIn("FAIL  verification stopped by an unexpected error: AttributeError", out)
+        self.assertEqual(self.verdict_line(out), "NOT READY (6/7 checks passed, 1 required failed)")
+
+    def test_keyboard_interrupt_is_not_swallowed(self):
+        fake = FakeLangfuse(observations=fresh_trace())
+        (self.root / ".env").write_text(GOOD_ENV)
+        with patch("urllib.request.urlopen", side_effect=KeyboardInterrupt), redirect_stdout(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                verify.main([], {}, NOW)
+
+    # -- the real command line, in a copied repo tree: no network (config fails first) -------
+    def cli(self, *args, env_text=None):
+        tree = self.root / "cli"
+        (tree / "demos" / "litellm-gateway" / "scripts").mkdir(parents=True, exist_ok=True)
+        shutil.copy(DEMO / "demo.yaml", tree / "demos" / "litellm-gateway" / "demo.yaml")
+        script = tree / "demos" / "litellm-gateway" / "scripts" / "verify_demo.py"
+        shutil.copy(DEMO / "scripts" / "verify_demo.py", script)
+        if env_text is not None:
+            (tree / ".env").write_text(env_text)
+        shell = {k: v for k, v in os.environ.items() if not k.startswith(("LANGFUSE_", "LITELLM_"))}
+        shell.update(HOSTILE_SHELL)
+        return subprocess.run([sys.executable, str(script), *args], cwd=tree, env=shell,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_cli_malformed_url_reaches_a_counted_verdict(self):
+        r = self.cli(env_text=GOOD_ENV.replace("http://lf:3001", "http://[::gg]"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("invalid IPv6 host [::gg]", r.stdout)
+        self.assertEqual(self.verdict_line(r.stdout), "NOT READY (3/4 checks passed, 1 required failed)")
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_cli_help_and_usage_errors_behave_normally(self):
+        r = self.cli("--help")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("--links", r.stdout)
+        self.assertNotIn("litellm-gateway readiness", r.stdout)  # no check ran
+        r = self.cli("--bogus")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unrecognized arguments: --bogus", r.stderr)
 
 
 class HelperTests(unittest.TestCase):

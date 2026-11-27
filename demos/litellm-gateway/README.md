@@ -224,7 +224,10 @@ honours field projection, cursor and page traversal and rejects unknown query pa
 server (the v1 fallback, only after a v2 404), cursors across empty pages and a repeated
 cursor, a missing or partial `.env` under hostile shell exports, empty, wrong and
 unauthorised projects (including dedicated keys and cloud mode), a missing run, a stale
-run, a non-404 read error, the proxy being down, and the verdict and exit codes.
+run, a non-404 read error, the proxy being down, and the verdict and exit codes. Through
+`main()` and the real command line, it checks that a malformed URL (`http://[::gg]`), an
+unreadable `.env` and an unexpected error each end in a counted `NOT READY` that keeps
+the checks already recorded, and that `--help` and usage errors behave as usual.
 `test_client.py` covers the request payload, the gateway call and the post-run read-back
 on both servers. None of them uses legacy trace endpoints.
 
@@ -232,8 +235,10 @@ on both servers. None of them uses legacy trace endpoints.
 
 | Symptom | Cause and fix |
 |---|---|
-| `FAIL  env loaded from .env` | No root `.env`: run `./setup.sh` |
-| `FAIL  Langfuse keys and base URL set: …` | A key or `LANGFUSE_BASE_URL` is missing from the root `.env`, or only one of the two `LITELLM_LANGFUSE_*` keys is set |
+| `FAIL  env loaded from .env …: not found` | No root `.env`: run `./setup.sh` |
+| `FAIL  env loaded from .env …: unreadable (…)` | The root `.env` exists but cannot be read: fix its permissions |
+| `FAIL  Langfuse keys and base URL set: …` | A key or `LANGFUSE_BASE_URL` is missing from the root `.env`, only one of the two `LITELLM_LANGFUSE_*` keys is set, or the Langfuse or gateway URL (`LITELLM_BASE_URL`, `LITELLM_PORT`) is malformed |
+| `FAIL  verification stopped by an unexpected error: …` | A bug or an unexpected API response. The checks above it still count; report the line with the command you ran |
 | `FAIL  keys authenticate …: HTTP 401` | Wrong key pair, or the base URL points at another host or region |
 | `FAIL  keys resolve to a project` | The API returned no project for these keys |
 | `keys map to project '…' (want '…')` | The keys belong to another project. Fix the root `.env`, or set `DEMO_LANGFUSE_PROJECT` to the project the gateway exports to |

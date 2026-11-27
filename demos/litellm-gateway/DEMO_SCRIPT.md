@@ -151,8 +151,8 @@ would have to repeat.
 **5 · The read-back counts observations — `client.py:164`**
 `wait_for_trace` polls until the session's trace has at least one observation: an HTTP
 200 with a trace row is not proof. It shares its reads with the readiness check
-(`scripts/verify_demo.py:264`): Observations v2, and the v1 observations list only when v2
-answers 404 on the pinned self-hosted v3 server (`scripts/verify_demo.py:276`).
+(`scripts/verify_demo.py:295`): Observations v2, and the v1 observations list only when v2
+answers 404 on the pinned self-hosted v3 server (`scripts/verify_demo.py:307`).
 
 ---
 
