@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Seed the two evaluation datasets for the Cluster Health Investigator.
+Reconcile the two evaluation datasets for the Cluster Health Investigator.
 
 Bad decomposition is a PLAN defect; bad execution is a WORKER defect. Two
 datasets keep them separable:
@@ -11,39 +11,52 @@ datasets keep them separable:
                                    (linked to individual `worker` spans)
 
 Golden seed: 8 plan-quality items (one per DEMO_SYMPTOMS entry) and 10
-worker-quality items (one per catalog analysis). Idempotent via stable item ids.
+worker-quality items (one per catalog analysis), under stable ids (chp-NN, chw-NN).
 
-`--from-traces` capture mode walks recent `investigate-cluster-symptom` traces
-via the public API and creates items whose `source_observation_id` points at the
-real orchestrator span (plan-quality) / worker spans (worker-quality), so you can
-click from a dataset item straight to the production observation it came from.
+Reconcile, not append: each dataset and item is read back first. A dataset or item that
+already matches its definition (description and metadata; input, expected output,
+metadata, source link and ACTIVE status) is left alone, so an unchanged run writes
+nothing and adds no item versions. A changed or archived item is upserted under the same
+id (updated); a missing one is created. Items this script does not own are never touched.
+Exit 1 if any write or read failed.
 
-Usage:
+`--from-traces N` capture mode finds the N most recent `investigate-cluster-symptom`
+runs through their `orchestrator` observations (Observations API v2; the v1 list on the
+stack's 3.x server) and creates items whose `source_observation_id` points at the real
+orchestrator span (plan-quality) / worker spans (worker-quality), so you can click from a
+dataset item straight to the production observation it came from. Captured items get
+stable ids from their observation id, so capturing the same run twice is unchanged.
+
+Usage (the env comes from the root .env; see verify_demo.prepare_env):
     python scripts/seed_datasets.py                 # golden items
-    python scripts/seed_datasets.py --from-traces 5 # + capture from 5 recent traces
-    python scripts/seed_datasets.py --dry-run
+    python scripts/seed_datasets.py --from-traces 5 # + capture from 5 recent runs
+    python scripts/seed_datasets.py --dry-run       # list the golden items, no requests
 """
 
 import argparse
-import base64
-import json
-import os
 import sys
-import urllib.request
+import urllib.parse
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from analysis_catalog import CATALOG  # noqa: E402
+from verify_demo import (  # noqa: E402  (stdlib env + read helpers, tested there)
+    ApiError, Langfuse, client_from_env, iso, parse_io, prepare_env, recent_trace_ids,
+)
 
 PLAN_DATASET = "cluster-health/plan-quality"
 WORKER_DATASET = "cluster-health/worker-quality"
+DATASETS = {
+    PLAN_DATASET: "Plan-quality: does the planner decompose proportionately (no over/under fan-out, no duplication)?",
+    WORKER_DATASET: "Worker-quality: does one analysis produce a verdict-bearing, cited finding?",
+}
+DATASET_METADATA = {"source": "cluster-health-investigator"}
+CAPTURE_LOOKBACK_DAYS = 7
 
-HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3001").rstrip("/")
-PK = os.getenv("LANGFUSE_PUBLIC_KEY", "")
-SK = os.getenv("LANGFUSE_SECRET_KEY", "")
-
-# 8 golden plan-quality items — one per DEMO_SYMPTOMS.md entry.
 PLAN_ITEMS = [
     {"symptom": "One Grafana dashboard query got slow this afternoon; everything else feels fine.",
      "criteria": ["must include slow_queries", "must NOT exceed 2 tasks",
@@ -107,65 +120,129 @@ WORKER_ITEMS = [
 ]
 
 
-def _auth_header():
-    token = base64.b64encode(f"{PK}:{SK}".encode()).decode()
-    return {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
+def golden_items() -> List[dict]:
+    """Every owned golden item, in the request body's shape."""
+    out = []
+    for i, it in enumerate(PLAN_ITEMS, 1):
+        out.append({"id": f"chp-{i:02d}", "datasetName": PLAN_DATASET,
+                    "input": {"symptom": it["symptom"]},
+                    "expectedOutput": {"criteria": it["criteria"]},
+                    "metadata": {"failure_mode": it["failure_mode"], "source": "golden"}})
+    for i, (atype, focus, must) in enumerate(WORKER_ITEMS, 1):
+        out.append({"id": f"chw-{i:02d}", "datasetName": WORKER_DATASET,
+                    "input": {"analysis_type": atype, "focus": focus},
+                    "expectedOutput": {"must_mention": must},
+                    "metadata": {"catalog_desc": CATALOG[atype].description, "source": "golden"}})
+    return out
 
 
-def _api_get(path: str):
-    req = urllib.request.Request(f"{HOST}{path}", headers=_auth_header())
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+_COMPARED = ("input", "expectedOutput", "metadata", "sourceTraceId", "sourceObservationId")
 
 
-def _capture_from_traces(lf, limit: int):
-    """Create items linked to real orchestrator/worker observations."""
-    print(f"\nCapturing source observations from {limit} recent traces...")
-    try:
-        traces = _api_get(
-            f"/api/public/traces?name=investigate-cluster-symptom&limit={limit}"
-        ).get("data", [])
-    except Exception as e:
-        print(f"  ! could not list traces: {e}")
-        return
-    captured = 0
-    for t in traces:
+def item_matches(existing: Optional[dict], want: dict) -> bool:
+    if not existing or existing.get("status") != "ACTIVE":
+        return False
+    return all((existing.get(k) or None) == (want.get(k) or None) for k in _COMPARED)
+
+
+def reconcile_datasets(lf: Langfuse) -> Dict[str, str]:
+    """Returns dataset name -> created | updated | unchanged | failed."""
+    outcomes = {}
+    for name, desc in DATASETS.items():
+        detail = ""
         try:
-            full = _api_get(f"/api/public/traces/{t['id']}")
-        except Exception:
+            try:
+                cur = lf.get(f"/api/public/v2/datasets/{urllib.parse.quote(name, safe='')}")
+            except ApiError as e:
+                if e.status != 404:
+                    raise
+                cur = None
+            if cur and cur.get("description") == desc and (cur.get("metadata") or {}) == DATASET_METADATA:
+                outcome = "unchanged"
+            else:
+                lf.post("/api/public/v2/datasets", {"name": name, "description": desc, "metadata": DATASET_METADATA})
+                outcome = "updated" if cur else "created"
+        except ApiError as e:
+            outcome, detail = "failed", f": {e}"
+        outcomes[name] = outcome
+        print(f"  {outcome:<9} dataset {name}{detail}")
+    return outcomes
+
+
+def reconcile_items(lf: Langfuse, wanted: List[dict]) -> Dict[str, str]:
+    """Upsert only what differs. Returns item id -> created | updated | unchanged | failed."""
+    existing: Dict[str, dict] = {}
+    outcomes: Dict[str, str] = {}
+    for name in sorted({w["datasetName"] for w in wanted}):
+        try:
+            for row in lf.pages("/api/public/dataset-items", {"datasetName": name}):
+                existing[row.get("id")] = row
+        except ApiError as e:
+            if e.status != 404:  # 404: the dataset does not exist yet, so neither do its items
+                for w in wanted:
+                    if w["datasetName"] == name:
+                        outcomes[w["id"]] = "failed"
+                print(f"  failed    items of {name}: {e}")
+    for want in wanted:
+        if want["id"] in outcomes:
             continue
-        obs = full.get("observations", [])
-        symptom = (full.get("input") or {}).get("symptom") if isinstance(full.get("input"), dict) else None
-        orch = next((o for o in obs if o.get("name") == "orchestrator"), None)
-        if orch and symptom:
-            lf.create_dataset_item(
-                dataset_name=PLAN_DATASET,
-                input={"symptom": symptom},
-                expected_output={"criteria": ["matches the plan-quality rubric"]},
-                source_trace_id=t["id"], source_observation_id=orch["id"],
-                metadata={"failure_mode": "captured", "source": "demo-run"})
-            captured += 1
-        for w in [o for o in obs if o.get("name") == "worker"]:
-            atype = (w.get("metadata") or {}).get("analysis_type", "unknown")
-            lf.create_dataset_item(
-                dataset_name=WORKER_DATASET,
-                input={"analysis_type": atype, "focus": (w.get("metadata") or {}).get("focus", "")},
-                expected_output={"must_mention": ["a verdict", "specific numbers"]},
-                source_trace_id=t["id"], source_observation_id=w["id"],
-                metadata={"source": "demo-run"})
-            captured += 1
-    print(f"  ✓ captured {captured} source-linked items")
+        cur = existing.get(want["id"])
+        if item_matches(cur, want):
+            outcomes[want["id"]] = "unchanged"
+            continue
+        try:
+            lf.post("/api/public/dataset-items", dict(want, status="ACTIVE"))
+            outcomes[want["id"]] = "updated" if cur else "created"
+        except ApiError as e:
+            outcomes[want["id"]] = "failed"
+            print(f"  failed    item {want['id']}: {e}")
+    for o in ("created", "updated"):
+        ids = [i for i, v in outcomes.items() if v == o]
+        if ids:
+            print(f"  {o:<9} {len(ids)} item(s): {', '.join(ids)}")
+    print(f"  unchanged {sum(1 for v in outcomes.values() if v == 'unchanged')} item(s)")
+    return outcomes
 
 
-def main() -> int:
+def captured_items(lf: Langfuse, limit: int, now: Optional[datetime] = None) -> List[dict]:
+    """Items linked to the orchestrator and worker spans of the `limit` most recent runs."""
+    now = now or datetime.now(timezone.utc)
+    window = {"fromStartTime": iso(now - timedelta(days=CAPTURE_LOOKBACK_DAYS)),
+              "toStartTime": iso(now + timedelta(minutes=5))}
+    orchestrators = lf.observations(dict(window, name="orchestrator"), fields="core,basic,io")
+    out: List[dict] = []
+    for trace_id in recent_trace_ids(orchestrators, limit):
+        obs = lf.observations(dict(window, traceId=trace_id), fields="core,basic,io,metadata")
+        orch = sorted((o for o in obs if o.get("name") == "orchestrator"), key=lambda o: o.get("startTime") or "")
+        symptom = (parse_io(orch[0].get("input")) or {}).get("symptom") if orch else None
+        if orch and isinstance(symptom, str):
+            out.append({"id": f"chp-src-{orch[0]['id']}", "datasetName": PLAN_DATASET,
+                        "input": {"symptom": symptom},
+                        "expectedOutput": {"criteria": ["matches the plan-quality rubric"]},
+                        "sourceTraceId": trace_id, "sourceObservationId": orch[0]["id"],
+                        "metadata": {"failure_mode": "captured", "source": "demo-run"}})
+        for w in (o for o in obs if o.get("name") == "worker"):
+            meta = w.get("metadata") or {}
+            winput = parse_io(w.get("input")) or {}
+            winput = winput if isinstance(winput, dict) else {}
+            out.append({"id": f"chw-src-{w['id']}", "datasetName": WORKER_DATASET,
+                        "input": {"analysis_type": meta.get("analysis_type") or winput.get("analysis_type", "unknown"),
+                                  "focus": meta.get("focus") or winput.get("focus", "")},
+                        "expectedOutput": {"must_mention": ["a verdict", "specific numbers"]},
+                        "sourceTraceId": trace_id, "sourceObservationId": w["id"],
+                        "metadata": {"source": "demo-run"}})
+    return out
+
+
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from-traces", type=int, default=0, metavar="N",
-                    help="Also capture source-linked items from N recent traces")
+                    help="Also capture source-linked items from the N most recent runs")
     ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.dry_run:
-        print(f"[dry-run] would seed {len(PLAN_ITEMS)} plan-quality + "
+        print(f"[dry-run] would reconcile {len(PLAN_ITEMS)} plan-quality + "
               f"{len(WORKER_ITEMS)} worker-quality items")
         for it in PLAN_ITEMS:
             print(f"  plan  | {it['symptom'][:70]}")
@@ -173,44 +250,28 @@ def main() -> int:
             print(f"  work  | {at} — {focus}")
         return 0
 
-    if not (PK and SK):
-        print("LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set — cannot seed datasets.")
+    ok, message = prepare_env()
+    if not ok:
+        print(f"Datasets NOT seeded: {message}")
         return 1
-
-    from langfuse import get_client
-    lf = get_client()
-
-    for name, desc in [
-        (PLAN_DATASET, "Plan-quality: does the planner decompose proportionately (no over/under fan-out, no duplication)?"),
-        (WORKER_DATASET, "Worker-quality: does one analysis produce a verdict-bearing, cited finding?"),
-    ]:
-        try:
-            lf.create_dataset(name=name, description=desc, metadata={"source": "cluster-health-investigator"})
-            print(f"✓ dataset: {name}")
-        except Exception as e:
-            print(f"• dataset {name}: {e}")
-
-    for i, it in enumerate(PLAN_ITEMS, 1):
-        lf.create_dataset_item(
-            id=f"chp-{i:02d}", dataset_name=PLAN_DATASET,
-            input={"symptom": it["symptom"]},
-            expected_output={"criteria": it["criteria"]},
-            metadata={"failure_mode": it["failure_mode"], "source": "golden"})
-        print(f"  plan  [{i:2}] {it['symptom'][:66]}")
-
-    for i, (atype, focus, must) in enumerate(WORKER_ITEMS, 1):
-        lf.create_dataset_item(
-            id=f"chw-{i:02d}", dataset_name=WORKER_DATASET,
-            input={"analysis_type": atype, "focus": focus},
-            expected_output={"must_mention": must},
-            metadata={"catalog_desc": CATALOG[atype].description, "source": "golden"})
-        print(f"  work  [{i:2}] {atype}")
-
+    lf = client_from_env()
+    print(f"Reconciling cluster-health datasets at {lf.base} ({message}) ...")
+    failed = [n for n, o in reconcile_datasets(lf).items() if o == "failed"]
+    wanted = golden_items()
     if args.from_traces:
-        _capture_from_traces(lf, args.from_traces)
-
-    lf.flush()
-    print(f"\n✓ {len(PLAN_ITEMS)} plan-quality + {len(WORKER_ITEMS)} worker-quality items seeded.")
+        try:
+            captured = captured_items(lf, args.from_traces)
+            print(f"  captured  {len(captured)} source-linked item(s) from up to {args.from_traces} run(s)")
+            wanted += captured
+        except ApiError as e:
+            failed.append(f"capture: {e}")
+            print(f"  failed    capture from recent runs: {e}")
+    outcomes = reconcile_items(lf, wanted)
+    failed += [i for i, o in outcomes.items() if o == "failed"]
+    if failed:
+        print(f"Datasets INCOMPLETE: {len(failed)} failure(s).")
+        return 1
+    print("Datasets reconciled.")
     return 0
 
 

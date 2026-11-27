@@ -84,32 +84,38 @@ Prerequisites: Docker and the root stack, set up with `./setup.sh`. Run these fr
 repo root:
 
 ```bash
-./setup.sh                          # the root stack and its .env (idempotent); also runs this demo's seed
+./setup.sh                          # the root stack and its .env (idempotent)
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 docker compose --profile langfuse up -d                       # the target ClickHouse + Langfuse
-docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_all.py
-bash demos/cluster-health-investigator/scripts/seed_evaluators.sh   # managed judges: host only (needs docker exec)
+pip install -r demos/cluster-health-investigator/requirements.txt   # the host seed imports graph.py
+python demos/cluster-health-investigator/scripts/seed_all.py  # prompts, datasets, judges; exit 1 if any step failed
 docker compose --profile langfuse --profile demo run --rm cluster-health python main.py   # 6 runs, model calls
-python demos/cluster-health-investigator/scripts/verify_demo.py   # should print READY
+python demos/cluster-health-investigator/scripts/verify_demo.py --short   # READY for the short path
 ```
 
-`seed_all.py` seeds the 3 prompts and the 2 datasets. Its third step, the managed judges,
-writes to Langfuse's Postgres through `docker exec`, which the container cannot do: inside
-the container it prints a warning and moves on. Run `seed_evaluators.sh` from the host for
-the judges. `--with-traces` also runs the 8-symptom live batch (`scripts/run_live_demo.py`).
+`seed_all.py` reconciles the 3 prompts (5 labels), the 2 datasets and the 2 managed judges,
+printing created / updated / unchanged per item; an unchanged re-run writes nothing. It
+exits 1 when any step failed. Run it on the host: the judges are written to Langfuse's
+Postgres through `docker exec`, which the container cannot do. `./setup.sh` runs it in the
+container, where the judge step cannot run, so setup reports this seed as incomplete
+until you run the host command. In the container,
+`... run --rm cluster-health python scripts/seed_all.py --skip-judges` seeds the rest.
+`--with-traces` also runs the 8-symptom live batch (`scripts/run_live_demo.py`, model calls).
 
-The root `.env` is the only source of `LANGFUSE_*`. The `cluster-health` service reads the
-keys from `env_file`, never from the shell; `verify_demo.py` drops shell-exported
-`LANGFUSE_*` before reading `.env`. Unset them anyway: other compose services interpolate
-`${LANGFUSE_PUBLIC_KEY}` from the shell.
+The root `.env` is the only source of `LANGFUSE_*`. On the host, `seed_all.py`, the other
+seed scripts and `verify_demo.py` drop every shell-exported `LANGFUSE_*` and load the root
+`.env`; a missing file or key fails before any request. In the container (marked by
+`CLUSTER_HEALTH_CONTAINER=1` in the `Dockerfile`) the `cluster-health` service gets the
+keys from `env_file`, never from the shell. Unset them anyway: other compose services
+interpolate `${LANGFUSE_PUBLIC_KEY}` from the shell.
 
 ## Before a demo
 
 | When | Do | Why |
 |---|---|---|
-| The day before | `seed_all.py`, `seed_evaluators.sh` (host), then pre-run symptoms #1, #5 and #3 from [DEMO_SYMPTOMS.md](DEMO_SYMPTOMS.md) | Planner output is non-deterministic by design: pin a narrow, a broad and a re-plan trace rather than fishing live |
-| The day before | `--fault overplan`, `scripts/run_experiment.py`, `scripts/score_delegations.py` | Acts 4, 5 and 6 read their results |
-| 30 minutes before | `python demos/cluster-health-investigator/scripts/verify_demo.py --links` | Prints READY and the link each act opens; warnings name what an optional act is missing |
+| The day before | `seed_all.py` (host), then pre-run symptoms #1, #5 and #3 from [DEMO_SYMPTOMS.md](DEMO_SYMPTOMS.md) | Planner output is non-deterministic by design: pin a narrow, a broad and a re-plan trace rather than fishing live |
+| The day before | `--fault overplan`, `scripts/seed_datasets.py --from-traces 5`, `scripts/run_experiment.py`, `scripts/score_delegations.py` | Acts 4, 5 and 6 read their results: the overplan run, source-linked items, both experiment runs, the delegation and judge scores |
+| 30 minutes before | `python demos/cluster-health-investigator/scripts/verify_demo.py --links` | READY for the full presentation, and the link each act opens. `--short` checks only the short path (Opening, Acts 1–3, Close) |
 | 5 minutes before | Open the links it printed, plus Dashboards and Evaluators | The narrow and broad traces in Agent Graph → Aggregated view, the re-plan trace, the dataset |
 
 ## Run it
@@ -139,7 +145,7 @@ tool span with the real SQL and `row_count`. Trace scores `worker_count` and
 |---|---|---|
 | Datasets `cluster-health/plan-quality` (8 items) and `cluster-health/worker-quality` (10 items) | `$C python scripts/seed_datasets.py` | Run by `seed_all.py`. `--from-traces N` adds items linked to real `orchestrator` / `worker` observations |
 | Planner prompt A/B: `planner-production` vs `planner-candidate-scoped-decomposition` | `$C python scripts/run_experiment.py` | Only the planner label varies. Model calls: 8 items × 2 labels, each a full investigation plus a judge call. `--ci` exits 1 when `avg_worker_count` > `FANOUT_THRESHOLD` |
-| Managed judges `diagnosis-coverage` (on `synthesize-diagnosis`) and `plan-scaling` (on `orchestrator`) | `bash demos/cluster-health-investigator/scripts/seed_evaluators.sh` | Host only; self-hosted Postgres upsert; scores new runs only (`time_scope=NEW`) |
+| Managed judges `diagnosis-coverage` (on `synthesize-diagnosis`) and `plan-scaling` (on `orchestrator`) | `bash demos/cluster-health-investigator/scripts/seed_evaluators.sh` (run by the host `seed_all.py`) | Host only; reconciled in the self-hosted Postgres; scores new runs only (`time_scope=NEW`) |
 | Per-worker `delegation_quality` | `$C python scripts/score_delegations.py` | One judge call per worker of the latest trace; `--limit N` for more traces |
 | Deterministic checks | in every run | `worker_count`, `plan_execution_complete`, `coverage_sufficient` (`graph.py`) |
 
@@ -186,6 +192,7 @@ Defaulted in `docker-compose.yaml`; override in the repo-root `.env`:
 | `TARGET_CH_HOST` / `_PORT` / `_USER` / `_PASSWORD` | `langfuse-clickhouse` / `8123` / `langfuse` / `langfuse123` | The investigation target; point it at another cluster in a PoC (`TARGET_CH_SECURE=true` for TLS) |
 | `FANOUT_THRESHOLD` | `6` | Gate for `check_fanout.py` and `run_experiment.py --ci` |
 | `LANGFUSE_EVAL_MODEL` | `claude-haiku-4-5-20251001` | Model `seed_evaluators.sh` sets as the project's default eval model, if none exists |
+| `CLUSTER_HEALTH_CONTAINER` | `1` in the image | Set by the `Dockerfile`; tells the seed scripts to take `LANGFUSE_*` from the container environment instead of loading the root `.env` |
 | `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` | Project name `verify_demo.py` expects the keys to map to |
 
 ## Layout
@@ -204,15 +211,15 @@ demos/cluster-health-investigator/
 ├── langfuse_config.py        Langfuse wiring: trace context, typed observations, scores, prompts
 ├── sql/worker_count_by_trace.sql   fan-out per trace, straight from Langfuse's ClickHouse
 ├── scripts/
-│   ├── seed_all.py           the seed entry point: prompts, datasets, judges (setup.sh runs it)
-│   ├── seed_prompts.py       3 managed prompts and their labels
-│   ├── seed_datasets.py      plan-quality + worker-quality datasets
+│   ├── seed_all.py           the seed entry point: prompts, datasets, judges (run it on the host)
+│   ├── seed_prompts.py       3 managed prompts, 5 labels, reconciled per label
+│   ├── seed_datasets.py      plan-quality + worker-quality datasets (+ --from-traces capture)
 │   ├── seed_evaluators.sh    2 managed judges (host, self-hosted Postgres)
 │   ├── run_live_demo.py      8 symptoms in one session (+ --with-fault)
 │   ├── run_experiment.py     planner prompt A/B on plan-quality
 │   ├── score_delegations.py  per-worker delegation_quality via the Scores API
 │   ├── check_fanout.py       avg workers / cost per trace via the Metrics API
-│   └── verify_demo.py        readiness check: READY or NOT READY
+│   └── verify_demo.py        readiness check: READY or NOT READY (also the env + read helpers)
 ├── tests/                    no services, no model calls
 └── requirements.txt
 ```
@@ -228,7 +235,9 @@ python -m pytest -q                 # no services, no model calls, a few seconds
 - `test_catalog_safety.py` — every catalog SQL is SELECT-only and LIMIT-bounded; `focus` can't inject.
 - `test_graph_shape.py` — plan of N → exactly N worker invocations; re-plan guards enforced; fault:overplan hits the cap. Skips if `langgraph` isn't installed.
 - `test_plan_schema.py` — Plan round-trip; malformed plan → retry once, then abort.
-- `test_verify_demo.py` — `verify_demo.py`'s checks, exit code, `.env` override, the Observations v2 → v1 fallback and the run-shape logic, against a fake Langfuse.
+- `test_verify_demo.py` — `verify_demo.py`'s checks, full and `--short` verdicts, `.env` loading with hostile shell keys, cursor paging, the Observations v2 → v1 fallback and the run-shape logic.
+- `test_seed_all.py`, `test_seed_prompts.py`, `test_seed_datasets.py`, `test_score_delegations.py` — env loading, exit codes, per-label and per-item reconcile (unchanged runs write nothing), source capture and delegation reads from observations.
+- `fake_langfuse.py` — the request-level fake the Langfuse tests run against: it rejects unknown query parameters and honours field projection.
 
 ## Troubleshooting
 
@@ -237,16 +246,16 @@ python -m pytest -q                 # no services, no model calls, a few seconds
 | `langfuse-clickhouse (the investigation target) is …` fails, or workers report connection errors | The `langfuse` profile is not up: `docker compose --profile langfuse up -d` |
 | `keys map to project '…' (want 'LLM Observability Demo')` | The root `.env` holds another project's keys. Re-run `./setup.sh` or fix the keys |
 | Traces land in another project, or 401 on export | Shell-exported `LANGFUSE_*`: `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL` |
-| `managed judge scores on the latest run: none` | Judges were never seeded (`seed_all.py` in the container skips them) or the run predates them: run `seed_evaluators.sh` on the host, then a new run |
+| `0 'diagnosis-coverage' judge score(s)` | Judges were never seeded (the container seed cannot) or every run predates them: run `seed_all.py` on the host, then a new run |
+| `Seed INCOMPLETE: …` | A step failed and its output says why; in the container the judge step always fails: run the host command it prints |
 | Same worker count for every symptom | Planner variance, or the planner fell back to the local prompt. Use the calibrated phrasings in `DEMO_SYMPTOMS.md`; check `prompt cluster-health-planner: production` passes in `verify_demo.py` |
 | No second `orchestrator` visit for symptom #3 | The re-plan is not guaranteed. Run it a few times and pin a trace that shows two rounds |
 | `latest run has 0 observation(s)` | The trace landed before its observations, or `langfuse-worker` stalled: wait 30 s; if it persists, `docker compose restart langfuse-worker` |
 
 ## Known limits
 
-- **Self-hosted only.** The judge seeder writes to Langfuse's Postgres; on Cloud it prints UI steps instead. `scripts/seed_datasets.py --from-traces` and `scripts/score_delegations.py` read the legacy `/api/public/traces` endpoints, which Langfuse Cloud no longer serves.
-- `seed_all.py` cannot seed the judges from inside the container, and it exits 0 even when a step fails. Read its output, then run `verify_demo.py`.
-- `seed_prompts.py` skips a prompt whose `production` label already resolves, so a changed fallback prompt in `graph.py` does not reach Langfuse on a re-seed.
+- **Self-hosted only.** The judge seeder writes to Langfuse's Postgres; on Cloud it prints UI steps and exits 1. `scripts/check_fanout.py` uses the v1 Metrics API, which the 3.x server needs (v2 metrics 404 there).
+- The container seed cannot write the judges, so the `./setup.sh` path leaves them for the host `seed_all.py`.
 - Worker counts are non-deterministic by design. `DEMO_SYMPTOMS.md` gives a calibrated range for each phrasing, not a guarantee; only `--fault overplan` is deterministic.
 - The Monitor in Act 4 is created by hand in the UI; nothing seeds it.
 - The planner can only choose from the 10 catalog analyses. It diagnoses; it never changes the cluster.
