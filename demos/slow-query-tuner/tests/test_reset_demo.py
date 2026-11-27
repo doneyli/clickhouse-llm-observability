@@ -6,7 +6,7 @@ import pytest
 
 import reset_demo as r
 import verify_demo as v
-from test_verify_demo import PESSIMAL_DDL, PROJECTED_DDL
+from fake_services import PESSIMAL_DDL, PROJECTED_DDL
 
 
 def test_leftover_ddl_finds_projections_and_indexes():
