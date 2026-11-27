@@ -544,6 +544,21 @@ export const DETERMINISTIC_EVALUATORS = [
   readbackRequestUnanswered,
 ] as const;
 
+/**
+ * The score names `npm run experiment` writes, one per evaluator above, in the same
+ * order. scripts/verify_demo.ts counts only scores with these names as evidence.
+ */
+export const EVALUATOR_NAMES = [
+  "unverified-cart-claim",
+  "fabricated-purchase-history",
+  "dropped-dietary-constraint",
+  "stale-discount-quoted",
+  // Added by error analysis; snake_case to match the Langfuse score configs
+  // created from the failure taxonomy. See docs/ERROR_ANALYSIS.md.
+  "quoted_total_for_empty_cart",
+  "readback_request_unanswered",
+] as const;
+
 export function runDeterministicEvaluators(ctx: EvalContext): Verdict[] {
   return DETERMINISTIC_EVALUATORS.map((fn) => fn(ctx));
 }

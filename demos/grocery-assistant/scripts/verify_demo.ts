@@ -8,7 +8,8 @@
  * The TypeScript port of demos/_template/scripts/verify_demo.py, with the same output
  * contract. An HTTP 200 proves little on its own (a trace can exist before its
  * observations land), so every check counts real rows. Node built-ins plus the demo's own
- * key-free modules (src/conversations.ts, src/dataset.ts, src/readback.ts): it does not
+ * key-free modules (src/conversations.ts, src/dataset.ts, src/readback.ts and the evaluator
+ * names in src/evaluators/deterministic.ts): it does not
  * import src/env.ts, which refuses to load without a .env, and it needs none of the
  * demo's dependencies. No model calls; a handful of Langfuse reads, done in seconds.
  *
@@ -17,7 +18,8 @@
  * and the experiments API with 404, so on a 3.x server (read from /api/public/health,
  * the same switch scripts/compare-traces.ts uses) — and only there — observation reads
  * fall back to the v1 observation list and the dataset-run read to /datasets/{name}/runs.
- * Scores v3, /v2/datasets and /dataset-items work on both.
+ * Scores v3, /v2/datasets and /dataset-items work on both; on a 3.x server the dataset
+ * run's evaluator scores are read from Scores v3 by the run items' trace ids.
  *
  * Each act's reads are isolated: a failed read is a FAIL for a required act and a WARN
  * for an optional one, and the other acts still run.
@@ -29,6 +31,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { DATASET_NAME, canonical, desiredItems, type ItemDefinition } from "../src/dataset.js";
+import { EVALUATOR_NAMES } from "../src/evaluators/deterministic.js";
 import { apiFlavourFor, cursorAll, pagesAll, sessionOf, type ApiFlavour, type Get } from "../src/readback.js";
 
 export const DEMO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -397,13 +400,44 @@ async function datasetChecks(lf: Langfuse, state: State): Promise<void> {
 }
 
 type Experiment = { id: string; name: string; startTime: string; itemCount?: number };
+type ScoreRow = { name?: string; subject?: { kind?: string; id?: string; traceId?: string | null } };
+type RunEvidence = { name: string; itemIds: Set<string>; scores: number; scoredItems: number };
 
-/** The newest dataset run, its distinct items, and (on v2) how many scores they carry. */
-async function newestExperiment(
-  lf: Langfuse,
-  flavour: ApiFlavour,
-  datasetId: string | undefined,
-): Promise<{ name: string; itemIds: Set<string>; scores?: number } | undefined> {
+const EVALUATOR_SET = new Set<string>(EVALUATOR_NAMES);
+
+/**
+ * Evaluator scores on a 3.x dataset run, read from Scores v3 by the run items' own
+ * trace ids. Each score counts only when its subject (the trace, or an observation in
+ * it) is one of those traces, so a same-named score from another run never counts.
+ */
+async function runItemScores(lf: Langfuse, items: Array<{ datasetItemId?: string; traceId?: string }>): Promise<Map<string, number>> {
+  const itemOfTrace = new Map(items.filter((i) => i.traceId && i.datasetItemId).map((i) => [i.traceId!, i.datasetItemId!]));
+  const traceIds = [...itemOfTrace.keys()];
+  const perItem = new Map<string, number>();
+  for (let i = 0; i < traceIds.length; i += 50) {
+    const scores = await lf.cursor<ScoreRow>(
+      "/api/public/v3/scores",
+      { traceId: traceIds.slice(i, i + 50).join(","), name: EVALUATOR_NAMES.join(","), fields: "subject" },
+      { limit: 100, maxPages: 20 },
+    );
+    for (const s of scores) {
+      const trace = s.subject?.kind === "trace" ? s.subject.id : s.subject?.kind === "observation" ? s.subject.traceId : undefined;
+      const item = trace ? itemOfTrace.get(trace) : undefined;
+      if (item && EVALUATOR_SET.has(String(s.name))) perItem.set(item, (perItem.get(item) ?? 0) + 1);
+    }
+  }
+  return perItem;
+}
+
+/**
+ * The newest dataset run, its distinct items, and the evaluator scores on those items.
+ * Both API paths apply one rule: only scores named after a deterministic evaluator and
+ * attached to one of the run's own items count.
+ */
+async function newestExperiment(lf: Langfuse, flavour: ApiFlavour, datasetId: string | undefined): Promise<RunEvidence | undefined> {
+  let name: string;
+  let itemIds: Set<string>;
+  let perItem: Map<string, number>;
   if (flavour === "v1") {
     // A 3.x server has no experiments API; its dataset runs are the same objects.
     const enc = encodeURIComponent(DATASET_NAME);
@@ -412,34 +446,43 @@ async function newestExperiment(
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     const newest = runs[0]?.name;
     if (!newest) return undefined;
-    const run = await lf.get<{ datasetRunItems?: Array<{ datasetItemId?: string }> }>(
+    const run = await lf.get<{ datasetRunItems?: Array<{ datasetItemId?: string; traceId?: string }> }>(
       `/api/public/datasets/${enc}/runs/${encodeURIComponent(newest)}`,
     );
-    return { name: newest, itemIds: new Set((run?.datasetRunItems ?? []).map((i) => i.datasetItemId ?? "")) };
-  }
-  if (!datasetId) return undefined; // no dataset, so no run on it (the seeded-artifacts check says why)
-  const experiments = (
-    await lf.cursor<Experiment>(
-      "/api/public/experiments",
-      { datasetId, fromStartTime: EXPERIMENTS_SINCE, fields: "core" },
-      { limit: 100 },
+    const runItems = run?.datasetRunItems ?? [];
+    name = newest;
+    itemIds = new Set(runItems.map((i) => i.datasetItemId ?? ""));
+    perItem = await runItemScores(lf, runItems);
+  } else {
+    if (!datasetId) return undefined; // no dataset, so no run on it (the seeded-artifacts check says why)
+    const experiments = (
+      await lf.cursor<Experiment>(
+        "/api/public/experiments",
+        { datasetId, fromStartTime: EXPERIMENTS_SINCE, fields: "core" },
+        { limit: 100 },
+      )
     )
-  )
-    .filter((e) => e.name.startsWith(EXPERIMENT_PREFIX))
-    .sort((a, b) => b.startTime.localeCompare(a.startTime));
-  const newest = experiments[0];
-  if (!newest) return undefined;
-  const since = new Date(Date.parse(newest.startTime) - 3_600_000);
-  const items = await lf.cursor<{ experimentItemId?: string; scores?: unknown[] | null }>(
-    "/api/public/experiment-items",
-    { experimentId: newest.id, fromStartTime: iso(since), fields: "core,scores" },
-    { limit: 100 },
-  );
-  return {
-    name: newest.name,
-    itemIds: new Set(items.map((i) => i.experimentItemId ?? "")),
-    scores: items.reduce((n, i) => n + (i.scores?.length ?? 0), 0),
-  };
+      .filter((e) => e.name.startsWith(EXPERIMENT_PREFIX))
+      .sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const newest = experiments[0];
+    if (!newest) return undefined;
+    const since = new Date(Date.parse(newest.startTime) - 3_600_000);
+    // `scores` holds each item's own item and trace scores.
+    const items = await lf.cursor<{ experimentItemId?: string; scores?: ScoreRow[] | null }>(
+      "/api/public/experiment-items",
+      { experimentId: newest.id, fromStartTime: iso(since), fields: "core,scores" },
+      { limit: 100 },
+    );
+    name = newest.name;
+    itemIds = new Set(items.map((i) => i.experimentItemId ?? ""));
+    perItem = new Map();
+    for (const i of items) {
+      const n = (i.scores ?? []).filter((s) => EVALUATOR_SET.has(String(s.name))).length;
+      if (i.experimentItemId && n) perItem.set(i.experimentItemId, (perItem.get(i.experimentItemId) ?? 0) + n);
+    }
+  }
+  const counted = [...perItem].filter(([id]) => itemIds.has(id));
+  return { name, itemIds, scores: counted.reduce((n, [, c]) => n + c, 0), scoredItems: counted.length };
 }
 
 export async function langfuseChecks(
@@ -545,12 +588,11 @@ export async function langfuseChecks(
   await section(`Act 3 · evaluators (dataset run${opts.quick ? ", optional with --quick" : ""})`, actThreeRequired, async () => {
     const run = await newestExperiment(lf, flavour, state.datasetId);
     const covered = EXPECTED_ITEMS.filter((i) => run?.itemIds.has(i.id)).length;
-    const scored = run?.scores === undefined || run.scores > 0;
     check(
-      Boolean(run) && covered === EXPECTED_ITEMS.length && scored,
+      Boolean(run) && covered === EXPECTED_ITEMS.length && (run?.scores ?? 0) > 0,
       run
-        ? `newest run ${run.name}: ${covered}/${EXPECTED_ITEMS.length} conversation items` +
-            (run.scores === undefined ? " (scores not read on a 3.x server)" : `, ${run.scores} score(s) (want 1+)`)
+        ? `newest run ${run.name}: ${covered}/${EXPECTED_ITEMS.length} conversation items, ` +
+            `${run.scores} evaluator score(s) on ${run.scoredItems} of them (want 1+)`
         : `a ${EXPERIMENT_PREFIX}* run on ${DATASET_NAME}`,
       {
         required: actThreeRequired,

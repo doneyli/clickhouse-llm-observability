@@ -17,6 +17,10 @@ export type Spec = {
   required?: string[];
   maxLimit?: number;
   fieldGroups?: string[];
+  /** At most one of these parameters may be sent (e.g. Scores v3 traceId / sessionId / experimentId). */
+  exclusive?: string[];
+  /** Parameter -> a parameter it requires (e.g. Scores v3 observationId needs traceId). */
+  requires?: Record<string, string>;
   /** Returns the full result set (for paged routes) or a body (for `raw` routes). */
   rows: (q: URLSearchParams, path: string) => Row[] | Row | undefined;
   paging?: "cursor" | "page" | "none";
@@ -101,9 +105,11 @@ export function fakeLangfuse(routes: Record<string, Spec>, opts: FakeOptions = {
     const groups = new Set((q.get("fields") ?? "").split(",").filter(Boolean));
     const badGroups = spec.fieldGroups ? [...groups].filter((g) => !spec.fieldGroups!.includes(g)) : [];
     const overLimit = spec.maxLimit !== undefined && limit !== null && Number(limit) > spec.maxLimit;
-    if (bad.length || missing.length || badGroups.length || overLimit) {
+    const clash = (spec.exclusive ?? []).filter((k) => q.has(k));
+    const unmet = Object.entries(spec.requires ?? {}).filter(([k, needs]) => q.has(k) && !q.has(needs));
+    if (bad.length || missing.length || badGroups.length || overLimit || clash.length > 1 || unmet.length) {
       rejected.push(url.pathname + url.search);
-      return reply(400, { message: "invalid request", bad, missing, badGroups, overLimit });
+      return reply(400, { message: "invalid request", bad, missing, badGroups, overLimit, clash, unmet });
     }
 
     const result = spec.rows(q, url.pathname);

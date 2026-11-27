@@ -307,7 +307,8 @@ npm run typecheck            # tsc --noEmit
 `src/evaluators/deterministic.test.ts` covers the deterministic evaluators, with cases
 taken from real output. `tests/verify_demo.test.ts` covers the readiness check (results,
 verdict and exit code, the `.env` rule, run classification, optional and required read
-failures, empty and repeated cursors, the dataset run, archived items) against a fake
+failures, empty and repeated cursors, the dataset run and its evaluator scores, archived
+items) against a fake
 Langfuse that rejects requests the real API would reject, on a v4 and a 3.x server.
 `tests/dataset.test.ts` covers the seed reconcile (no-op, changed and drifted items,
 partial and total write failures), `tests/readback.test.ts` both observation shapes and
@@ -345,7 +346,7 @@ in a child process with hostile shell exports. No test needs keys or reaches a n
 - On a self-hosted 3.x server the read-back scripts use the v1 observation list (and
   `verify_demo.ts` the `/datasets/{name}/runs` read), because Observations API v2 and the
   experiments API do not exist there; on Cloud and v4 they use v2. No script calls the
-  legacy `/traces` endpoints. On a 3.x server `verify_demo.ts` does not count the dataset
-  run's scores.
+  legacy `/traces` endpoints. On a 3.x server `verify_demo.ts` counts the dataset run's
+  evaluator scores through Scores API v3, filtered by the run items' trace ids.
 - The catalog, the brand, the offers, the order history and the shoppers are all
   invented.

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
 import * as v from "../scripts/verify_demo.js";
+import { EVALUATOR_NAMES } from "../src/evaluators/deterministic.js";
 import {
   DATASET_ITEMS_PARAMS,
   EXPERIMENTS_PARAMS,
@@ -68,8 +69,22 @@ type World = {
   experimentItems: Row[];
   scores: Row[];
   v1Runs: Row[];
-  v1RunItems: Row[];
+  /** Run name -> its dataset run items (3.x /datasets/{name}/runs/{run}). */
+  v1RunItems: Record<string, Row[]>;
+  /** A lenient server that ignores the Scores v3 traceId filter. */
+  ignoreTraceFilter?: boolean;
 };
+
+/** A BOOLEAN evaluator score as Scores v3 returns it, on an observation of `traceId`. */
+function evalScore(id: string, traceId: string, name = "unverified-cart-claim"): Row {
+  return { id, name, value: true, dataType: "BOOLEAN", source: "API", subject: { kind: "observation", id: `o-${traceId}`, traceId } };
+}
+
+/** The trace a score is attached to, from its subject. */
+function scoreTrace(s: Row): string | undefined {
+  const subject = s.subject as { kind?: string; id?: string; traceId?: string } | undefined;
+  return subject?.kind === "trace" ? subject.id : subject?.kind === "observation" ? subject.traceId : undefined;
+}
 
 function readyWorld(over: Partial<World> = {}): World {
   return {
@@ -86,10 +101,22 @@ function readyWorld(over: Partial<World> = {}): World {
       { id: "exp1", name: "deterministic-board-2026-11-27", startTime: hoursAgo(5), itemCount: 5, datasetId: "ds1" },
       { id: "other", name: "someone-elses-run", startTime: hoursAgo(1), itemCount: 1, datasetId: "ds1" },
     ],
-    experimentItems: ITEMS.map((i, n) => ({ id: `ei${n}`, traceId: `t${n}`, experimentId: "exp1", experimentItemId: i.id, scores: [{ name: "unverified-cart-claim" }] })),
-    scores: [{ id: "sc1", name: v.SESSION_SCORE, value: 1, dataType: "NUMERIC", subject: { kind: "session", id: "cmp-good-1" } }],
-    v1Runs: [{ name: "deterministic-board-x", createdAt: hoursAgo(5) }],
-    v1RunItems: ITEMS.map((i) => ({ datasetItemId: i.id })),
+    experimentItems: ITEMS.map((i, n) => ({
+      id: `ei${n}`, traceId: `t${n}`, experimentId: "exp1", experimentItemId: i.id, scores: [evalScore(`es${n}`, `t${n}`)],
+    })),
+    scores: [
+      { id: "sc1", name: v.SESSION_SCORE, value: 1, dataType: "NUMERIC", subject: { kind: "session", id: "cmp-good-1" } },
+      // The 3.x run's evaluator scores, on the run items' traces (rt0..rt4).
+      ...ITEMS.map((_i, n) => evalScore(`rs${n}`, `rt${n}`)),
+    ],
+    v1Runs: [
+      { name: "deterministic-board-old", createdAt: hoursAgo(200) },
+      { name: "deterministic-board-x", createdAt: hoursAgo(5) },
+    ],
+    v1RunItems: {
+      "deterministic-board-x": ITEMS.map((i, n) => ({ datasetItemId: i.id, traceId: `rt${n}`, observationId: `o-rt${n}` })),
+      "deterministic-board-old": ITEMS.map((i, n) => ({ datasetItemId: i.id, traceId: `old${n}`, observationId: `o-old${n}` })),
+    },
     ...over,
   };
 }
@@ -128,11 +155,13 @@ function routes(w: World): Record<string, Spec> {
     },
     "/api/public/v3/scores": {
       params: SCORES_V3_PARAMS, maxLimit: 100, fieldGroups: ["details", "subject", "annotation"], paging: "cursor", project: projectScore,
+      exclusive: ["traceId", "sessionId", "experimentId"], requires: { observationId: "traceId" },
       rows: (q) =>
         w.scores.filter(
           (s) =>
             (!q.get("name") || q.get("name")!.split(",").includes(String(s.name))) &&
-            (!q.get("sessionId") || (s.subject as { id?: string } | undefined)?.id === q.get("sessionId")),
+            (!q.get("sessionId") || (s.subject as { id?: string } | undefined)?.id === q.get("sessionId")) &&
+            (!q.get("traceId") || w.ignoreTraceFilter || q.get("traceId")!.split(",").includes(scoreTrace(s) ?? "")),
         ),
     },
     // 3.x server only
@@ -149,7 +178,14 @@ function routes(w: World): Record<string, Spec> {
       },
     },
     "/api/public/datasets/{name}/runs": { params: ["page", "limit"], paging: "page", rows: () => w.v1Runs },
-    "/api/public/datasets/{name}/runs/{run}": { params: [], rows: () => ({ name: "deterministic-board-x", datasetRunItems: w.v1RunItems }) },
+    "/api/public/datasets/{name}/runs/{run}": {
+      params: [],
+      rows: (_q, path) => {
+        const name = decodeURIComponent(path.split("/").pop() ?? "");
+        const items = w.v1RunItems[name];
+        return items ? { id: `run-${name}`, name, datasetRunItems: items } : undefined;
+      },
+    },
   };
 }
 
@@ -260,7 +296,7 @@ test("a ready v4 project prints READY, exits 0 and prints a link per act", async
   assert.equal(env["LANGFUSE_PUBLIC_KEY"], "pk-file", "the shell key must not win");
   assert.deepEqual(fake.rejected, [], "every request honours the API contract");
   assert.ok(fake.seen.every((p) => !p.includes("shell.example")));
-  assert.match(out(), /PASS {2}newest run deterministic-board-2026-11-27: 5\/5 conversation items, 5 score\(s\)/);
+  assert.match(out(), /PASS {2}newest run deterministic-board-2026-11-27: 5\/5 conversation items, 5 evaluator score\(s\) on 5 of them/);
   assert.match(out(), /PASS {2}conversation-cart-integrity on session cmp-good-1: 1 score\(s\)/);
   assert.match(out(), /Act 1 · the good session\s+https:\/\/lf\.example\/project\/proj1\/sessions\/cmp-good-1/);
   assert.match(out(), /Act 3 · grocery-conversations\s+https:\/\/lf\.example\/project\/proj1\/datasets\/ds1/);
@@ -320,7 +356,23 @@ test("a dataset run missing an item, or with no scores, is NOT READY", async () 
   const unscored = readyWorld();
   unscored.experimentItems = unscored.experimentItems.map((i) => ({ ...i, scores: [] }));
   assert.equal((await run(unscored)).code, 1);
-  assert.match(out(), /FAIL {2}newest run [^\n]*, 0 score\(s\)/);
+  assert.match(out(), /FAIL {2}newest run [^\n]*, 0 evaluator score\(s\) on 0 of them/);
+});
+
+test("v2: scores that are not evaluator scores, or sit on another run's items, are NOT READY (135-3)", async () => {
+  const foreign = readyWorld();
+  foreign.experimentItems = foreign.experimentItems.map((i) => ({ ...i, scores: [evalScore("x", String(i.traceId), "user-feedback")] }));
+  assert.equal((await run(foreign)).code, 1);
+  assert.match(out(), /FAIL {2}newest run deterministic-board-2026-11-27: 5\/5 conversation items, 0 evaluator score\(s\)/);
+  logged = [];
+  v.RESULTS.length = 0;
+  const otherRun = readyWorld();
+  otherRun.experimentItems = [
+    ...otherRun.experimentItems.map((i) => ({ ...i, scores: [] })),
+    ...ITEMS.map((i, n) => ({ id: `old${n}`, traceId: `old${n}`, experimentId: "exp-old", experimentItemId: i.id, scores: [evalScore(`os${n}`, `old${n}`)] })),
+  ];
+  assert.equal((await run(otherRun)).code, 1);
+  assert.match(out(), /FAIL {2}newest run deterministic-board-2026-11-27: 5\/5 conversation items, 0 evaluator score\(s\)/);
 });
 
 test("an archived-only dataset is NOT READY", async () => {
@@ -384,15 +436,75 @@ test("a failed health read warns and reads Observations v2", async () => {
 
 // ------------------------------------------------------ full runs: 3.x ---
 test("a 3.x server reads v1 observations and dataset runs, never /traces or v2", async () => {
-  const world = readyWorld({ version: "3.221.1", scores: [] });
+  const world = readyWorld({ version: "3.221.1" });
+  world.scores = world.scores.filter((s) => s.name !== v.SESSION_SCORE);
   const { code, fake } = await run(world);
   assert.equal(code, 0, out());
   assert.deepEqual(fake.rejected, []);
   assert.match(out(), /reading Observations v1/);
-  assert.match(out(), /PASS {2}newest run deterministic-board-x: 5\/5 conversation items \(scores not read on a 3\.x server\)/);
+  assert.match(out(), /PASS {2}newest run deterministic-board-x: 5\/5 conversation items, 5 evaluator score\(s\) on 5 of them/);
   assert.match(out(), /WARN {2}conversation-cart-integrity on session cmp-good-1: 0 score\(s\)/);
   assert.ok(fake.seen.every((p) => !p.startsWith("/api/public/traces")));
   assert.ok(!fake.seen.some((p) => p.startsWith("/api/public/v2/observations") || p.startsWith("/api/public/experiments")));
+  assert.ok(!fake.seen.some((p) => p.startsWith("/api/public/dataset-run-items")));
+});
+
+test("3.x: the run's scores are read from Scores v3 by its own trace ids and evaluator names (135-3)", async () => {
+  const { fake } = await run(readyWorld({ version: "3.221.1" }));
+  const reads = fake.seen.filter((p) => p.startsWith("/api/public/v3/scores?") && p.includes("traceId="));
+  // Five scores at the fake's two per page: one request, then two cursor follow-ups with the same filter.
+  assert.equal(reads.length, 3);
+  const unpaged = (p: string) => [...new URLSearchParams(p.split("?")[1])].filter(([k]) => k !== "cursor");
+  assert.ok(reads.every((r) => JSON.stringify(unpaged(r)) === JSON.stringify(unpaged(reads[0]!))));
+  const q = new URLSearchParams(reads[0]!.split("?")[1]);
+  assert.equal(q.get("limit"), "100");
+  assert.deepEqual(q.get("traceId")!.split(",").sort(), ["rt0", "rt1", "rt2", "rt3", "rt4"]);
+  assert.deepEqual(q.get("name")!.split(","), [...EVALUATOR_NAMES]);
+  assert.equal(q.get("fields"), "subject");
+  assert.equal(q.has("sessionId") || q.has("experimentId"), false, "traceId is exclusive with both");
+});
+
+test("3.x: five covered items with no evaluator scores are NOT READY (135-3)", async () => {
+  const world = readyWorld({ version: "3.221.1" });
+  world.scores = world.scores.filter((s) => !String(s.id).startsWith("rs"));
+  assert.equal((await run(world)).code, 1);
+  assert.match(out(), /FAIL {2}newest run deterministic-board-x: 5\/5 conversation items, 0 evaluator score\(s\) on 0 of them/);
+});
+
+test("3.x: same-named scores on another run's or an unrelated trace are NOT READY (135-3)", async () => {
+  const world = readyWorld({ version: "3.221.1" });
+  world.scores = [
+    ...world.scores.filter((s) => !String(s.id).startsWith("rs")),
+    ...ITEMS.map((_i, n) => evalScore(`old${n}`, `old${n}`)), // the older run's traces
+    { id: "tr", name: "unverified-cart-claim", value: true, dataType: "BOOLEAN", subject: { kind: "trace", id: "live-trace" } },
+    { id: "se", name: "unverified-cart-claim", value: true, dataType: "BOOLEAN", subject: { kind: "session", id: "rt0" } },
+  ];
+  assert.equal((await run(world)).code, 1);
+  assert.match(out(), /FAIL {2}newest run deterministic-board-x: 5\/5 conversation items, 0 evaluator score\(s\)/);
+  // A server that ignored the trace filter and returned them all changes nothing: linkage is checked on the subject.
+  logged = [];
+  v.RESULTS.length = 0;
+  world.ignoreTraceFilter = true;
+  assert.equal((await run(world)).code, 1);
+  assert.match(out(), /FAIL {2}newest run deterministic-board-x: 5\/5 conversation items, 0 evaluator score\(s\)/);
+});
+
+test("3.x: a scored run with a trace-level score on one item is READY, with the count it found", async () => {
+  const world = readyWorld({ version: "3.221.1" });
+  world.scores = [
+    ...world.scores.filter((s) => !String(s.id).startsWith("rs")),
+    { id: "t2", name: "stale-discount-quoted", value: false, dataType: "BOOLEAN", subject: { kind: "trace", id: "rt2" } },
+  ];
+  assert.equal((await run(world)).code, 0, out());
+  assert.match(out(), /PASS {2}newest run deterministic-board-x: 5\/5 conversation items, 1 evaluator score\(s\) on 1 of them/);
+});
+
+test("the fake enforces Scores v3's exclusive filters, as the real API does", async () => {
+  const fake = fakeLangfuse(routes(readyWorld()));
+  const both = await fake.fetch("https://lf.example/api/public/v3/scores?traceId=a&sessionId=b", { headers: {} });
+  assert.equal(both.status, 400);
+  const orphan = await fake.fetch("https://lf.example/api/public/v3/scores?observationId=o", { headers: {} });
+  assert.equal(orphan.status, 400);
 });
 
 // ------------------------------------------------------- config failures ---

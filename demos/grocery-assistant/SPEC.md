@@ -27,7 +27,7 @@ evaluator choice rather than a full evaluation loop.
 |---|---|---|---|
 | 1 | The same app, badly instrumented, answers as well and cannot be measured | Act 1: `npm run compare`, broken vs good, counted from the API | `verify_demo.ts`: a `cmp-good-*` session and `compare:broken` turns exist; broken generations have null input |
 | 2 | A flattened agent loop passes review and loses per-step reasoning and cost | Act 2: `npm run compare:loop` | `verify_demo.ts` warns when no `cmp-collapsed-*` session exists |
-| 3 | Deterministic checks on system state come before any judge | Act 3: `npm run chat -- --conversation unverified-cart-claim`, then the evaluator table | Unit tests in `src/evaluators/deterministic.test.ts`; `verify_demo.ts` requires a `deterministic-board-*` run covering all five items with scores (`--quick` makes it a warning) |
+| 3 | Deterministic checks on system state come before any judge | Act 3: `npm run chat -- --conversation unverified-cart-claim`, then the evaluator table | Unit tests in `src/evaluators/deterministic.test.ts`; `verify_demo.ts` requires a `deterministic-board-*` run covering all five items, with evaluator scores on its own items on both API paths (`--quick` makes it a warning) |
 | 4 | A conversation-level number comes from your code, not a managed rule | Act 4: `npm run evaluate:live` | `verify_demo.ts` warns when the good session has no `conversation-cart-integrity` score |
 
 ## 4. The fictional company and data

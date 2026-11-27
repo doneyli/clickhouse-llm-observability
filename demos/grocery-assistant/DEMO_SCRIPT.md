@@ -372,11 +372,12 @@ denominator that means something.
 `loadDemoEnv()` (`src/env-file.ts`) clears every inherited `LANGFUSE_*`, requires the
 `.env` and both keys, then `verifyProject()` refuses keys for another project.
 
-**10 · Readiness counts real rows — `scripts/verify_demo.ts:487`**
+**10 · Readiness counts real rows — `scripts/verify_demo.ts:530`**
 It lists root observations through Observations API v2 (the v1 list on a 3.x server),
 finds the newest comparison runs, then counts each run's generations and checks the
 broken ones really have null input. It also requires the newest dataset run to cover
-all five conversations with scores.
+all five conversations and to carry evaluator scores on its own items (read from Scores
+API v3 by the run's trace ids on a 3.x server).
 
 ---
 
