@@ -16,22 +16,7 @@ commands:
   install: pip install -r requirements.txt pytest
   seed: python demos/cluster-health-investigator/scripts/seed_all.py
   run: docker compose --profile langfuse --profile demo run --rm cluster-health python main.py
-  verify: python demos/cluster-health-investigator/scripts/verify_demo.py   # to be written
+  verify: python demos/cluster-health-investigator/scripts/verify_demo.py
   test: python -m pytest -q
 addons:
   - questions: DEMO_SYMPTOMS.md   # existing name kept (decision D8)
-waivers:
-  - rule: DS-README-02
-    reason: predates the standard
-  - rule: DS-README-03
-    reason: predates the standard
-  - rule: DS-README-04
-    reason: predates the standard
-  - rule: DS-SCRIPT-03
-    reason: predates the standard
-  - rule: DS-SCRIPT-04
-    reason: predates the standard
-  - rule: DS-SCRIPT-05
-    reason: predates the standard
-  - rule: DS-VERIFY-01
-    reason: predates the standard
