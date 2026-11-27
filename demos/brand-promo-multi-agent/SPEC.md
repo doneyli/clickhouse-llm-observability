@@ -63,7 +63,7 @@ OpenInference CrewAI instrumentor for the crews' own LLM and tool calls
 |---|---|---|
 | Trace (live) | `PromoPlanner` | One per `run_live_demo.py` run; root input is the query, root output the brief; session `live-<UTC timestamp>-<6 hex>`; tag `live_demo` |
 | Trace (experiment) | `PromoPlanner` | One per dataset item; session = run name; tags `experiment` and the label; fault injection off |
-| Trace (history) | `promo_planner_run`, `<agent>_run` | About 50k over 30 days from `generate_history.py`; tags `synthetic` and the agent; no model calls. Ids derive from a batch key (inputs plus UTC day), so a re-run upserts; a complete batch from the last 7 days makes it a no-op |
+| Trace (history) | `promo_planner_run`, `<agent>_run` | About 50k over 30 days from `generate_history.py`; tags `synthetic` and the agent; no model calls. Ids derive from a batch key (every config input the generator reads, its source, the UTC day), so a re-run upserts. Every trace and observation carries the key as its version; a Metrics API read-back per (trace name, observation name) and score name against the offline plan decides complete, partial or absent. Complete within 7 days: no-op. Partial: re-sent. A new batch, once confirmed, deletes the generator's other batches |
 | Prompts | 12 under `promo-planner/` | Label `production`, from `scripts/seed_prompts.py`, which writes a version only when the text, type, config or label drifted; the app reads its prompt text from `src/prompts/`, not from Langfuse |
 | Score configs | 20 | `scripts/setup_score_configs.py`: 10 item-level, 8 run averages, `certification_gate`, `human_brief_review` |
 | Dataset | `promo-planner-golden-v1` | 75 items; ids are content hashes, so re-seeding upserts |
@@ -91,8 +91,8 @@ rehearsal since the standard was adopted.
 
 None recorded with their commands yet. The README's cost and time figures for experiments
 (about 30 s for a 10-item deterministic run, about $10–15 and 15–20 minutes for a full
-judged run) are estimates carried over from the original build. `uv run pytest -q` takes
-about 20 s for 104 tests on a laptop.
+judged run) are estimates carried over from the original build. `uv run pytest -q` ran 173 tests in
+about 8 s on a laptop (2026-11-27).
 
 ## 9. Risks and open questions
 
@@ -100,11 +100,12 @@ about 20 s for 104 tests on a laptop.
   Act 1. `verify_demo.py` catches it.
 - The dashboards and online judges depend on a manual UI step. `seed_all.py` exits 2
   until they exist, and `verify_demo.py` fails without them.
-- A history batch past the 7-day reuse window is replaced by a fresh one, not rewritten;
-  the old batch stays until it ages out of view.
+- The history read-back counts groups, not rows: a lost row offset by an unmerged
+  duplicate in the same group reads complete until the merge. Deleting a superseded batch
+  is asynchronous in Langfuse, so the next run may repeat the delete.
 - `verify_demo.py` and the queue seeder need Observations v2, which a self-hosted v3
-  server does not serve. Only the history read-back falls back to the v1 observations
-  list there, so `generate_history.py` stays idempotent on the pinned local server.
+  server does not serve. Only the history read-back falls back there, to the v1 metrics
+  endpoint, and that fallback has not been run against a live v3 server.
 
 ## 10. Decisions
 
@@ -121,3 +122,5 @@ about 20 s for 104 tests on a laptop.
 | D9 | Isolation | Own `uv` env, `.env` and Langfuse project; every inherited `LANGFUSE_*` is dropped before the `.env` is applied | A shell-exported key or base URL would otherwise send traces to another project silently |
 | D10 | Seeding | Every seeder reads back and reconciles; `seed_all.py` exits 1 on any failed step and 2 when only a manual step is left | An unchanged re-run must write nothing, and a failure must not look like success |
 | D11 | Readiness | `verify_demo.py` requires every act's assets; `--short-path` is the explicit Acts 1–3 mode | A READY that leaves Acts 5 and 6 empty is not ready |
+| D12 | History identity | The batch key fingerprints every resolved generator input and the generator's source; completeness is a per-group count against an offline plan, not sentinel traces; one owned batch at a time | Two end traces say nothing about the 49,998 between them, and a re-theme must not leave the old customer's history in Act 1 |
+| D13 | Verifier failures | Configuration (files, keys, URL) is checked before any request; `main()` turns any non-interrupt exception into a counted FAIL | Every failure has to end in NOT READY with counts and exit 1, never a traceback |

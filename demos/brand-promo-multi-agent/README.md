@@ -68,9 +68,13 @@ agent in depth.
 ```
 
 `scripts/generate_history.py` writes the history through the batch ingestion API with no
-model calls. A batch is keyed on its inputs and its UTC day, and its trace and observation
-ids derive from that key, so re-sending it upserts instead of duplicating
-(`src/synthetic/history_batch.py`). `scripts/run_experiment.py` runs the same graph per dataset item with fault
+model calls. A batch is keyed on every config value the generator reads (customer, brands,
+SKUs, regions, retail partners, fleet, models, synthetic-history settings), the generator's
+source and its UTC day. Its trace, observation and score ids derive from that key, so
+re-sending it upserts instead of duplicating, and every trace and observation carries the
+key as its version (`src/synthetic/history_batch.py`). Each run counts the batch's
+observations per name and its scores per name through the Metrics API and compares them
+with what the generator plans for that batch, so rows missing anywhere in it are re-sent. `scripts/run_experiment.py` runs the same graph per dataset item with fault
 injection switched off.
 
 ## Set up from scratch
@@ -107,7 +111,7 @@ from the file over any shell export, and `verify_demo.py` drops shell-exported
 
 | When | Do | Why |
 |---|---|---|
-| Within 30 days | `uv run scripts/generate_history.py` | The history is backdated 30 days from its batch day and ages out of Act 1. A no-op while a batch from the last 7 days is complete |
+| Within 30 days | `uv run scripts/generate_history.py` | The history is backdated 30 days from its batch day and ages out of Act 1. A no-op while a batch from the last 7 days is complete; re-sends a batch with rows missing |
 | The day before | `uv run scripts/run_live_demo.py play-all`, then the rehearsal experiment below | A fresh live trace for Act 3 and a run in the Runs tab for Acts 4 and 5 |
 | 30 minutes before | `unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL`, then `uv run python scripts/verify_demo.py --links` | Prints READY for the full script and the link each act opens. For the 10–12 minute path, `--short-path` checks Acts 1–3 only and says so |
 | 5 minutes before | Open the links it printed | Traces, the three dashboards, the dataset, the review queue, and a terminal |
@@ -168,7 +172,9 @@ Design and rationale: [docs/EVALS_PLAN.md](docs/EVALS_PLAN.md).
 Copy `demo.config.example.yaml` to `demo.config.yaml` and change the customer, brand
 families and SKUs, regions, retail partners, regulators, fleet agents, models and the
 five demo queries. Set `langfuse.project_name` if the project is renamed;
-`verify_demo.py` reads it. Then re-run the seed. The code reads only `demo.config.yaml`
+`verify_demo.py` reads it. Then re-run the seed. Any change the history generator reads
+gives a new history batch; once it reads back complete, the previous batch the generator
+wrote is deleted, so Act 1 never mixes the old theme with the new one. The code reads only `demo.config.yaml`
 and falls back to the example when it is absent.
 
 ## Configuration
@@ -244,6 +250,9 @@ in-memory fakes that reject parameters and field groups the real API rejects.
 | `keys map to project '…' (want 'brand-promo-demo')` | The `.env` holds another project's keys. Put this project's keys there; shell exports are ignored |
 | `seeded 'promo_planner_run' traces in the last 30 days` fails | The history aged out or was never written: `uv run scripts/generate_history.py` |
 | `… fleet agents in the seeded history; missing <name>_run` | The fleet in `demo.config.yaml` changed since the history was written. Re-run `generate_history.py`; the new fleet changes the batch key |
+| `History sent but not confirmed within 600s` | Ingestion is still landing. Re-run later: it reads the batch back and re-sends only if rows are still missing (`--confirm-timeout` waits longer) |
+| `History read-back failed, nothing written` | The Metrics API read failed, so the batch state is unknown and nothing is sent. Check the keys and host, then re-run |
+| `LANGFUSE_HOST unusable: …` from `verify_demo.py` | The host in `.env` is not an http(s) URL with a valid host and port. Fix it, for example `https://us.cloud.langfuse.com` |
 | `seed_all.py` exits 2 | Only a manual step is left: build the dashboards or judges from the checklist it printed, then re-run |
 | `0 'baseline' experiment run(s)` | Acts 4–5 have nothing to compare with: run the rehearsal experiment above, which is labelled `baseline` |
 | `persona dashboards` fails | The dashboards API cannot create them. Build them from the `seed_dashboards.py` checklist, with the exact names |
@@ -260,9 +269,18 @@ in-memory fakes that reject parameters and field groups the real API rejects.
   of a 30-day view.
 - The dashboards and the online judges are created by hand. `seed_dashboards.py` and
   `seed_evaluators.py` read them back and print the checklist; they do not create them.
-- A history batch older than the 7-day reuse window is not replaced: the next run writes
-  a fresh batch and the old one stays in the project until it ages out of view. The same
-  happens when the synthetic-history settings, fleet or models change.
+- The history is one owned batch at a time. A run past the 7-day reuse window, or after
+  a config change, writes a new batch and, once it reads back complete, deletes the other
+  batches the generator wrote, by their derived trace ids (`--keep-superseded` keeps
+  them). Langfuse deletes asynchronously, so a run soon after may send those deletes
+  again. History written before batches carried a version stamp is not recognised and is
+  left alone, like any other data in the project.
+- The history read-back counts rows per (trace name, observation name) and scores per
+  name, not row by row. A group may read higher than planned while an upsert is unmerged;
+  a lost row exactly offset by such a duplicate in the same group reads complete until
+  ClickHouse merges it.
+- On the pinned self-hosted v3 server the read-back falls back to the v1 metrics endpoint
+  when `/v2/metrics` answers 404. That fallback has not been run against a live v3 server.
 - Score-config descriptions cannot be updated through the API; `setup_score_configs.py`
   reports a description drift but leaves it.
 - The compliance checks are keyword and regex rules over the brief. They show the shape

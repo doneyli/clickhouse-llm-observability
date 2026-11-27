@@ -478,7 +478,7 @@ Say these as beats, not footnotes. The full list is in the
 
 ```bash
 uv run scripts/seed_all.py                    # reconcile everything: writes only what is missing or drifted
-uv run scripts/generate_history.py            # no-op while a batch from the last 7 days is complete; --force re-sends today's
+uv run scripts/generate_history.py            # no-op while a batch from the last 7 days is complete; re-sends one with rows missing
 uv run scripts/run_live_demo.py play-all      # regenerate the 5 live traces
 uv run python scripts/run_experiment.py --run-name fresh --sample 10 --evaluators deterministic
 uv run pytest -q                              # regression tests: no services, no model calls
