@@ -43,7 +43,7 @@ sleep at night?
 | **Backstops, not termination** | `TUNER_MAX_TURNS`, `TUNER_MAX_BUDGET_USD` (from real Anthropic usage), a wall-clock watchdog and a kill sentinel. A run that ends on one is recorded as `error_max_*` or `killed` |
 | **Pause/resume as a session** | State is checkpointed every turn; `--resume <run_id>` restores it in a fresh process with the same `session_id`, so Langfuse shows both traces as one session |
 | **HITL for irreversible actions** | `propose_ddl` pauses for a human y/n; DDL runs only on a separate admin connection after approval. The read-only `tuner_agent` cannot write |
-| **Runaway-cost Monitor** | `--runaway` trips the spend cap on purpose; the `query-tuner runaway cost` Monitor (max `totalCost` per trace) crosses its alert threshold |
+| **Runaway-cost Monitor** | `--runaway` trips the spend cap on purpose; on a Langfuse v4+ server the `query-tuner runaway cost` Monitor (max `totalCost` per trace) crosses its alert threshold. The pinned v3 stack has no Monitors, so there Act 4 compares the runaway trace's cost with a normal run's |
 | **Scores** | Trace scores `turns_used`, `run_cost_usd`, `task_completed`, `verified_speedup`, `trajectory_efficiency`; span scores `semantics_preserved`, `improvement_delta`; evaluator scores `goal_drift` (managed judge) and `cap_terminated` / `termination_class` (code evaluator) |
 | **Prompt management + experiment** | `query-tuner-system` versions `v1-naive` and `v2-disciplined` (= `production`), compared on the `query-tuner/goals` dataset with caps and tools pinned |
 
@@ -96,9 +96,12 @@ python3 demos/slow-query-tuner/scripts/verify_demo.py      # should print READY
 ```
 
 `./setup.sh` runs `seed_all.py`, `seed-code-evaluators.sh` and `seed-query-tuner-evaluators.sh`
-for you; the explicit lines above are for re-seeding. `seed_all.py` is idempotent: a prompt gets
-a new version only when its text changed, dataset items are upserted by id. On the host it runs
-itself inside the `slow-query-tuner` container, which has the dependencies and the root `.env`.
+for you; the explicit lines above are for re-seeding. `seed_all.py` is idempotent and prints what
+it created, updated or left unchanged. A prompt gets a new version only when its type, text or
+config drifted; a missing or moved label is reattached to the matching version. Dataset items are
+written by stable id only when they differ (an archived one is restored to ACTIVE) and read back.
+It exits 1 if any write fails. On the host it checks the root `.env`, then runs itself inside the
+`slow-query-tuner` container, which has the dependencies and reads that `.env`.
 
 The root `.env` is the only source of `LANGFUSE_*`. The service reads its keys through
 `env_file`, `verify_demo.py` drops shell-exported `LANGFUSE_*` before reading `.env`, and
@@ -111,9 +114,9 @@ a no-op, so an empty Langfuse is the symptom.
 | When | Do | Why |
 |---|---|---|
 | The day before | `python demos/slow-query-tuner/scripts/seed_all.py`, then one `--query q1` run and `scripts/run_experiment.py --sample 1` (real spend) | Prompts and labels match the code, a fresh trace exists, Act 6's Runs tab is populated |
-| The day before | Create the two Monitors in **Monitors → New Monitor** from the fields `seed_all.py` prints | Langfuse v3 has no Monitors API; Act 4's alert beat needs them |
+| The day before | On a Langfuse v4+ server only: create the two Monitors in **Monitors → New Monitor** from the fields `seed_all.py` prints. On this stack's v3 server, skip it | Act 4's live alert beat needs v4+; on v3 the act uses its trace-cost Fallback, which `verify_demo.py` checks |
 | 30 minutes before | `python demos/slow-query-tuner/scripts/reset_demo.py`, then `python3 demos/slow-query-tuner/scripts/verify_demo.py --links` | Drops DDL a rehearsal approved and clears stale kill sentinels; prints READY and the link each act opens |
-| 5 minutes before | Open the links it printed | The q1 trace on **Agent Graph → Expanded**, Sessions, the system prompt, Monitors |
+| 5 minutes before | Open the links it printed | The q1 trace on **Agent Graph → Expanded**, Sessions, the system prompt, and Monitors on v4+ |
 
 ## Run it
 
@@ -140,7 +143,7 @@ its output. Under it, one `plan-next-action → {tool} → assess-progress` grou
 - **Agent Graph Aggregated**: the loop collapses to `plan-next-action → {tool} → assess-progress ↺`
   with repeat counts, which is how you read an agent whose step count is unbounded.
 - **Sessions**: a run paused (`termination_reason=killed`) and resumed share one `qtune-…` session.
-- **Monitors**: `max(totalCost)` per trace (runaway) and `max(turns_used)` across the fleet.
+- **Monitors** (Langfuse v4+ only): `max(totalCost)` per trace (runaway) and `max(turns_used)` across the fleet.
 
 ## Evaluation
 
@@ -227,7 +230,7 @@ demos/slow-query-tuner/
 │   ├── reset_demo.py    drops approved DDL from the lab, clears kill sentinels
 │   ├── run_experiment.py   prompt / model A/B on the dataset (--ci gate)
 │   └── run_live_demo.py    prints the beat plan; --run warms q1, q2, runaway
-└── tests/               no services, no model calls
+└── tests/               no services, no model calls; fake_services.py fakes Langfuse + ClickHouse HTTP
 ```
 
 Root-level companions: `evaluators/runaway-loop-guard.ts` (seeded by
@@ -244,9 +247,14 @@ python -m pytest -q                       # no services, no model calls, a few s
 
 They cover the caps tripping at their boundaries and the kill switch's precedence, finish-claim
 verification (true, too slow, different rows, gave up, bad SQL), the checkpoint round trip and
-compaction, the SQL allow-list and result signatures, `seed_all.py`'s host-to-container hand-off
-and exit codes, `reset_demo.py`'s DDL detection, and `verify_demo.py`'s checks against a fake
-Langfuse and a fake ClickHouse, including the Observations v1 fallback for a v3 server.
+compaction, the SQL allow-list and result signatures, and `reset_demo.py`'s DDL detection. The
+seeders run their real reconcile paths against a fake SDK client: unchanged reseeds write nothing,
+a missing label is reattached, config or text drift adds a version, and partial or total item
+write failures fail `seed_all.py`. `verify_demo.py` runs through its real HTTP code against
+`tests/fake_services.py`, a fake Langfuse and ClickHouse that rejects query parameters the API
+does not accept and returns only the requested field groups. Those tests cover v3 and v4 servers,
+empty and repeated cursor pages, missing or partial `.env` files with hostile shell exports, and
+missing assets for each act.
 
 ## Troubleshooting
 
@@ -259,16 +267,18 @@ Langfuse and a fake ClickHouse, including the Observations v1 fallback for a v3 
 | `lab table still pessimal` fails | A rehearsal approved DDL in Act 5 and it is still applied: `python demos/slow-query-tuner/scripts/reset_demo.py` |
 | `a 'tune-clickhouse-query' run in the last 7 days` fails | Nothing has run yet: run `--query q1` |
 | `latest run's scores … missing …` | The run crashed mid-loop (no `finalize`), or scores are still landing. Re-run q1 |
-| `Monitors not readable here` warning | Expected on the v3 stack. Create the Monitors by hand from the seed output |
+| `Act 4: no documented API reads Monitors` warning | Expected on a v4+ server: confirm the two Monitors in the UI. On the v3 stack verify checks the Fallback's scores instead |
 | `ERROR: no checkpoint for run_id` on `--resume` | Run it from the same checkout; state lives in `demos/slow-query-tuner/checkpoints/` |
 | A normal run ends `error_max_budget_usd` | The run hit `TUNER_MAX_BUDGET_USD`. Raise it for one run with `--max-budget-usd` |
 
 ## Known limits
 
-- **Monitors are a Langfuse v4+ feature.** This stack pins Langfuse v3, which has no Monitors API,
-  so `seed_monitors.py` prints the UI field values to paste into **Monitors → New Monitor**, and
-  `verify_demo.py` cannot confirm they exist. Everything else (traces, scores, sessions, agent
-  graph, code evaluators, the managed judge) is native on v3.
+- **Monitors are a Langfuse v4+ feature.** This stack pins Langfuse v3.221.1, which has no
+  Monitors, so here Act 4 always runs on its trace-cost Fallback. On a v4+ server,
+  `seed_monitors.py` creates them when a Monitors API answers, or prints the fields to paste into
+  **Monitors → New Monitor**; `verify_demo.py` cannot confirm them, because no documented API
+  reads Monitors. Everything else (traces, scores, sessions, agent graph, code evaluators, the
+  managed judge) is native on v3.
 - **The thresholds are not calibrated.** The Monitor bands ($0.40 warn, $1.00 alert) and the
   runaway caps (25 turns, $2.50) are spec defaults in `seed_monitors.py` and `main.py`, not
   measured against real runs.

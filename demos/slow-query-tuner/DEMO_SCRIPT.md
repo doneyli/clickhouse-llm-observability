@@ -15,7 +15,8 @@ against a **live ClickHouse**, deciding *for itself* when it is fast enough, ful
   pessimal 30M-row table; the bad-query catalog is `queries.py`
 - **Prompts:** `query-tuner-system` (`v1-naive`, `v2-disciplined` = `production`) and
   `query-tuner-goal`
-- **Run length:** ~25 min full; 12-min short path is the Opening, Acts 1 + 2 + 4 and the Close
+- **Run length:** ~25 min full (Acts 1–5 plus the bonus Act 6); 12-min short path is the Opening,
+  Acts 1 + 2 + 4 and the Close
 
 > Setup lives in [README.md](README.md). The loop, termination check, HITL gate and compaction
 > are in `agent_loop.py`.
@@ -34,7 +35,8 @@ the room:
 - **Ask** — an open question that maps it to their world.
 
 The short path is Acts 1 + 2 + 4 (the variable loop + the runaway/Monitor beat). Add 3, 5, 6
-when there's appetite, and let the answers to each Ask decide which. Every act ends with a
+when there's appetite, and let the answers to each Ask decide which. Acts 3 and 5 are part of
+the full run; Act 6 is the bonus. Every act ends with a
 **Fallback** note: ingestion is async and the loop is non-deterministic, so have the fallback ready.
 
 ---
@@ -75,15 +77,17 @@ Run Act 6's experiment once so the Runs tab is populated:
 `docker compose --profile demo run --rm slow-query-tuner python scripts/run_experiment.py --sample 1`
 (real spend, capped at $1.00 per item and arm).
 
-**Monitors caveat (read this).** Monitors are a Langfuse **v4+** feature; this stack pins
-Langfuse v3, so `seed_all.py` **prints the exact UI field values** for the two Monitors instead
-of creating them, and `verify_demo.py` can only warn that it cannot see them. If you want the live
-"alert fires on stage" beat, create them by hand in **Monitors → New Monitor** from those printed
-values before the meeting. If you can't, Act 4's Fallback (runaway cost vs a normal run, side by
-side) still lands the point.
+**Monitors caveat (read this).** Monitors are a Langfuse **v4+** feature. This stack pins
+Langfuse **v3.221.1**, which has no Monitors at all, so on this stack Act 4 always runs on its
+**Fallback** (runaway cost vs a normal run, side by side), which still lands the point.
+`verify_demo.py` checks what the Fallback needs (`run_cost_usd` and `cap_terminated` on a run).
+The live "alert fires on stage" beat needs a v4+ Langfuse: there, create the two Monitors in
+**Monitors → New Monitor** from the field values `seed_all.py` prints, before the meeting.
+`verify_demo.py` can only warn on v4+, because no documented API reads Monitors. Don't upgrade
+the stack for this demo; that is a separate change.
 
 **Browser tabs ready:** Langfuse Traces (`:3001`, `demo@example.com` / `demodemo1!`), the q1
-trace from `--links` (Agent Graph → Expanded), the Sessions view, and Monitors.
+trace from `--links` (Agent Graph → Expanded), the Sessions view, and (v4+ only) Monitors.
 
 ---
 
@@ -175,7 +179,7 @@ what they did?"
 
 ---
 
-## Act 3 · Pause/resume (the sessions beat) (optional, 3 min)
+## Act 3 · Pause/resume (the sessions beat) (3 min)
 
 **Frame.** "Unbounded loops crash, or you kill them. Does your observability survive the process
 dying?"
@@ -215,7 +219,8 @@ This pins the **naive v1 prompt** (no give-up rule), removes `propose_ddl` from 
 retargets q3 to an impossible **50 ms**, raises the caps to 25 turns and \$2.50, and tags the
 trace `fault:runaway`. Fast-scroll the churn: rewrite after rewrite, every `finish(success)`
 claim **rejected** by the controller because it can't hit 50 ms. The app-side backstop ends it
-at **`error_max_budget_usd`**. Now open Langfuse → **Monitors**: the **"query-tuner runaway
+at **`error_max_budget_usd`**. On a v4+ Langfuse, now open **Monitors** (on this stack's v3
+server, go straight to the Fallback below): the **"query-tuner runaway
 cost"** Monitor is in **alert** (warn/alert bands on the cost chart); show the **"query-tuner
 turn count"** Monitor and the `cap_terminated` score next to it.
 
@@ -227,13 +232,13 @@ unattended loop without a cap.'"
 **Ask.** "What would a runaway agent cost you before anyone noticed today?"
 
 > **Fallback:** ingestion is async and Monitors are v4+ (see Pre-flight). If the alert hasn't
-> evaluated yet, or Monitors aren't created on this v3 stack: open the runaway trace and a normal
-> q1 trace and put their **total cost** side by side, and show the `cap_terminated` /
+> evaluated yet, or you are on this stack's v3 server, which has no Monitors: open the runaway
+> trace and a normal q1 trace and put their **total cost** side by side, and show the `cap_terminated` /
 > `turns_used` scores. Return to the Monitor at Q&A.
 
 ---
 
-## Act 5 · Blocked ≠ failed (the HITL gate) (optional, 4 min)
+## Act 5 · Blocked ≠ failed (the HITL gate) (4 min)
 
 **Frame.** "Sometimes the honest answer is *this needs a schema change*, and an agent shouldn't
 make irreversible changes on its own."
@@ -262,7 +267,7 @@ hand on the switch?"
 
 ---
 
-## Act 6 · Prove the prompt, don't vibe it (optional, 6 min)
+## Act 6 · Prove the prompt, don't vibe it (bonus, optional, 6 min)
 
 **Frame.** "We changed the prompt to add a give-up rule. Did it actually help, or does it just
 feel better?"
@@ -355,10 +360,12 @@ that is the input of a late `plan-next-action`.
 `finalize` writes the five trace scores; `semantics_preserved` (`agent_loop.py:364`) and
 `improvement_delta` (`agent_loop.py:376`) go on the spans they judge.
 
-**13 · Readiness counts real rows — `scripts/verify_demo.py:324`**
-`latest_root` reads Observations v2 and falls back to the v1 read only when the self-hosted v3
-server answers 404; the check then counts the trace's observations and reads its scores
-through Scores v3. It also reads the lab's row count and table shape as `tuner_agent`.
+**13 · Readiness counts real rows — `scripts/verify_demo.py:374`**
+`latest_root` reads Observations v2 and falls back to the v1 read only when v2 answers 404 and
+the health endpoint reports a server below v4 (the pinned self-hosted stack). The check then counts
+the trace's observations, reads its scores through Scores v3, and compares every seeded prompt
+label and dataset item with the seeders' own definitions. It also reads the lab's row count and
+table shape as `tuner_agent`.
 
 ---
 
@@ -387,8 +394,8 @@ through Scores v3. It also reads the lab's row count and table shape as `tuner_a
 
 ## Known limits
 
-- **Monitors need Langfuse v4+.** On this v3 stack you create them by hand from the seed output;
-  if they're not there, Act 4 uses the cost side-by-side fallback.
+- **Monitors need Langfuse v4+.** This stack's v3 server has none, so here Act 4 always uses the
+  cost side-by-side fallback; the live alert beat needs a v4+ server with the Monitors created.
 - **Caps act between turns.** The turn in flight always completes, so a run can end one turn's
   cost past the budget. The spend figure is the app's estimate from its price table, not
   Langfuse's cost.
