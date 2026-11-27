@@ -126,14 +126,14 @@ the README.
 
 ## Show me the code
 
-**1 · One root observation per run, carrying the run's input and output — `main.py:44`**
+**1 · One root observation per run, carrying the run's input and output — `main.py:56`**
 The root span is opened first and updated with the overall input and output at
-`main.py:51`. SDK v4 derives the trace's input and output from it.
+`main.py:63`. SDK v4 derives the trace's input and output from it.
 
-**2 · Trace name, session and tags on every observation — `main.py:45`**
+**2 · Trace name, session and tags on every observation — `main.py:57`**
 `propagate_attributes` sets them once, so child observations carry them too.
 
-**3 · Flush before exit — `main.py:53`**
+**3 · Flush before exit — `main.py:65`**
 A short-lived process otherwise exits before its spans are sent.
 
 **4 · Readiness counts real rows — `scripts/verify_demo.py:286`**

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import sys
 import uuid
 from pathlib import Path
 
@@ -23,12 +25,22 @@ FALLBACK_PROMPT = "Reply in two sentences at most.\n\nQuestion: {{question}}"
 
 
 def load_env() -> None:
-    """The demo's own .env is the only source of LANGFUSE_*: shell exports are dropped first."""
+    """Make the demo's own .env the only source of LANGFUSE_*, as verify_demo.py does.
+
+    Container demos get their keys from compose (the root .env), so they are left alone.
+    Every other profile drops shell exports first, even without a .env: a key exported
+    for another project would otherwise receive this demo's traces with no error.
+    """
+    manifest = DEMO_DIR / "demo.yaml"
+    m = re.search(r"^profile:\s*['\"]?([\w-]+)", manifest.read_text(), re.M) if manifest.is_file() else None
+    if m and m.group(1) == "container":
+        return
+    for key in [k for k in os.environ if k.startswith("LANGFUSE_")]:
+        del os.environ[key]
     env = DEMO_DIR / ".env"
-    if env.is_file():  # absent in a container, where compose passes the root .env instead
-        for key in [k for k in os.environ if k.startswith("LANGFUSE_")]:
-            del os.environ[key]
-        load_dotenv(env, override=True)
+    if not env.is_file():
+        sys.exit(f"No {env}: run `cp .env.example .env` and fill it in. Shell-exported LANGFUSE_* keys are ignored.")
+    load_dotenv(env, override=True)
 
 
 def answer(prompt_text: str) -> str:

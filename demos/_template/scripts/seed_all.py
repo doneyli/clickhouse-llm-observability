@@ -32,7 +32,7 @@ PROMPTS: List[Dict[str, Any]] = [
         "type": "text",
         "prompt": "You answer questions from customers of a fictional company. "
                   "Reply in two sentences at most.\n\nQuestion: {{question}}",
-        "config": {"model": "claude-sonnet-4-6", "temperature": 0},
+        "config": {"model": "claude-sonnet-5-5", "temperature": 0},
     },
 ]
 

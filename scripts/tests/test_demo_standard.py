@@ -273,6 +273,18 @@ class ReadmeRules(Fixture):
         self.edit("demo.yaml", "full_min: 10-12", "full_min: 30")
         self.assertIn("DS-README-04", self.errors())
 
+    def test_reference_style_links_are_checked(self):
+        self.edit("README.md", "- **Present it:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md)",
+                  "- **Present it:** [the script][s]\n\n[s]: DEMO_SCRIPT.md")
+        self.regen()  # the edit also rewrote the link inside the generated card
+        self.assertEqual(self.errors(), set())
+        self.edit("README.md", "[s]: DEMO_SCRIPT.md", "[s]: OLD_SCRIPT.md")
+        self.assertIn("DS-LINK-01", self.errors())  # the card still links the script, so README-05 holds
+
+    def test_heading_ending_in_hash_keeps_it(self):
+        _, secs = ds.sections("## Notes for C#\n## Closed ##\n")
+        self.assertEqual([s.title for s in secs], ["Notes for C#", "Closed"])
+
     def test_missing_script_link_and_broken_link(self):
         self.edit("README.md", "[DEMO_SCRIPT.md](DEMO_SCRIPT.md)", "[nope](NOPE.md)")
         self.assertTrue({"DS-README-05", "DS-LINK-01"} <= self.errors())
@@ -344,6 +356,11 @@ class AssetRules(Fixture):
         self.edit("demo.yaml", "  - architecture\n", "  - architecture: docs/architecture.md\n")
         self.assertNotIn("DS-ADDON-01", self.errors())
 
+    def test_cd_before_script_resolves_from_that_folder(self):
+        write(self.path, "portal/verify.sh", "true\n")
+        self.edit("demo.yaml", "verify: .venv/bin/python scripts/verify_demo.py", "verify: cd portal && ./verify.sh")
+        self.assertNotIn("DS-VERIFY-01", self.errors())
+
     def test_npm_script_resolution(self):
         self.edit("demo.yaml", "verify: .venv/bin/python scripts/verify_demo.py", "verify: npm run verify")
         write(self.path, "package.json", '{"scripts": {"test": "x"}}')
@@ -372,6 +389,22 @@ class Waivers(Fixture):
         self.edit("demo.yaml", "commands:",
                   "waivers:\n  - rule: DS-SPEC-01\n    reason: later\n  - rule: DS-ENV-01\n    reason: x\ncommands:")
         self.assertTrue(any(f.rule == "DS-ENV-01" and f.level == "warning" for f in self.findings()))
+
+    def test_waiver_covers_a_warning_only_rule(self):
+        self.edit("DEMO_SCRIPT.md", "— `main.py:2`", "— `main.py:99`")
+        self.edit("demo.yaml", "commands:",
+                  "waivers:\n  - rule: DS-SPEC-01\n    reason: later\n  - rule: DS-LINK-02\n    reason: x\ncommands:")
+        levels = {(f.rule, f.level) for f in self.findings()}
+        self.assertIn(("DS-LINK-02", "notice"), levels)
+        self.assertNotIn(("DS-LINK-02", "warning"), levels)
+
+    def test_write_waivers_keeps_a_zero_indent_list_valid(self):
+        self.edit("demo.yaml", "commands:", "waivers:\n- rule: DS-ENV-01\n  reason: kept\ncommands:")
+        (self.path / ".env.example").unlink()
+        demo = next(d for d in ds.discover(self.demos) if d.name == "good-demo")
+        self.assertEqual(checker.write_waivers(demo, checker.DemoCheck(demo, self.tmp).run()), ["DS-SPEC-01"])
+        rules = [w["rule"] for w in ds.yaml.safe_load((self.path / "demo.yaml").read_text())["waivers"]]
+        self.assertEqual(sorted(rules), ["DS-ENV-01", "DS-SPEC-01"])
 
     def test_write_waivers_bootstraps(self):
         demo = next(d for d in ds.discover(self.demos) if d.name == "good-demo")

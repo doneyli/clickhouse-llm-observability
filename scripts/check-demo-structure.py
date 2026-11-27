@@ -87,8 +87,14 @@ class DemoCheck:
             tokens = cmd.split()
         tokens = [t for t in tokens if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t)]
         base = self.workdir(command_key)
+        pkg_dir = self.demo.path
+        skip = set()
         for i, tok in enumerate(tokens):
-            if tok in ("&&", "||", ";", "|"):
+            if i in skip or tok in ("&&", "||", ";", "|"):
+                continue
+            if tok == "cd" and i + 1 < len(tokens):  # `cd sub && ./x.sh` runs x.sh from sub
+                base = pkg_dir = base / tokens[i + 1]
+                skip.add(i + 1)
                 continue
             if "/bin/" in tok or tok.startswith((".venv", "venv/", "node_modules", "-")):
                 continue
@@ -96,7 +102,7 @@ class DemoCheck:
                 return tok, None if ds.exists(base / tok) else f"`{tok}` does not exist (from {'the repo root' if base == self.root else self.rel(base)})"
             if tok == "npm" and i + 1 < len(tokens):
                 script = tokens[i + 2] if tokens[i + 1] == "run" and i + 2 < len(tokens) else tokens[i + 1]
-                pkg = self.demo.path / "package.json"
+                pkg = pkg_dir / "package.json"
                 try:
                     scripts = json.loads(pkg.read_text()).get("scripts", {})
                 except (OSError, ValueError):
@@ -409,9 +415,9 @@ def apply_waivers(demo: ds.Demo, findings: list[Finding], strict: bool, today: d
     out = []
     for f in findings:
         w = waivers.get(f.rule)
-        if w and f.level == "error" and f.rule not in ("DS-MANIFEST-01", "DS-MANIFEST-02"):
+        if w and f.level in ("error", "warning") and f.rule not in ("DS-MANIFEST-01", "DS-MANIFEST-02"):
             used.add(f.rule)
-            if w.until and w.until < today:
+            if w.until and w.until < today and f.level == "error":
                 out.append(Finding(f.rule, f.demo, f"{f.message} (waiver expired on {w.until})", f.file, f.line))
             else:
                 out.append(Finding(f.rule, f.demo, f"waived ({w.reason}): {f.message}", f.file, f.line, "notice"))
@@ -433,18 +439,23 @@ def write_waivers(demo: ds.Demo, findings: list[Finding]) -> list[str]:
         return []
     path = demo.path / "demo.yaml"
     text = path.read_text()
-    entries = "".join(f"  - rule: {r}\n    reason: {BOOTSTRAP_REASON}\n" for r in rules)
+    def entries(indent: str) -> str:
+        return "".join(f"{indent}- rule: {r}\n{indent}  reason: {BOOTSTRAP_REASON}\n" for r in rules)
+
     if re.search(r"^waivers:\s*$", text, re.M):
         lines = text.splitlines(keepends=True)
         start = next(i for i, l in enumerate(lines) if re.match(r"^waivers:\s*$", l))
+        # The block runs to the next top-level key. A sequence may sit at column 0
+        # (`- rule: X`), so lines starting with `-` belong to the block too.
         end = next((i for i in range(start + 1, len(lines))
-                    if lines[i].strip() and not lines[i].startswith((" ", "\t", "#"))), len(lines))
-        lines.insert(end, entries)
+                    if lines[i].strip() and not lines[i].startswith((" ", "\t", "#", "-"))), len(lines))
+        first = next((l for l in lines[start + 1:end] if l.lstrip().startswith("-")), "  -")
+        lines.insert(end, entries(first[: len(first) - len(first.lstrip())]))
         text = "".join(lines)
     else:
         if re.search(r"^waivers:\s*\[\s*\]\s*$", text, re.M):
             text = re.sub(r"^waivers:\s*\[\s*\]\s*\n?", "", text, flags=re.M)
-        text = text.rstrip("\n") + "\nwaivers:\n" + entries
+        text = text.rstrip("\n") + "\nwaivers:\n" + entries("  ")
     path.write_text(text)
     return rules
 

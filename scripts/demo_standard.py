@@ -326,7 +326,7 @@ def validate_manifest(data: dict) -> list[str]:
 # ------------------------------------------------------------------------ markdown
 
 _FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
-_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+_HEADING = re.compile(r"^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")  # a closing #-run needs a space before it
 
 
 def prose_lines(text: str) -> list[tuple[int, str]]:
@@ -381,10 +381,17 @@ _LINK = re.compile(r"!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+[\"']
 _INLINE_CODE = re.compile(r"(`+)(?:(?!\1).)+?\1")
 
 
+_REF_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?")
+
+
 def links(text: str) -> list[tuple[int, str]]:
-    """(line, target) for Markdown links outside code."""
+    """(line, target) for Markdown links outside code: inline links and reference definitions."""
     out = []
     for n, line in prose_lines(text):
+        ref = _REF_DEF.match(line)
+        if ref:
+            out.append((n, ref.group(1)))
+            continue
         for m in _LINK.finditer(_INLINE_CODE.sub("", line)):
             out.append((n, m.group(1)))
     return out

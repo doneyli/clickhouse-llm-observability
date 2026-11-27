@@ -34,6 +34,7 @@ on:
       - 'scripts/check-demo-structure.py'
       - 'scripts/gen-demo-index.py'
       - 'scripts/new-demo.py'
+      - 'scripts/tests/**'
       - '.github/workflows/demo-integrity.yml'
   push:
     branches: [main]
