@@ -92,14 +92,15 @@ docker compose --profile demo build agentic-rag mcp-rag-retriever
 docker compose --profile demo up -d clickhouse-vectors agentic-rag mcp-rag-retriever
 python demos/agentic-rag/scripts/seed_all.py      # idempotent, no model calls; ingest.py loads the embedding model
 docker compose --profile demo run --rm agentic-rag python main.py   # 5 questions, 2-8 Claude calls each
-python demos/agentic-rag/scripts/verify_demo.py   # should print READY
+python demos/agentic-rag/scripts/verify_demo.py   # should print READY; --short checks Acts 1-3 only
 ```
 
 `seed_all.py` builds the vector index with `ingest.py`, reconciles the
 `agentic-rag-generation` prompt, upserts the three managed judge rules and seeds the
 LibreChat agents. Pass `--dry-run` to see what it would change, and `--skip-ingest` or
-`--skip-librechat` to leave those parts alone. `./setup.sh` runs only the LibreChat agent
-seeding, not the rest of this demo's seed.
+`--skip-librechat` to leave those parts alone. It exits 1 when any step fails, including
+an agent left without its MCP tools. `./setup.sh` runs only the LibreChat agent seeding,
+not the rest of this demo's seed.
 
 The root `.env` is the only source of `LANGFUSE_*`. Compose resolves `${...}` from the
 shell first, so unset shell-exported keys before running; `verify_demo.py` and
@@ -110,7 +111,7 @@ shell first, so unset shell-exported keys before running; `verify_demo.py` and
 | When | Do | Why |
 |---|---|---|
 | The day before | `python demos/agentic-rag/scripts/seed_all.py`, then `docker compose --profile demo run --rm agentic-rag python main.py` | The index, prompt and judges match the code, and fresh scored traces exist |
-| 30 minutes before | Run Act 2's self-correction command from [DEMO_SCRIPT.md](DEMO_SCRIPT.md), then `python demos/agentic-rag/scripts/verify_demo.py --links` | A pinned 0-then-1 trace, READY, and the link each act opens |
+| 30 minutes before | Run Act 2's self-correction command from [DEMO_SCRIPT.md](DEMO_SCRIPT.md), wait a minute for the judges, then `python demos/agentic-rag/scripts/verify_demo.py --links` (add `--short` for the short path) | A pinned 0-then-1 trace, READY, and the link each act opens. By default every check the full run needs is required, Act 3b and Act 4 included; `--short` lets those two only warn |
 | 5 minutes before | Open the links it printed, a terminal, LibreChat and the architecture diagram | Act 1 starts in the terminal; Act 3 needs the pinned trace |
 
 ## Run it
@@ -213,10 +214,11 @@ pip install -r requirements-dev.txt   # the runtime stack too, incl. sentence-tr
 python -m pytest -q                   # no services, no model calls, a few seconds
 ```
 
-They cover the graph's edge logic and every path through it with the model, embeddings and
-store mocked (including that rewrite and regeneration stop at their caps), the SQL tool's
-SELECT-only guard, `verify_demo.py`'s checks against a fake Langfuse and ClickHouse on both
-the v2 and the self-hosted v1 observation path, and `seed_all.py`'s prompt reconcile.
+They cover the graph's paths with the model, embeddings and store mocked (rewrite and
+regeneration stop at their caps), the SQL tool's SELECT-only guard, and both scripts end to
+end against `tests/fake_langfuse.py`: Langfuse v2 and v1 reads with field projection, cursor
+pages and strict parameters, ClickHouse, the services and Postgres, plus hostile shell keys,
+partial `.env` files and staged read and write failures.
 
 ## Troubleshooting
 
@@ -226,6 +228,7 @@ the v2 and the self-hosted v1 observation path, and `seed_all.py`'s prompt recon
 | `agentic_rag.kb_chunks holds 0 chunk(s)` or the table is missing | The index was never built or the volume was wiped: `python demos/agentic-rag/scripts/seed_all.py` |
 | `a scored 'agentic-rag' run` fails | No knowledge-base run in 7 days. Run `main.py`; a direct-route question alone does not count |
 | Empty Graph tab | The trace is still ingesting. Wait about 20 seconds and refresh |
+| `judge rules not readable from Postgres` | `verify_demo.py` reads the rules with `docker exec langfuse-postgres psql`. Start the `langfuse` profile and make sure your user can run `docker exec` |
 | No judge scores | Rules seeded after the run (they score new traces only), or BLOCKED because the project has no default eval model. Re-run `./setup.sh` and `seed_all.py`, then ask again |
 | LibreChat agent answers without calling `agentic_rag_answer`, or prints raw tool XML | `mcp-rag-retriever` or `agentic-rag` was down when the agent was seeded. Start both and re-run `./scripts/seed-librechat-agents.sh` |
 | `agentic_rag_answer` returns "agentic-rag service unreachable" | `docker compose --profile demo up -d agentic-rag` |

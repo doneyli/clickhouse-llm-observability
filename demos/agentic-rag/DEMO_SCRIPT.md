@@ -62,7 +62,7 @@ docker compose --profile demo up -d clickhouse-vectors agentic-rag mcp-rag-retri
 # for Acts 3-4, and the LibreChat agent for Act 4. No model calls.
 python demos/agentic-rag/scripts/seed_all.py
 
-# Readiness: READY / NOT READY, plus the link each act opens
+# Readiness: READY / NOT READY, plus the link each act opens (add --short for Acts 1-3 only)
 python demos/agentic-rag/scripts/verify_demo.py --links
 ```
 

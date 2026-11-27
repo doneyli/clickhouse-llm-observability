@@ -1,17 +1,17 @@
-"""verify_demo.py offline: the result helpers, the .env rule, the manifest parse, the
-latest-run search (v2 and the self-hosted v1 fallback), the score logic, and full runs
-against a fake Langfuse and ClickHouse. No network, no Langfuse, no Docker, no model calls."""
+"""verify_demo.py offline: the result helpers, the .env rule, the manifest parse, the score
+logic, and full runs against fake_langfuse.FakeServer, which stands in for Langfuse (v4 and
+the self-hosted 3.x server), clickhouse-vectors, the services and the Postgres read at the
+urlopen / subprocess layer. No network, no Langfuse, no Docker, no model calls."""
 from __future__ import annotations
 
 import os
 import urllib.error
-from datetime import datetime, timezone
 
 import pytest
 
 import verify_demo as v
 
-NOW = "2099-01-01T00:00:00.000Z"  # always newer than the lookback window start
+from fake_langfuse import LF_BASE, NOW, FakeServer, good_trace, obs, score
 
 
 @pytest.fixture(autouse=True)
@@ -110,11 +110,11 @@ def test_network_failure_is_an_api_error_not_a_traceback(monkeypatch):
 
 # --- Demo-specific logic --------------------------------------------------------------------
 
-def test_services_follow_the_env_ports_and_only_clickhouse_is_required():
+def test_services_follow_the_env_ports_and_only_clickhouse_is_on_the_short_path():
     svc = v.services({"CLICKHOUSE_VECTORS_HTTP_PORT": "9125", "AGENTIC_RAG_PORT": "9006"})
     assert svc[0] == ("clickhouse-vectors", "http://localhost:9125/ping", True)
     assert svc[1][1] == "http://localhost:9006/health"
-    assert [required for _, _, required in svc] == [True, False, False, False]
+    assert [short for _, _, short in svc] == [True, False, False, False]
 
 
 def test_newest_traces_dedupes_and_sorts_newest_first():
@@ -155,161 +155,255 @@ def test_act_links_cover_the_acts_in_order():
     assert links[4][1].endswith("/prompts/agentic-rag-generation")
 
 
-# --- Fake Langfuse ------------------------------------------------------------------------
+# --- Full runs against the fake server ----------------------------------------------------
 
-GOOD_TRACE = [{"name": n} for n in ["LangGraph", *v.EXPECTED_OBSERVATIONS, "ChatAnthropic"]]
+import seed_all  # noqa: E402  (the prompt text verify must accept is the one seed writes)
 
-
-class FakeLangfuse:
-    """Answers the reads verify_demo makes, from canned rows. `v2` False plays a 3.x server."""
-
-    project = "LLM Observability Demo"
-    v2 = True
-    anchors = [{"traceId": "t1", "startTime": NOW}]
-    traces = {"t1": GOOD_TRACE}
-    scores = v.EXPECTED_SCORES + v.JUDGE_SCORES
-    rr_scores = [{"value": 0, "timestamp": NOW, "subject": {"traceId": "t1"}},
-                 {"value": 1, "timestamp": NOW, "subject": {"traceId": "t1"}}]
-    prompt = {"version": 2, "prompt": "CONTEXT:\n{{context}}\n\nQUESTION: {{question}}"}
-    calls: list = []
-
-    def __init__(self, base, pk, sk):
-        self.base = base
-
-    def get(self, path, **params):
-        type(self).calls.append(path)
-        if path == "/api/public/projects":
-            return {"data": [{"id": "p1", "name": self.project}]}
-        if path == "/api/public/v2/prompts/agentic-rag-generation":
-            assert params["label"] == "production"
-            return self.prompt
-        if path == "/api/public/v2/prompts":
-            return {"data": [{"name": params["name"], "versions": [1, 2]}]}
-        if path == "/api/public/v2/observations":
-            if not self.v2:
-                raise v.ApiError(404, "The observations v2 API is only available in a Langfuse v4 write mode")
-            assert params["fromStartTime"] and params["toStartTime"]  # every read is time-bounded
-            assert '"traceName"' in params["filter"] and params["name"] == v.ANCHOR_OBSERVATION
-            return {"data": self.anchors}
-        if path == "/api/public/observations":  # v1 fallback, page-based
-            assert not self.v2
-            rows = self.traces[params["traceId"]] if "traceId" in params else self.anchors
-            return {"data": rows, "meta": {"page": params["page"], "totalPages": 1}}
-        raise AssertionError(path)
-
-    def cursor(self, path, params, cap=1000):
-        if path == "/api/public/v2/observations":
-            return self.traces[params["traceId"]]
-        if path == "/api/public/v3/scores":
-            if params.get("name") == "retrieval_relevance":
-                assert params["fields"] == "subject"
-                return self.rr_scores
-            return [{"name": n} for n in self.scores]
-        raise AssertionError(path)
+PROMPT = seed_all.prompt_definitions()
+HOSTILE_SHELL = {"LANGFUSE_PUBLIC_KEY": "pk-other-project", "LANGFUSE_SECRET_KEY": "sk-other-project",
+                 "LANGFUSE_HOST": "https://hostile.example", "LANGFUSE_BASE_URL": "https://hostile.example"}
+ENV_TEXT = f"LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL={LF_BASE}\nDEPLOY_MODE=self-hosted\n"
 
 
 @pytest.fixture
-def fake(tmp_path, monkeypatch):
+def server(tmp_path, monkeypatch):
+    srv = FakeServer()
+    srv.seed_prompt(PROMPT.V2, PROMPT.CONFIG)
     env = tmp_path / ".env"
-    env.write_text("LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL=https://lf.example\n")
+    env.write_text(ENV_TEXT)
+    for k, val in HOSTILE_SHELL.items():  # a shell exporting another project's keys
+        monkeypatch.setenv(k, val)
+    for k in ("DEPLOY_MODE", "CLICKHOUSE_VECTORS_HTTP_PORT", "AGENTIC_RAG_PORT", "MCP_RAG_RETRIEVER_PORT",
+              "CH_VECTORS_USER", "CH_VECTORS_PASSWORD", "DEMO_LANGFUSE_PROJECT", "LANGFUSE_POSTGRES_CONTAINER"):
+        monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(v, "env_file", lambda profile: env)
-    monkeypatch.setattr(v, "Langfuse", FakeLangfuse)
-    monkeypatch.setattr(v, "services", lambda env: [])
-    monkeypatch.setattr(v, "ch_query", lambda base, u, p, sql: "28" if "count()" in sql
-                        else "vector_similarity('hnsw', 'cosineDistance', 384)")
-    monkeypatch.setattr(v, "judge_rule_status", lambda pid, c: {r: "ACTIVE" for r in v.JUDGE_RULES})
-    monkeypatch.setattr(FakeLangfuse, "calls", [])
-    return FakeLangfuse
+    monkeypatch.setattr(v.urllib.request, "urlopen", srv.urlopen)
+    monkeypatch.setattr(v.subprocess, "run", srv.run)
+    srv.env = env
+    return srv
 
 
-def test_ready_on_a_v4_server(fake, capsys):
-    assert v.main(["--links"]) == 0
+def verdict(capsys, argv=()):
+    code = v.main(list(argv))
     out = capsys.readouterr().out
-    assert "READY (" in out and "NOT READY" not in out and "WARN" not in out
-    assert "(Observations v2)" in out
-    assert "https://lf.example/project/p1/traces/t1" in out
-    assert not any(c.startswith("/api/public/traces") for c in fake.calls)  # no legacy trace reads
+    assert out.rstrip().splitlines()[-1].startswith("READY (" if code == 0 else "NOT READY (")
+    return code, out
 
 
-def test_ready_on_a_self_hosted_3x_server_via_the_v1_fallback(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "v2", False)
-    assert v.main([]) == 0
-    out = capsys.readouterr().out
-    assert "(Observations v1)" in out and "NOT READY" not in out
+def test_ready_on_a_v4_server(server, capsys):
+    code, out = verdict(capsys, ["--links"])
+    assert code == 0 and "WARN" not in out, out
+    assert "(Observations v2)" in out and "incl. route, retrieve" in out
+    assert f"{LF_BASE}/project/p1/traces/t1" in out
+    assert not any(p.startswith("/api/public/traces") for p in server.paths())  # no legacy trace reads
+    v2 = [q for m, p, q in server.requests if p == "/api/public/v2/observations"]
+    assert v2 and all("basic" in q["fields"].split(",") for q in v2)  # 136-1: names need `basic`
 
 
-def test_a_query_router_trace_is_not_this_demos_run(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "v2", False)  # v1 cannot filter on the trace name
-    monkeypatch.setattr(fake, "anchors", [{"traceId": "router", "startTime": "2098-12-31T23:00:00Z"},
-                                          {"traceId": "t1", "startTime": "2098-12-31T22:00:00Z"}])
-    monkeypatch.setattr(fake, "traces", {"router": [{"name": v.ROUTER_HANDLER}, *GOOD_TRACE], "t1": GOOD_TRACE})
-    run = v.find_latest_run(v.Observations(fake("b", "pk", "sk")), datetime(2099, 1, 1, tzinfo=timezone.utc))
-    assert run["trace_id"] == "t1"
+def test_names_are_missing_when_only_core_is_requested(server, monkeypatch, capsys):
+    """The fixture honours projection: a core-only read has no names, so the run is unusable."""
+    monkeypatch.setattr(v.Observations, "FIELDS", "core")
+    code, out = verdict(capsys)
+    assert code == 1
+    assert "missing route, retrieve, grade-relevance, generate, reflect-groundedness" in out
 
 
-def test_only_direct_route_runs_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "anchors", [])  # main.py's last question routes direct: no grade step
-    assert v.main([]) == 1
-    assert "FAIL  a scored 'agentic-rag' run" in capsys.readouterr().out
+def test_ready_on_the_self_hosted_3x_server_via_the_v1_fallback(server, capsys):
+    server.v2 = False
+    code, out = verdict(capsys)
+    assert code == 0 and "(Observations v1)" in out, out
+    assert "/api/public/observations" in server.paths()
 
 
-def test_missing_in_graph_score_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "scores", ["retrieval_relevance"])
-    assert v.main([]) == 1
-    assert "missing groundedness" in capsys.readouterr().out
+def test_hostile_shell_keys_are_not_used(server, capsys):
+    verdict(capsys)
+    assert server.requests  # every request authenticated with the file's keys (the fake rejects others)
 
 
-def test_missing_graph_node_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "traces", {"t1": [{"name": "route"}, {"name": "grade-relevance"}]})
-    assert v.main([]) == 1
-    assert "missing retrieve, generate, reflect-groundedness" in capsys.readouterr().out
+@pytest.mark.parametrize("text", ["", "LANGFUSE_PUBLIC_KEY=pk\n", f"LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_BASE_URL={LF_BASE}\n"])
+def test_missing_or_partial_env_fails_before_any_request(server, capsys, text):
+    server.env.write_text(text)
+    code, out = verdict(capsys)
+    assert code == 1 and server.requests == [] and server.commands == []
 
 
-def test_missing_judge_scores_and_loop_only_warn(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "scores", list(v.EXPECTED_SCORES))
-    monkeypatch.setattr(fake, "rr_scores", [{"value": 1, "timestamp": NOW, "subject": {"traceId": "t1"}}])
-    assert v.main([]) == 0
-    out = capsys.readouterr().out
-    assert "READY (" in out and "2 warnings" in out
+def test_missing_env_file_fails_before_any_request(server, capsys):
+    server.env.unlink()
+    code, out = verdict(capsys)
+    assert code == 1 and "FAIL  env loaded" in out and server.requests == []
 
 
-def test_blocked_judge_rule_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(v, "judge_rule_status", lambda pid, c: {"arag-faithfulness": "BLOCKED"})
-    assert v.main([]) == 1
-    assert "arag-faithfulness BLOCKED" in capsys.readouterr().out
+@pytest.mark.parametrize("projects", [[], [{"id": "p9", "name": "someone-elses-project"}]])
+def test_wrong_or_empty_project_is_not_ready(server, capsys, projects):
+    server.projects = projects
+    code, out = verdict(capsys)
+    assert code == 1 and "keys map to project" in out
 
 
-def test_postgres_out_of_reach_only_warns(fake, monkeypatch, capsys):
-    def no_docker(pid, c):
-        raise RuntimeError("docker not usable")
-
-    monkeypatch.setattr(v, "judge_rule_status", no_docker)
-    assert v.main([]) == 0
-    assert "WARN  judge rules not readable" in capsys.readouterr().out
+def test_bad_keys_are_not_ready(server, capsys):
+    server.auth = "Basic nope"
+    code, out = verdict(capsys)
+    assert code == 1 and "HTTP 401" in out
 
 
-def test_empty_vector_table_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(v, "ch_query", lambda base, u, p, sql: "0" if "count()" in sql else "")
-    assert v.main([]) == 1
-    out = capsys.readouterr().out
-    assert "holds 0 chunk(s)" in out and "vec_idx is a vector_similarity index (missing)" in out
+# 136-3: anchor discovery follows the cursor
+
+def test_an_empty_first_page_with_a_cursor_is_followed(server, capsys):
+    server.anchor_pages = [[], [obs("t1-o3", "t1", "grade-relevance")]]
+    code, out = verdict(capsys)
+    assert code == 0, out
+    cursors = [q.get("cursor") for m, p, q in server.requests
+               if p == "/api/public/v2/observations" and "traceId" not in q]
+    assert cursors == [None, "c1"]
 
 
-def test_prompt_without_its_variables_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "prompt", {"version": 3, "prompt": "Answer the question."})
-    assert v.main([]) == 1
+def test_a_first_page_of_router_traces_does_not_hide_a_later_run(server, capsys):
+    server.anchor_pages = [[obs("r-o1", "router", "grade-relevance", "2098-12-31T23:00:00Z")],
+                           [obs("t1-o3", "t1", "grade-relevance", "2098-12-31T22:00:00Z")]]
+    server.traces["router"] = [obs("r-o0", "router", v.ROUTER_HANDLER), *good_trace("router")]
+    code, out = verdict(capsys, ["--links"])
+    assert code == 0 and "/traces/t1" in out and "/traces/router" not in out, out
 
 
-def test_wrong_project_is_not_ready(fake, monkeypatch, capsys):
-    monkeypatch.setattr(fake, "project", "someone-elses-project")
-    assert v.main([]) == 1
-    assert "NOT READY" in capsys.readouterr().out
+def test_the_v1_fallback_skips_query_router_traces(server, capsys):
+    server.v2 = False  # v1 cannot filter on the trace name
+    server.anchor_pages = [[obs("r-o1", "router", "grade-relevance", "2098-12-31T23:00:00Z"),
+                            obs("t1-o3", "t1", "grade-relevance", "2098-12-31T22:00:00Z")]]
+    server.traces["router"] = [obs("r-o0", "router", v.ROUTER_HANDLER), *good_trace("router")]
+    code, out = verdict(capsys, ["--links"])
+    assert code == 0 and "/traces/t1" in out, out
 
 
-def test_no_keys_is_not_ready_without_any_request(tmp_path, monkeypatch, capsys):
-    empty = tmp_path / ".env"
-    empty.write_text("# nothing yet\n")
-    monkeypatch.setattr(v, "env_file", lambda profile: empty)
-    monkeypatch.setattr(v, "Langfuse", None)  # any request would raise
-    assert v.main([]) == 1
-    assert "NOT READY" in capsys.readouterr().out
+def test_a_repeated_cursor_ends_in_a_verdict_not_a_loop(server, capsys):
+    server.anchor_pages = [[], []]
+    server.repeat_cursor = True
+    code, out = verdict(capsys)
+    assert code == 1 and "repeated cursor" in out
+
+
+def test_only_direct_route_runs_is_not_ready(server, capsys):
+    server.anchor_pages = [[]]  # main.py's last question routes direct: no grade step, no scores
+    code, out = verdict(capsys)
+    assert code == 1 and "FAIL  a scored 'agentic-rag' run" in out
+
+
+# 136-2: required judge state
+
+@pytest.mark.parametrize("docker, message", [("missing", "FileNotFoundError"), ("timeout", "TimeoutExpired"),
+                                             ("denied", "permission denied")])
+def test_unreadable_judge_rules_fail(server, capsys, docker, message):
+    server.docker = docker
+    code, out = verdict(capsys)
+    assert code == 1
+    line = next(ln for ln in out.splitlines() if "judge rules not readable" in ln)
+    assert line.lstrip().startswith("FAIL") and message in line and "->" in line
+
+
+@pytest.mark.parametrize("rules, shown", [({"arag-faithfulness": "BLOCKED"}, "arag-faithfulness BLOCKED"),
+                                          ({}, "arag-faithfulness missing")])
+def test_blocked_or_missing_judge_rules_fail(server, capsys, rules, shown):
+    server.rules = rules
+    code, out = verdict(capsys)
+    assert code == 1 and shown in out
+
+
+def test_judge_rules_are_read_for_this_project_only(server, capsys):
+    verdict(capsys)
+    sql = server.commands[0][-1]
+    assert "project_id = 'p1'" in sql and "blocked_at" in sql
+
+
+def test_cloud_mode_needs_judge_scores_instead_of_rules(server, capsys):
+    server.env.write_text(ENV_TEXT.replace("self-hosted", "cloud"))
+    code, out = verdict(capsys)
+    assert code == 0 and server.commands == [] and "stands in for the rule check" in out
+    server.scores = [s for s in server.scores if s["name"] != "faithfulness"]
+    code, out = verdict(capsys)
+    assert code == 1 and "missing faithfulness" in out
+
+
+def test_missing_judge_scores_fail(server, capsys):
+    server.scores = [s for s in server.scores if s["name"] in v.EXPECTED_SCORES]
+    code, out = verdict(capsys)
+    assert code == 1 and "missing faithfulness, context-relevance, answer-relevance" in out
+
+
+def test_missing_in_graph_score_is_not_ready(server, capsys):
+    server.scores = [s for s in server.scores if s["name"] != "groundedness"]
+    code, out = verdict(capsys)
+    assert code == 1 and "missing groundedness" in out
+
+
+def test_no_self_correcting_run_is_not_ready(server, capsys):
+    server.scores = [s for s in server.scores if not (s["name"] == "retrieval_relevance" and s["value"] == 0)]
+    code, out = verdict(capsys)
+    assert code == 1 and "0 self-correcting run(s)" in out
+
+
+def test_missing_graph_node_is_not_ready(server, capsys):
+    server.traces["t1"] = [obs("t1-o1", "t1", "route"), obs("t1-o3", "t1", "grade-relevance")]
+    code, out = verdict(capsys)
+    assert code == 1 and "missing retrieve, generate, reflect-groundedness" in out
+
+
+# Seeded assets and services
+
+def test_missing_production_label_is_not_ready(server, capsys):
+    for p in server.prompt_versions:
+        p["labels"] = []
+    code, out = verdict(capsys)
+    assert code == 1 and "prompt agentic-rag-generation with label production: HTTP 404" in out
+
+
+def test_prompt_without_its_variables_is_not_ready(server, capsys):
+    server.seed_prompt("Answer the question.", PROMPT.CONFIG)
+    code, out = verdict(capsys)
+    assert code == 1
+
+
+def test_act_3b_needs_two_versions_unless_short(server, capsys):
+    server.seed_prompt(PROMPT.V2, PROMPT.CONFIG, versions=1)
+    assert verdict(capsys)[0] == 1
+    code, out = verdict(capsys, ["--short"])
+    assert code == 0 and "WARN  prompt agentic-rag-generation has 1 version(s)" in out
+
+
+def test_act_4_services_are_required_unless_short(server, capsys):
+    server.down_ports = {3080, 8007}
+    code, out = verdict(capsys)
+    assert code == 1 and "FAIL  LibreChat (Act 4) not reachable" in out
+    code, out = verdict(capsys, ["--short"])
+    assert code == 0 and "WARN  LibreChat (Act 4)" in out and "short path" in out
+
+
+def test_clickhouse_down_is_not_ready(server, capsys):
+    server.ch_down = True
+    code, out = verdict(capsys, ["--short"])
+    assert code == 1 and "FAIL  clickhouse-vectors not reachable" in out
+
+
+@pytest.mark.parametrize("count, index, shown", [(0, "", "holds 0 chunk(s)"), (28, "", "index (missing)"),
+                                                 (None, "", "readable: HTTP 404")])
+def test_missing_vector_assets_are_not_ready(server, capsys, count, index, shown):
+    server.ch_count, server.ch_index = count, index
+    code, out = verdict(capsys)
+    assert code == 1 and shown in out
+
+
+@pytest.mark.parametrize("path", ["/api/public/v3/scores", "/api/public/v2/observations", "/api/public/v2/prompts"])
+def test_langfuse_errors_mid_run_reach_the_verdict(server, capsys, path):
+    server.fail[path] = 500
+    code, out = verdict(capsys)
+    assert code == 1 and "HTTP 500" in out
+
+
+def test_a_malformed_response_reaches_the_verdict(server, capsys):
+    server.anchor_pages = [[{"id": "x", "traceId": "t1", "startTime": "yesterday", "name": "grade-relevance"}]]
+    code, out = verdict(capsys)
+    assert code == 1 and "unexpected Langfuse response" in out
+
+
+def test_stale_run_only_warns(server, capsys):
+    server.anchor_pages = [[obs("t1-o3", "t1", "grade-relevance", "2026-01-01T00:00:00.000Z")]]
+    code, out = verdict(capsys)
+    assert code == 0 and "WARN  latest run is" in out

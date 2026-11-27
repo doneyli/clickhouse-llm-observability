@@ -3,16 +3,22 @@
 
     python demos/agentic-rag/scripts/verify_demo.py            # one PASS / FAIL / WARN line per check; exit 1 when a required one fails
     python demos/agentic-rag/scripts/verify_demo.py --links    # also print the link each act opens
+    python demos/agentic-rag/scripts/verify_demo.py --short    # short path only (Opening, Acts 1-3, Close)
 
 Run it from the repo root. It reads the root `.env` (this is a `container` demo) and
 ignores shell-exported LANGFUSE_* keys.
 
 What it checks: the keys map to the manifest's Langfuse project; clickhouse-vectors is up
 and `agentic_rag.kb_chunks` holds chunks behind its HNSW index (Act 1); the
-`agentic-rag-generation` prompt serves a `production` version (Act 3b); the three managed
-judge rules are ACTIVE (self-hosted, read from Postgres); the latest knowledge-base run
-has the typed graph observations and its in-graph scores (Acts 2-3); a self-correcting
-run exists (Act 2); the services Act 4 needs are up (warnings only).
+`agentic-rag-generation` prompt serves a `production` version (Act 3) with the baseline
+next to it (Act 3b); the three managed judge rules are ACTIVE (self-hosted, read from
+Postgres; on Cloud, their scores on the latest run stand in); the latest knowledge-base
+run has the typed graph observations, its in-graph scores and the judges' scores
+(Acts 2-3); a self-correcting run exists (Act 2); the services Act 4 needs are up.
+
+By default every check the full presentation depends on is required. `--short` checks the
+short path (Opening, Acts 1-3, Close): the Act 3b and Act 4 checks then only warn. Only
+the freshness of the latest run is ever a warning by default.
 
 An HTTP 200 proves little on its own (a trace can exist before its observations land),
 so every check counts real rows. Standard library only, so it runs in any Python 3.9+
@@ -37,7 +43,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, MutableMapping, Optional, Tuple
 
 DEMO_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
@@ -55,7 +61,8 @@ MIN_PROMPT_VERSIONS = 2                         # Act 3b shows the baseline and 
 VECTORS_DB, VECTORS_TABLE = "agentic_rag", "kb_chunks"
 LOOKBACK_DAYS = 7                               # how far back to look for a run
 FRESH_HOURS = 24                                # older than this only warns: re-run the day before
-MAX_CANDIDATES = 5                              # traces inspected when looking for the latest run
+MAX_CANDIDATES = 10                             # traces inspected when looking for the latest run
+MAX_PAGES = 20                                  # bound on every paginated read
 SEED_CMD = "python demos/agentic-rag/scripts/seed_all.py"
 RUN_CMD = "docker compose --profile demo run --rm agentic-rag python main.py"
 JUDGE_SEED_CMD = "./scripts/seed-agentic-rag-evaluators.sh"
@@ -65,7 +72,10 @@ RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required,
 
 
 def services(env: MutableMapping[str, str]) -> List[Tuple[str, str, bool]]:
-    """(name, url, required) for the local services the acts need, on the ports .env sets."""
+    """(name, url, short_path) for the local services the acts need, on the ports .env sets.
+
+    `short_path` False marks a service only Act 4 needs: required unless --short.
+    """
     return [
         ("clickhouse-vectors", f"http://localhost:{env.get('CLICKHOUSE_VECTORS_HTTP_PORT') or 8125}/ping", True),
         ("agentic-rag API (Act 4, HTTP re-run)", f"http://localhost:{env.get('AGENTIC_RAG_PORT') or 8006}/health", False),
@@ -243,27 +253,53 @@ class Langfuse:
     def post(self, path: str, body: Any) -> Any:
         return self.request("POST", path, body=body)
 
-    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
-        out: List[dict] = []
-        cur = None
+    def pages(self, path: str, params: Dict[str, Any], max_pages: int = MAX_PAGES) -> Iterator[List[dict]]:
+        """Yield each page of a `meta.cursor` read (Observations v2, Scores v3).
+
+        A page may be empty while a cursor is still returned, so this stops on a missing
+        cursor, not on an empty page. The walk is bounded, and a cursor the server repeats
+        raises instead of looping.
+        """
+        cur: Optional[str] = None
+        seen = set()
         for _ in range(max_pages):
-            d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
-            out += d.get("data") or []
+            d = self.get(path, **dict(params, **({"cursor": cur} if cur else {}))) or {}
+            if not isinstance(d, dict):
+                raise ApiError(None, f"unexpected response shape from {path}")
+            yield d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
-            if not cur or len(out) >= cap:
+            if not cur:
+                return
+            if cur in seen:
+                raise ApiError(None, f"{path} repeated cursor {cur!r}")
+            seen.add(cur)
+
+    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Every row of a cursor read, up to `cap`."""
+        out: List[dict] = []
+        for page in self.pages(path, dict({"limit": 100}, **params), max_pages=max_pages):
+            out += page
+            if len(out) >= cap:
                 break
         return out[:cap]
 
 
-def page_v1(lf: Langfuse, path: str, params: Dict[str, Any], cap: int = 500, max_pages: int = 10) -> List[dict]:
-    """Follow `meta.totalPages` (Observations v1, the self-hosted 3.x fallback)."""
-    out: List[dict] = []
+def v1_pages(lf: Langfuse, path: str, params: Dict[str, Any], max_pages: int = MAX_PAGES) -> Iterator[List[dict]]:
+    """Yield each page of a `meta.totalPages` read (Observations v1, the self-hosted 3.x fallback)."""
     for page in range(1, max_pages + 1):
-        d = lf.get(path, **dict(params, limit=100, page=page)) or {}
-        out += d.get("data") or []
-        if page >= ((d.get("meta") or {}).get("totalPages") or 1) or len(out) >= cap:
+        d = lf.get(path, **dict({"limit": 100}, **params, page=page)) or {}
+        if not isinstance(d, dict):
+            raise ApiError(None, f"unexpected response shape from {path}")
+        yield d.get("data") or []
+        if page >= ((d.get("meta") or {}).get("totalPages") or 1):
+            return
+
+
+def page_v1(lf: Langfuse, path: str, params: Dict[str, Any], cap: int = 1000) -> List[dict]:
+    out: List[dict] = []
+    for page in v1_pages(lf, path, params):
+        out += page
+        if len(out) >= cap:
             break
     return out[:cap]
 
@@ -274,31 +310,40 @@ class Observations:
     A v3 server (this repo's self-hosted 3.221.1) has no v2 observations; Langfuse Cloud
     and v4 servers do. v2 filters on the trace name; v1 cannot, so on v1 a trace that the
     query-router owns is told apart by its `agentic-rag-handler` observation instead.
+    Observation names are in the `basic` field group, so every v2 read asks for it.
     """
+
+    FIELDS = "core,basic"
 
     def __init__(self, lf: Langfuse) -> None:
         self.lf = lf
         self.api: Optional[str] = None
 
-    def anchors(self, since: str, until: str) -> List[dict]:
-        params = {"name": ANCHOR_OBSERVATION, "fromStartTime": since, "toStartTime": until}
+    def anchor_pages(self, since: str, until: str) -> Iterator[List[dict]]:
+        params = {"name": ANCHOR_OBSERVATION, "fromStartTime": since, "toStartTime": until, "limit": 50}
+        trace_name = [{"type": "string", "column": "traceName", "operator": "=", "value": TRACE_NAME}]
+        v2 = self.lf.pages("/api/public/v2/observations",
+                           dict(params, fields=self.FIELDS, filter=json.dumps(trace_name)))
         try:
-            trace_name = [{"type": "string", "column": "traceName", "operator": "=", "value": TRACE_NAME}]
-            d = self.lf.get("/api/public/v2/observations", **params, fields="core,basic", limit=50,
-                            filter=json.dumps(trace_name)) or {}
+            first = next(v2)
+        except StopIteration:
             self.api = "v2"
-            return d.get("data") or []
+            return
         except ApiError as e:
             if e.status != 404:
                 raise
-        self.api = "v1"
-        return page_v1(self.lf, "/api/public/observations", params, cap=100, max_pages=1)
+            self.api = "v1"
+            yield from v1_pages(self.lf, "/api/public/observations", params)
+            return
+        self.api = "v2"
+        yield first
+        yield from v2
 
     def of_trace(self, trace_id: str, since: str, until: str) -> List[dict]:
         if self.api == "v1":
             return page_v1(self.lf, "/api/public/observations", {"traceId": trace_id})
         return self.lf.cursor("/api/public/v2/observations", {
-            "traceId": trace_id, "fields": "core", "fromStartTime": since, "toStartTime": until})
+            "traceId": trace_id, "fields": self.FIELDS, "fromStartTime": since, "toStartTime": until})
 
 
 def newest_traces(rows: Iterable[dict]) -> List[Tuple[str, datetime]]:
@@ -313,14 +358,24 @@ def newest_traces(rows: Iterable[dict]) -> List[Tuple[str, datetime]]:
 
 
 def find_latest_run(reader: Observations, now: datetime) -> Optional[Dict[str, Any]]:
-    """The newest knowledge-base `agentic-rag` run this demo owns, with its observations."""
+    """The newest knowledge-base `agentic-rag` run this demo owns, with its observations.
+
+    Walks the anchor pages (newest first) until a usable trace turns up, the pages end, or
+    MAX_CANDIDATES traces have been inspected.
+    """
     until = iso(now + timedelta(minutes=5))
-    anchors = reader.anchors(iso(now - timedelta(days=LOOKBACK_DAYS)), until)
-    for trace_id, started in newest_traces(anchors)[:MAX_CANDIDATES]:
-        rows = reader.of_trace(trace_id, iso(started - timedelta(hours=1)), until)
-        if any(r.get("name") == ROUTER_HANDLER for r in rows):
-            continue  # the query-router demo's trace, which nests this graph
-        return {"trace_id": trace_id, "started": started, "observations": rows}
+    inspected = set()
+    for page in reader.anchor_pages(iso(now - timedelta(days=LOOKBACK_DAYS)), until):
+        for trace_id, started in newest_traces(page):
+            if trace_id in inspected:
+                continue
+            if len(inspected) >= MAX_CANDIDATES:
+                return None
+            inspected.add(trace_id)
+            rows = reader.of_trace(trace_id, iso(started - timedelta(hours=1)), until)
+            if any(r.get("name") == ROUTER_HANDLER for r in rows):
+                continue  # the query-router demo's trace, which nests this graph
+            return {"trace_id": trace_id, "started": started, "observations": rows}
     return None
 
 
@@ -379,10 +434,13 @@ def judge_rule_status(project_id: str, container: str) -> Dict[str, str]:
     """
     ids = ", ".join(f"'{i}'" for i in JUDGE_RULES)
     pid = project_id.replace("'", "''")
-    sql = f"SELECT id || '|' || status FROM job_configurations WHERE project_id = '{pid}' AND id IN ({ids})"
+    # The seeder sets status ACTIVE and clears blocked_at; the worker sets blocked_at when a
+    # rule cannot run (for example, no default eval model), so a blocked rule reads BLOCKED.
+    sql = ("SELECT id || '|' || CASE WHEN blocked_at IS NOT NULL THEN 'BLOCKED' ELSE status::text END "
+           f"FROM job_configurations WHERE project_id = '{pid}' AND id IN ({ids})")
     try:
         p = subprocess.run(["docker", "exec", container, "sh", "-c",
-                            'psql -t -A -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$0"', sql],
+                            'psql -v ON_ERROR_STOP=1 -t -A -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$0"', sql],
                            capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise RuntimeError(f"docker not usable: {type(e).__name__}") from None
@@ -409,13 +467,14 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
 
 # --- Checks -------------------------------------------------------------------------------
 
-def service_checks(env: MutableMapping[str, str]) -> None:
+def service_checks(env: MutableMapping[str, str], short: bool = False) -> None:
     print("Services")
-    for name, url, required in services(env):
+    for name, url, short_path in services(env):
+        required = short_path or not short
         hint = "docker compose --profile demo up -d clickhouse-vectors agentic-rag mcp-rag-retriever"
         try:
             with urllib.request.urlopen(url, timeout=TIMEOUT_S) as r:
-                check(r.status < 500, f"{name} up at {url} ({r.status})", required=required)
+                check(r.status < 500, f"{name} up at {url} ({r.status})", required=required, hint=hint)
         except urllib.error.HTTPError as e:
             check(e.code < 500, f"{name} up at {url} ({e.code})", required=required, hint=hint)
         except (urllib.error.URLError, OSError) as e:
@@ -439,7 +498,43 @@ def vector_checks(env: MutableMapping[str, str]) -> None:
         check(False, f"{VECTORS_DB}.{VECTORS_TABLE} readable: {e}", hint=f"run {SEED_CMD}")
 
 
-def langfuse_checks(lf: Langfuse, expected_project: Optional[str], deploy_mode: str) -> Dict[str, Any]:
+def prompt_checks(lf: Langfuse, short: bool) -> None:
+    for name, label in EXPECTED_PROMPTS.items():
+        quoted = urllib.parse.quote(name, safe="")
+        try:
+            p = lf.get(f"/api/public/v2/prompts/{quoted}", label=label) or {}
+        except ApiError as e:
+            check(False, f"prompt {name} with label {label}: {e}", hint=f"run {SEED_CMD}")
+            continue
+        text = p.get("prompt") if isinstance(p.get("prompt"), str) else ""
+        check(p.get("type") == "text" and "{{context}}" in text and "{{question}}" in text,
+              f"prompt {name}: {label} = v{p.get('version')}, a text prompt with {{{{context}}}} and {{{{question}}}}",
+              hint=f"run {SEED_CMD}")
+        listed = (lf.get("/api/public/v2/prompts", name=name) or {}).get("data") or []
+        versions = next((row.get("versions") or [] for row in listed if row.get("name") == name), [])
+        check(len(versions) >= MIN_PROMPT_VERSIONS,
+              f"prompt {name} has {len(versions)} version(s) (Act 3b shows {MIN_PROMPT_VERSIONS}+)",
+              required=not short, hint=f"run {SEED_CMD}")
+
+
+def judge_rule_checks(project_id: str) -> None:
+    """Self-hosted: the three rules must read back ACTIVE. Not being able to read them fails."""
+    try:
+        rules = judge_rule_status(project_id, os.environ.get("LANGFUSE_POSTGRES_CONTAINER") or "langfuse-postgres")
+    except RuntimeError as e:
+        check(False, f"judge rules not readable from Postgres: {e}",
+              hint="start the langfuse profile and check `docker exec langfuse-postgres true` works; "
+                   f"then run {SEED_CMD}")
+        return
+    active = [r for r in JUDGE_RULES if rules.get(r) == "ACTIVE"]
+    check(len(active) == len(JUDGE_RULES),
+          f"{len(active)}/{len(JUDGE_RULES)} judge rules ACTIVE"
+          + "".join(f"; {r} {rules.get(r, 'missing')}" for r in JUDGE_RULES if r not in active),
+          hint=f"run {SEED_CMD} (BLOCKED means no default eval model: ./setup.sh)")
+
+
+def langfuse_checks(lf: Langfuse, expected_project: Optional[str], deploy_mode: str,
+                    short: bool = False) -> Dict[str, Any]:
     state: Dict[str, Any] = {}
     print("Langfuse")
     try:
@@ -450,45 +545,17 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], deploy_mode: 
         return state
     proj = projects[0] if projects else {}
     state["project_id"] = proj.get("id")
-    if not check(bool(expected_project) and proj.get("name") == expected_project,
+    if not check(bool(expected_project) and bool(proj.get("id")) and proj.get("name") == expected_project,
                  f"keys map to project '{proj.get('name')}' (want '{expected_project}')",
                  hint="use this project's keys in .env, or fix langfuse.project in demo.yaml"):
         return state
 
+    cloud = deploy_mode == "cloud"
     try:
         print("Seeded artifacts")
-        for name, label in EXPECTED_PROMPTS.items():
-            quoted = urllib.parse.quote(name, safe="")
-            try:
-                p = lf.get(f"/api/public/v2/prompts/{quoted}", label=label) or {}
-                text = p.get("prompt") if isinstance(p.get("prompt"), str) else ""
-                check("{{context}}" in text and "{{question}}" in text,
-                      f"prompt {name}: {label} = v{p.get('version')}, with {{{{context}}}} and {{{{question}}}}",
-                      hint=f"run {SEED_CMD}")
-            except ApiError as e:
-                check(False, f"prompt {name} with label {label}: {e}", hint=f"run {SEED_CMD}")
-                continue
-            listed = (lf.get("/api/public/v2/prompts", name=name) or {}).get("data") or []
-            versions = (listed[0].get("versions") if listed else None) or []
-            check(len(versions) >= MIN_PROMPT_VERSIONS,
-                  f"prompt {name} has {len(versions)} version(s) (Act 3b shows {MIN_PROMPT_VERSIONS}+)",
-                  required=False, hint=f"run {SEED_CMD}")
-
-        if deploy_mode == "cloud":
-            check(False, "judge rules: not readable in cloud mode (create them in the Langfuse UI)",
-                  required=False, hint=f"{JUDGE_SEED_CMD} prints the settings")
-        else:
-            try:
-                rules = judge_rule_status(state["project_id"] or "",
-                                          os.environ.get("LANGFUSE_POSTGRES_CONTAINER") or "langfuse-postgres")
-                active = [r for r in JUDGE_RULES if rules.get(r) == "ACTIVE"]
-                check(len(active) == len(JUDGE_RULES),
-                      f"{len(active)}/{len(JUDGE_RULES)} judge rules ACTIVE"
-                      + "".join(f"; {r} {rules.get(r, 'missing')}" for r in JUDGE_RULES if r not in active),
-                      hint=f"run {SEED_CMD} (BLOCKED means no default eval model: ./setup.sh)")
-            except RuntimeError as e:
-                check(False, f"judge rules not readable from Postgres: {e}", required=False,
-                      hint="is the langfuse profile up?")
+        prompt_checks(lf, short)
+        if not cloud:
+            judge_rule_checks(state["project_id"])
 
         print("Latest knowledge-base run (Acts 2-3)")
         now = datetime.now(timezone.utc)
@@ -510,9 +577,11 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], deploy_mode: 
               + (f"; missing {', '.join(missing)}" if missing else ""),
               hint="scores land after the trace: wait and re-run")
         missing = [n for n in JUDGE_SCORES if n not in score_names]
-        check(not missing, "managed judges scored the latest run"
-              + (f"; missing {', '.join(missing)}" if missing else ""), required=False,
-              hint="judges score NEW traces only, about a minute later: re-run the demo")
+        check(not missing, "managed judges scored the latest run" + (" (stands in for the rule check on Cloud)"
+                                                                     if cloud else "")
+              + (f"; missing {', '.join(missing)}" if missing else ""),
+              hint=(f"create the rules in the UI ({JUDGE_SEED_CMD} prints them), then " if cloud else "")
+              + "judges score NEW traces only, about a minute later: re-run the demo and wait")
         age_h = (now - run["started"]).total_seconds() / 3600
         check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
               required=False, hint=f"run {RUN_CMD} the day before")
@@ -523,23 +592,28 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], deploy_mode: 
         if loops:
             state["self_correcting_trace_id"] = loops[0]
         check(bool(loops), f"{len(loops)} self-correcting run(s) (retrieval_relevance 0 then 1) "
-              f"in the last {LOOKBACK_DAYS} days", required=False,
-              hint="run Act 2's command (DEMO_QUESTIONS.md Q3) and pin that trace")
+              f"in the last {LOOKBACK_DAYS} days",
+              hint="run Act 2's command (DEMO_QUESTIONS.md Q3) and pin that trace; the grader is an LLM, "
+                   "so re-run it if the first attempt passes straight away")
     except ApiError as e:
         check(False, f"Langfuse read failed: {e}")
+    except (KeyError, TypeError, ValueError, AttributeError) as e:
+        check(False, f"unexpected Langfuse response: {type(e).__name__}: {e}")
     return state
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
+    ap.add_argument("--short", action="store_true",
+                    help="check the short path only (Opening, Acts 1-3, Close): Act 3b and Act 4 checks only warn")
     args = ap.parse_args(argv)
     del RESULTS[:]
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     path = env_file(manifest_value(manifest, "", "profile"))
-    print(f"{TRACE_NAME} readiness")
+    print(f"{TRACE_NAME} readiness ({'short path' if args.short else 'full presentation'})")
     print("Config")
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
     check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
@@ -548,10 +622,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
     pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
     if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set"):
-        service_checks(os.environ)
+        service_checks(os.environ, short=args.short)
         vector_checks(os.environ)
         lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected, os.environ.get("DEPLOY_MODE") or "self-hosted")
+        state = langfuse_checks(lf, expected, os.environ.get("DEPLOY_MODE") or "self-hosted", short=args.short)
         if args.links and state.get("project_id"):
             print("\nLinks")
             for label, url in act_links(lf.base, state):

@@ -10,7 +10,8 @@ A wrapper over the seeders this demo already has, in pre-flight order:
 
 1. Vector index: `ingest.py` in the agentic-rag container. It truncates and re-inserts the
    shared vector-rag corpus into `agentic_rag.kb_chunks`, so a re-run is safe and picks up
-   corpus changes. Loads the embedding model; no model calls.
+   corpus changes. Loads the embedding model; no model calls. A content fingerprint of the
+   table before and after tells created, updated and unchanged apart.
 2. Generation prompt `agentic-rag-generation`: reconciled here, with the text and config
    of `scripts/seed-langfuse-prompt.py`. That script appends two versions on every run;
    this adds the baseline only when the prompt does not exist, and a new `production`
@@ -20,6 +21,9 @@ A wrapper over the seeders this demo already has, in pre-flight order:
 4. LibreChat agents: `scripts/seed-librechat-agents.sh`, which creates missing agents and
    reconciles the model, MCP tools and instructions of existing ones. It seeds all five
    repo agents; this demo uses "Agentic RAG Assistant". `./setup.sh` already runs it.
+
+Steps 3 and 4 exit non-zero when anything they own is left missing or incomplete, and
+any failed step makes this script exit 1.
 
 Standard library only, like verify_demo.py, whose .env loading and API client this reuses.
 Makes no model calls.
@@ -34,7 +38,7 @@ import sys
 import urllib.parse
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verify_demo as v  # noqa: E402  (same folder; stdlib only)
@@ -98,15 +102,33 @@ def run_step(cmd: List[str], dry_run: bool) -> str:
     return "reconciled" if code == 0 else "failed"
 
 
-def chunk_count(env: Dict[str, str]) -> Optional[int]:
-    """Rows in the vector table now, or None when the table or the store is not there."""
+def chunk_state(env: Dict[str, str]) -> Optional[Tuple[int, str]]:
+    """(rows, content fingerprint) of the vector table, or None when it is not there.
+
+    The fingerprint hashes every row's id, title and chunk text, so a re-ingest of an
+    unchanged corpus reads back the same value and is reported as unchanged.
+    """
     base = f"http://localhost:{env.get('CLICKHOUSE_VECTORS_HTTP_PORT') or 8125}"
     try:
-        return int(v.ch_query(base, env.get("CH_VECTORS_USER") or "agentic",
-                              env.get("CH_VECTORS_PASSWORD") or "agentic123",
-                              f"SELECT count() FROM {v.VECTORS_DB}.{v.VECTORS_TABLE}") or 0)
+        out = v.ch_query(base, env.get("CH_VECTORS_USER") or "agentic",
+                         env.get("CH_VECTORS_PASSWORD") or "agentic123",
+                         "SELECT count(), groupBitXor(cityHash64(id, doc_title, chunk)) "
+                         f"FROM {v.VECTORS_DB}.{v.VECTORS_TABLE}")
+        rows, fingerprint = out.split("\t")
+        return int(rows), fingerprint.strip()
     except (v.ApiError, ValueError):
         return None
+
+
+def ingest_result(step: str, before: Optional[Tuple[int, str]], after: Optional[Tuple[int, str]]) -> str:
+    """What the ingest step did, from the step's result and the table before and after."""
+    if step != "reconciled":
+        return step  # failed, or skipped in a dry run
+    if not after or not after[0]:
+        return "failed"  # the step exited 0 but the table is missing or empty
+    if not before or not before[0]:
+        return "created"
+    return "unchanged" if before == after else "updated"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -143,24 +165,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.skip_ingest:
         record("skipped", "vector index (--skip-ingest)")
     else:
-        before = chunk_count(dict(os.environ))
-        result = run_step(INGEST_CMD, args.dry_run)
-        after = chunk_count(dict(os.environ))
-        if result == "reconciled" and not after:
-            result = "failed"
-        elif result == "reconciled":
-            result = "updated" if before else "created"
-        record(result, f"{v.VECTORS_DB}.{v.VECTORS_TABLE}: {before or 0} -> {after or 0} chunks"
-               if not args.dry_run else f"{v.VECTORS_DB}.{v.VECTORS_TABLE} ({before or 0} chunks now)")
+        before = chunk_state(dict(os.environ))
+        step = run_step(INGEST_CMD, args.dry_run)
+        after = chunk_state(dict(os.environ)) if not args.dry_run else before
+        rows = (before or (0, ""))[0], (after or (0, ""))[0]
+        record(ingest_result(step, before, after),
+               f"{v.VECTORS_DB}.{v.VECTORS_TABLE}: {rows[0]} -> {rows[1]} chunks"
+               if not args.dry_run else f"{v.VECTORS_DB}.{v.VECTORS_TABLE} ({rows[0]} chunks now)")
 
     print("2. Generation prompt")
-    defs = prompt_definitions()
+    name = os.environ.get("GEN_PROMPT_NAME") or next(iter(v.EXPECTED_PROMPTS))
     try:
+        defs = prompt_definitions()
+        name = defs.NAME
         result = reconcile_prompt(lf, defs.NAME, defs.V1, defs.V2, defs.CONFIG, dry_run=args.dry_run)
-    except v.ApiError as e:
+    except (v.ApiError, OSError, AttributeError, SyntaxError) as e:
         result = "failed"
-        print(f"    {e}")
-    record(result, f"prompt {defs.NAME} (label {PRODUCTION})")
+        print(f"    {type(e).__name__}: {e}")
+    record(result, f"prompt {name} (label {PRODUCTION})")
 
     print("3. Managed judges (seed-agentic-rag-evaluators.sh)")
     if cloud:
