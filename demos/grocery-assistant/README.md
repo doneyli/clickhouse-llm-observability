@@ -90,7 +90,7 @@ npm ci
 ./scripts/provision-project.sh       # self-hosted: creates the 'grocery-assistant' project + keys, writes .env
 cp .env.example .env                 # Langfuse Cloud instead: then fill in the project's keys and LANGFUSE_BASE_URL
 # add ANTHROPIC_API_KEY to .env
-npm run seed:dataset                 # idempotent: upserts the five conversation items, no model calls
+npm run seed:dataset                 # idempotent: reports each item created, updated or unchanged; no model calls
 npm run demo                         # comparison, experiment and session scores; makes model calls, takes a few minutes
 npx tsx scripts/verify_demo.ts       # should print READY
 ```
@@ -105,9 +105,9 @@ keys, `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com` and
 `LANGFUSE_PROJECT_NAME=<your project>` in `.env`, and skip the provisioning script.
 Everything else is identical.
 
-The demo's `.env` is the only source of `LANGFUSE_*`: `src/env.ts` loads it with
-`override: true` and refuses to run if the keys resolve to an unexpected project, and
-`verify_demo.ts` drops shell-exported `LANGFUSE_*` before it reads the file. A stray
+The demo's `.env` is the only source of `LANGFUSE_*`: `src/env.ts` clears every
+inherited `LANGFUSE_*`, refuses to run without the `.env` and both keys, and refuses keys
+that resolve to an unexpected project; `verify_demo.ts` applies the same rule. A stray
 export would otherwise send every trace somewhere else, and the resulting 404s look
 like application bugs. `./setup.sh` does not run this demo's seed.
 
@@ -116,7 +116,7 @@ like application bugs. `./setup.sh` does not run this demo's seed.
 | When | Do | Why |
 |---|---|---|
 | The day before | `npm run demo`, plus `npm run compare:loop` if you run Act 2 | Fresh comparison sessions, a dataset run and session scores. Don't run `npm run demo` live |
-| 30 minutes before | `npx tsx scripts/verify_demo.ts --links` | Prints READY and the link each act opens |
+| 30 minutes before | `npx tsx scripts/verify_demo.ts --links` | Prints READY and the link each act opens. It requires the dataset run; after `npm run demo -- --quick`, add `--quick` and Act 3's dataset run only warns |
 | 5 minutes before | Open Langfuse **Sessions** and **Tracing** for this project, and a terminal in `demos/grocery-assistant` | Act 1 starts on the Traces table filtered to tag `compare:broken` |
 
 ## Run it
@@ -151,7 +151,7 @@ difference: distinct trace names, generations with null I/O, observations missin
 | What | Command | Notes |
 |---|---|---|
 | Six deterministic evaluators: `unverified-cart-claim`, `fabricated-purchase-history`, `dropped-dietary-constraint`, `stale-discount-quoted`, then `quoted_total_for_empty_cart` and `readback_request_unanswered` from error analysis | `npm run chat -- --conversation unverified-cart-claim` | Run on every turn and printed PASS / FAIL / n/a. The checks make no model calls; the conversation does. The order and the reasons are in [docs/FIRST_EVALUATOR.md](docs/FIRST_EVALUATOR.md) |
-| Dataset `grocery-conversations` | `npm run seed:dataset` | Five items derived from `src/conversations.ts`, upserted on `grocery-<conversation id>` |
+| Dataset `grocery-conversations` | `npm run seed:dataset` | Five items derived from `src/conversations.ts` on stable `grocery-<conversation id>` ids. It compares each owned field (input, expected output, metadata, ACTIVE status) and writes only what differs, printing created / updated / unchanged; a failed write exits non-zero. Items it does not define are left alone |
 | Dataset run `deterministic-board-<timestamp>` | `npm run experiment` | Plays all five conversations (six to seven turns each) and writes one boolean score per applicable evaluator; not-applicable verdicts are not written. Makes model calls; cost not measured here |
 | Session score `conversation-cart-integrity` | `npm run evaluate:live` | Reads recent sessions back and writes a NUMERIC score on each session (no trace id). No model calls |
 | Evaluator backtest | `npx tsx scripts/backtest-evaluators.ts --tag ea:pass-1` | Replays two evaluators against human labels; see [docs/ERROR_ANALYSIS.md](docs/ERROR_ANALYSIS.md) |
@@ -258,6 +258,10 @@ demos/grocery-assistant/
 ├── .env.example               copy to .env (or let provision-project.sh write it)
 ├── src/
 │   ├── env.ts                 credentials, key isolation, project verification
+│   ├── env-file.ts            loadDemoEnv(): clear inherited LANGFUSE_*, require .env and keys
+│   ├── dataset.ts             the dataset as code, and the reconcile that seeds it
+│   ├── readback.ts            Observations v2 / v1 readers and bounded paging
+│   ├── skus.ts                SKU extraction, kept free of credentials
 │   ├── instrumentation.ts     NodeSDK + LangfuseSpanProcessor + registerTelemetry
 │   ├── catalog.ts             the fictional catalog, order history, and offers
 │   ├── tools.ts               6 tools; enum'd vocabularies, unsupported filters reported
@@ -279,7 +283,11 @@ demos/grocery-assistant/
 │   ├── run-demo.ts            one-shot prep
 │   └── verify_demo.ts         readiness check: READY or NOT READY
 ├── tests/
-│   └── verify_demo.test.ts    the readiness check against a fake Langfuse
+│   ├── verify_demo.test.ts    the readiness check against a contract-strict fake Langfuse
+│   ├── fake-langfuse.ts       that fake: rejects unknown params and field groups, projects fields
+│   ├── dataset.test.ts        the seed reconcile
+│   ├── readback.test.ts       paging and both observation shapes
+│   └── env.test.ts            env isolation, including the seed's real import path
 └── docs/
     ├── GOOD_TRACE.md          lesson 1
     ├── FIRST_EVALUATOR.md     lesson 2
@@ -297,24 +305,28 @@ npm run typecheck            # tsc --noEmit
 ```
 
 `src/evaluators/deterministic.test.ts` covers the deterministic evaluators, with cases
-taken from real output. `tests/verify_demo.test.ts` covers the readiness check: results,
-summary and exit code, the `.env` override, the manifest parse, run classification, and
-full runs against a fake Langfuse on a v4 and a 3.x server. No test reaches a network.
-The evaluator tests import `src/env.ts` through `src/assistant.ts`, and it throws at
-import without keys, so they need `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` set to
-any value; CI supplies placeholders. The readiness-check tests need no keys.
+taken from real output. `tests/verify_demo.test.ts` covers the readiness check (results,
+verdict and exit code, the `.env` rule, run classification, optional and required read
+failures, empty and repeated cursors, the dataset run, archived items) against a fake
+Langfuse that rejects requests the real API would reject, on a v4 and a 3.x server.
+`tests/dataset.test.ts` covers the seed reconcile (no-op, changed and drifted items,
+partial and total write failures), `tests/readback.test.ts` both observation shapes and
+the paging, and `tests/env.test.ts` env isolation, including the seed's real import path
+in a child process with hostile shell exports. No test needs keys or reaches a network.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
-| `Missing LANGFUSE_PUBLIC_KEY. Run ./scripts/provision-project.sh…` | No `.env`, or no keys in it. Provision, or copy `.env.example` and fill it in |
+| `No .env at …` or `Missing LANGFUSE_SECRET_KEY in …` | No `.env`, or a key missing from it; shell exports do not count. Provision, or copy `.env.example` and fill it in |
 | `These keys resolve to [...], not 'grocery-assistant'` | The keys belong to another project. Use this project's keys, or set `LANGFUSE_PROJECT_NAME` |
 | `Langfuse rejected these keys (HTTP 401)` | Wrong key pair, `LANGFUSE_BASE_URL` points at another host or region, or the stack is down |
 | `Postgres container 'langfuse-postgres' is not running` | `provision-project.sh` needs the self-hosted stack: `docker compose --profile langfuse up -d` from the repo root |
 | `Keys already exist for this project` from `provision-project.sh` | Secrets are hashed and cannot be read back. If `.env` has no working keys, run the `DELETE` it prints, then re-run |
 | verify: `dataset grocery-conversations: HTTP 404` or missing items | `npm run seed:dataset` |
 | verify: no `cmp-good-*` session or `compare:broken` run | Nothing ran in the last 7 days: `npm run demo` |
+| verify: no `deterministic-board-*` run, or fewer than 5 items | `npm run experiment`, or `npm run demo` without `--quick`; after quick prep, check with `--quick` |
+| verify: `read failed: HTTP …` | That act's read failed: a FAIL for a core act, a WARN for an optional one. The message names the endpoint's answer |
 | verify: the latest turn has 0 observations | The trace landed before its observations. Wait 30 seconds and re-run |
 | The broken run's session link opens empty | By design: it carries no `sessionId` (defect 5). Filter the Traces table by tag `compare:broken` |
 | No LLM spans at all in your own build | AI SDK 7 needs `registerTelemetry(...)`; `experimental_telemetry` is the v6 path |
@@ -330,7 +342,10 @@ any value; CI supplies placeholders. The readiness-check tests need no keys.
 - Each conversation makes a failure reachable, not certain: a given run may not trip it.
 - The time and model cost of `npm run demo` and `npm run experiment` are not measured
   in this folder.
-- On a self-hosted 3.x server the read-back scripts use the v1 read endpoints, because
-  Observations API v2 does not exist there; on Cloud and v4 they use v2.
+- On a self-hosted 3.x server the read-back scripts use the v1 observation list (and
+  `verify_demo.ts` the `/datasets/{name}/runs` read), because Observations API v2 and the
+  experiments API do not exist there; on Cloud and v4 they use v2. No script calls the
+  legacy `/traces` endpoints. On a 3.x server `verify_demo.ts` does not count the dataset
+  run's scores.
 - The catalog, the brand, the offers, the order history and the shoppers are all
   invented.

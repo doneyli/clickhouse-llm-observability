@@ -27,7 +27,7 @@ evaluator choice rather than a full evaluation loop.
 |---|---|---|---|
 | 1 | The same app, badly instrumented, answers as well and cannot be measured | Act 1: `npm run compare`, broken vs good, counted from the API | `verify_demo.ts`: a `cmp-good-*` session and `compare:broken` turns exist; broken generations have null input |
 | 2 | A flattened agent loop passes review and loses per-step reasoning and cost | Act 2: `npm run compare:loop` | `verify_demo.ts` warns when no `cmp-collapsed-*` session exists |
-| 3 | Deterministic checks on system state come before any judge | Act 3: `npm run chat -- --conversation out-of-stock`, then the evaluator table | Unit tests in `src/evaluators/deterministic.test.ts`; a `deterministic-board-*` dataset run |
+| 3 | Deterministic checks on system state come before any judge | Act 3: `npm run chat -- --conversation unverified-cart-claim`, then the evaluator table | Unit tests in `src/evaluators/deterministic.test.ts`; `verify_demo.ts` requires a `deterministic-board-*` run covering all five items with scores (`--quick` makes it a warning) |
 | 4 | A conversation-level number comes from your code, not a managed rule | Act 4: `npm run evaluate:live` | `verify_demo.ts` warns when the good session has no `conversation-cart-integrity` score |
 
 ## 4. The fictional company and data
@@ -88,8 +88,9 @@ numbers and their commands are in [docs/ERROR_ANALYSIS.md](docs/ERROR_ANALYSIS.m
 - Each conversation makes a failure reachable, not certain: a run may not trip it.
 - The LLM judge (`src/evaluators/judge.ts`) is written but no script calls it, and the
   project has no managed conversation rule.
-- Read-back code branches on the server version: Observations v2 on Cloud and v4, the v1
-  observation list on a self-hosted 3.x server (the repo's stack pins 3.221.1).
+- Read-back code branches on the server version (src/readback.ts): Observations v2 on
+  Cloud and v4, the v1 observation list on a self-hosted 3.x server (the repo's stack pins
+  3.221.1). The legacy `/traces` endpoints are not used.
 
 ## 10. Decisions
 

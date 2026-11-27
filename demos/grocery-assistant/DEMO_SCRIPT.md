@@ -43,7 +43,8 @@ npm run compare:loop                      # only if you run Act 2
 npx tsx scripts/verify_demo.ts --links    # READY, plus the link for every act
 ```
 
-`verify_demo.ts` exits 1 when a required check fails. Fix what it names before the meeting:
+`verify_demo.ts` exits 1 when a required check fails. After `npm run demo -- --quick`
+(no dataset run), check with `--quick`, which only warns about Act 3's dataset run. Fix what it names before the meeting:
 an empty Sessions view is a bad first slide. Don't run `npm run demo` live. Prep it.
 
 **Tabs to open:**
@@ -333,27 +334,27 @@ steps in the README, self-hosted or Cloud.
 
 ## Show me the code
 
-**1 · A stable trace name, with the session propagated to every observation — `src/assistant.ts:206`**
-The good turn opens its root as `handle-chat-message` (`src/assistant.ts:108`) and calls
-`propagateAttributes` at `src/assistant.ts:210`, so the session, user and tags land on
+**1 · A stable trace name, with the session propagated to every observation — `src/assistant.ts:204`**
+The good turn opens its root as `handle-chat-message` (`src/assistant.ts:109`) and calls
+`propagateAttributes` at `src/assistant.ts:208`, so the session, user and tags land on
 every child observation, not just the root.
 
-**2 · One turn's input on the root, the history only to the model — `src/assistant.ts:222`**
+**2 · One turn's input on the root, the history only to the model — `src/assistant.ts:220`**
 The root gets `{ message }` and nothing else; the full history goes into the model call.
 That keeps the Sessions view readable (defect 4 is the opposite).
 
-**3 · Defect 1, reproduced with the real switches — `src/assistant.ts:325`**
+**3 · Defect 1, reproduced with the real switches — `src/assistant.ts:323`**
 Broken mode passes `recordInputs: false, recordOutputs: false`, the way it usually
 happens: switched off for PII on day one. The good mode records both at
-`src/assistant.ts:239`.
+`src/assistant.ts:237`.
 
-**4 · Defect 5: the session written to metadata instead of propagated — `src/assistant.ts:312`**
+**4 · Defect 5: the session written to metadata instead of propagated — `src/assistant.ts:310`**
 The broken root carries `sessionId` in free-form metadata, so no observation has a
 session and the Sessions view cannot group the run.
 
-**5 · Defect 6: the loop flattened into one generation — `src/assistant.ts:388`**
+**5 · Defect 6: the loop flattened into one generation — `src/assistant.ts:386`**
 Collapsed mode hand-rolls one `generation` observation and turns the AI SDK's telemetry
-off (`src/assistant.ts:406`), which takes the per-step generations and the tool spans
+off (`src/assistant.ts:404`), which takes the per-step generations and the tool spans
 with it.
 
 **6 · Grade the outcome in the environment — `src/evaluators/deterministic.ts:155`**
@@ -364,16 +365,18 @@ cart, with no model call.
 A verdict that did not apply is never written as a score, so a pass rate keeps a
 denominator that means something.
 
-**8 · A score on the session, with no trace id — `scripts/score-live-sessions.ts:438`**
+**8 · A score on the session, with no trace id — `scripts/score-live-sessions.ts:406`**
 `score.create({ sessionId, ... })` attaches the number to the whole conversation.
 
-**9 · The demo's `.env` beats the shell — `src/env.ts:19`**
-`dotenv` with `override: true`, then `verifyProject()` refuses keys for another project.
+**9 · The demo's `.env` is the only source of Langfuse settings — `src/env.ts:21`**
+`loadDemoEnv()` (`src/env-file.ts`) clears every inherited `LANGFUSE_*`, requires the
+`.env` and both keys, then `verifyProject()` refuses keys for another project.
 
-**10 · Readiness counts real rows — `scripts/verify_demo.ts:441`**
+**10 · Readiness counts real rows — `scripts/verify_demo.ts:487`**
 It lists root observations through Observations API v2 (the v1 list on a 3.x server),
 finds the newest comparison runs, then counts each run's generations and checks the
-broken ones really have null input.
+broken ones really have null input. It also requires the newest dataset run to cover
+all five conversations with scores.
 
 ---
 
@@ -456,7 +459,7 @@ Nothing a rehearsal leaves behind needs deleting: every run gets new session ids
 `verify_demo.ts` reads the newest.
 
 ```bash
-npm run seed:dataset                # puts the dataset back: upserts the five items (archive extras in the UI)
+npm run seed:dataset                # puts the dataset back: reports each item created, updated or unchanged (archive extras in the UI)
 npm run compare                     # a fresh broken/good pair with new session ids
 npm run compare:loop                # a fresh collapsed/good pair, for Act 2
 npm run evaluate:live               # session scores for the new sessions
