@@ -17,18 +17,19 @@ import sys
 from pathlib import Path
 
 import httpx
-from dotenv import dotenv_values
+from dotenv import dotenv_values, set_key
 
 DEMO = Path(__file__).resolve().parent.parent
 RETENTION_DAYS = 90
 
 
-def main() -> int:
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project-name", default="marketing-agent-debugging")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     env_path = DEMO / ".env"
-    if env_path.exists() and "LANGFUSE_SECRET_KEY" in env_path.read_text():
+    existing_env = dotenv_values(env_path) if env_path.exists() else {}
+    if all((existing_env.get(k) or "").strip() for k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY")):
         print(".env already has project keys — delete them to re-provision")
         return 0
     org = {k: v for k, v in dotenv_values(DEMO / ".env.cloud-org").items() if v}
@@ -54,14 +55,16 @@ def main() -> int:
                    json={"note": "marketing-agent-debugging demo (scripts/provision_cloud.py)"})
     r.raise_for_status()
     keys = r.json()
-    lines = [f"# Langfuse Cloud project '{args.project_name}' — created by scripts/provision_cloud.py",
-             f"LANGFUSE_BASE_URL={base}", f"LANGFUSE_PROJECT_ID={project['id']}",
-             f"LANGFUSE_PROJECT_NAME={args.project_name}",
-             f"LANGFUSE_PUBLIC_KEY={keys['publicKey']}", f"LANGFUSE_SECRET_KEY={keys['secretKey']}"]
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        lines.append(f"ANTHROPIC_API_KEY={os.environ['ANTHROPIC_API_KEY']}")
-    previous = env_path.read_text() if env_path.exists() else ""
-    env_path.write_text("\n".join(lines) + "\n" + previous)
+    values = {"LANGFUSE_BASE_URL": base, "LANGFUSE_PROJECT_ID": project["id"],
+              "LANGFUSE_PROJECT_NAME": args.project_name,
+              "LANGFUSE_PUBLIC_KEY": keys["publicKey"], "LANGFUSE_SECRET_KEY": keys["secretKey"]}
+    if os.environ.get("ANTHROPIC_API_KEY") and not existing_env.get("ANTHROPIC_API_KEY"):
+        values["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+    # Replace assignments in place: appending the previous file after new values
+    # lets its blank or stale assignments override the newly provisioned keys.
+    env_path.touch(mode=0o600, exist_ok=True)
+    for key, value in values.items():
+        set_key(env_path, key, value)
     print("+ project API key → .env")
     return 0
 

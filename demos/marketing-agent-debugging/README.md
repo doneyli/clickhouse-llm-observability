@@ -241,7 +241,7 @@ guardrail rules, the sequential and parallel tool paths, the trace message shape
 |---|---|
 | `Langfuse keys belong to project '…', expected 'marketing-agent-debugging'` | The keys in `.env` are for another project. Put this project's keys there, or set `LANGFUSE_PROJECT_NAME`; shell exports are ignored |
 | `LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY missing` | No `.env` yet, or the keys are blank: copy `.env.example`, or run `scripts/provision_cloud.py` |
-| `.env already has project keys — delete them to re-provision` | `provision_cloud.py` found a `.env` with a `LANGFUSE_SECRET_KEY` line. Remove the Langfuse lines, or fill them in by hand |
+| `.env already has project keys — delete them to re-provision` | `provision_cloud.py` found nonempty public and secret keys. Keep them to reuse that project, or clear both values to provision again; blank template assignments are filled in place |
 | `verify_demo.py`: `prompt marketing-agent/tailspin production = v4` fails | A rehearsal moved the label. Run `scripts/seed_prompts.py --reset-tailspin` |
 | `verify_demo.py`: `N agent runs in the project` fails | The corpus is missing or has aged out of the 90-day retention: run `scripts/seed_all.py`. Runs made with `LANGFUSE_TRACING_ENVIRONMENT=development` are not counted |
 | The Tracing table looks empty | The default time range is one day. Set it to the last 7 days |
