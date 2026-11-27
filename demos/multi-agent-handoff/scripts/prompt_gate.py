@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -47,6 +48,28 @@ def label_version(prompt: str, label: str) -> int:
         raise
 
 
+def snapshot_versions(prompt: str, label: str, version: int | None = None) -> dict[str, int]:
+    """Resolve mutable labels once, including each unchanged agent's production fallback."""
+    agents = ["concierge", *SPECIALISTS]
+    if prompt not in agents:
+        raise ValueError(f"Prompt {prompt!r} is not used by the a2a gate")
+    versions = {}
+    for agent in agents:
+        name = prompts.prompt_name(agent)
+        if agent == prompt and version is not None:
+            if version < 1:
+                raise ValueError("Prompt versions must be positive integers")
+            versions[agent] = version
+            continue
+        try:
+            versions[agent] = api("GET", f"/api/public/v2/prompts/{name}", params={"label": label})["version"]
+        except LangfuseAPIError as exc:
+            if exc.status != 404 or agent == prompt:
+                raise
+            versions[agent] = label_version(name, "production")
+    return versions
+
+
 def metrics(result) -> dict:
     got = {e.name: e.value for e in result.run_evaluations if isinstance(e.value, (int, float))}
     got["items-evaluated"] = float(sum(1 for r in result.item_results if isinstance(r.output, dict)))
@@ -54,7 +77,9 @@ def metrics(result) -> dict:
 
 
 def status(rule: dict, value) -> str:
-    if value is None:
+    if value is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return "MISSING"
+    if any(not isinstance(bound, (int, float)) or not math.isfinite(bound) for bound in rule.values()):
         return "MISSING"
     if "min" in rule and value < rule["min"]:
         return "FAIL"
@@ -64,6 +89,8 @@ def status(rule: dict, value) -> str:
 
 
 def bound(rule: dict) -> str:
+    if any(v is None or not math.isfinite(v) for v in rule.values()):
+        return "unavailable"
     return f"≥ {rule['min']}" if "min" in rule else f"≤ {rule['max']}"
 
 
@@ -93,6 +120,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--prompt", default="concierge", help="the prompt under review (its label must exist)")
     ap.add_argument("--label", default="candidate")
+    ap.add_argument("--version", type=int, help="immutable version of --prompt from the dispatch event")
     ap.add_argument("--compare", metavar="LABEL", help="also run this label (e.g. production) and bound the drop")
     ap.add_argument("--thresholds", default=str(ROOT / "cicd" / "thresholds.json"))
     ap.add_argument("--run-name", help="default: gate · <prompt> <label> v<version> · time")
@@ -101,25 +129,29 @@ def main() -> int:
     ap.add_argument("--warn-only", action="store_true")
     a = ap.parse_args()
     t = json.loads(Path(a.thresholds).read_text())
-    version = label_version(prompts.prompt_name(a.prompt), a.label)
-    tag = prompts.version_tag(["concierge", *SPECIALISTS], a.label)
+    versions = snapshot_versions(a.prompt, a.label, a.version)
+    version = versions[a.prompt]
+    tag = prompts.version_tag(["concierge", *SPECIALISTS], a.label, versions=versions)
     run_name = a.run_name or f"gate · {a.prompt} {a.label} v{version} · {time.strftime('%m-%d %H:%M:%S')}"
     run_name = run_name.replace("{version}", str(version))
     print(f"Gating {a.prompt} @{a.label} = v{version}  ({tag})", flush=True)
     result = run_experiment.run(t.get("topology", "a2a"), label=a.label, concurrency=a.concurrency,
-                                limit=a.limit, name=run_name)
+                                limit=a.limit, name=run_name, prompt_versions=versions)
     got = metrics(result)
     base = None
     if a.compare:
         print(f"\nBaseline: {a.compare}", flush=True)
+        baseline_versions = snapshot_versions(a.prompt, a.compare)
         base = metrics(run_experiment.run(t.get("topology", "a2a"), label=a.compare, concurrency=a.concurrency,
-                                          limit=a.limit, name=f"{run_name} · baseline {a.compare}"))
+                                          limit=a.limit, name=f"{run_name} · baseline {a.compare}",
+                                          prompt_versions=baseline_versions))
     rules = [("items-evaluated", {"min": float(result.items_requested)}, "hard")]
     rules += [(n, r, "hard") for n, r in t["hard"].items()] + [(n, r, "soft") for n, r in t["soft"].items()]
     if base:
         for n, drop in t.get("compare", {}).items():
-            if base.get(n) is not None:
-                rules.append((f"{n} vs {a.compare}", {"min": round(base[n] - drop, 4)}, "compare"))
+            baseline = base.get(n)
+            minimum = round(baseline - drop, 4) if isinstance(baseline, (int, float)) and math.isfinite(baseline) else None
+            rules.append((f"{n} vs {a.compare}", {"min": minimum}, "compare"))
     rows, failed = [], False
     print(f"\n{'metric':<34}{'value':>8}  {'bound':<12} result" + (f"{'':16}{a.compare}" if base else ""))
     for name, rule, kind in rules:

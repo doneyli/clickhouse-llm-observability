@@ -68,10 +68,12 @@ class TurnResult:
 
 
 class Orchestrator:
-    def __init__(self, topology: str = "a2a", linkage: str = DEFAULT_MODE, prompt_label: Optional[str] = None):
+    def __init__(self, topology: str = "a2a", linkage: str = DEFAULT_MODE, prompt_label: Optional[str] = None,
+                 prompt_versions: Optional[dict] = None):
         if topology not in ("single", "local", "a2a"):
             raise ValueError(topology)
         self.topology, self.linkage, self.prompt_label = topology, linkage, prompt_label
+        self.prompt_versions = dict(prompt_versions or {})
         self.lf = config.get_langfuse("orchestrator")
         self.roster = Roster.from_registry()  # a2a: replaced by the agent cards on the first turn
         self._cards = topology != "a2a"
@@ -93,7 +95,7 @@ class Orchestrator:
             out = await run_agent(name, AgentInput(
                 message=message, kind=kind, customer_id=str(payload.get("customer_id", "")), turn=turn,
                 payload=payload if kind != "continue" else {}, history=self._local_hist.get(key, []) if kind != "delegate" else [],
-                frm=frm, prompt_label=self.prompt_label), transport=self.transport,
+                frm=frm, prompt_label=self.prompt_label, prompt_versions=self.prompt_versions), transport=self.transport,
                 state=RunState(conversation_id=conversation_id or turn.session_id))
             if kind != "delegate":
                 self._local_hist[key] = out.history
@@ -117,7 +119,7 @@ class Orchestrator:
             self.roster = await Roster.from_cards(SPECIALISTS)
             self._cards = True
         version = prompts.version_tag(["single"] if self.topology == "single" else ["concierge", *SPECIALISTS],
-                                      self.prompt_label)
+                                      self.prompt_label, versions=self.prompt_versions)
         turn_ctx = TurnContext(session_id=conv.session_id, user_id=conv.customer_id, trace_name="support-turn",
                                version=version)
         owner_before = conv.owner
@@ -156,7 +158,7 @@ class Orchestrator:
         state = RunState(conversation_id=conv.session_id)
         out = await run_agent("single", AgentInput(message=message, kind="customer", customer_id=conv.customer_id,
                                                    turn=turn_ctx, history=conv.histories.get("single", []),
-                                                   prompt_label=self.prompt_label),
+                                                   prompt_label=self.prompt_label, prompt_versions=self.prompt_versions),
                               transport=None, state=state)
         conv.histories["single"] = out.history
         conv.turn_tools += out.tools
@@ -165,8 +167,19 @@ class Orchestrator:
     async def _concierge(self, conv, message, turn_ctx, path, handoffs):
         path.append("concierge")
         replied = {"by": "concierge"}
+        progress_recorded = False
 
-        async def on_transfer(request: dict):
+        def record_progress(out):
+            nonlocal progress_recorded
+            path.extend(p for p in out.path if p)
+            handoffs.extend(out.handoffs)
+            conv.turn_tools.extend(out.tools)
+            progress_recorded = True
+
+        async def on_transfer(request: dict, progress):
+            # Delegations/tools already ran before this terminal transfer. Record them
+            # now so trajectory scores and the remaining hop budget see that order.
+            record_progress(progress)
             text, by = await self._transfer_chain(conv, "concierge", request, message, turn_ctx, path, handoffs)
             replied["by"] = by
             return text, "completed"
@@ -175,13 +188,12 @@ class Orchestrator:
         conv.note = ""
         out = await run_agent("concierge", AgentInput(message=user, kind="customer", customer_id=conv.customer_id,
                                                       turn=turn_ctx, history=conv.histories.get("concierge", []),
-                                                      prompt_label=self.prompt_label),
+                                                      prompt_label=self.prompt_label, prompt_versions=self.prompt_versions),
                               transport=self.transport, state=RunState(conversation_id=conv.session_id), roster=self.roster,
                               on_transfer=on_transfer)
         conv.histories["concierge"] = out.history
-        path += [p for p in out.path if p]
-        handoffs += out.handoffs
-        conv.turn_tools += out.tools
+        if not progress_recorded:
+            record_progress(out)
         return out.text, replied["by"]
 
     async def _continue(self, conv, message, turn_ctx, path, handoffs):
@@ -191,7 +203,7 @@ class Orchestrator:
         res = await self.transport.handoff(frm="router", to=owner, kind="continue", reason="customer reply",
                                            message=message, payload={"customer_id": conv.customer_id}, turn=turn_ctx,
                                            task_id=ref.get("task_id", ""), context_id=ref.get("context_id", ""), hop=1,
-                                           prompt_label=self.prompt_label)
+                                           prompt_label=self.prompt_label, prompt_versions=self.prompt_versions)
         handoffs.append({"kind": "continue", "from": "router", "to": owner, "payload": {"customer_id": conv.customer_id},
                          "state": res.state, "t": started})
         path.append(owner)
@@ -209,7 +221,7 @@ class Orchestrator:
         res = await self.transport.handoff(frm=frm, to=to, kind="transfer", reason=request.get("reason", ""),
                                            message=request.get("message") or message, payload=payload,
                                            turn=turn_ctx, context_id=ref.get("context_id", ""), hop=len(handoffs) + 1,
-                                           prompt_label=self.prompt_label)
+                                           prompt_label=self.prompt_label, prompt_versions=self.prompt_versions)
         handoffs.append({"kind": "transfer", "from": frm, "to": to, "payload": payload,
                          "message": request.get("message") or message, "state": res.state, "t": started})
         conv.transfers += 1

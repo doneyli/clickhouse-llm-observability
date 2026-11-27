@@ -38,7 +38,8 @@ def make_handler(name: str):
             message=req.text, kind=kind, customer_id=customer_id, turn=req.turn,
             payload=req.data if kind in ("transfer", "delegate") else {}, history=history,
             frm=str(req.metadata.get("handoff_from", "")), hop=int(req.metadata.get("handoff_hop") or 1),
-            prompt_label=req.metadata.get("prompt_label")), transport=transport,
+            prompt_label=req.metadata.get("prompt_label"),
+            prompt_versions=req.metadata.get("prompt_versions") or {}), transport=transport,
             state=RunState(conversation_id=conversation_id),
             open_observation=False)
         if kind != "delegate":

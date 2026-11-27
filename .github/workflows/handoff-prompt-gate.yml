@@ -48,6 +48,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       label: ${{ steps.which.outputs.label }}
+      version: ${{ steps.which.outputs.version }}
       name: ${{ steps.which.outputs.name }}
       is_production: ${{ steps.which.outputs.is_production }}
       skip: ${{ steps.which.outputs.skip }}
@@ -63,28 +64,38 @@ jobs:
         env:
           MANUAL_LABEL: ${{ github.event.inputs.prompt_label }}
           MANUAL_NAME: ${{ github.event.inputs.prompt_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          GATED="concierge tech-support billing"; DEPLOYABLE="production candidate fault-f1 fault-f3"; SKIP=""
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            NAME="$MANUAL_NAME"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION="(manual run)"
+          SKIP=""
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            NAME="$MANUAL_NAME"; LABEL="$MANUAL_LABEL"; LABELS="$MANUAL_LABEL"; VERSION=""
           else
             NAME=$(jq -r '.client_payload.prompt.name // ""' "$GITHUB_EVENT_PATH")
             VERSION=$(jq -r '.client_payload.prompt.version // "?"' "$GITHUB_EVENT_PATH")
             LABELS=$(jq -r '(.client_payload.prompt.labels // []) | join(",")' "$GITHUB_EVENT_PATH")
-            LABEL=$(jq -r '(.client_payload.prompt.labels // []) | map(select(. != "latest"))
+            LABEL=$(jq -r '(.client_payload.prompt.labels // [])
+                           | map(select(. == "production" or . == "candidate" or . == "fault-f1" or . == "fault-f3"))
                            | (map(select(. == "production")) + .) | first // ""' "$GITHUB_EVENT_PATH")
-            if ! printf '%s' " $GATED " | grep -q " $NAME "; then
-              SKIP="\`$NAME\` is not an agent prompt with a routing answer key (gated: $GATED)."
-            elif [ -z "$LABEL" ]; then SKIP="version $VERSION carries no deployable label (has: \`${LABELS:-none}\`)."
-            elif ! printf '%s' " $DEPLOYABLE " | grep -q " $LABEL "; then SKIP="label \`$LABEL\` is not one of: $DEPLOYABLE."
+            if [[ ! "$VERSION" =~ ^[1-9][0-9]*$ ]]; then
+              SKIP="The dispatch must name a positive integer prompt version."
+              VERSION=""
             fi
           fi
+          case "$NAME" in
+            concierge|tech-support|billing) ;;
+            *) SKIP="Prompt is not one of: concierge, tech-support, billing."; NAME="" ;;
+          esac
+          case "$LABEL" in
+            production|candidate|fault-f1|fault-f3) ;;
+            *) SKIP="No deployable label (production, candidate, fault-f1, fault-f3)."; LABEL="" ;;
+          esac
           IS_PROD=false; case ",$LABELS," in *,production,*) IS_PROD=true ;; esac
           echo "name=$NAME" >> "$GITHUB_OUTPUT"; echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "is_production=$IS_PROD" >> "$GITHUB_OUTPUT"; echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
           { echo "### Prompt change"; echo ""; echo "| field | value |"; echo "|---|---|"
-            echo "| prompt | \`$NAME\` |"; echo "| version | \`$VERSION\` |"; echo "| labels | \`${LABELS:-none}\` |"
+            echo "| prompt | \`$NAME\` |"; echo "| version | \`${VERSION:-resolved at gate start}\` |"; echo "| labels | \`${LABELS:-none}\` |"
             if [ -n "$SKIP" ]; then echo ""; echo "### ⏭️ Skipped — nothing evaluated"; echo ""; echo "$SKIP"
             else echo "| gating label | \`$LABEL\` |"; fi; echo ""; } >> "$GITHUB_STEP_SUMMARY"
 
@@ -104,14 +115,19 @@ jobs:
       # The agents and run_services.sh read the demo's .env (they ignore shell LANGFUSE_* on purpose).
       - name: Write the demo .env (from secrets)
         if: steps.which.outputs.skip == ''
+        env:
+          DEMO_BASE_URL: ${{ secrets.HANDOFF_LANGFUSE_BASE_URL }}
+          DEMO_PUBLIC_KEY: ${{ secrets.HANDOFF_LANGFUSE_PUBLIC_KEY }}
+          DEMO_SECRET_KEY: ${{ secrets.HANDOFF_LANGFUSE_SECRET_KEY }}
+          DEMO_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           umask 077
           {
-            echo "LANGFUSE_BASE_URL=${{ secrets.HANDOFF_LANGFUSE_BASE_URL }}"
-            echo "LANGFUSE_PUBLIC_KEY=${{ secrets.HANDOFF_LANGFUSE_PUBLIC_KEY }}"
-            echo "LANGFUSE_SECRET_KEY=${{ secrets.HANDOFF_LANGFUSE_SECRET_KEY }}"
-            echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}"
-            echo "HANDOFF_RELEASE=ci-${{ github.run_number }}"
+            printf 'LANGFUSE_BASE_URL=%s\n' "$DEMO_BASE_URL"
+            printf 'LANGFUSE_PUBLIC_KEY=%s\n' "$DEMO_PUBLIC_KEY"
+            printf 'LANGFUSE_SECRET_KEY=%s\n' "$DEMO_SECRET_KEY"
+            printf 'ANTHROPIC_API_KEY=%s\n' "$DEMO_ANTHROPIC_KEY"
+            printf 'HANDOFF_RELEASE=ci-%s\n' "$GITHUB_RUN_NUMBER"
           } > .env
 
       - name: Start the A2A agents (billing, tech-support)
@@ -121,10 +137,15 @@ jobs:
       # Non-zero exit on any hard-threshold miss IS the gate.
       - name: Gate — handoff-routing on the a2a topology
         if: steps.which.outputs.skip == ''
+        env:
+          PROMPT_NAME: ${{ steps.which.outputs.name }}
+          PROMPT_LABEL: ${{ steps.which.outputs.label }}
+          PROMPT_VERSION: ${{ steps.which.outputs.version }}
         run: |
-          .venv/bin/python scripts/prompt_gate.py --prompt "${{ steps.which.outputs.name }}" \
-            --label "${{ steps.which.outputs.label }}" \
-            --run-name "ci · ${{ steps.which.outputs.name }} ${{ steps.which.outputs.label }} v{version} · #${{ github.run_number }}"
+          args=(--prompt "$PROMPT_NAME" --label "$PROMPT_LABEL")
+          if [ -n "$PROMPT_VERSION" ]; then args+=(--version "$PROMPT_VERSION"); fi
+          .venv/bin/python scripts/prompt_gate.py "${args[@]}" \
+            --run-name "ci · $PROMPT_NAME $PROMPT_LABEL v{version} · #$GITHUB_RUN_NUMBER"
 
       - name: Agent logs
         if: always() && steps.which.outputs.skip == ''
@@ -137,10 +158,13 @@ jobs:
     if: needs.gate.outputs.is_production == 'true' && needs.gate.outputs.skip == ''
     steps:
       - name: Announce the deploy
+        env:
+          PROMPT_NAME: ${{ needs.gate.outputs.name }}
+          PROMPT_LABEL: ${{ needs.gate.outputs.label }}
         run: |
           {
             echo "### 🚀 Deployed"
             echo ""
-            echo "\`${{ needs.gate.outputs.name }}\` (label \`${{ needs.gate.outputs.label }}\`) passed the quality bar and carries \`production\`."
+            echo "\`$PROMPT_NAME\` (label \`$PROMPT_LABEL\`) passed the quality bar and carries \`production\`."
             echo "The agents fetch the production-labelled prompt at runtime (60 s cache): nothing to redeploy. Roll back = move the label back (scripts/loop.py promote --version N)."
           } >> "$GITHUB_STEP_SUMMARY"

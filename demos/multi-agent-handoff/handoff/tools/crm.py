@@ -208,6 +208,8 @@ def issue_credit(state: RunState, line_id: str, amount: float, reason: str, outa
 
 def book_technician(state: RunState, line_id: str, window: str = "next available") -> dict:
     diag = run_line_diagnostics(line_id)
+    if "error" in diag:
+        return {"booked": False, **diag}
     if diag.get("area_outage"):
         return {"booked": False, "reason": f"area outage {diag['area_outage']} — no visit during an outage"}
     prior = state.existing("technicians", line_id)

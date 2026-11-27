@@ -93,8 +93,15 @@ def compile_text(template: str, **variables: str) -> str:
     return re.sub(r"\{\{\s*(\w+)\s*\}\}", lambda m: str(variables.get(m.group(1), m.group(0))), template)
 
 
-def get(agent: str, label: Optional[str] = None):
+def get(agent: str, label: Optional[str] = None, *, version: Optional[int] = None):
     """(template, prompt_client_or_None). Falls back to the code text on any error or offline."""
+    if version is not None:
+        # Gates must evaluate the immutable snapshot, never silently grade a fallback.
+        lf = config.get_langfuse(config.SERVICE or agent)
+        client = lf.get_prompt(prompt_name(agent), version=int(version), type="text", cache_ttl_seconds=60)
+        if getattr(client, "is_fallback", False) or client.version != int(version):
+            raise RuntimeError(f"{agent}: requested v{version}, received a fallback or another version")
+        return client.prompt, client
     template = FALLBACKS[agent]
     if config.CAPTURE_DIR or config.setting("HANDOFF_OFFLINE_PROMPTS") == "1":
         return template, None
@@ -117,7 +124,7 @@ def get(agent: str, label: Optional[str] = None):
         return template, None
 
 
-def version_tag(agents, label: Optional[str] = None) -> str:
+def version_tag(agents, label: Optional[str] = None, *, versions: Optional[dict] = None) -> str:
     """The prompt versions a turn runs, e.g. "concierge v3 / tech-support v1 / billing v1".
 
     Set as the turn's version, so a dashboard can split any score by it: a label move shows
@@ -126,7 +133,7 @@ def version_tag(agents, label: Optional[str] = None) -> str:
     """
     parts = []
     for agent in agents:
-        _, client = get(agent, label)
+        _, client = get(agent, label, version=(versions or {}).get(agent))
         parts.append(f"{agent} v{client.version}" if client is not None else f"{agent} code")
     return " / ".join(parts)
 

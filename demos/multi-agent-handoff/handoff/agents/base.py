@@ -105,6 +105,7 @@ class AgentInput:
     frm: str = ""
     hop: int = 0
     prompt_label: Optional[str] = None
+    prompt_versions: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -195,14 +196,14 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                     on_transfer=None) -> AgentOutput:
     """One agent turn. `transport` performs ask_* delegations (local or A2A).
 
-    `on_transfer(request) -> (reply, state)`: the hub's transfer routine. When given (the
+    `on_transfer(request, progress) -> (reply, state)`: the hub's transfer routine. When given (the
     concierge, in the orchestrator's process), the transfer runs inside this agent's
     observation, so the trace shows the concierge handing off. Without it (a remote
     specialist), the transfer request is returned for the hub to perform.
     """
     spec = AGENTS[name]
     lf = config.get_langfuse(config.SERVICE or name)
-    template, prompt_client = prompts.get(name, inp.prompt_label)
+    template, prompt_client = prompts.get(name, inp.prompt_label, version=inp.prompt_versions.get(name))
     roster = roster or Roster.from_registry()
     system = prompts.compile_text(template, customer_id=inp.customer_id, mode=prompts.MODES[inp.kind],
                                   roster=roster.text(spec.transfers + [a for a in spec.asks if a not in spec.transfers]))
@@ -249,7 +250,7 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                         {"type": "tool_result", "tool_use_id": tu["id"], "content": f"transferred to {target}"}]
                         + _skipped(uses[i + 1:])})
                     if on_transfer is not None:
-                        out.text, out.state = await on_transfer(out.transfer)
+                        out.text, out.state = await on_transfer(out.transfer, out)
                     return
                 if tname == "hand_back":
                     out.handback = {"summary": args.get("summary", ""), "outcome": args.get("outcome", "")}
@@ -269,7 +270,7 @@ async def run_agent(name: str, inp: AgentInput, *, transport, state: RunState,
                                                   message=question, payload=payload,
                                                   turn=inp.turn, hop=inp.hop + 1,
                                                   conversation_id=state.conversation_id or "",
-                                                  prompt_label=inp.prompt_label)
+                                                  prompt_label=inp.prompt_label, prompt_versions=inp.prompt_versions)
                     out.handoffs.append({"kind": "delegate", "from": name, "to": target, "payload": payload,
                                          "message": question, "state": res.state, "t": started})
                     out.handoffs += res.data.get("handoffs") or []
