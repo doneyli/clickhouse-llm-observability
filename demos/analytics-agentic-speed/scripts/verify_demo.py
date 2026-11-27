@@ -11,8 +11,10 @@ optional acts (4 and 5) and the live view, which Act 1 can do without. A configu
 network, HTTP or parse failure is a FAIL, never a traceback, and the last line is always
 READY or NOT READY with the counts. Exit 0 only when every required check passed.
 
-Settings come from the demo's .env only (``explorer.config.load_env`` drops inherited
-LANGFUSE_* first and fails on a missing file or key).
+Settings come from the demo's .env only, on a laptop and on a CI runner alike
+(``explorer.config.load_env`` drops inherited LANGFUSE_* first, then fails on a missing or
+unreadable file, a missing key or an unusable base URL). That is checked before any client
+is built or any request sent.
 
 Cost: one scenario-shaped query three times (milliseconds), one free model lookup on the
 Anthropic API, and a handful of Langfuse reads. No LLM calls.
@@ -58,6 +60,7 @@ HERO_SCENARIO = (
 )
 
 RESULTS: list[tuple[bool, bool, str]] = []  # (ok, required, what)
+TRANSPORT: Optional[httpx.BaseTransport] = None  # None: the network. Tests set an httpx.MockTransport
 
 
 def check(ok: bool, what: str, *, required: bool = True) -> bool:
@@ -112,7 +115,7 @@ class Langfuse:
     @classmethod
     def from_env(cls) -> "Langfuse":
         return cls(os.environ["LANGFUSE_BASE_URL"], os.environ["LANGFUSE_PUBLIC_KEY"],
-                   os.environ["LANGFUSE_SECRET_KEY"])
+                   os.environ["LANGFUSE_SECRET_KEY"], transport=TRANSPORT)
 
     def get(self, path: str, **params: Any) -> Any:
         r = self.c.get(path, params=params)
@@ -326,31 +329,33 @@ def print_links(lf: Langfuse, st: dict[str, Any]) -> None:
         print(f"  concurrency session {base}/sessions/{s}")
 
 
+def run_checks(args: argparse.Namespace) -> None:
+    """Every check, in order. Configuration is validated before any client or request."""
+    print("Configuration")
+    source = load_env()  # drops inherited LANGFUSE_*; EnvError on a missing .env, key or bad URL
+    check(True, f"settings from {source}; shell-exported LANGFUSE_* ignored")
+    cfg = RunConfig()
+    lf = Langfuse.from_env()
+    table = guard("ClickHouse settings", lambda: ClickHouseSettings.from_env().qualified_table)
+    print(f"Target: Langfuse {lf.base} · ClickHouse table {table}")
+    asyncio.run(clickhouse_checks(cfg))
+    anthropic_check(cfg)
+    st = langfuse_checks(lf, args.links)
+    if args.links:
+        print_links(lf, st)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(argv)  # --help and usage errors exit here, as usual
     RESULTS.clear()
-    lf: Optional[Langfuse] = None
-    st: dict[str, Any] = {}
     try:
-        source = load_env()  # drops inherited LANGFUSE_*; EnvError on a missing .env or key
-    except EnvError as e:
-        print("Configuration")
-        check(False, str(e))
-    else:
-        cfg = RunConfig()
-        lf = Langfuse.from_env()
-        table = guard("ClickHouse settings", lambda: ClickHouseSettings.from_env().qualified_table)
-        print(f"Target: Langfuse {lf.base} · ClickHouse table {table} · settings from {source}")
-        try:
-            asyncio.run(clickhouse_checks(cfg))
-            anthropic_check(cfg)
-            st = langfuse_checks(lf, args.links)
-        except Exception as exc:  # noqa: BLE001  a read no section absorbed still reaches the verdict
-            check(False, f"verification stopped: {describe(exc)}")
-        if args.links:
-            print_links(lf, st)
+        run_checks(args)
+    except EnvError as exc:  # a SystemExit: caught by name so it is a counted FAIL, not an exit
+        check(False, str(exc))
+    except Exception as exc:  # noqa: BLE001  construction, HTTP, network, parse: all reach the verdict
+        check(False, f"verification stopped: {describe(exc)}")
     line, code = summary()
     print(f"\n{line}")
     return code

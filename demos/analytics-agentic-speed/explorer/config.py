@@ -2,15 +2,22 @@
 
 A shell-exported ``LANGFUSE_PUBLIC_KEY`` for another project would otherwise win and
 silently send traces somewhere else (a repo-wide footgun, see the root CLAUDE.md). So
-``load_env`` drops every inherited ``LANGFUSE_*`` variable before it reads the demo's
-`.env`, and fails when the file or a required key is missing. ``override=True`` alone is
-not enough: a key the file leaves out would still come from the shell.
+``load_env`` drops every inherited ``LANGFUSE_*`` variable first, whether or not the file
+exists, then reads the demo's `.env`, and fails when the file, a required key or a usable
+base URL is missing. ``override=True`` alone is not enough: a key the file leaves out
+would still come from the shell.
+
+The one exception is opt-in: ``load_env(ci_step_env=True)``, used only by
+``scripts/prompt_gate.py``, the command the GitHub workflow runs. On a GitHub Actions
+runner with no `.env`, that call keeps the workflow step's env. Seed and verify never
+pass it, so they never read inherited credentials.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -45,34 +52,61 @@ def missing_langfuse_vars(env: "os._Environ[str] | dict[str, str]") -> list[str]
     return missing
 
 
-def load_env(*, require_langfuse: bool = True, env_file: Path | None = None) -> str:
+def base_url_problem(url: str) -> str | None:
+    """Why ``url`` can't be a Langfuse base URL, or None when it can."""
+    try:
+        parts = urlsplit(url.strip())
+        parts.port  # noqa: B018  raises ValueError on a port such as "invalid"
+    except ValueError as exc:
+        return f"is not a valid URL ({exc})"
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return "is not an http(s) URL with a host"
+    return None
+
+
+def load_env(*, require_langfuse: bool = True, env_file: Path | None = None,
+             ci_step_env: bool = False) -> str:
     """Load the demo's .env and return where the settings came from.
 
-    Every inherited ``LANGFUSE_*`` variable is dropped first, so the keys, host and base
-    URL all come from the file. With no file, only a GitHub Actions runner (positively
-    identified by ``GITHUB_ACTIONS=true``) may use its step env instead; anywhere else it
-    is an ``EnvError``. ``require_langfuse`` also fails on a missing Langfuse key or base
-    URL before any API is used. ``EXPLORER_TARGET=playground`` in the shell or .env
-    points the agent at the public playground instead of the Cloud service.
+    Every inherited ``LANGFUSE_*`` variable is dropped first, even when the file is
+    missing, so the keys, host and base URL can only come from the file. A missing or
+    unreadable file is an ``EnvError``. ``require_langfuse`` also fails on a missing
+    Langfuse key or an unusable base URL, before any API is used.
+
+    ``ci_step_env=True`` is for the workflow's command only (``scripts/prompt_gate.py``):
+    on a GitHub Actions runner (positively identified by ``GITHUB_ACTIONS=true``) with no
+    `.env`, the step env is kept and used instead. Without the flag, or off a runner, that
+    case is an ``EnvError`` like any other missing file.
+
+    ``EXPLORER_TARGET=playground`` in the shell or .env points the agent at the public
+    playground instead of the Cloud service.
     """
     path = env_file or ENV_FILE
     shell_target = os.getenv("EXPLORER_TARGET")
-    if path.is_file():
-        for k in [k for k in os.environ if k.startswith("LANGFUSE_")]:
-            del os.environ[k]
-        load_dotenv(path, override=True)
-        source = str(path)
-    elif in_github_actions():
+    use_step_env = ci_step_env and in_github_actions() and not path.exists()
+    if use_step_env:
         source = "the GitHub Actions step env"
     else:
-        raise EnvError(f"no .env at {path}: copy .env.example to .env and fill it in "
-                       "(shell-exported LANGFUSE_* keys are never used)")
+        for k in [k for k in os.environ if k.startswith("LANGFUSE_")]:
+            del os.environ[k]
+        if not path.is_file():
+            raise EnvError(f"no .env at {path}: copy .env.example to .env and fill it in "
+                           "(shell-exported LANGFUSE_* keys are never used)")
+        try:
+            with path.open(encoding="utf-8") as fh:
+                load_dotenv(stream=fh, override=True)
+        except (OSError, UnicodeDecodeError) as exc:
+            raise EnvError(f"cannot read {path}: {type(exc).__name__}: {exc}") from None
+        source = str(path)
     if require_langfuse:
         missing = missing_langfuse_vars(os.environ)
         if missing:
             raise EnvError(f"missing from {source}: {', '.join(missing)}")
         if not os.environ.get("LANGFUSE_BASE_URL", "").strip():
             os.environ["LANGFUSE_BASE_URL"] = os.environ["LANGFUSE_HOST"].strip()
+        problem = base_url_problem(os.environ["LANGFUSE_BASE_URL"])
+        if problem:
+            raise EnvError(f"LANGFUSE_BASE_URL in {source} {problem}: {os.environ['LANGFUSE_BASE_URL']!r}")
     if (shell_target or os.getenv("EXPLORER_TARGET", "cloud")) == "playground":
         os.environ.update(PLAYGROUND)
     return source

@@ -123,9 +123,11 @@ can still be run on its own:
 ```
 
 The `.env` is the only source of `LANGFUSE_*`: every script drops inherited `LANGFUSE_*`
-variables before it reads the file, and stops when the file or a key is missing, so
-shell-exported keys are never used. (The CI gate has no `.env`; on a GitHub Actions
-runner the workflow's step env is used instead.) `./setup.sh` does not run this demo's seed.
+variables, even when the file is missing, then reads the file, and stops when the file, a
+key or a usable base URL is missing. Shell-exported keys are never used. Seed and verify
+hold to that on a CI runner too. The one exception is the CI prompt gate
+(`scripts/prompt_gate.py`): on a GitHub Actions runner with no `.env`, it alone opts in to
+the workflow's step env. `./setup.sh` does not run this demo's seed.
 
 ## Before a demo
 
@@ -306,6 +308,7 @@ env checks, and the `.env` loader.
 | Symptom | Cause and fix |
 |---|---|
 | `no .env at …` or `missing from …: LANGFUSE_…` | Copy `.env.example` to `.env` and fill it in. Shell exports never fill a gap, by design. |
+| `LANGFUSE_BASE_URL in … is not a valid URL` or `cannot read …/.env` | Fix the base URL in `.env` (for example `https://us.cloud.langfuse.com`), or the file's permissions. |
 | `conflict, cannot be reconciled` from `seed_langfuse.py` | A score config with a contract name exists with another data type. The type can't be changed and configs can't be deleted: archive or rename it in the UI, then reseed. |
 | TLS error / curl exit 35 on connect | This machine isn't on the service's IP access list. Add it in ClickHouse Cloud. |
 | Langfuse 404s, or traces "missing" | Keys for another project. `unset LANGFUSE_*` and rerun; `verify_demo.py` checks which project the keys map to. |

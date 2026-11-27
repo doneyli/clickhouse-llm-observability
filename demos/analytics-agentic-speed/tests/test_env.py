@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -70,18 +71,84 @@ def test_missing_file_fails_outside_ci(hostile, tmp_path):
     assert issubclass(config.EnvError, SystemExit)  # a CLI exits 1 with the message, no traceback
 
 
-def test_missing_file_on_github_actions_uses_the_step_env(hostile, tmp_path, monkeypatch):
+def test_missing_file_drops_the_shell_keys_too(hostile, tmp_path):
+    with pytest.raises(config.EnvError):
+        config.load_env(env_file=tmp_path / ".env")
+    assert not [k for k in os.environ if k.startswith("LANGFUSE_")]
+
+
+@pytest.mark.parametrize("value", ["true", "", "false", "1"])
+def test_seed_and_verify_mode_needs_the_file_even_on_github_actions(hostile, tmp_path, monkeypatch, value):
+    monkeypatch.setenv("GITHUB_ACTIONS", value)
+    with pytest.raises(config.EnvError, match="no .env at"):
+        config.load_env(env_file=tmp_path / ".env")
+    assert "LANGFUSE_PUBLIC_KEY" not in os.environ  # the runner's credentials are dropped, not used
+
+
+def test_partial_file_on_github_actions_never_borrows_the_step_env(hostile, tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    with pytest.raises(config.EnvError, match="LANGFUSE_SECRET_KEY"):
+        config.load_env(env_file=write(tmp_path, FULL.replace("LANGFUSE_SECRET_KEY=sk-lf-demo\n", "")),
+                        ci_step_env=True)
+    assert "LANGFUSE_SECRET_KEY" not in os.environ
+
+
+def test_ci_step_env_mode_uses_the_step_env_on_a_runner_with_no_file(hostile, tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
-    assert config.load_env(env_file=tmp_path / ".env") == "the GitHub Actions step env"
+    assert config.load_env(env_file=tmp_path / ".env", ci_step_env=True) == "the GitHub Actions step env"
     assert os.environ["LANGFUSE_PUBLIC_KEY"] == "pk-lf-OTHER"  # the workflow's secrets, by design
 
 
 @pytest.mark.parametrize("value", ["", "false", "1"])
-def test_ci_is_identified_positively(hostile, tmp_path, monkeypatch, value):
+def test_ci_step_env_mode_identifies_the_runner_positively(hostile, tmp_path, monkeypatch, value):
     monkeypatch.setenv("GITHUB_ACTIONS", value)
-    with pytest.raises(config.EnvError):
-        config.load_env(env_file=tmp_path / ".env")
+    with pytest.raises(config.EnvError, match="no .env at"):
+        config.load_env(env_file=tmp_path / ".env", ci_step_env=True)
+    assert "LANGFUSE_PUBLIC_KEY" not in os.environ
+
+
+def test_only_the_workflow_command_opts_in_to_the_step_env():
+    import re
+    demo = config.DEMO_DIR
+    callers = {str(f.relative_to(demo)) for f in [*demo.glob("*.py"), *demo.glob("scripts/*.py"),
+                                                  *demo.glob("webapp/*.py")]
+               if re.search(r"load_env\([^)]*ci_step_env=True", f.read_text())}
+    assert callers == {"scripts/prompt_gate.py"}
+    workflow = (demo.parent.parent / ".github/workflows/analytics-agentic-speed-prompt-gate.yml").read_text()
+    assert "scripts/prompt_gate.py" in workflow
+
+
+@pytest.mark.parametrize("url", ["http://localhost:invalid", "localhost:3000", "ftp://x.example", "https://"])
+def test_an_unusable_base_url_fails_before_any_client(hostile, tmp_path, url):
+    with pytest.raises(config.EnvError, match="LANGFUSE_BASE_URL"):
+        config.load_env(env_file=write(tmp_path, FULL.replace("https://us.cloud.langfuse.com", url)))
+
+
+def unreadable(tmp_path, monkeypatch):
+    """A .env that exists but can't be opened (mode 000 is readable as root, so fake the open)."""
+    p = write(tmp_path, FULL)
+    real_open = Path.open
+
+    def deny(self, *a, **k):
+        if self == p:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_open(self, *a, **k)
+    monkeypatch.setattr(Path, "open", deny)
+    return p
+
+
+def test_an_unreadable_file_is_an_env_error(hostile, tmp_path, monkeypatch):
+    with pytest.raises(config.EnvError, match="cannot read .*PermissionError"):
+        config.load_env(env_file=unreadable(tmp_path, monkeypatch))
+    assert "LANGFUSE_PUBLIC_KEY" not in os.environ
+
+
+def test_a_file_that_is_not_utf8_is_an_env_error(hostile, tmp_path):
+    p = tmp_path / ".env"
+    p.write_bytes(b"LANGFUSE_PUBLIC_KEY=\xff\xfe\n")
+    with pytest.raises(config.EnvError, match="cannot read .*UnicodeDecodeError"):
+        config.load_env(env_file=p)
 
 
 def test_clickhouse_only_scripts_need_no_langfuse_keys(hostile, tmp_path):

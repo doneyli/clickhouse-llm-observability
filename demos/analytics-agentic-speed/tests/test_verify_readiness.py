@@ -78,14 +78,15 @@ def run(monkeypatch, tmp_path):
         if env_text is not None:
             env_file.write_text(env_text)
         monkeypatch.setattr(config, "ENV_FILE", env_file)
+        # The real Langfuse.from_env and httpx.Client run; only the transport is in memory.
+        monkeypatch.setattr(v, "TRANSPORT", server.transport())
         made = []
+        real_init = v.Langfuse.__init__
 
-        def from_env(cls):
-            lf = v.Langfuse(config.os.environ["LANGFUSE_BASE_URL"], config.os.environ["LANGFUSE_PUBLIC_KEY"],
-                            config.os.environ["LANGFUSE_SECRET_KEY"], transport=server.transport())
-            made.append(lf)
-            return lf
-        monkeypatch.setattr(v.Langfuse, "from_env", classmethod(from_env))
+        def spy(self, *a, **k):
+            made.append(a[0] if a else k.get("base"))  # recorded before construction can fail
+            real_init(self, *a, **k)
+        monkeypatch.setattr(v.Langfuse, "__init__", spy)
         code = v.main(argv or [])
         return code, made
 
@@ -111,7 +112,7 @@ def test_healthy_project_is_ready_with_the_files_keys(run, capsys):
     assert server.requests[0].url.host == "fake.langfuse.test"
     import base64
     assert base64.b64decode(auth.split()[1]).decode() == "pk-lf-demo:sk-lf-demo"
-    assert made and made[0].base == "https://fake.langfuse.test"
+    assert made == ["https://fake.langfuse.test"]
 
 
 def test_scores_request_subject_only_and_drop_observation_scores(run, capsys):
@@ -137,6 +138,85 @@ def test_missing_env_with_hostile_shell_fails_before_any_request(run, capsys):
     assert code == 1 and not made and not server.requests
     assert "FAIL  no .env at" in out
     assert out.strip().splitlines()[-1].startswith("NOT READY: 0 passed, 1 failed")
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_github_actions_never_lends_the_verifier_its_credentials(run, capsys, monkeypatch, partial):
+    """On a runner, with the step env's keys exported, a missing or partial .env still fails first."""
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    server = healthy()
+    code, made = run(server, env_text=GOOD_ENV.replace("LANGFUSE_PUBLIC_KEY=pk-lf-demo\n", "") if partial else None)
+    out = capsys.readouterr().out
+    assert code == 1 and not made and not server.requests
+    assert ("FAIL  missing from" if partial else "FAIL  no .env at") in out
+    assert out.strip().splitlines()[-1].startswith("NOT READY: 0 passed, 1 failed")
+
+
+def test_malformed_base_url_is_a_counted_fail_before_any_client(run, capsys):
+    server = healthy()
+    code, made = run(server, env_text=GOOD_ENV.replace("https://fake.langfuse.test", "http://localhost:invalid"))
+    out = capsys.readouterr().out
+    assert code == 1 and not made and not server.requests
+    assert "FAIL  LANGFUSE_BASE_URL in" in out and "http://localhost:invalid" in out
+    assert out.strip().splitlines()[-1].startswith("NOT READY: 0 passed, 1 failed")
+
+
+def test_client_construction_errors_reach_the_verdict(run, capsys, monkeypatch):
+    """With the URL check out of the way, real httpx.Client construction raises InvalidURL."""
+    monkeypatch.setattr(config, "base_url_problem", lambda url: None)
+    server = healthy()
+    code, made = run(server, env_text=GOOD_ENV.replace("https://fake.langfuse.test", "http://localhost:invalid"))
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert code == 1 and made == ["http://localhost:invalid"] and not server.requests
+    assert any("FAIL  verification stopped: InvalidURL" in ln for ln in lines)
+    assert any("PASS  settings from" in ln for ln in lines)  # the result recorded before it is kept
+    assert lines[-1].startswith("NOT READY: 1 passed, 1 failed")
+
+
+def test_unreadable_env_is_a_counted_fail(run, capsys, monkeypatch, tmp_path):
+    real_open = Path.open
+
+    def deny(self, mode="r", *a, **k):
+        if self == tmp_path / ".env" and "r" in mode:  # the fixture may still write it
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_open(self, mode, *a, **k)
+    monkeypatch.setattr(Path, "open", deny)
+    server = healthy()
+    code, made = run(server)
+    out = capsys.readouterr().out
+    assert code == 1 and not made and not server.requests
+    assert "FAIL  cannot read" in out and "PermissionError" in out
+    assert out.strip().splitlines()[-1].startswith("NOT READY: 0 passed, 1 failed")
+
+
+def test_an_unexpected_error_keeps_earlier_results_and_reaches_the_verdict(run, capsys, monkeypatch):
+    def boom(cfg):
+        raise RuntimeError("model lookup exploded")
+    monkeypatch.setattr(v, "anthropic_check", boom)
+    server = healthy()
+    code, _ = run(server)
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert code == 1
+    assert "  PASS  ClickHouse stubbed" in lines  # recorded before the error, still counted
+    assert any("FAIL  verification stopped: RuntimeError: model lookup exploded" in ln for ln in lines)
+    assert lines[-1].startswith("NOT READY: 2 passed, 1 failed")
+
+
+def test_help_and_usage_errors_behave_as_usual(capsys):
+    with pytest.raises(SystemExit) as e:
+        v.main(["--help"])
+    assert e.value.code == 0 and "--links" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        v.main(["--no-such-flag"])
+    assert e.value.code == 2
+
+
+def test_keyboard_interrupt_is_not_swallowed(run, monkeypatch):
+    def interrupt(cfg):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(v, "anthropic_check", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        run(healthy())
 
 
 def test_partial_env_does_not_borrow_the_shell_secret(run, capsys):

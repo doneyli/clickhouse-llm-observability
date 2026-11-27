@@ -179,3 +179,55 @@ def test_healthy_helper_passes_the_wrapper(env_file, monkeypatch):
     runner, ran = in_process(FakeSeedAPI(), monkeypatch)
     assert seed_all.main([], runner=runner, env_file=env_file) == 0
     assert ran == ["load_data.py", "seed_langfuse.py", "seed_dataset.py"]
+
+
+# ---------------------------------------------------------------- the seeders' own env contract, on a CI runner
+
+@pytest.fixture
+def runner_env(monkeypatch, tmp_path):
+    """A GitHub Actions runner with credentials for another project exported, and no network."""
+    from explorer import config
+    import httpx
+    import seed_dataset
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    for k, val in {"LANGFUSE_PUBLIC_KEY": "pk-lf-OTHER", "LANGFUSE_SECRET_KEY": "sk-lf-OTHER",
+                   "LANGFUSE_BASE_URL": "https://other.example"}.items():
+        monkeypatch.setenv(k, val)
+    monkeypatch.delenv("EXPLORER_TARGET", raising=False)
+    for k in ("CH_HOST", "CH_USER", "CH_PASSWORD", "CH_ADMIN_USER", "CH_ADMIN_PASSWORD", "ANTHROPIC_API_KEY"):
+        monkeypatch.setenv(k, "unset")  # load_env may set these: restore them afterwards
+        monkeypatch.delenv(k)
+    clients = []
+    monkeypatch.setattr(httpx, "Client", lambda *a, **k: clients.append(a or k) or (_ for _ in ()).throw(
+        AssertionError("an API client was built")))
+    monkeypatch.setattr(seed_dataset, "ClickHouseClient", lambda *a, **k: clients.append(a or k) or (_ for _ in ()).throw(
+        AssertionError("a ClickHouse client was built")))
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(config, "ENV_FILE", env_file)
+    return env_file, clients
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_seed_langfuse_on_a_runner_needs_its_own_env(runner_env, partial):
+    env_file, clients = runner_env
+    if partial:
+        env_file.write_text(FULL_ENV.replace("LANGFUSE_SECRET_KEY=sk-lf-demo\n", ""))
+    with pytest.raises(SystemExit) as e:
+        seed_langfuse.main([])
+    assert e.value.code not in (0, None)
+    assert ("missing from" if partial else "no .env at") in str(e.value.code)
+    assert clients == []
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_seed_dataset_on_a_runner_needs_its_own_env(runner_env, monkeypatch, partial):
+    import seed_dataset
+    env_file, clients = runner_env
+    if partial:
+        env_file.write_text(FULL_ENV.replace("export LANGFUSE_PUBLIC_KEY=pk-lf-demo\n", ""))
+    monkeypatch.setattr(sys, "argv", ["seed_dataset.py"])
+    with pytest.raises(SystemExit) as e:
+        seed_dataset.main()
+    assert ("missing from" if partial else "no .env at") in str(e.value.code)
+    assert clients == []

@@ -370,7 +370,7 @@ Langfuse's Metrics API can't chart metadata; a score makes `db_server_ms` charta
 **4 · Typed server-side parameters — `explorer/ch_client.py:198`**
 `{origin:String}` + `param_origin=…`: no string formatting of values into SQL.
 
-**5 · No query cache — `explorer/config.py:122`**
+**5 · No query cache — `explorer/config.py:156`**
 `use_query_cache=0`: every scenario is computed.
 
 **6 · The sweep — `explorer/agent.py:487`**

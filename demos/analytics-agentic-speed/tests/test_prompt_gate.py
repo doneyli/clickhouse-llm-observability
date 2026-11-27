@@ -383,7 +383,7 @@ def test_gate_passes_resolved_pair_to_every_task(gate, thresholds, monkeypatch):
             pass
 
     lf, captured = LF(), {}
-    monkeypatch.setattr(gate, "load_env", lambda: None)
+    monkeypatch.setattr(gate, "load_env", lambda **kw: None)
     monkeypatch.setenv("CH_HOST", "fake.test")
     monkeypatch.setenv("CH_USER", "reader")
     monkeypatch.setattr(tracing, "get_langfuse", lambda: lf)
@@ -411,7 +411,7 @@ def test_gate_passes_resolved_pair_to_every_task(gate, thresholds, monkeypatch):
 
 
 def test_unpriced_gate_model_aborts_before_any_service_call(gate, thresholds, monkeypatch):
-    monkeypatch.setattr(gate, "load_env", lambda: None)
+    monkeypatch.setattr(gate, "load_env", lambda **kw: None)
     with pytest.raises(gate.GateAbort, match="No pricing configured"):
         gate.run_gate(SimpleNamespace(prompt_label="staging", model="unpriced-model"), thresholds)
 
