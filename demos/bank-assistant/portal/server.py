@@ -552,8 +552,11 @@ async def chat(body: ChatIn):
             "prompt_label": label or PROMPT_LABEL}
 
 
-class FeedbackIn(BaseModel):
+class FeedbackQueueIn(BaseModel):
     trace_id: str
+
+
+class FeedbackIn(FeedbackQueueIn):
     value: int
     comment: Optional[str] = None
 
@@ -594,6 +597,14 @@ async def feedback(body: FeedbackIn):
         return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200]}, status_code=502)
     queue = await _enqueue_thumbs_down(body.trace_id) if value == 0 else None
     return {"ok": True, "value": value, "comment": comment, "queue": queue}
+
+
+@app.post("/api/feedback/queue")
+async def retry_feedback_queue(body: FeedbackQueueIn):
+    """Retry queue delivery without recording another user-feedback score."""
+    if not re.fullmatch(r"[0-9a-f]{32}", body.trace_id or ""):
+        raise HTTPException(400, "invalid trace id")
+    return await _enqueue_thumbs_down(body.trace_id)
 
 
 # ── Voice endpoints ───────────────────────────────────────────────────────────

@@ -133,12 +133,7 @@ SCORE_CONFIGS = [
      "description": "SME label: 1 = every factual claim supported, 0.5 = minor issue, 0 = material error"},
     {"name": "sme-compliance", "dataType": "NUMERIC", "minValue": 0, "maxValue": 1,
      "description": "SME label against conduct policy P1-P5 (1 = compliant)"},
-    {"name": "sme-failure-mode", "dataType": "CATEGORICAL", "description": "Open-coded failure category",
-     "categories": [{"label": "none", "value": 0}, {"label": "wrong-number", "value": 1},
-                    {"label": "missing-citation", "value": 2}, {"label": "unsafe-advice", "value": 3},
-                    {"label": "upsell", "value": 4}, {"label": "tool-misuse", "value": 5},
-                    {"label": "should-have-escalated", "value": 6}]},
-    feedback_queue.PM_ACTION_CONFIG,
+    *feedback_queue.QUEUE_SCORE_CONFIGS,
 ]
 
 

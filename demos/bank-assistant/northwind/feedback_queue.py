@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import Future
 from typing import Callable, Optional
 
 QUEUE_NAME = "Negative feedback — thumbs down"
@@ -35,8 +36,14 @@ PM_ACTION_CONFIG = {
     "categories": [{"label": c, "value": i} for i, c in enumerate(
         ["fix-agent", "fix-knowledge-base", "add-to-dataset", "expected-behaviour", "no-action"])],
 }
-# Reused when the project already has it (seed_evals.py creates it); optional.
 FAILURE_MODE_CONFIG = "sme-failure-mode"
+FAILURE_MODE_SCORE_CONFIG = {
+    "name": FAILURE_MODE_CONFIG, "dataType": "CATEGORICAL", "description": "Open-coded failure category",
+    "categories": [{"label": c, "value": i} for i, c in enumerate(
+        ["none", "wrong-number", "missing-citation", "unsafe-advice", "upsell", "tool-misuse",
+         "should-have-escalated"])],
+}
+QUEUE_SCORE_CONFIGS = (FAILURE_MODE_SCORE_CONFIG, PM_ACTION_CONFIG)
 
 Api = Callable[..., Optional[dict]]  # config.api(method, path, body=None, params=...)
 
@@ -61,10 +68,11 @@ class FeedbackQueue:
         self.retry_delay = retry_delay
         self.queue_id: Optional[str] = None
         self._queued: set = set()
+        self._pending: dict[str, Future] = {}
         self._lock = threading.Lock()
 
     def ensure(self) -> str:
-        """The queue id. Creates pm-action and the queue when missing. Idempotent."""
+        """The queue id. Creates both score configs and the queue when missing. Idempotent."""
         with self._lock:
             if self.queue_id:
                 return self.queue_id
@@ -72,10 +80,11 @@ class FeedbackQueue:
                           if q.get("name") == QUEUE_NAME), None)
             if queue is None:
                 configs = {c["name"]: c["id"] for c in _page_all(self.api, "/api/public/score-configs")}
-                if PM_ACTION_CONFIG["name"] not in configs:
-                    configs[PM_ACTION_CONFIG["name"]] = self.api(
-                        "POST", "/api/public/score-configs", PM_ACTION_CONFIG)["id"]
-                ids = [configs[n] for n in (FAILURE_MODE_CONFIG, PM_ACTION_CONFIG["name"]) if n in configs]
+                for definition in QUEUE_SCORE_CONFIGS:
+                    if definition["name"] not in configs:
+                        configs[definition["name"]] = self.api(
+                            "POST", "/api/public/score-configs", definition)["id"]
+                ids = [configs[c["name"]] for c in QUEUE_SCORE_CONFIGS]
                 queue = self.api("POST", "/api/public/annotation-queues", {
                     "name": QUEUE_NAME, "description": QUEUE_DESCRIPTION, "scoreConfigIds": ids})
             # Known items, so a second click on the same answer (or a restart) adds nothing.
@@ -91,19 +100,32 @@ class FeedbackQueue:
         with self._lock:
             if trace_id in self._queued:
                 return {"queue_id": queue_id, "added": False}
-            self._queued.add(trace_id)
+            pending = self._pending.get(trace_id)
+            owner = pending is None
+            if owner:
+                pending = self._pending[trace_id] = Future()
+        if not owner:
+            # A repeat click shares the actual outcome, including a failed POST.
+            pending.result()
+            return {"queue_id": queue_id, "added": False}
         body = {"objectId": trace_id, "objectType": "TRACE", "status": "PENDING"}
         path = f"/api/public/annotation-queues/{queue_id}/items"
         try:
-            for attempt in range(self.retries):
+            for attempt in range(self.retries + 1):
                 try:
                     self.api("POST", path, body)
-                    return {"queue_id": queue_id, "added": True}
-                except Exception:  # noqa: BLE001 — transient; the last attempt below raises
+                    break
+                except Exception:  # retry, then propagate the final failure
+                    if attempt == self.retries:
+                        raise
                     time.sleep(self.retry_delay * (attempt + 1))
-            self.api("POST", path, body)
-            return {"queue_id": queue_id, "added": True}
-        except Exception:
+        except Exception as exc:
             with self._lock:
-                self._queued.discard(trace_id)  # let a later click try again
+                del self._pending[trace_id]  # let a later click try again
+            pending.set_exception(exc)
             raise
+        with self._lock:
+            self._queued.add(trace_id)
+            del self._pending[trace_id]
+        pending.set_result(None)
+        return {"queue_id": queue_id, "added": True}
