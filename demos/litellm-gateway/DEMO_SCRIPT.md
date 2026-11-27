@@ -36,11 +36,13 @@ From the repo root, with the base stack up (`./setup.sh` once):
 
 ```bash
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
-./demos/litellm-gateway/run_demo.sh --links   # starts only litellm-proxy, one model call; READY + the act links
+./demos/litellm-gateway/run_demo.sh                       # starts only litellm-proxy, one model call
+python3 demos/litellm-gateway/scripts/verify_demo.py --links   # read-only: READY + the act links
 ```
 
-It health-checks Langfuse, starts the proxy, sends a single request, reads the trace
-back and prints `READY` or `NOT READY`. Fix what a `FAIL` line names before the meeting.
+`run_demo.sh` health-checks Langfuse, starts the proxy, sends a single request and reads
+its trace back. `verify_demo.py` starts nothing and makes no model call; it prints
+`READY` or `NOT READY`. Fix what a `FAIL` line names before the meeting.
 
 **Tabs to open:** the trace and session links it printed, `config.yaml` and `client.py`
 in an editor, and the LiteLLM admin UI (<http://localhost:4000/ui/>).
@@ -130,11 +132,11 @@ the steps in the README, and `run_sdk_demo.sh` shows the SDK path side by side.
 
 ## Show me the code
 
-**1 · No Langfuse SDK in the client — `client.py:36`**
+**1 · No Langfuse SDK in the client — `client.py:30`**
 `build_payload` builds a plain OpenAI-compatible request. Session, trace name and tags
-travel in `metadata` (`client.py:63`), and the gateway maps them onto the trace.
+travel in `metadata` (`client.py:57`), and the gateway maps them onto the trace.
 
-**2 · The right user key — `client.py:60`**
+**2 · The right user key — `client.py:54`**
 LiteLLM's `langfuse_otel` callback maps `trace_user_id`, not `user_id`, to the trace user.
 The wrong key is dropped without an error.
 
@@ -146,10 +148,11 @@ come from the environment.
 The SDK path declares the identical callback inside the application, which every app
 would have to repeat.
 
-**5 · The read-back counts observations — `client.py:218`**
+**5 · The read-back counts observations — `client.py:164`**
 `wait_for_trace` polls until the session's trace has at least one observation: an HTTP
-200 with a trace row is not proof. It reads Observations v2 on a v4 server
-(`client.py:142`) and the v3 trace list on the self-hosted v3 server.
+200 with a trace row is not proof. It shares its reads with the readiness check
+(`scripts/verify_demo.py:264`): Observations v2, and the v1 observations list only when v2
+answers 404 on the pinned self-hosted v3 server (`scripts/verify_demo.py:276`).
 
 ---
 
@@ -185,6 +188,7 @@ The full list is in the README's [Known limits](README.md#known-limits).
 Nothing is seeded, so there is nothing to reset. Each run makes a new session.
 
 ```bash
-./demos/litellm-gateway/run_demo.sh                          # a fresh trace; READY again
+./demos/litellm-gateway/run_demo.sh                          # a fresh trace (one model call)
+python3 demos/litellm-gateway/scripts/verify_demo.py         # READY again; read-only
 docker compose --profile demo stop litellm-proxy             # stop the gateway; Langfuse data stays
 ```
