@@ -1,0 +1,2 @@
+# Test dependencies: the tests use no network, no Langfuse, no model calls and no Docker.
+pytest>=7.4

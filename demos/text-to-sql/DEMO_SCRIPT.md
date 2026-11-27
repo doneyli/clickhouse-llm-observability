@@ -19,7 +19,7 @@ bounded execution — so the gates grade against *executed rows*, not table name
 - **Gates:** Gate 1 (deterministic, catalog membership) after analysis; Gate 2
   (hybrid: deterministic SQL policy + Haiku grounding grader) after the response.
   Bounded retry (`GATE_MAX_ATTEMPTS=2`); Gate 1 exhausted → **abort**, Gate 2
-  exhausted → **escalate** (flagged answer + `gate:escalated` tag).
+  exhausted → **escalate** (flagged answer + a `gate-escalated` score).
 - **Refine loop (opt-in):** `--refine` replaces the retrieve-context step with a
   `generate → gather-evidence → critique` cycle, bounded by max-iterations and an
   oscillation guard. The gates still run, so the two compose rather than compete.
@@ -27,13 +27,15 @@ bounded execution — so the gates grade against *executed rows*, not table name
   a 24-dataset catalog the analysis stage reasons over, live context fetched
   through the **`mcp-clickhouse`** server, and — in refine mode — **real
   read-only `EXPLAIN` + bounded execution** as the critic's evidence
-- **Observability backend:** Langfuse (`http://localhost:3001`), trace name `text-to-sql`
-- **Model:** `claude-sonnet-4-6` (chain steps + refine loop); `claude-haiku-4-5` (gate grader)
+- **Observability:** Langfuse self-hosted (`http://localhost:3001`), project
+  `LLM Observability Demo`, trace name `text-to-sql`
+- **Models:** `claude-sonnet-4-6` (chain steps + refine loop); `claude-haiku-4-5` (gate grader)
 - **Run length:** ~20 min full; ~6 min short path (Acts 1–2); drop Act 3 to run
   the original 14–18 min gates-only script
 
-> The pipeline, config, and instrumentation live in `demos/text-to-sql/`; the
-> guardrail is `evaluators/sql-safety-guard.ts`, seeded into Langfuse by
+> Setup lives in [README.md](README.md). The pipeline, config, and
+> instrumentation live in `demos/text-to-sql/`; the guardrail is
+> `evaluators/sql-safety-guard.ts`, seeded into Langfuse by
 > `scripts/seed-code-evaluators.sh`. For the loop framing shared by all the
 > demos, see [`../../AI_ENGINEERING_LOOP.md`](../../AI_ENGINEERING_LOOP.md).
 
@@ -45,17 +47,12 @@ bounded execution — so the gates grade against *executed rows*, not table name
 > read-only, `LIMIT`-ed query against the public playground, so the figures in
 > that answer *are* executed results. Know which mode you are in before you
 > answer the "does it run the SQL?" question.
-> Port 8002 now serves `/query` (a thin `server.py` FastAPI
-> wrapper), so the query-router front-door demo can dispatch to it; the CLI
-> (`python main.py`) is unchanged. Demo the default path as what it is: a traced
-> NL-analysis assistant with a SQL-policy guardrail. If asked "does it run the
-> SQL?" in the default path — "not
-> in this demo; the guardrail is exactly the layer you'd want *before* you let it."
-> catalog as context. There is also **no HTTP endpoint**; port 8002 is mapped but
-> nothing listens. Demo it as what it is: a traced NL-analysis assistant with a
-> SQL-policy guardrail. If asked "does it run the SQL?" — "not in this demo; the
-> gate is exactly the layer you'd want *before* you let it — **and as of this
-> version, the gate is actually in the pipeline, not just observing it.**"
+> Port 8002 serves `/query` (a thin `server.py` FastAPI wrapper) for the
+> query-router front-door demo; this script drives the CLI (`python main.py`).
+> Demo the default path as what it is: a traced NL-analysis assistant with a
+> SQL-policy guardrail. If asked "does it run the SQL?" in the default path —
+> "not in this demo; the gate is exactly the layer you'd want *before* you let
+> it — **and the gate is in the pipeline, not just observing it.**"
 
 ---
 
@@ -80,36 +77,31 @@ time — it is the only act that executes SQL, so it also needs network egress.
 
 ## 0 · Pre-flight (do this BEFORE the meeting)
 
+From the repo root:
+
 ```bash
 # CRITICAL: clear leaked Langfuse keys — exported shell vars override .env and 401 silently.
-unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 
 # Stack up (Langfuse + mcp-clickhouse), .env needs ANTHROPIC_API_KEY + Langfuse keys
 docker compose --profile langfuse up -d
 docker compose --profile demo build text-to-sql
 
-# Seed the managed prompts (NOT covered by setup.sh — the Deploy act needs this).
-# Now also seeds the gate's rubric (text-to-sql-gate-grounding, Haiku/temp-0),
-# a `candidate` label on text-to-sql-analysis for the experiment, and the refine
-# loop's generator + critic prompts (production + opinion-only critic +
-# schema-hinted candidate generator). Idempotent.
-python scripts/seed-app-prompts.py
-
-# Seed the code evaluators (setup.sh does this; run it if scores are missing).
-# Now also provisions `chain-gate-check` → the gate-pass boolean on every gate span.
-./scripts/seed-code-evaluators.sh
-
-# Seed the per-step analysis dataset (for the Act 5/6 experiment)
-python demos/text-to-sql/scripts/seed_step_dataset.py
-
-# (Act 3 only) datasets + experiments for the refine loop
-python demos/text-to-sql/scripts/seed_refine_datasets.py
+# Seed everything the acts need, in one idempotent pass (setup.sh does not run it):
+# the managed prompts (incl. the gate's rubric, the `candidate` analysis prompt and
+# the refine loop's generator + critic), the code evaluators (`chain-gate-check` →
+# gate-pass on every gate span), the per-step analysis dataset (Act 5) and the
+# refine-loop datasets (Act 3). Needs the demo's requirements on the host Python.
+python demos/text-to-sql/scripts/seed_all.py
 
 # Generate fresh traces (10 questions, ~2 min; scores land ~30s after)
 docker compose run --rm text-to-sql python main.py
 
 # (Act 3 only) fresh REFINE traces — executes bounded read-only SQL
 docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine
+
+# READY, plus the link each act opens; exit 1 names what to fix
+python demos/text-to-sql/scripts/verify_demo.py --links
 ```
 
 **Create the gate-fail-rate Monitor once** (Monitors → New; boolean-average as a
@@ -144,7 +136,7 @@ one-time UI step.)
 | **MCP tool step traced next to LLM steps** | Act 1 — the `retrieve-context` span |
 | **Gate checks between chain steps** (pass/fail verdict as span output) | Act 2 — `gate-database-selection`, `gate-response-quality` |
 | **Bounded retry with stable span names + attempt metadata** | Act 2 — retried step appears twice, `metadata.attempt` 1→2 |
-| **Two fail routings: abort (Gate 1) vs escalate (Gate 2)** | Act 2 — `gate:aborted` / `gate:escalated` trace tags |
+| **Two fail routings: abort (Gate 1) vs escalate (Gate 2)** | Act 2 — `gate-aborted` / `gate-escalated` boolean trace scores |
 | **Gate-fail rate monitored via a boolean score** | Act 2 — `gate-pass` score + the Monitor/dashboard widget |
 | **Evaluator-optimizer loop** (generate → critique → refine) | Act 3 — `generate-sql` → `gather-evidence` → `critique-sql` triplet per iteration |
 | **A critic grounded in real execution, not opinion** | Act 3 — `gather-evidence` holds the real `EXPLAIN` + bounded result rows |
@@ -258,8 +250,9 @@ In the trace (tags now include `fault:vague-analysis`):
 - analysis **attempt 2** — *same span name*, `metadata.attempt = 2`, and the gate
   failure reason in both `metadata.gate_failure_reason` **and** the retried
   prompt input;
-- gate verdict again. **If it fails twice: the trace is tagged `gate:aborted`,
-  and there is no `retrieve-context` and no response generation at all** — "we
+- gate verdict again. **If it fails twice: the trace gets a `gate-aborted`
+  score (SDK v4 tags are fixed when the trace starts, so a mid-run outcome is a
+  boolean score), and there is no `retrieve-context` and no response generation at all** — "we
   didn't pay for the rest of a doomed chain." The terminal narrates the same
   story: `[gate-database-selection] fail (attempt 1) — …`.
 
@@ -289,7 +282,7 @@ evaluator-optimizer pattern: **generate → critique → refine**, looping until
 candidate passes review or a budget trips — and the critic is grounded in real
 `EXPLAIN` + bounded execution, so it can't be talked out of a broken query.
 
-**Beat 1 — one-iteration accept.** Run the refine batch (or one question):
+**Show (one-iteration accept).** Run the refine batch (or one question):
 
 ```bash
 docker compose --profile demo run --rm -e REFINE_MODE=1 text-to-sql python main.py --refine
@@ -309,11 +302,11 @@ the `sql-refine-loop` span, one triplet:
 
 On the trace, **Scores**: `converged = 1`, `iterations_to_accept = 1`.
 
-*Land.* "The critic isn't an opinion — that `gather-evidence` span is a real
+**Land.** "The critic isn't an opinion — that `gather-evidence` span is a real
 `EXPLAIN` and a real bounded execution on ClickHouse. It accepted because the
 query *actually ran and answered the question*, not because it looked right."
 
-**Beat 2 — multi-iteration refine, the feedback loop on screen.** Use fault
+**Show (multi-iteration refine, the feedback loop on screen).** Use fault
 injection so the refine beat is deterministic on stage:
 
 ```bash
@@ -330,11 +323,11 @@ feeding the critique back into the next attempt, on screen. Iteration 2 fixes th
 column, evidence passes, `verdict: accept`. On the trace, `sql_quality_delta` is
 positive (critic score climbed across iterations).
 
-*Land.* "That's the whole pattern in one trace: the critic didn't just say 'no' —
+**Land.** "That's the whole pattern in one trace: the critic didn't just say 'no' —
 it said *why*, with a quote from ClickHouse, and the generator was made to fix
 exactly that. No mistake gets relitigated."
 
-**Beat 3 — non-convergence hits the guard.** Ask a question the playground can't
+**Show (non-convergence hits the guard).** Ask a question the playground can't
 answer (in the same interactive session, or the batch's Uber question):
 
 ```
@@ -344,11 +337,11 @@ answer (in the same interactive session, or the batch's Uber question):
 Three triplets, then `converged = 0`, `stop_reason = max_iterations`; the final
 answer carries the `WARNING: no candidate passed review …` caveat.
 
-*Land.* "The loop is allowed to **fail honestly** — three tries, no valid query,
+**Land.** "The loop is allowed to **fail honestly** — three tries, no valid query,
 so it says so instead of inventing a number. And that failure is a *score you can
 page on*." Show the non-convergence saved view (below).
 
-**Beat 4 — convergence dashboard + the collusion moment.** In **Dashboards**,
+**Show (convergence dashboard + the collusion moment).** In **Dashboards**,
 show: avg `iterations_to_accept` over time, the `converged` true-rate, and
 `sql_critic_score` broken down by `metadata.iteration` (the convergence curve).
 Then the teaching moment — run Experiment B:
@@ -365,7 +358,7 @@ avg iterations and *higher* acceptance — it looks better — while the indepen
 *worse*. The critic got happier; the SQL didn't get better. That's reward hacking
 (Pan et al., arXiv:2407.04549), reproduced live on ClickHouse.
 
-*Ask.* "If your critic and your generator share a model, what's your equivalent of
+**Ask.** "If your critic and your generator share a model, what's your equivalent of
 `EXPLAIN` — the piece of evidence neither of them can talk its way around?"
 
 ### Monitors for the refine loop
@@ -442,8 +435,8 @@ docker compose run --rm -e DEMO_FAULT=destructive-sql text-to-sql python main.py
 
 Gate 2 fails **closed** on the deterministic SQL-policy branch, retries once,
 then **escalates**: the returned answer is prefixed `[Unverified — routed for
-review: …]`, the trace gets a **`gate-escalation`** span and a **`gate:escalated`**
-tag. "The evaluator *told you* it was destructive; the gate *stopped you from
+review: …]`, the trace gets a **`gate-escalation`** span and a **`gate-escalated`**
+score. "The evaluator *told you* it was destructive; the gate *stopped you from
 shipping it unflagged*."
 
 **Land.** "That check is a small TypeScript function running inside Langfuse at
@@ -485,7 +478,7 @@ of the *analysis* prompt over the per-step dataset, with the response prompt and
 both gates byte-identical across runs:
 
 ```bash
-python demos/text-to-sql/scripts/run_experiment.py   # production vs candidate
+docker compose --profile demo run --rm text-to-sql python scripts/run_experiment.py   # production vs candidate
 ```
 
 In Langfuse → **Datasets → `text-to-sql-analysis-step` → Runs**, compare the two
@@ -504,7 +497,7 @@ engineers? Would a PM ship prompt changes if it didn't need a deploy?"
 
 ---
 
-## Act 6 · Optional — judges at stack level (3 min)
+## Act 6 · Judges at stack level (optional, 3 min)
 
 **Frame.** Regex catches policy violations; it can't tell you an answer was
 *irrelevant* or *hallucinated*. That's the LLM-as-a-Judge layer — shown here on
@@ -535,39 +528,44 @@ judge?"
 
 ---
 
-## Close (1 min)
+## Close · What to take away (1 min)
 
-Four takeaways: **every step of the chain is visible** (LLM and tool steps alike,
-with cost); **gates enforce policy between steps** — bad output never reaches the
-next step, bounded retry, abort vs escalate, every verdict a boolean score you can
-Monitor; **policy is also enforced as free deterministic scores** on all traffic;
-**prompts ship by label** (including the gate's rubric), not by deploy. Then hand
-them the asset: the repo is public — the chain + gates are `demos/text-to-sql/`
-(a handful of small files; the gates are `gates.py`), the guardrail is ~100 lines
-of TypeScript in `evaluators/`. "Clone it, swap the catalog for your schema, the
-guardrail for your policy, and put the gate between the two steps that hurt you."
+Four takeaways:
+
+1. **Every step of the chain is visible** — LLM and tool steps alike, with cost.
+2. **Gates enforce policy between steps** — bad output never reaches the next
+   step, bounded retry, abort vs escalate, every verdict a boolean score you can
+   Monitor.
+3. **Policy is also enforced as free deterministic scores** on all traffic.
+4. **Prompts ship by label** (including the gate's rubric), not by deploy.
+
+Then hand them the asset: the repo is public — the chain + gates are
+`demos/text-to-sql/` (a handful of small files; the gates are `gates.py`), the
+guardrail is ~140 lines of TypeScript in `evaluators/`. "Clone it, swap the
+catalog for your schema, the guardrail for your policy, and put the gate between
+the two steps that hurt you." The README has the setup from scratch.
 
 ---
 
-## Under the hood — how it's instrumented (for the "show me the code" moment)
+## Show me the code
 
 Everything lives in `demos/text-to-sql/`; the guardrail in `evaluators/`. The
 integration is deliberately the *low-touch* end of the spectrum — LangChain's
 callback does the heavy lifting (contrast `demos/real-estate/`, which hand-builds
 its trace tree).
 
-**1 · Zero-config client, graceful when keys are absent — `langfuse_config.py`**
+**1 · Zero-config client, graceful when keys are absent — `langfuse_config.py:16`**
 ```python
 # langfuse_config.py:16   tracing turns on only when both keys exist
 LANGFUSE_ENABLED = bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
-# langfuse_config.py:38   v3 client straight from env
+# langfuse_config.py:38   v4 client straight from env
 from langfuse import get_client
 client = get_client()
 ```
 *Why it matters:* no keys → the app still runs, just untraced. Every wrapper in
 this file degrades to a no-op on error — tracing can never take the app down.
 
-**2 · One callback instruments both chains — `langfuse_config.py:163`**
+**2 · One callback instruments both chains — `langfuse_config.py:355`**
 ```python
 from langfuse.langchain import CallbackHandler
 handler = CallbackHandler()          # passed as config={"callbacks": [handler]}
@@ -575,53 +573,59 @@ handler = CallbackHandler()          # passed as config={"callbacks": [handler]}
 *Why it matters:* the two generations in Act 1 cost zero instrumentation code —
 the LangChain integration emits them, with model, usage, and cost attached.
 
-**3 · Trace name + tags by context propagation — `langfuse_config.py:120`**
+**3 · One root span, then trace name + tags by context propagation — `langfuse_config.py:151`**
 ```python
-with propagate_attributes(trace_name="text-to-sql", tags=["text-to-sql", "demo"]):
-    ...   # everything invoked inside lands on one named, tagged trace
+client.start_as_current_observation(as_type="span", name="text-to-sql")      # :151, the root
+propagate_attributes(trace_name="text-to-sql", tags=["text-to-sql", "demo"])  # :154
+...   # everything invoked inside lands on one named, tagged trace
 ```
+*Why it matters:* without the root span already open, each sequential chain call
+would mint its own trace; the docstring at `langfuse_config.py:124` explains why.
 
-**4 · A manual span for the non-LangChain step — `sql_pipeline.py:118`**
+**4 · A manual span for the non-LangChain step — `sql_pipeline.py:261`**
 ```python
-with langfuse_span("retrieve-context"):          # langfuse_config.py:143
+with langfuse_span("retrieve-context"):          # langfuse_config.py:166
     self._context = mcp.get_context_for_question(question, analysis)
 ```
 *Why it matters:* the MCP call isn't a LangChain runnable, so it gets a plain
 SDK span — auto and manual instrumentation compose in one tree.
 
-**5 · Prompt fetched by label, linked to the generation — `sql_pipeline.py:21`**
+**5 · Prompt fetched by label, linked to the generation — `sql_pipeline.py:54`**
 ```python
-lf_prompt = get_managed_prompt(name)              # get_prompt(name, label="production")  :62
+lf_prompt = get_managed_prompt(name, label=label)  # get_prompt(name, label="production")  langfuse_config.py:62
 tmpl = ChatPromptTemplate.from_template(lf_prompt.get_langchain_prompt())
 tmpl.metadata = {"langfuse_prompt": lf_prompt}    # THIS line links version → generation
 ```
-*Why it matters:* that one metadata assignment is the whole Act 5 story — the
-callback sees it and stamps the prompt version on every generation.
+*Why it matters:* that one metadata assignment (`sql_pipeline.py:58`) is the whole
+Act 5 story — the callback sees it and stamps the prompt version on every generation.
 
-**7 · The gates — `gates.py` + `sql_pipeline.py:query()`**
+**6 · The gates — `gates.py:44` + `sql_pipeline.py:327`**
 ```python
 # gates.py — pure functions, no Langfuse: Gate 1 deterministic, Gate 2 hybrid.
-with langfuse_gate("gate-database-selection") as span:      # langfuse_config.py
+with langfuse_gate("gate-database-selection") as span:      # langfuse_config.py:201
     gate1 = gate_database_selection(analysis)               # stable span name
     span.update(output=gate1.as_output(),                   # {"verdict": ...} → gate-pass score
                 metadata={"attempt": attempt, ...})         # dynamic values in metadata
 if not gate1.passed:                                        # exhausted → route
-    tag_current_trace(["gate:aborted"]); return "..."       # (Gate 2 → gate:escalated)
+    tag_current_trace(["gate:aborted"]); return "..."       # sql_pipeline.py:337 (Gate 2 → :383)
 ```
 *Why it matters:* the gate *enforces* between steps — same span name across
 retries, attempt in metadata, the reason fed back into the retried prompt; the
 `chain-gate-check.ts` evaluator turns each `output.verdict` into a `gate-pass`
 boolean at ingest. Fail-closed on SQL policy, fail-open only on grader parse error.
+`tag_current_trace` (`langfuse_config.py:232`) writes the routing outcome as a
+boolean score named `gate-aborted` / `gate-escalated`: v4 tags are fixed when a
+trace starts.
 
-**6 · The guardrail itself — `evaluators/sql-safety-guard.ts`**
+**7 · The guardrail itself — `evaluators/sql-safety-guard.ts:55`**
 ```ts
 // :55  destructive statements → sql-risk = "destructive"
 /\b(DROP|DELETE|TRUNCATE|ALTER|INSERT|UPDATE|GRANT|REVOKE|...)\b/i
 // :82  SELECT without LIMIT → "missing-limit"
 ```
-*Why it matters:* the Act 4 SQL-safety moment is ~100 lines of reviewable
+*Why it matters:* the Act 4 SQL-safety moment is ~140 lines of reviewable
 TypeScript running inside Langfuse at ingest — no service to run, no LLM to pay.
-The same policy also runs in-pipeline as Gate 2's fail-closed branch (point 7).
+The same policy also runs in-pipeline as Gate 2's fail-closed branch (point 6).
 
 > One-liner for the room: *"One callback handler, one manual span, one metadata
 > line for prompt-linking, two gate spans that write a verdict — and the guardrail
@@ -671,6 +675,26 @@ The same policy also runs in-pipeline as Gate 2's fail-closed branch (point 7).
 
 ---
 
+## Known limits
+
+- **The default path never runs the SQL.** It reasons over the catalog and
+  drafts SQL; only Act 3 (`--refine`) executes, and only `EXPLAIN` plus one
+  bounded read-only query against the public playground.
+- **Act 3 needs network egress** to `sql-clickhouse.clickhouse.com:443`. Without
+  it the loop still traces but never converges.
+- **The Monitors are a one-time UI step.** The pinned self-hosted server has no
+  stable Monitors API, so `seed_all.py` does not create them.
+- **No sessions or users** on these traces; the real-estate and agentic-rag demos
+  show that wiring.
+- **The judges in Act 6 score the test scenarios, not live `text-to-sql` traffic.**
+- **Gate 2's grounding half is an LLM** (Haiku, temperature 0) and fails open: a
+  grader reply that does not parse counts as a pass, marked
+  `verdict_source: parse-error` on the gate span.
+
+The full list is in the README's [Known limits](README.md#known-limits).
+
+---
+
 ## Reset / re-run
 
 ```bash
@@ -678,11 +702,11 @@ docker compose run --rm text-to-sql python main.py                             #
 docker compose run --rm text-to-sql python main.py --interactive               # interactive gate + guardrail moment
 docker compose run --rm -e DEMO_FAULT=vague-analysis text-to-sql python main.py --interactive   # force Gate 1 fail → retry → abort
 docker compose run --rm -e DEMO_FAULT=destructive-sql text-to-sql python main.py --interactive  # force Gate 2 fail → retry → escalate
-python scripts/seed-app-prompts.py                                             # re-seed prompts incl. gate rubric + candidate (idempotent)
-./scripts/seed-code-evaluators.sh                                              # re-seed evaluators incl. chain-gate-check
-python demos/text-to-sql/scripts/seed_step_dataset.py                          # per-step analysis dataset (add --link-latest N to link recent traces)
-python demos/text-to-sql/scripts/run_experiment.py                             # production vs candidate analysis prompt, gates fixed
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
+python demos/text-to-sql/scripts/seed_all.py                                   # puts prompts back on their labels, re-seeds evaluators + datasets (idempotent)
+docker compose --profile demo run --rm text-to-sql python scripts/run_experiment.py   # production vs candidate analysis prompt, gates fixed
 ./scripts/seed-demo-data.sh                                                    # full seed (text-to-sql + vector-rag + scenarios)
+python demos/text-to-sql/scripts/verify_demo.py                                # READY again
 ```
 
 > **Tip (synthetic burst for the Monitor):** run a few `--fault vague-analysis`
