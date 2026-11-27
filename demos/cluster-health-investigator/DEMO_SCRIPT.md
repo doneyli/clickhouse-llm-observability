@@ -43,9 +43,8 @@ unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 docker compose --profile langfuse up -d
 docker compose --profile langfuse --profile demo build cluster-health
 
-# Seed prompts and datasets (idempotent), then the managed judges from the host
-docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_all.py
-bash demos/cluster-health-investigator/scripts/seed_evaluators.sh
+# Seed prompts, datasets and managed judges (idempotent; on the host, it needs `docker exec`)
+python demos/cluster-health-investigator/scripts/seed_all.py
 ```
 
 **Pre-run BOTH headline traces and pin them in tabs.** Planner output is
@@ -61,15 +60,17 @@ docker compose --profile langfuse --profile demo run --rm cluster-health \
 
 Also pre-run the **re-plan trigger** (symptom #3 in `DEMO_SYMPTOMS.md`) a couple of times
 and pin a trace that shows two `orchestrator` visits. For Acts 4–6, run `--fault overplan`,
-`scripts/run_experiment.py` and `scripts/score_delegations.py` the day before (commands in
-the acts below). Then:
+`scripts/seed_datasets.py --from-traces 5`, `scripts/run_experiment.py` and
+`scripts/score_delegations.py` the day before (commands in the acts below). Then:
 
 ```bash
 python demos/cluster-health-investigator/scripts/verify_demo.py --links   # READY, plus the link for every act
 ```
 
 `verify_demo.py` exits 1 when a required check fails; fix what it names before the meeting.
-Its warnings name what an optional act (3–6) is still missing.
+By default it checks the full presentation, every act's evidence included. Presenting only
+the short path? `--short` requires the Opening, Acts 1–3 and the Close, and lists what
+Acts 4–6 would still need as warnings.
 
 Open the narrow and broad traces in Langfuse → **Traces**, switch each to **Agent Graph →
 Aggregated view**, confirm `worker (2/2)` vs `worker (6/6)`, and pin each in its own tab.
@@ -178,7 +179,7 @@ request?"*
 
 ---
 
-## Act 4 · Fan-out is a metric: Monitor (optional, 4 min)
+## Act 4 · Fan-out is a metric: Monitor (4 min)
 
 **Frame.** "Fan-out is cost. If it's a number, it's chartable and alertable."
 
@@ -215,7 +216,7 @@ prompt?"*
 
 ---
 
-## Act 5 · Fix the planner, prove it: Datasets + Experiment (optional, 4 min)
+## Act 5 · Fix the planner, prove it: Datasets + Experiment (4 min)
 
 **Frame.** "If the planner over-spawns, that's a prompt problem. Prove a fix
 moves cost *and* quality — and that you changed nothing else."
@@ -238,13 +239,9 @@ ship a decomposition change with confidence."
 **Ask.** *"How do you prove a prompt change didn't just move the cost somewhere
 you're not looking?"*
 
-> **Fallback:** source-linked items exist only after
-> `scripts/seed_datasets.py --from-traces N`; on a fresh seed every item is a golden one.
-> Show the golden criteria instead.
-
 ---
 
-## Act 6 · Who grades the delegations: Evaluate (optional, 4 min)
+## Act 6 · Who grades the delegations: Evaluate (4 min)
 
 **Frame.** "Outcome quality is one thing. Was *each individual delegation*
 appropriate? Langfuse's managed judges see one observation at a time — they can't
@@ -322,9 +319,10 @@ which is what the Act 4 chart and Monitor read.
 Queries run with `readonly=1` after a SELECT-only check; the planner's `focus` is
 sanitised into a comment, never the query body.
 
-**8 · The app assembles the trajectory — `scripts/score_delegations.py:83`**
-It gathers the plan, each worker and its siblings, asks a judge, and posts
-`delegation_quality` on the worker observation (`scripts/score_delegations.py:100`).
+**8 · The app assembles the trajectory — `scripts/score_delegations.py:71`**
+`assemble()` rebuilds the symptom, the plan and every worker from the run's observations,
+asks a judge per worker with its siblings in view, and posts `delegation_quality` on that
+worker's observation (`scripts/score_delegations.py:111`).
 
 ---
 
@@ -364,9 +362,9 @@ The full list is in the README's [Known limits](README.md#known-limits).
 # Fresh varied-shape traces (one session), plus one overplan run
 docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/run_live_demo.py --with-fault
 
-# Re-seed everything (idempotent); judges from the host
-docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_all.py --with-traces
-bash demos/cluster-health-investigator/scripts/seed_evaluators.sh
+# Re-seed everything (idempotent; on the host) and link dataset items to the new runs
+python demos/cluster-health-investigator/scripts/seed_all.py --with-traces
+docker compose --profile langfuse --profile demo run --rm cluster-health python scripts/seed_datasets.py --from-traces 5
 
 python demos/cluster-health-investigator/scripts/verify_demo.py   # READY again
 ```

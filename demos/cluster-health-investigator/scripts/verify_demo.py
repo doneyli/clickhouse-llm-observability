@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 """Readiness check for cluster-health-investigator: reads Langfuse back and says READY or NOT READY.
 
-    python demos/cluster-health-investigator/scripts/verify_demo.py           # one PASS / FAIL / WARN line per check
+    python demos/cluster-health-investigator/scripts/verify_demo.py           # the full presentation (Acts 1-6)
+    python demos/cluster-health-investigator/scripts/verify_demo.py --short   # the short path only (Opening, Acts 1-3, Close)
     python demos/cluster-health-investigator/scripts/verify_demo.py --links   # also print the link each act opens
 
-Run it from the repo root. It reads the root `.env` (a `container` demo) and ignores
-shell-exported LANGFUSE_* keys.
+Run it from the repo root. It clears shell-exported LANGFUSE_* and reads the root `.env`
+(a `container` demo); a missing file or key fails before any request.
 
 An HTTP 200 proves little on its own (a trace can exist before its observations land), so
 every check counts real rows. Standard library only, so it runs in any Python 3.9+ without
-the demo's dependencies. No model calls; a handful of Langfuse reads and one `docker
+the demo's dependencies. No model calls and no writes: Langfuse reads and one `docker
 inspect`, done in seconds.
+
+The default checks what the full script needs: the seeded assets, a recent run, and the
+evidence each act opens (narrow and broad runs, a re-plan run, an overplan run, both
+planner experiment runs, source-linked dataset items, judge and delegation scores).
+`--short` requires only what the Opening, Acts 1-3 and the Close need; the Act 4-6 checks
+still run and warn.
 
 Observations: the stack's self-hosted Langfuse server (3.x) answers Observations API v2
 with 404, so `Langfuse.observations()` tries v2 first and falls back to the v1 list
-endpoint only on a 404. Scores use Scores API v3, which the 3.x server serves.
+endpoint only on a 404 (the read `CLAUDE.md` names for a 3.x server). Experiments: the
+same rule, `/experiments` first, then the dataset-runs list a 3.x server still serves.
+Scores use Scores API v3, which the 3.x server serves.
 
-Required checks cover the acts every run needs (Acts 1 and 2). Acts 3 to 6 need runs you
-make on purpose (a re-plan trace, an overplan fault, the experiment, the delegation
-scores), so their checks only warn.
+`scripts/seed_datasets.py` and `scripts/score_delegations.py` import the env and read
+helpers from here, so they share one tested implementation.
 """
 from __future__ import annotations
 
@@ -39,23 +47,24 @@ from typing import Any, Dict, Iterable, List, MutableMapping, Optional, Tuple
 DEMO_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
 
-# --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with graph.py and seed_all.py.
+# --- DEMO-SPECIFIC: what a ready demo looks like. Keep in sync with graph.py and the seeders.
 TRACE_NAME = "investigate-cluster-symptom"      # trace name graph.py sets with propagate_attributes
 FINAL_OBSERVATION = "synthesize-diagnosis"      # last observation of every run; finds the latest run
 WORKER_OBSERVATION = "worker"                   # one per planned task
 ORCHESTRATOR_OBSERVATION = "orchestrator"       # one per planning round; two means a re-plan
-EXPECTED_PROMPTS = {                            # (prompt, label) pairs seed_prompts.py sets
+EXPECTED_PROMPTS = {                            # (prompt, label) pairs seed_prompts.py reconciles
     ("cluster-health-planner", "production"),
     ("cluster-health-planner", "candidate-scoped-decomposition"),
     ("cluster-health-planner", "fault-overplan"),
     ("cluster-health-worker", "production"),
     ("cluster-health-synthesizer", "production"),
 }
-EXPECTED_DATASETS = {                           # dataset -> golden item count seed_datasets.py writes
-    "cluster-health/plan-quality": 8,
-    "cluster-health/worker-quality": 10,
+PLAN_DATASET = "cluster-health/plan-quality"
+WORKER_DATASET = "cluster-health/worker-quality"
+GOLDEN_ITEMS = {                                # dataset -> the stable golden item ids seed_datasets.py writes
+    PLAN_DATASET: [f"chp-{i:02d}" for i in range(1, 9)],
+    WORKER_DATASET: [f"chw-{i:02d}" for i in range(1, 11)],
 }
-EXPERIMENT_DATASET = "cluster-health/plan-quality"
 EXPERIMENT_RUNS = ["planner-production", "planner-candidate-scoped-decomposition"]  # run_experiment.py
 EXPECTED_SCORES = ["worker_count", "plan_execution_complete", "coverage_sufficient"]  # every run, from graph.py
 JUDGE_SCORES = ["diagnosis-coverage", "plan-scaling"]  # managed judges seed_evaluators.sh creates
@@ -64,13 +73,15 @@ DELEGATION_SCORE = "delegation_quality"         # scripts/score_delegations.py, 
 # + replan-gate + synthesize-diagnosis. The LangGraph callback spans come on top.
 MIN_OBSERVATIONS = 7
 TARGET_CONTAINER = "langfuse-clickhouse"        # the ClickHouse the agent investigates
+CONTAINER_FLAG = "CLUSTER_HEALTH_CONTAINER"     # set to 1 by this demo's Dockerfile
 LOOKBACK_DAYS = 7                               # how far back to look for a run
 FRESH_HOURS = 24                                # older than this only warns: re-run the day before
 SERVICES: List[Tuple[str, str]] = []            # Langfuse itself is checked by the key check
 COMPOSE = "docker compose --profile langfuse --profile demo run --rm cluster-health"
-SEED_CMD = f"{COMPOSE} python scripts/seed_all.py"
+SEED_CMD = "python demos/cluster-health-investigator/scripts/seed_all.py"
 RUN_CMD = f"{COMPOSE} python main.py"
 TIMEOUT_S = 10
+MAX_PAGES = 50                                  # bound on every paginated read
 
 RESULTS: List[Tuple[str, bool, str]] = []       # (PASS | FAIL | WARN, required, what)
 
@@ -182,6 +193,58 @@ def load_env(path: Path, environ: Optional[MutableMapping[str, str]] = None) -> 
     return True
 
 
+def in_container(environ: Optional[MutableMapping[str, str]] = None,
+                 dockerenv: Path = Path("/.dockerenv")) -> bool:
+    """True inside the `cluster-health` container, identified positively: the Dockerfile
+    sets CLUSTER_HEALTH_CONTAINER=1, and Docker creates /.dockerenv in every container
+    (which also covers an image built before the flag existed)."""
+    env = os.environ if environ is None else environ
+    return env.get(CONTAINER_FLAG) == "1" or dockerenv.exists()
+
+
+def prepare_env(environ: Optional[MutableMapping[str, str]] = None, *, container: Optional[bool] = None,
+                root_env: Optional[Path] = None) -> Tuple[bool, str]:
+    """Make LANGFUSE_* come from the right place for the seed and read scripts.
+
+    On the host: drop every inherited LANGFUSE_*, then load the root `.env` (load_env).
+    In the container: compose already set them, literally from the root `.env` through
+    `env_file`, with the URL pointed at `langfuse-web`. Either way the keys and a URL must
+    be set, and LANGFUSE_BASE_URL and LANGFUSE_HOST are made equal so every client in the
+    process talks to the same server. Returns (ok, what happened).
+    """
+    env = os.environ if environ is None else environ
+    if in_container(env) if container is None else container:
+        source = "the container environment (compose env_file: the root .env)"
+    else:
+        path = root_env or REPO_ROOT / ".env"
+        if not load_env(path, env):
+            return False, f"{path} not found; shell-exported LANGFUSE_* were dropped. Run ./setup.sh at the repo root"
+        source = str(path)
+    base = env.get("LANGFUSE_BASE_URL") or env.get("LANGFUSE_HOST") or ""
+    missing = [k for k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY") if not env.get(k)]
+    missing += [] if base else ["LANGFUSE_BASE_URL"]
+    if missing:
+        return False, f"{', '.join(missing)} not set in {source}"
+    env["LANGFUSE_BASE_URL"] = env["LANGFUSE_HOST"] = base
+    return True, f"LANGFUSE_* from {source}"
+
+
+def client_from_env(environ: Optional[MutableMapping[str, str]] = None) -> "Langfuse":
+    """A client for the keys prepare_env() settled on."""
+    env = os.environ if environ is None else environ
+    return Langfuse(env["LANGFUSE_BASE_URL"], env["LANGFUSE_PUBLIC_KEY"], env["LANGFUSE_SECRET_KEY"])
+
+
+def parse_io(value: Any) -> Any:
+    """Observations v2 returns input and output as raw JSON strings; v1 returns them parsed."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
 # --- Langfuse reads -----------------------------------------------------------------------
 
 def iso(t: datetime) -> str:
@@ -207,8 +270,10 @@ class ApiError(Exception):
 
 
 class Langfuse:
-    """The few public-API calls the demo scripts need, on APIs Langfuse Cloud still serves:
-    projects, prompts, Observations API v2 and Scores API v3."""
+    """The public-API calls the demo scripts need: projects, prompts, datasets, Observations
+    API v2 (v1 on a 3.x server), Scores API v3 and Experiments (dataset runs on a 3.x server)."""
+
+    obs_api: Optional[str] = None  # "v2" or "v1", decided by the first observations read
 
     def __init__(self, base_url: str, public_key: str, secret_key: str, timeout: float = TIMEOUT_S) -> None:
         self.base = base_url.rstrip("/")
@@ -244,21 +309,30 @@ class Langfuse:
     def post(self, path: str, body: Any) -> Any:
         return self.request("POST", path, body=body)
 
-    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
+    def patch(self, path: str, body: Any) -> Any:
+        return self.request("PATCH", path, body=body)
+
+    def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Follow `meta.cursor` (Observations v2, Scores v3, Experiments). A page may be empty
+        while a cursor is still returned, so stop on a missing cursor, not on an empty page.
+        A cursor the server already sent, or more than `max_pages` pages before `cap`, is an
+        error rather than a silently short list."""
         out: List[dict] = []
-        cur = None
+        cur, seen = None, set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
             out += d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+            if cur in seen:
+                raise ApiError(None, f"{path} returned the same cursor twice")
+            seen.add(cur)
+        raise ApiError(None, f"{path}: more than {max_pages} pages; narrow the query")
 
-    def pages(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
-        """Follow `meta.page` / `meta.totalPages` (dataset items, and the v1 observations list)."""
+    def pages(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = MAX_PAGES) -> List[dict]:
+        """Follow `meta.page` / `meta.totalPages` (dataset items, prompts, the v1 observations
+        list, dataset runs). Bounded like cursor()."""
         out: List[dict] = []
         for page in range(1, max_pages + 1):
             d = self.get(path, **dict(params, limit=100, page=page)) or {}
@@ -266,22 +340,21 @@ class Langfuse:
             out += rows
             total = (d.get("meta") or {}).get("totalPages") or 0
             if not rows or page >= total or len(out) >= cap:
-                break
-        return out[:cap]
+                return out[:cap]
+        raise ApiError(None, f"{path}: more than {max_pages} pages; narrow the query")
 
-    obs_api: Optional[str] = None  # "v2" or "v1", decided by the first observations read
-
-    def observations(self, params: Dict[str, Any], cap: int = 1000) -> List[dict]:
+    def observations(self, params: Dict[str, Any], fields: str = "core,basic", cap: int = 1000) -> List[dict]:
         """Observations by name or traceId, time-bounded, on whichever API the server serves.
 
-        Observations API v2 first. The stack's self-hosted 3.x server answers it with 404
-        ("only available in a Langfuse v4 write mode"), and only then does this fall back to
-        the v1 list endpoint, the read `CLAUDE.md` names for a 3.x server. Any other error is
-        raised, so a 401 or a 500 is never mistaken for "use v1".
+        Observations API v2 first, with the field groups asked for (`basic` carries the
+        name). The stack's self-hosted 3.x server answers v2 with 404 ("only available in a
+        Langfuse v4 write mode"), and only then does this fall back to the v1 list endpoint,
+        which returns every field. Any other error is raised, so a 401 or a 500 is never
+        mistaken for "use v1". Run input and output through parse_io().
         """
         if self.obs_api != "v1":
             try:
-                rows = self.cursor("/api/public/v2/observations", dict(params, fields="core,basic"), cap=cap)
+                rows = self.cursor("/api/public/v2/observations", dict(params, fields=fields), cap=cap)
                 self.obs_api = "v2"
                 return rows
             except ApiError as e:
@@ -289,6 +362,17 @@ class Langfuse:
                     raise
                 self.obs_api = "v1"
         return self.pages("/api/public/observations", params, cap=cap)
+
+    def run_names(self, dataset_id: str, dataset_name: str, since: str) -> List[str]:
+        """Experiment (dataset run) names for a dataset: Experiments API first; on a 404 (a 3.x
+        server has no Experiments API) the dataset-runs list that server serves."""
+        try:
+            rows = self.cursor("/api/public/experiments", {"datasetId": dataset_id, "fromStartTime": since})
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            rows = self.pages(f"/api/public/datasets/{urllib.parse.quote(dataset_name, safe='')}/runs", {})
+        return sorted({r.get("name") for r in rows if r.get("name")})
 
 
 # --- Run-shape logic (pure; tests/test_verify_demo.py covers it) ---------------------------
@@ -306,15 +390,30 @@ def newest(rows: Iterable[dict]) -> Optional[dict]:
     return best
 
 
+def recent_trace_ids(rows: Iterable[dict], limit: int) -> List[str]:
+    """Distinct trace ids, newest first by the rows' startTime."""
+    dated = []
+    for r in rows:
+        try:
+            dated.append((parse_time(r.get("startTime") or ""), r.get("traceId")))
+        except ValueError:
+            continue
+    out: List[str] = []
+    for _, t in sorted(dated, key=lambda p: p[0], reverse=True):
+        if t and t not in out:
+            out.append(t)
+    return out[:limit]
+
+
 def score_trace_id(score: dict) -> Optional[str]:
     """The trace a Scores v3 row belongs to: `subject.traceId`, or `subject.id` for a
-    trace-level score. A flat `traceId` is accepted too, for older shapes."""
+    trace-level score. Needs `fields=subject`."""
     subject = score.get("subject") or {}
     if subject.get("traceId"):
         return subject["traceId"]
     if subject.get("kind") == "trace" and subject.get("id"):
         return subject["id"]
-    return score.get("traceId")
+    return None
 
 
 def replan_traces(orchestrators: Iterable[dict]) -> List[str]:
@@ -336,15 +435,14 @@ def fanout_extremes(worker_counts: Iterable[dict]) -> Tuple[Optional[Tuple[str, 
     return min(pairs, key=lambda p: p[1]), max(pairs, key=lambda p: p[1])
 
 
-def run_names(rows: Iterable[dict]) -> List[str]:
-    """Names from an experiments or dataset-runs listing."""
-    return sorted({r.get("name") for r in rows if r.get("name")})
-
-
 def missing_runs(names: Iterable[str], expected: Iterable[str]) -> List[str]:
     """Expected run names with no listed run that equals them or starts with them."""
     names = list(names)
     return [e for e in expected if not any(n == e or n.startswith(e) for n in names)]
+
+
+def active_ids(items: Iterable[dict]) -> List[str]:
+    return sorted(i["id"] for i in items if i.get("id") and i.get("status", "ACTIVE") == "ACTIVE")
 
 
 def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -360,6 +458,8 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
     if state.get("replan_trace"):
         links.append(("Act 3 · the re-plan run", f"{p}/traces/{state['replan_trace']}"))
     links.append(("Act 4 · dashboards", f"{p}/dashboards"))
+    if state.get("capped_trace"):
+        links.append(("Act 4 · the overplan run", f"{p}/traces/{state['capped_trace']}"))
     if state.get("dataset_id"):
         links.append(("Act 5 · plan-quality dataset", f"{p}/datasets/{state['dataset_id']}"))
     links.append(("Act 6 · evaluators", f"{p}/evals"))
@@ -402,23 +502,29 @@ def seeded_checks(lf: Langfuse, state: Dict[str, Any]) -> None:
     for name, label in sorted(EXPECTED_PROMPTS):
         try:
             p = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(name, safe='')}", label=label) or {}
-            check(True, f"prompt {name}: {label} = v{p.get('version')}")
         except ApiError as e:
             check(False, f"prompt {name} with label {label}: {e}", hint=f"run {SEED_CMD}")
-    for name, want in EXPECTED_DATASETS.items():
+            continue
+        check(p.get("type") == "text" and bool(p.get("prompt")),
+              f"prompt {name}: {label} = v{p.get('version')} ({p.get('type')})", hint=f"run {SEED_CMD}")
+    for name, ids in GOLDEN_ITEMS.items():
         try:
             d = lf.get(f"/api/public/v2/datasets/{urllib.parse.quote(name, safe='')}") or {}
         except ApiError as e:
             check(False, f"dataset {name}: {e}", hint=f"run {SEED_CMD}")
             continue
-        if name == EXPERIMENT_DATASET:
+        items = lf.pages("/api/public/dataset-items", {"datasetName": name})
+        state.setdefault("items", {})[name] = items
+        if name == PLAN_DATASET:
             state["dataset_id"] = d.get("id")
-        n = len(lf.pages("/api/public/dataset-items", {"datasetName": name}))
-        check(n >= want, f"dataset {name}: {n} item(s) (want {want}+)", hint=f"run {SEED_CMD}")
+        active = set(active_ids(items))
+        missing = [i for i in ids if i not in active]
+        check(not missing, f"dataset {name}: {len(ids) - len(missing)}/{len(ids)} golden items ACTIVE"
+              + (f"; missing or archived {', '.join(missing)}" if missing else ""), hint=f"run {SEED_CMD}")
 
 
 def latest_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> bool:
-    print("Latest run")
+    print("Latest run (Act 1)")
     window = {"fromStartTime": iso(now - timedelta(days=LOOKBACK_DAYS)), "toStartTime": iso(now + timedelta(minutes=5))}
     latest = newest(lf.observations(dict(window, name=FINAL_OBSERVATION), cap=100))
     if not check(bool(latest), f"a '{TRACE_NAME}' run in the last {LOOKBACK_DAYS} days "
@@ -441,61 +547,69 @@ def latest_run_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> boo
     if wc is not None:
         check(int(wc) == workers, f"worker_count score {int(wc)} matches {workers} worker observation(s)",
               hint="observations may still be landing: wait 30 s and re-run")
-    judged = [n for n in JUDGE_SCORES if n in names]
-    check(len(judged) == len(JUDGE_SCORES), f"managed judge scores on the latest run: {', '.join(judged) or 'none'}",
-          required=False, hint="seed them from the host (bash demos/cluster-health-investigator/scripts/"
-                               "seed_evaluators.sh), then make a new run; judges score only runs made after "
-                               "seeding, a minute or so after the trace")
     age_h = (now - started).total_seconds() / 3600
     check(age_h <= FRESH_HOURS, f"latest run is {age_h:.1f} h old (fresh under {FRESH_HOURS} h)",
           required=False, hint=f"run {RUN_CMD} the day before")
     return True
 
 
-def act_checks(lf: Langfuse, state: Dict[str, Any], now: datetime) -> None:
-    """Optional acts: each needs a run made on purpose, so each only warns."""
-    print("Acts")
+def act_checks(lf: Langfuse, state: Dict[str, Any], now: datetime, short: bool) -> None:
+    """The evidence each act opens. Acts 2 and 3 are on the short path and always required;
+    Acts 4-6 are required for the full presentation and only warn with --short."""
+    full = not short
+    later = "" if full else " (not needed for --short)"
     since = iso(now - timedelta(days=LOOKBACK_DAYS))
+    window = {"fromStartTime": since, "toStartTime": iso(now + timedelta(minutes=5))}
+
+    print("Act 2 · The Agent Graph")
     counts = lf.cursor("/api/public/v3/scores", {"name": "worker_count", "fromTimestamp": since, "fields": "subject"},
-                       cap=500)
+                       cap=1000)
     narrow, broad = fanout_extremes(counts)
     if narrow and broad:
         state["narrow_trace"], state["broad_trace"] = narrow[0], broad[0]
     check(bool(narrow and broad and broad[1] > narrow[1]),
-          "Act 2: runs with different fan-out"
+          "runs with different fan-out to compare"
           + (f" (narrowest {narrow[1]:g}, broadest {broad[1]:g} workers)" if narrow and broad else ""),
-          required=False, hint="pre-run a narrow and a broad symptom from DEMO_SYMPTOMS.md")
+          hint="pre-run symptoms #1 and #5 from DEMO_SYMPTOMS.md with main.py --symptom")
 
-    window = {"fromStartTime": since, "toStartTime": iso(now + timedelta(minutes=5))}
+    print("Act 3 · The re-plan loop")
     replans = replan_traces(lf.observations(dict(window, name=ORCHESTRATOR_OBSERVATION)))
     if replans:
         state["replan_trace"] = replans[0]
-    check(bool(replans), f"Act 3: {len(replans)} run(s) with a second planning round", required=False,
-          hint="run symptom #3 in DEMO_SYMPTOMS.md a few times; the re-plan is not guaranteed")
+    check(bool(replans), f"{len(replans)} run(s) with a second planning round",
+          hint="run symptom #3 in DEMO_SYMPTOMS.md a few times; the re-plan is not guaranteed on any one run")
 
+    print("Act 4 · Fan-out is a metric")
     cap = int(os.environ.get("MAX_WORKERS_TOTAL") or 8)
-    capped = sum(1 for s in counts if isinstance(s.get("value"), (int, float)) and s["value"] >= cap)
-    check(capped > 0, f"Act 4: {capped} run(s) at the {cap}-worker cap (the overplan fault)", required=False,
+    capped = [s for s in counts if isinstance(s.get("value"), (int, float)) and s["value"] >= cap]
+    if capped and score_trace_id(capped[0]):
+        state["capped_trace"] = score_trace_id(capped[0])
+    check(bool(capped), f"{len(capped)} run(s) at the {cap}-worker cap (the overplan fault){later}", required=full,
           hint=f"{COMPOSE} python main.py --fault overplan")
 
+    print("Act 5 · Datasets + Experiment")
+    plan_items = [i for i in state.get("items", {}).get(PLAN_DATASET, []) if i.get("status", "ACTIVE") == "ACTIVE"]
+    linked = [i for i in plan_items if i.get("sourceObservationId")]
+    check(bool(linked), f"{len(linked)} ACTIVE {PLAN_DATASET} item(s) linked to a real orchestrator span{later}",
+          required=full, hint=f"{COMPOSE} python scripts/seed_datasets.py --from-traces 5")
     if state.get("dataset_id"):
-        try:
-            rows = lf.cursor("/api/public/experiments", {"datasetId": state["dataset_id"], "fromStartTime": since})
-        except ApiError as e:
-            if e.status != 404:  # a 3.x server has no Experiments API; it lists dataset runs instead
-                raise
-            rows = lf.pages(f"/api/public/datasets/{urllib.parse.quote(EXPERIMENT_DATASET, safe='')}/runs", {})
-        gone = missing_runs(run_names(rows), EXPERIMENT_RUNS)
-        check(not gone, "Act 5: planner experiment runs " + ", ".join(EXPERIMENT_RUNS)
-              + (f"; missing {', '.join(gone)}" if gone else ""), required=False,
+        gone = missing_runs(lf.run_names(state["dataset_id"], PLAN_DATASET, since), EXPERIMENT_RUNS)
+        check(not gone, "planner experiment runs " + ", ".join(EXPERIMENT_RUNS)
+              + (f"; missing {', '.join(gone)}" if gone else "") + later, required=full,
               hint=f"{COMPOSE} python scripts/run_experiment.py (model calls: 8 items x 2 labels)")
 
-    delegations = lf.cursor("/api/public/v3/scores", {"name": DELEGATION_SCORE, "fromTimestamp": since}, cap=100)
-    check(bool(delegations), f"Act 6: {len(delegations)} {DELEGATION_SCORE} score(s) in the last {LOOKBACK_DAYS} days",
-          required=False, hint=f"{COMPOSE} python scripts/score_delegations.py (one judge call per worker)")
+    print("Act 6 · Who grades the delegations")
+    for name in JUDGE_SCORES:
+        n = len(lf.cursor("/api/public/v3/scores", {"name": name, "fromTimestamp": since}, cap=100))
+        check(n > 0, f"{n} '{name}' judge score(s) in the last {LOOKBACK_DAYS} days{later}", required=full,
+              hint="seed the judges from the host (python demos/cluster-health-investigator/scripts/seed_all.py), "
+                   "then make a new run; judges score only runs made after seeding, a minute or so later")
+    n = len(lf.cursor("/api/public/v3/scores", {"name": DELEGATION_SCORE, "fromTimestamp": since}, cap=100))
+    check(n > 0, f"{n} {DELEGATION_SCORE} score(s) in the last {LOOKBACK_DAYS} days{later}", required=full,
+          hint=f"{COMPOSE} python scripts/score_delegations.py (one judge call per worker)")
 
 
-def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, Any]:
+def langfuse_checks(lf: Langfuse, expected_project: Optional[str], short: bool = False) -> Dict[str, Any]:
     state: Dict[str, Any] = {}
     print("Langfuse")
     try:
@@ -515,7 +629,7 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
         now = datetime.now(timezone.utc)
         seeded_checks(lf, state)
         if latest_run_checks(lf, state, now):
-            act_checks(lf, state, now)
+            act_checks(lf, state, now, short)
     except ApiError as e:
         check(False, f"Langfuse read failed: {e}")
     return state
@@ -524,13 +638,15 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
+    ap.add_argument("--short", action="store_true",
+                    help="require only the short path (Opening, Acts 1-3, Close); Acts 4-6 only warn")
     args = ap.parse_args(argv)
     del RESULTS[:]
 
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     path = env_file(manifest_value(manifest, "", "profile"))
-    print("cluster-health-investigator readiness")
+    print(f"cluster-health-investigator readiness: {'short path (Acts 1-3)' if args.short else 'full presentation (Acts 1-6)'}")
     print("Config")
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
     check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
@@ -542,7 +658,7 @@ def main(argv: Optional[List[str]] = None) -> int:
              hint="run ./setup.sh at the repo root"):
         service_checks()
         lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected)
+        state = langfuse_checks(lf, expected, short=args.short)
         if args.links and state.get("project_id"):
             print("\nLinks")
             for label, url in act_links(lf.base, state):
