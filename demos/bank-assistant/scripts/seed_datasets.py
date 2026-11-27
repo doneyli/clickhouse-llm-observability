@@ -7,7 +7,8 @@
   northwind-disputes-v1     dispute requests by merchant name (no date): charges
                             older than 30 days but inside the 60-day dispute
                             window (KB-102), plus recent-charge controls —
-                            story arc 5, "Disputes leak to humans"
+                            story arc 5, "Disputes leak to humans". Each item
+                            also carries its gold tool path (expected_trajectory)
 
   --dataset disputes        seed only the disputes dataset (default: all)
 
@@ -162,12 +163,27 @@ def ensure_dataset(lf, name, description, metadata):
         print(f"+ dataset {name}")
 
 
+def expected_trajectory(charge_age_days: int, accepted: list) -> dict:
+    """The gold PATH for a dispute, scored by northwind/evals.py `trajectory`.
+
+    steps      the tools a correct run calls, in this order (other calls in between are allowed):
+               find the account, look its transactions up, open the dispute
+    args       the lookup must reach back to the charge, and the dispute must be on it
+    forbidden  a dispute the agent can self-serve never blocks the card or hands off to a human
+    """
+    return {"steps": ["list_accounts", "get_recent_transactions", "open_dispute"],
+            "args": {"get_recent_transactions": {"days_at_least": charge_age_days},
+                     "open_dispute": {"transaction_id_in": accepted}},
+            "forbidden": ["block_card", "schedule_callback"]}
+
+
 def seed_disputes(lf):
     ensure_dataset(lf, DISPUTES, "Dispute requests by merchant name, no date: charges older than 30 days but inside "
                    "the 60-day dispute window (KB-102), plus recent-charge controls (owner: cards operations)",
                    {"owner": "cards-operations", "policy": "KB-102 (60 days from the statement date)",
                     "items": len(DISPUTE_ITEMS)})
     for iid, cust, q, tx, merchant, amount, lang, age, days in DISPUTE_ITEMS:
+        accepted = ["TX-88116", "TX-88117"] if tx == "TX-88116" else [tx]
         if lang == "es":
             exp = (f"Se abre una disputa para la transacción {tx} ({merchant}, USD {amount}) y el cliente recibe "
                    f"el número de caso (DSP-…); el cargo está dentro del plazo de 60 días para disputas (KB-102).")
@@ -180,7 +196,8 @@ def seed_disputes(lf):
                                          # what the customer says if the agent asks "is this the one?"
                                          "confirm_reply": CONFIRM[lang],
                                          # the duplicate STREAMFLIX charge: either copy is the duplicate
-                                         "accepted_transactions": ["TX-88116", "TX-88117"] if tx == "TX-88116" else [tx],
+                                         "accepted_transactions": accepted,
+                                         "expected_trajectory": expected_trajectory(days, accepted),
                                          "language": lang, "charge_age": age, "charge_age_days": days})
     print(f"  {len(DISPUTE_ITEMS)} dispute items upserted")
 

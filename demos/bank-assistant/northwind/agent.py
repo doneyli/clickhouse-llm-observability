@@ -12,7 +12,9 @@ Northwind Bank retail assistant — a LangGraph agent instrumented with Langfuse
 What lands in Langfuse for ONE customer turn (one trace):
   * root `agent` observation `northwind-assistant` — input = customer message,
     output = answer, metadata.context = every piece of evidence the model saw
-    (what LLM-as-a-judge evaluators grade against)            OBS-01, EVA-01
+    (what LLM-as-a-judge evaluators grade against), and
+    metadata.tool_call_history = the ordered tool calls with their arguments
+    (what the trajectory evaluators grade)                     OBS-01, EVA-01
   * LangGraph nodes, LLM generations (tokens, cost, latency), tool calls —
     auto-captured by the Langfuse LangChain CallbackHandler        OBS-01, OBS-05
   * `retriever` observation with document ids, sources, scores      OBS-03
@@ -250,21 +252,45 @@ class State(TypedDict):
     blocked: bool
 
 
+_RETURNED_IDS = re.compile(r"\b(?:TX-\d{5}|ACC-\d{4}-\d{2}|DSP-\d{6})\b")
+
+
+def _returned_ids(data) -> list[str]:
+    """Ids a tool result handed the agent (transactions, accounts, cards, cases): what a
+    later action may legitimately target (northwind/trajectory_policy.py, grounded actions)."""
+    ids = set(_RETURNED_IDS.findall(json.dumps(data, default=str)))
+    if isinstance(data, dict):
+        ids |= {str(c["last4"]) for c in data.get("cards") or [] if isinstance(c, dict) and c.get("last4")}
+    return sorted(ids)
+
+
 def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, evidence: list, used: list,
-                 trace_attrs: dict):
+                 trace_attrs: dict, steps: Optional[list] = None):
     """Tools bound to the AUTHENTICATED customer. The model never sees or chooses the id.
 
     `trace_attrs` go to the MCP server as W3C baggage, so its spans carry this
     turn's session, user, trace name, version and environment (Langfuse v4
     filters and aggregates per observation). Baggage is scoped to the MCP call
     and only injected into that request — never into model-provider calls.
+
+    `steps` receives the turn's trajectory: one entry per tool call, in the order
+    the model issued them, with the arguments it used (defaults filled in) and the
+    ids the result returned. The root observation carries it as
+    `metadata.tool_call_history`, which the trajectory evaluators read.
     """
+    steps = [] if steps is None else steps
+
+    def _step(name: str, args: dict) -> dict:
+        s = {"tool": name, "args": dict(args)}
+        steps.append(s)  # appended on the call, so parallel calls keep their issue order
+        return s
 
     @tool
     async def search_knowledge_base(query: str, callbacks: Callbacks = None) -> str:
         """Search Northwind Bank's help-center articles (products, fees, limits, policies).
         Returns articles with ids like KB-102 that you must cite."""
         used.append("search_knowledge_base")
+        step = _step("search_knowledge_base", {"query": query})
         with _nest(callbacks), langfuse.start_as_current_observation(as_type="retriever", name="kb-retrieval",
                                                    input={"query": query, "k": RETRIEVAL_K,
                                                           "min_score": RETRIEVAL_MIN_SCORE}) as r:
@@ -272,6 +298,7 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
             r.update(output={"documents": [{k: d[k] for k in ("id", "title", "source", "score", "effective_date")}
                                            for d in docs]},
                      metadata={"index": "help-center-tfidf", "documents_returned": len(docs)})
+        step.update(ok=True, returned=[d["id"] for d in docs])
         for d in docs:
             evidence.append(f"[{d['id']}] {d['title']} ({d['source']}): {d['text']}")
         if not docs:
@@ -280,6 +307,7 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
 
     async def _mcp(name: str, args: dict, config_: Optional[RunnableConfig] = None) -> dict:
         used.append(name)
+        step = _step(name, args)  # what the model asked for: the customer id is bound, not chosen
         args = {"customer_id": customer_id, **args}
         with _nest(config_), propagate_attributes(**trace_attrs, as_baggage=True), \
                 langfuse.start_as_current_observation(as_type="span", name=f"mcp-client: {name}",
@@ -300,6 +328,7 @@ def _build_tools(langfuse, session: Optional[ClientSession], customer_id: str, e
                 if res.isError:
                     s.update(level="ERROR", status_message=str(data)[:200])
             s.update(output=data)
+        step.update(ok=business.tool_succeeded(data), returned=_returned_ids(data))
         evidence.append(f"[tool:{name}] {json.dumps(data, default=str)}")
         return data
 
@@ -410,6 +439,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
     language = lang.detect(message)
     evidence: list[str] = []
     used: list[str] = []
+    steps: list[dict] = []  # the trajectory: every tool call with its arguments, in order
     outcome: dict = {}
     label = prompt_label or "production"
 
@@ -444,7 +474,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
             llm = make_llm(model)
 
             async def _invoke(session):
-                tools = _build_tools(langfuse, session, customer_id, evidence, used, trace_attrs)
+                tools = _build_tools(langfuse, session, customer_id, evidence, used, trace_attrs, steps=steps)
                 graph = _graph(langfuse, llm, tools, system_text, customer_id, check, outcome, language)
                 return await graph.ainvoke({"messages": _history(history) + [HumanMessage(content=message)],
                                             "blocked": False}, run_cfg)
@@ -480,7 +510,10 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
                 context += "\n\n[earlier in this conversation]\n" + prior
             root.update(output=answer, metadata={
                 "context": context,
-                "tools_used": ",".join(used) or "none", "cited_sources": ",".join(cited) or "none",
+                "tools_used": ",".join(used) or "none",
+                # JSON text, so code evaluators read the same value whatever the SDK does with lists
+                "tool_call_history": json.dumps(steps, ensure_ascii=False, default=str),
+                "cited_sources": ",".join(cited) or "none",
                 "retrieved_sources": ",".join(retrieved) or "none",
                 "prompt_version": str(getattr(lf_prompt, "version", "fallback")),
                 "apm_trace_url": config.apm_url(trace_id)})
@@ -514,7 +547,7 @@ async def run_turn(message: str, *, customer_id: str = "C-1001", session_id: Opt
         config.flush()
     return {"answer": answer, "trace_id": trace_id, "trace_url": config.trace_url(trace_id),
             "apm_url": config.apm_url(trace_id), "sources": cited, "retrieved": retrieved,
-            "tools_used": used, "blocked": check["blocked"], "risks": check["risks"],
+            "tools_used": used, "tool_calls": steps, "blocked": check["blocked"], "risks": check["risks"],
             "prompt_version": getattr(lf_prompt, "version", None), "model": model, "business": biz,
             "error": f"{type(error).__name__}: {error}" if error else None}
 

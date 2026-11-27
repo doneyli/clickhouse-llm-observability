@@ -6,7 +6,7 @@ aggregate a whole run — the numbers the CI gate reads.
 Two families, on purpose:
   * deterministic (exact functions of the output — cheap, stable, inspectable):
       must-include, source-recall, language-match, no-unsolicited-upsell, refused,
-      dispute-opened
+      dispute-opened, and the trajectory checks (the tool path against a gold path)
   * LLM-as-a-judge against the EXPECTED OUTPUT: correctness
 Gate hard on the deterministic ones; treat judge averages as a smoke alarm —
 re-running an unchanged prompt moves a judge average by a few points.
@@ -20,7 +20,7 @@ import re
 
 from langfuse import Evaluation
 
-from northwind import config, lang
+from northwind import config, lang, trajectory_policy
 
 # Upsell = RECOMMENDING a product the customer didn't ask about — not merely
 # stating a policy fact ("free for Premier accounts" is in the reference answer).
@@ -160,6 +160,81 @@ def dispute_opened(*, input, output, metadata, **_):
                               + (f"; answer says '{' '.join(window.groups())}'" if window else ""))
 
 
+def _fmt_gold(gold: dict) -> str:
+    args = gold.get("args") or {}
+    parts = []
+    for t in gold.get("steps") or []:
+        rule = args.get(t) or {}
+        if "days_at_least" in rule:
+            parts.append(f"{t}(days≥{rule['days_at_least']})")
+        elif "transaction_id_in" in rule:
+            parts.append(f"{t}({' or '.join(rule['transaction_id_in'])})")
+        else:
+            parts.append(t)
+    never = gold.get("forbidden") or []
+    return " → ".join(parts) + (f"; never {', '.join(never)}" if never else "")
+
+
+def _arg_checks(steps: list, rules: dict) -> list[tuple[bool, str]]:
+    """Argument-level checks: right step, right input."""
+    out = []
+    before_dispute = steps[:next((i for i, s in enumerate(steps) if s["tool"] == "open_dispute"), len(steps))]
+    need = (rules.get("get_recent_transactions") or {}).get("days_at_least")
+    if need is not None:
+        days = [trajectory_policy._days(s) for s in before_dispute if s["tool"] == "get_recent_transactions"]
+        widest = max(days) if days else None
+        out.append((widest is not None and widest >= need,
+                    f"transaction lookup {f'{widest} days' if days else 'never made'}, the charge is {need} days old"))
+    accepted = (rules.get("open_dispute") or {}).get("transaction_id_in")
+    if accepted:
+        targets = [str((s.get("args") or {}).get("transaction_id")) for s in steps if s["tool"] == "open_dispute"]
+        out.append((bool(targets) and all(t in accepted for t in targets),
+                    f"dispute opened on {', '.join(targets) or 'nothing'} (expected {' or '.join(accepted)})"))
+    return out
+
+
+def trajectory(*, input, output, metadata, **_):
+    """Disputes: did the agent take the RIGHT STEPS, not only reach an answer?
+
+    `dispute-opened` says whether the run succeeded; these say where a failed run
+    went wrong. Gold path per item: metadata.expected_trajectory (scripts/seed_datasets.py).
+      trajectory-order         required tools called in order (other calls in between allowed)
+      trajectory-args          the lookup reached back to the charge; the dispute is on it
+      trajectory-no-forbidden  no blocked card, no hand-off to a human
+      trajectory-match         all three: the comment shows the actual path next to the gold one
+      trajectory-steps         tool calls in the run (both turns), for path-length comparisons
+    """
+    gold = (metadata or {}).get("expected_trajectory")
+    if not gold or not isinstance(output, dict):
+        return []
+    steps = [s for s in output.get("tool_calls") or [] if isinstance(s, dict) and s.get("tool")]
+    names = [s["tool"] for s in steps]
+    required = gold.get("steps") or []
+    remaining = iter(names)
+    in_order = all(t in remaining for t in required)  # consumes the iterator: a subsequence test
+    missing = [t for t in required if t not in names]
+    forbidden = [n for n in names if n in set(gold.get("forbidden") or [])]
+    checks = _arg_checks(steps, gold.get("args") or {})
+    args_ok = all(ok for ok, _ in checks)
+    match = in_order and args_ok and not forbidden
+    extra = [n for n in names if n not in required]
+    path, expected = trajectory_policy.fmt_path(steps), _fmt_gold(gold)
+    return [
+        Evaluation(name="trajectory-match", value=1.0 if match else 0.0,
+                   comment=f"actual: {path} | expected: {expected}"),
+        Evaluation(name="trajectory-order", value=1.0 if in_order else 0.0,
+                   comment="required steps in order" if in_order else
+                   f"missing {', '.join(missing)}" if missing else f"out of order: {' → '.join(names)}"),
+        Evaluation(name="trajectory-args", value=round(sum(ok for ok, _ in checks) / len(checks), 4) if checks else 1.0,
+                   comment="; ".join(f"{'ok' if ok else 'FAIL'}: {msg}" for ok, msg in checks) or "no argument checks"),
+        Evaluation(name="trajectory-no-forbidden", value=0.0 if forbidden else 1.0,
+                   comment=f"called {', '.join(forbidden)}" if forbidden else "no forbidden step"),
+        Evaluation(name="trajectory-steps", value=float(len(steps)),
+                   comment=f"{len(steps)} tool calls for {len(required)} required steps"
+                           + (f"; extra: {', '.join(extra)}" if extra else "")),
+    ]
+
+
 _CORRECTNESS_PROMPT = """You grade a bank assistant's answer against the reference answer written by the product owner.
 
 Score 1.0 if the answer conveys the same facts as the reference (numbers, conditions, what the customer must do) with nothing that contradicts it; 0.5 if a secondary fact is missing or imprecise; 0.0 if a key fact is wrong or missing. Extra correct detail is fine. Language may differ from the reference.
@@ -209,7 +284,7 @@ async def correctness(*, input, output, expected_output, **_):
 GOLDEN_EVALUATORS = [correctness, must_include, source_recall, cites_expected_source, language_match,
                      formal_register, no_unsolicited_upsell]
 REDTEAM_EVALUATORS = [refused]
-DISPUTE_EVALUATORS = [dispute_opened, language_match]
+DISPUTE_EVALUATORS = [dispute_opened, trajectory, language_match]
 
 
 def averages(*, item_results, **_):
