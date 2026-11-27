@@ -11,12 +11,14 @@ self-correcting [`agentic-rag`](../agentic-rag/DEMO_SCRIPT.md) demo.
   (ClickHouse & LLM-observability topics), CLI batch + interactive
 - **Vector store:** ChromaDB **in-process** (re-indexed each run — zero extra infra)
 - **Models:** `all-MiniLM-L6-v2` embeddings (local, CPU) + `claude-sonnet-4-6`
-- **Observability backend:** Langfuse (`http://localhost:3001`), trace name `vector-rag`
+- **Observability:** Langfuse self-hosted (`http://localhost:3001`), project `LLM Observability Demo`, trace name `vector-rag`
 - **Run length:** 10–12 min full; ~5 min short path (Acts 1–2)
 
 > Positioning in one line: **this demo is where RAG conversations start; the
 > agentic-rag demo is where they end.** If the audience is already past "what is
 > RAG," skip straight to [`../agentic-rag/DEMO_SCRIPT.md`](../agentic-rag/DEMO_SCRIPT.md).
+>
+> Setup, configuration and troubleshooting are in the [README](README.md).
 
 ---
 
@@ -41,13 +43,15 @@ if that demo is on the agenda, treat this whole script as its opening act.
 
 ```bash
 # CRITICAL: clear leaked Langfuse keys — exported shell vars override .env and 401 silently.
-unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
+unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 
 # Stack up; .env needs ANTHROPIC_API_KEY + Langfuse keys
 docker compose --profile langfuse up -d
 docker compose --profile demo build vector-rag
 
-# Seed the managed prompt (NOT covered by setup.sh — Act 2 needs this)
+# Seed the managed prompt (NOT covered by setup.sh — Act 2 needs this).
+# The seeder reads keys from the environment, so load the root .env first.
+set -a; . ./.env; set +a
 python scripts/seed-app-prompts.py
 
 # Seed code evaluators if scores are missing (setup.sh normally does this)
@@ -55,6 +59,9 @@ python scripts/seed-app-prompts.py
 
 # Fresh traces (10 questions; FIRST run also downloads the embedding model — do it now, not live)
 docker compose --profile demo run --rm vector-rag python main.py
+
+# Readiness: prompt seeded, latest trace linked to it and scored. Prints READY and each act's link.
+python demos/vector-rag/scripts/verify_demo.py --links
 ```
 
 **Browser tabs ready:** Langfuse Traces filtered to name `vector-rag` (`:3001`,
@@ -111,8 +118,8 @@ docker compose --profile demo run --rm vector-rag python main.py
 
 It indexes the 10-doc corpus (watch `Indexed N chunks from 10 documents` — chunked
 at 500 chars, embedded locally, in-memory), then answers 10 questions like
-*"How does ClickHouse handle high-cardinality data?"* and *"What are vector
-embeddings and how are they used?"*.
+*"How does ClickHouse compare to traditional row-based databases?"* and *"What are
+vector embeddings and how are they used in AI?"*.
 
 In Langfuse → **Traces**, open a `vector-rag` trace (tags `vector-rag`, `demo`):
 
@@ -238,7 +245,7 @@ not being able to prove groundedness? That tells us where to go next."
 
 ---
 
-## Close (1 min)
+## Close · Three takeaways (1 min)
 
 Three takeaways: **a one-callback integration made the whole pipeline
 inspectable** (context, cost, prompt version per answer); **the prompt ships by
@@ -250,7 +257,7 @@ public: `demos/vector-rag/` is four small files — clone it, swap
 
 ---
 
-## Under the hood — how it's instrumented (for the "show me the code" moment)
+## Show me the code
 
 All of it lives in `demos/vector-rag/` — this is the *minimum-effort* end of the
 instrumentation ladder (one callback + context propagation), which is exactly
@@ -281,13 +288,13 @@ self._context = "\n\n---\n\n".join(d.page_content for d in docs)
 the Act 1 presenter note, in one line. The context still lands in the trace via
 the generation's input.
 
-**4 · The whole Langfuse integration — `langfuse_config.py:140`**
+**4 · The whole Langfuse integration — `langfuse_config.py:157`**
 ```python
 from langfuse.langchain import CallbackHandler
 handler = CallbackHandler()      # passed per-query as callbacks=[handler]
 ```
 
-**5 · Trace name + tags by propagation — `langfuse_config.py:120`**
+**5 · Trace name + tags by propagation — `langfuse_config.py:135`**
 ```python
 with propagate_attributes(trace_name="vector-rag", tags=["vector-rag", "demo"]):
     ...
@@ -297,6 +304,14 @@ with propagate_attributes(trace_name="vector-rag", tags=["vector-rag", "demo"]):
 ```python
 LANGFUSE_ENABLED = bool(PUBLIC_KEY and SECRET_KEY)   # no keys → app runs untraced
 ```
+
+**7 · Readiness reads real rows — `scripts/verify_demo.py:295`**
+```python
+roots = lf.get("/api/public/v2/observations", filter=trace_name_filter(...))  # newest vector-rag root
+# 404 on the stack's v3 server → v1 observations: the newest generation linked to the prompt
+```
+*Why it matters:* "ready" means a trace with observations, a prompt link and its four
+scores, not an HTTP 200.
 
 > One-liner for the room: *"A callback handler, a context manager for the trace
 > name, and one metadata line to link the prompt version. That's the entire
@@ -331,13 +346,34 @@ LANGFUSE_ENABLED = bool(PUBLIC_KEY and SECRET_KEY)   # no keys → app runs untr
 
 ---
 
+## Known limits
+
+Say these out loud; each one is a reason the agentic-rag demo exists.
+
+- **Retrieval isn't a span.** You see what was retrieved, in the generation's input, but
+  not a timed or scored retrieval step.
+- **Nothing grades the retrieval or the answer.** Top-k always returns three chunks, so an
+  out-of-corpus question gets confidently irrelevant context (Act 4).
+- **No sessions.** Each question is its own trace; an interactive conversation isn't
+  grouped.
+- **A teaching corpus.** Ten short articles, re-indexed in memory on every run: it shows
+  the shape, not retrieval quality at scale.
+- **Mechanical scores only.** The code evaluators catch broken answers, not wrong ones;
+  no LLM judge is scoped to `vector-rag` out of the box.
+
+The full list is in the README's [Known limits](README.md#known-limits).
+
+---
+
 ## Reset / re-run
 
 ```bash
 docker compose --profile demo run --rm vector-rag python main.py                 # fresh traces
 docker compose --profile demo run --rm vector-rag python main.py --interactive  # Act 4 moment
-python scripts/seed-app-prompts.py                                              # re-seed prompt (idempotent)
+set -a; . ./.env; set +a                                                        # the seeder reads keys from the env
+python scripts/seed-app-prompts.py                                              # after Act 2: a new version with the seeded text takes `production`
 docker compose --profile demo build vector-rag                                  # after code edits
+python demos/vector-rag/scripts/verify_demo.py                                  # READY again
 ```
 
 The corpus re-indexes in-memory on every run — there's no vector-store state to
