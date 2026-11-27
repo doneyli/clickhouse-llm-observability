@@ -49,10 +49,8 @@ unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
 docker compose --profile langfuse up -d
 docker compose --profile demo build vector-rag
 
-# Seed the managed prompt (NOT covered by setup.sh — Act 2 needs this).
-# The seeder reads keys from the environment, so load the root .env first.
-set -a; . ./.env; set +a
-python scripts/seed-app-prompts.py
+# Seed the managed prompt (NOT covered by setup.sh — Act 2 needs this). Reads the root .env.
+python demos/vector-rag/scripts/seed_all.py
 
 # Seed code evaluators if scores are missing (setup.sh normally does this)
 ./scripts/seed-code-evaluators.sh
@@ -305,13 +303,13 @@ with propagate_attributes(trace_name="vector-rag", tags=["vector-rag", "demo"]):
 LANGFUSE_ENABLED = bool(PUBLIC_KEY and SECRET_KEY)   # no keys → app runs untraced
 ```
 
-**7 · Readiness reads real rows — `scripts/verify_demo.py:295`**
+**7 · Readiness reads real rows — `scripts/verify_demo.py:328`**
 ```python
 roots = lf.get("/api/public/v2/observations", filter=trace_name_filter(...))  # newest vector-rag root
 # 404 on the stack's v3 server → v1 observations: the newest generation linked to the prompt
 ```
-*Why it matters:* "ready" means a trace with observations, a prompt link and its four
-scores, not an HTTP 200.
+*Why it matters:* "ready" means the prompt `production` serves matches the seeded
+definition, and a trace has observations, a prompt link and its four scores, not an HTTP 200.
 
 > One-liner for the room: *"A callback handler, a context manager for the trace
 > name, and one metadata line to link the prompt version. That's the entire
@@ -370,8 +368,7 @@ The full list is in the README's [Known limits](README.md#known-limits).
 ```bash
 docker compose --profile demo run --rm vector-rag python main.py                 # fresh traces
 docker compose --profile demo run --rm vector-rag python main.py --interactive  # Act 4 moment
-set -a; . ./.env; set +a                                                        # the seeder reads keys from the env
-python scripts/seed-app-prompts.py                                              # after Act 2: a new version with the seeded text takes `production`
+python demos/vector-rag/scripts/seed_all.py                                     # after Act 2: a new version with the seeded text takes `production`
 docker compose --profile demo build vector-rag                                  # after code edits
 python demos/vector-rag/scripts/verify_demo.py                                  # READY again
 ```

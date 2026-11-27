@@ -14,7 +14,7 @@ length:
   short_min: 5
 commands:
   install: pip install -r requirements-dev.txt   # pytest only: the tests stub LangChain, ChromaDB and torch
-  seed: python scripts/seed-app-prompts.py
+  seed: python demos/vector-rag/scripts/seed_all.py   # root .env, then the root helper scripts/seed-app-prompts.py
   run: docker compose --profile demo run --rm vector-rag python main.py
   verify: python demos/vector-rag/scripts/verify_demo.py
   test: python -m pytest -q

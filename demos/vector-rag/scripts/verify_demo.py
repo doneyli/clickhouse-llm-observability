@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
 import os
 import re
@@ -51,7 +52,8 @@ SERVICES: List[Tuple[str, str, bool]] = [
     ("vector-rag API (query-router tier, not used by the script)",
      "http://localhost:{VECTOR_RAG_PORT}/health", False),
 ]
-SEED_CMD = "python scripts/seed-app-prompts.py (with the root .env loaded)"
+SEED_CMD = "python demos/vector-rag/scripts/seed_all.py"
+PROMPT_HELPER = REPO_ROOT / "scripts" / "seed-app-prompts.py"  # the seeded definitions, compared in full
 RUN_CMD = "docker compose --profile demo run --rm vector-rag python main.py"
 TIMEOUT_S = 10
 
@@ -229,15 +231,20 @@ class Langfuse:
 
     def cursor(self, path: str, params: Dict[str, Any], cap: int = 1000, max_pages: int = 20) -> List[dict]:
         """Follow `meta.cursor` (Observations v2, Scores v3). A page may be empty while a cursor
-        is still returned, so stop on a missing cursor, not on an empty page."""
+        is still returned, so stop on a missing cursor, not on an empty page. Bounded by
+        `max_pages`; a cursor the server already returned is an error, not an endless loop."""
         out: List[dict] = []
         cur = None
+        seen = set()
         for _ in range(max_pages):
             d = self.get(path, **dict(params, limit=100, **({"cursor": cur} if cur else {}))) or {}
             out += d.get("data") or []
             cur = (d.get("meta") or {}).get("cursor")
             if not cur or len(out) >= cap:
                 break
+            if cur in seen:
+                raise ApiError(None, f"{path} returned the same cursor twice")
+            seen.add(cur)
         return out[:cap]
 
 
@@ -253,6 +260,32 @@ def act_links(base: str, state: Dict[str, Any]) -> List[Tuple[str, str]]:
         links.append(("Act 3 · its scores", trace))
     links.append(("Act 4 · the traces list", f"{p}/traces"))  # the out-of-corpus run lands here
     return links
+
+
+# --- The seeded prompt definition ---------------------------------------------------------
+
+def seeded_definitions(helper: Path = PROMPT_HELPER) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """{(name, label): {type, prompt, config}} as the root helper seeds them. Loaded after the
+    .env, so the model in CONFIG comes from the same ANTHROPIC_MODEL the seed used."""
+    spec = importlib.util.spec_from_file_location("seed_app_prompts", helper)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = {}
+    for entry in mod.PROMPTS:
+        name, text, _message, label, config = mod._unpack(entry)
+        out[(name, label)] = {"type": getattr(mod, "PROMPT_TYPE", "text"), "prompt": text, "config": config or {}}
+    return out
+
+
+def prompt_drift(served: Dict[str, Any], want: Dict[str, Any], label: str) -> List[str]:
+    """What the served version gets wrong against the seeded definition ([] = matches)."""
+    out = []
+    for key in ("type", "prompt", "config"):
+        if (served.get(key) or ({} if key == "config" else None)) != want[key]:
+            out.append("text" if key == "prompt" else key)
+    if label not in (served.get("labels") or []):
+        out.append(f"label {label}")
+    return out
 
 
 # --- Finding the latest run -------------------------------------------------------------
@@ -363,12 +396,24 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
 
     try:
         print("Seeded artifacts")
+        try:
+            wanted = seeded_definitions()
+        except Exception as e:  # a missing or broken helper fails the prompt checks, not the run
+            check(False, f"read the seeded definitions from {PROMPT_HELPER}: {type(e).__name__}: {e}")
+            wanted = {}
         for name, label in EXPECTED_PROMPTS.items():
             try:
                 p = lf.get(f"/api/public/v2/prompts/{urllib.parse.quote(name, safe='')}", label=label) or {}
-                check(True, f"prompt {name}: {label} = v{p.get('version')}")
             except ApiError as e:
                 check(False, f"prompt {name} with label {label}: {e}", hint=f"run {SEED_CMD}")
+                continue
+            want = wanted.get((name, label))
+            if not check(want is not None, f"{PROMPT_HELPER.name} defines {name} [{label}]"):
+                continue
+            diff = prompt_drift(p, want, label)
+            check(not diff, f"prompt {name}: {label} = v{p.get('version')}"
+                  + (f", differs from the seeded definition: {', '.join(diff)}" if diff else ", matches the seeded definition"),
+                  hint=f"an Act 2 edit or an old seed: run {SEED_CMD}")
 
         print("Latest run")
         now = datetime.now(timezone.utc)
@@ -404,12 +449,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
     args = ap.parse_args(argv)
     del RESULTS[:]
+    try:
+        run_checks(args)
+    except Exception as e:  # anything unexpected still reaches the verdict, as a failure
+        check(False, f"verify_demo crashed: {type(e).__name__}: {e}")
+    line, code = summary()
+    print(f"\n{line}")
+    return code
 
+
+def run_checks(args: argparse.Namespace) -> None:
     manifest_path = DEMO_DIR / "demo.yaml"
     manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
+    profile = manifest_value(manifest, "", "profile")
     print(f"{TRACE_NAME} readiness")
     print("Config")
+    if not check(profile == "container", f"demo.yaml declares profile container (found {profile!r})",
+                 hint="this check reads the root stack's .env, which only a container demo uses"):
+        load_env(env_file(profile))  # still drop shell LANGFUSE_*
+        return
+    path = env_file(profile)
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
     check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
           hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
@@ -424,10 +483,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("\nLinks")
             for label, url in act_links(lf.base, state):
                 print(f"  {label:<28} {url}")
-
-    line, code = summary()
-    print(f"\n{line}")
-    return code
 
 
 if __name__ == "__main__":

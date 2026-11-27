@@ -78,8 +78,7 @@ Run these from the repo root:
 ```bash
 ./setup.sh                          # the root stack, its .env and the code evaluators (idempotent)
 unset LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST LANGFUSE_BASE_URL
-set -a; . ./.env; set +a            # the prompt seeder reads its keys from the environment, not from .env
-python scripts/seed-app-prompts.py  # idempotent: a new version only when the text differs
+python demos/vector-rag/scripts/seed_all.py   # the prompt: created / updated / unchanged; exit 1 on failure
 docker compose --profile demo build vector-rag
 docker compose --profile demo run --rm vector-rag python main.py   # ten questions, ten traces; the first run downloads the embedding model
 python demos/vector-rag/scripts/verify_demo.py                     # should print READY
@@ -87,10 +86,12 @@ python demos/vector-rag/scripts/verify_demo.py                     # should prin
 
 The root `.env` is the only source of `LANGFUSE_*`. The container reads the keys from it
 as an `env_file`, so a shell export cannot redirect its traces, and `verify_demo.py` drops
-shell-exported `LANGFUSE_*` before it loads `.env`. `seed-app-prompts.py` does read the
-shell, which is why the block above unsets the keys and then loads `.env`. `./setup.sh`
-does not run `seed-app-prompts.py`; without it the app runs on the inline fallback and its
-generations carry no prompt link.
+shell-exported `LANGFUSE_*` before it loads `.env`. So does `seed_all.py`, which then runs
+the root helper `scripts/seed-app-prompts.py` for `vector-rag-generation` only. The helper
+compares the type, text, config and label of the version `production` serves and adds a
+version only when one differs, so a second run writes nothing. `./setup.sh` does not run
+the seed; without it the app runs on the inline fallback and its generations carry no
+prompt link.
 
 The ten-question run makes ten Claude calls. Its time and cost have not been measured yet.
 
@@ -139,8 +140,8 @@ All from the root `.env`; `.env.example` at the repo root lists them.
 | `TEMPERATURE` | `0.7` | Generation temperature |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | from the root `.env` | Keys for the `LLM Observability Demo` project. Without both, the app runs untraced on the inline prompt |
 | `LANGFUSE_INTERNAL_URL` | `http://langfuse-web:3000` | Where the container sends traces; compose sets both `LANGFUSE_BASE_URL` and `LANGFUSE_HOST` to it. Cloud mode sets it to the cloud URL |
-| `LANGFUSE_BASE_URL` | `http://localhost:3001` | Where `verify_demo.py` reads (it falls back to `LANGFUSE_HOST`) |
-| `LANGFUSE_HOST` | `http://localhost:3001` | Where `seed-app-prompts.py` writes; `setup.sh` derives it from `LANGFUSE_BASE_URL` |
+| `LANGFUSE_BASE_URL` | `http://localhost:3001` | Where `verify_demo.py` reads and `seed_all.py` writes (both fall back to `LANGFUSE_HOST`) |
+| `LANGFUSE_HOST` | `http://localhost:3001` | The fallback for `LANGFUSE_BASE_URL`; `setup.sh` derives it from `LANGFUSE_BASE_URL` |
 | `VECTOR_RAG_PORT` | `8003` | Host port of the API server, when it is started with `up` |
 | `DEMO_LANGFUSE_PROJECT` | `langfuse.project` in `demo.yaml` | Project name `verify_demo.py` expects the keys to map to |
 
@@ -158,6 +159,7 @@ demos/vector-rag/
 ├── documents.py            the ten-article corpus
 ├── langfuse_config.py      on/off switch, CallbackHandler, trace name and tags, prompt fetch
 ├── scripts/
+│   ├── seed_all.py         the seed entry point: root .env, then the root prompt helper
 │   └── verify_demo.py      readiness check: READY or NOT READY
 ├── tests/                  no services, no model calls, no heavy dependencies
 ├── requirements.txt        app dependencies (LangChain, ChromaDB, sentence-transformers, torch via it)
@@ -165,8 +167,8 @@ demos/vector-rag/
 └── pytest.ini
 ```
 
-The seed lives at the repo root: `scripts/seed-app-prompts.py` seeds this demo's prompt
-together with the `text-to-sql` prompts.
+The prompt definitions live at the repo root: `scripts/seed-app-prompts.py` holds this
+demo's prompt and the `text-to-sql` prompts. `seed_all.py` asks it for this demo's only.
 
 ## Tests
 
@@ -178,9 +180,13 @@ python -m pytest -q                    # no services, no model calls, under a se
 
 They cover the corpus and its metadata, the inline fallback matching the seeded prompt
 text, prompt choice (managed, missing, unusable), chunking and indexing, retrieval and the
-chain plumbing, the Langfuse on/off switch and trace naming, and `verify_demo.py`'s checks
-on both the v2 and the v1 observations path. LangChain, ChromaDB and the SDK are replaced
-by small fakes, so nothing heavier than pytest is installed.
+chain plumbing, and the Langfuse on/off switch and trace naming. `verify_demo.py` runs
+against a fake Langfuse behind the real HTTP client, on both the v2 and the v1 observations
+path, with missing or partial `.env` files, hostile shell exports, drifted prompts and
+failed reads. `seed_all.py` is tested for its `.env` handling and failure propagation, once
+with the real root helper behind a fake Prompts API. LangChain, ChromaDB and the SDK are
+replaced by small fakes, so nothing heavier than pytest is installed. The root helper's own
+tests are in `scripts/tests/test_seed_app_prompts.py`.
 
 ## Troubleshooting
 
@@ -188,7 +194,8 @@ by small fakes, so nothing heavier than pytest is installed.
 |---|---|
 | `keys map to project '…' (want 'LLM Observability Demo')` | The root `.env` holds another project's keys. Fix `.env`; shell exports are ignored by the check |
 | `keys authenticate …: HTTP 401` | Wrong key pair, or `LANGFUSE_BASE_URL` points at another host |
-| `LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY not set (source .env first)` | The prompt seeder reads the shell. `set -a; . ./.env; set +a`, then seed again |
+| `LANGFUSE_SECRET_KEY not set in .env` (or another key) | `seed_all.py` reads the root `.env` only. Run `./setup.sh`, or add the key to `.env` |
+| `prompt vector-rag-generation: … differs from the seeded definition` | An Act 2 edit, or a seed from before a change. `python demos/vector-rag/scripts/seed_all.py` puts it back |
 | `Langfuse get_prompt('vector-rag-generation') unavailable, using local fallback` | The prompt is not seeded, or Langfuse is down. Seed it; the run still answers, unlinked |
 | `latest run's generation is linked …` fails | That run used the fallback. Seed the prompt, then run again |
 | `latest run's scores: none` | The code evaluators are not seeded (`./scripts/seed-code-evaluators.sh`), or the worker is stuck: `docker compose restart langfuse-worker` |
