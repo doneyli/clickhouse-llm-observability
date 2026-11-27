@@ -1,16 +1,18 @@
 // scripts/verify_demo.ts offline: results, summary and exit code, the .env rule, the manifest
-// parse, the metric parse, and full runs against a fake Langfuse and a fake app. No network.
+// parse, the metric parse, and full runs against the fake Langfuse and app. No network.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import type { LangfuseTrace } from "../lib/types";
+import { beforeEach, describe, expect, it } from "vitest";
+import { type Env, expectedProject, langfuseSettings, loadEnv, manifestValue, parseEnv } from "../scripts/demo_env";
+import { type Fixture, loadFixtures } from "../scripts/fixtures";
 import {
-  actLinks, Checker, type Env, expectedProject, expectedVisible, type Fetch, loadEnv, loadFixtures, manifestValue,
-  metricCount, parseEnv, run, summary, traceCountQuery,
+  actLinks, Checker, expectedVisible, fixtureProblems, metricCount, run, summary, traceCountQuery,
 } from "../scripts/verify_demo";
+import { APP, ENV_TEXT, FakeLangfuse, HOSTILE_SHELL, LF } from "./fake_langfuse";
 
 const MANIFEST = "name: langfuse-rls\nlangfuse:\n  target: self-hosted\n  project: RLS Demo   # comment\ncommands:\n  verify: bash scripts/verify.sh\n";
+const FIXTURES: Fixture[] = loadFixtures();
 
 describe("Checker and summary", () => {
   it("records pass, fail and warn and prints one line each", () => {
@@ -47,12 +49,12 @@ describe("environment", () => {
   });
 
   it("the .env overrides shell LANGFUSE_* keys and drops the rest of them", () => {
-    const dir = mkdtempSync(join(tmpdir(), "rls-verify-"));
-    const path = join(dir, ".env");
+    const path = join(mkdtempSync(join(tmpdir(), "rls-verify-")), ".env");
     writeFileSync(path, "LANGFUSE_PUBLIC_KEY=pk-file\nLANGFUSE_BASE_URL=http://file\n");
-    const env: Env = { LANGFUSE_PUBLIC_KEY: "pk-shell", LANGFUSE_HOST: "http://shell", OTHER: "kept" };
+    const env: Env = { LANGFUSE_PUBLIC_KEY: "pk-shell", LANGFUSE_HOST: "http://shell", LANGFUSE_SECRET_KEY: "sk-shell", OTHER: "kept" };
     expect(loadEnv(path, env)).toBe(true);
     expect(env).toEqual({ LANGFUSE_PUBLIC_KEY: "pk-file", LANGFUSE_BASE_URL: "http://file", OTHER: "kept" });
+    expect(langfuseSettings(env).missing).toEqual(["LANGFUSE_SECRET_KEY"]);
   });
 
   it("a missing .env still drops shell LANGFUSE_* keys", () => {
@@ -76,7 +78,7 @@ describe("environment", () => {
 
 describe("expected data", () => {
   it("computes 30 / 20 / 10 from the committed fixtures with the app's policy engine", () => {
-    expect(expectedVisible(loadFixtures())).toEqual({ alice: 30, bob: 20, carol: 10 });
+    expect(expectedVisible(FIXTURES)).toEqual({ alice: 30, bob: 20, carol: 10 });
   });
 
   it("parses the metric whether it comes back as a string, a number or no row", () => {
@@ -92,6 +94,11 @@ describe("expected data", () => {
     expect(q.toTimestamp > "2026-11-27T00:00:00").toBe(true);
   });
 
+  it("finds missing and drifted fixtures by stable id", () => {
+    const visible = FIXTURES.slice(1).map((f) => (f.id === "rls-demo-02" ? { ...f, output: { response: "x" } } : f));
+    expect(fixtureProblems(FIXTURES, visible)).toEqual({ missing: ["rls-demo-01"], drifted: ["rls-demo-02"] });
+  });
+
   it("links one tab per act", () => {
     expect(actLinks("http://lf", "http://app", { projectId: "p1" }).map(([, u]) => u)).toEqual([
       "http://lf/project/p1/traces", "http://app/", "http://app/policies", "http://app/design",
@@ -101,108 +108,127 @@ describe("expected data", () => {
 
 // --- Full runs ----------------------------------------------------------------------------
 
-const FIXTURES: LangfuseTrace[] = loadFixtures();
+let lf: FakeLangfuse;
+beforeEach(() => {
+  lf = new FakeLangfuse();
+  for (const f of FIXTURES) lf.add({ ...f });
+});
 
-interface World {
-  project?: string;
-  traceCount?: number;
-  appUp?: boolean;
-  visible?: Record<string, number>;
-  appError?: string;
-  metrics404?: boolean;
-}
-
-function fakeFetch(w: World): Fetch {
-  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-  return async (url: string) => {
-    const u = new URL(url);
-    if (u.host === "lf.test") {
-      if (u.pathname === "/api/public/projects") return json({ data: [{ id: "p1", name: w.project ?? "RLS Demo" }] });
-      if (u.pathname === "/api/public/metrics") {
-        if (w.metrics404) return json({ message: "not found" }, 404);
-        return json({ data: [{ count_count: String(w.traceCount ?? 30) }] });
-      }
-    }
-    if (u.host === "app.test") {
-      if (w.appUp === false) throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
-      if (u.pathname === "/api/personas") return json([]);
-      if (u.pathname === "/api/traces") {
-        const persona = u.searchParams.get("persona")!;
-        const total = w.traceCount ?? 30;
-        const visible = w.visible?.[persona] ?? expectedVisible(FIXTURES)[persona];
-        return json({ visible: Array(visible).fill({}), denied: { count: total - visible, samples: [] },
-          ...(w.appError ? { error: w.appError } : {}) });
-      }
-    }
-    return json({}, 404);
-  };
-}
-
-async function runIn(w: World, envText = "LANGFUSE_BASE_URL=http://lf.test\nLANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\n",
-  argv: string[] = []): Promise<{ code: number; out: string[] }> {
-  const dir = mkdtempSync(join(tmpdir(), "rls-run-"));
-  const envPath = join(dir, ".env");
-  if (envText) writeFileSync(envPath, envText);
+async function runIn(opts: { env?: string | null; shell?: Env; argv?: string[] } = {}) {
+  const path = join(mkdtempSync(join(tmpdir(), "rls-run-")), ".env");
+  const envText = opts.env === undefined ? ENV_TEXT : opts.env;
+  if (envText !== null) writeFileSync(path, envText);
   const out: string[] = [];
-  const code = await run({ argv, envPath, manifest: MANIFEST, fixtures: FIXTURES, fetch: fakeFetch(w),
-    env: { DEMO_APP_URL: "http://app.test", LANGFUSE_PUBLIC_KEY: "pk-shell-other-project" }, out: (l) => out.push(l) });
-  return { code, out };
+  const code = await run({ argv: opts.argv ?? [], envPath: path, manifest: MANIFEST, fixtures: FIXTURES, fetch: lf.fetch,
+    env: { DEMO_APP_URL: APP, ...(opts.shell ?? {}) }, out: (l) => out.push(l) });
+  return { code, out, text: out.join("\n") };
 }
 
 describe("run", () => {
   it("is READY when Langfuse holds the 30 fixtures and the app shows 30 / 20 / 10", async () => {
-    const { code, out } = await runIn({}, undefined, ["--links"]);
-    expect(out.at(-1)).toBe("\nREADY (8/8 checks passed)");
+    const { code, out, text } = await runIn({ argv: ["--links"] });
+    expect(out.at(-1)).toBe("\nREADY (12/12 checks passed)");
     expect(code).toBe(0);
-    expect(out.some((l) => l.includes("http://lf.test/project/p1/traces"))).toBe(true);
+    expect(text).toContain(`${LF}/project/p1/traces`);
+    expect(text).toMatch(/PASS {2}all 30 fixtures present under their stable ids/);
   });
 
-  it("fails on duplicate seeding and says to wipe and seed once", async () => {
-    const { code, out } = await runIn({ traceCount: 120, visible: { alice: 120, bob: 80, carol: 40 } });
+  it("makes only reads", async () => {
+    await runIn();
+    expect(lf.writes()).toHaveLength(0);
+  });
+
+  it("fails before any request when .env is missing, whatever the shell exports", async () => {
+    const { code, text } = await runIn({ env: null, shell: HOSTILE_SHELL });
     expect(code).toBe(1);
-    expect(out.find((l) => l.includes("project holds 120"))).toMatch(/FAIL.*seeder appends/);
+    expect(text).toMatch(/FAIL {2}env loaded from/);
+    expect(lf.calls).toHaveLength(0);
+    expect(text).toMatch(/NOT READY/);
+  });
+
+  it("fails before any request when .env leaves a key out", async () => {
+    const { code, text } = await runIn({ env: ENV_TEXT.replace(/LANGFUSE_PUBLIC_KEY=.*\n/, ""), shell: HOSTILE_SHELL });
+    expect(code).toBe(1);
+    expect(text).toMatch(/FAIL {2}\.env does not set LANGFUSE_PUBLIC_KEY/);
+    expect(lf.calls).toHaveLength(0);
   });
 
   it("stops the Langfuse checks when the keys map to another project", async () => {
-    const { code, out } = await runIn({ project: "LLM Observability Demo" });
+    lf.project.name = "LLM Observability Demo";
+    const { code, text } = await runIn();
     expect(code).toBe(1);
-    expect(out.some((l) => l.includes("FAIL  keys map to project 'LLM Observability Demo' (want 'RLS Demo')"))).toBe(true);
-    expect(out.some((l) => l.includes("project holds"))).toBe(false);
+    expect(text).toContain("FAIL  keys map to project 'LLM Observability Demo' (want 'RLS Demo')");
+    expect(text).not.toContain("project holds");
+  });
+
+  it("fails an empty project, with the seed hint", async () => {
+    lf.traces.clear();
+    const { code, text } = await runIn();
+    expect(code).toBe(1);
+    expect(text).toMatch(/FAIL {2}project holds 0 trace\(s\) .*npm run seed/);
   });
 
   it("accepts the project named in the .env", async () => {
-    const env = "LANGFUSE_BASE_URL=http://lf.test\nLANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_PROJECT_NAME=row-level-security-RLS\n";
-    const { code } = await runIn({ project: "row-level-security-RLS" }, env);
+    lf.project.name = "row-level-security-RLS";
+    const { code } = await runIn({ env: `${ENV_TEXT}LANGFUSE_PROJECT_NAME=row-level-security-RLS\n` });
     expect(code).toBe(0);
   });
 
-  it("names the v3 server when Metrics v1 404s", async () => {
-    const { code, out } = await runIn({ metrics404: true });
+  it("fails on old-seeder duplicates and points at --prune-legacy", async () => {
+    FIXTURES.forEach((f, i) => lf.add({ ...f, id: `legacy-${i}` }));
+    const { code, text } = await runIn();
     expect(code).toBe(1);
-    expect(out.find((l) => l.includes("trace count read failed"))).toMatch(/self-hosted v3 server/);
+    expect(text).toMatch(/FAIL {2}project holds 60 .*--prune-legacy/);
+    expect(text).toMatch(/FAIL {2}Alice Chen \(ceo-only\) sees 60\/60 \(want 30\/30\)/);
+  });
+
+  it("fails a drifted or missing fixture even when the counts still add up", async () => {
+    const t = lf.traces.get("rls-demo-07")!;
+    lf.traces.set("rls-demo-07", { ...t, output: { response: "edited by hand" } });
+    lf.traces.delete("rls-demo-08");
+    lf.add({ ...FIXTURES[7], id: "random-id" }); // same content as rls-demo-08, wrong id
+    const { code, text } = await runIn();
+    expect(code).toBe(1);
+    expect(text).toMatch(/FAIL {2}all 30 fixtures .*; missing rls-demo-08; drifted rls-demo-07/);
+  });
+
+  it("names the v3 server when Metrics v1 404s", async () => {
+    lf.metricsStatus = 404;
+    const { code, text } = await runIn();
+    expect(code).toBe(1);
+    expect(text).toMatch(/trace count read failed.*self-hosted v3 server/);
   });
 
   it("fails when the app is down, and tells you to start it", async () => {
-    const { code, out } = await runIn({ appUp: false });
+    lf.appDown = true;
+    const { code, text } = await runIn();
     expect(code).toBe(1);
-    expect(out.find((l) => l.includes("app not reachable"))).toMatch(/ECONNREFUSED.*npm run dev/);
+    expect(text).toMatch(/app not reachable .*ECONNREFUSED.*npm run dev/);
   });
 
-  it("fails a persona whose view disagrees with the policy", async () => {
-    const { code, out } = await runIn({ visible: { carol: 30 } });
+  it("fails when an act's page is broken", async () => {
+    lf.brokenPages.add("/design");
+    const { code, text } = await runIn();
     expect(code).toBe(1);
-    expect(out.some((l) => l.startsWith("  FAIL  Carol Diaz (general) sees 30/30 (want 10/30)"))).toBe(true);
+    expect(text).toMatch(/FAIL {2}Act 3 page at http:\/\/app\.test\/design \(500\)/);
   });
 
   it("surfaces the app's own error when it could not read Langfuse", async () => {
-    const { out } = await runIn({ appError: "Langfuse unreachable or no traces found." });
-    expect(out.filter((l) => l.includes("Langfuse unreachable")).length).toBe(3);
+    lf.traces.clear();
+    const { text } = await runIn();
+    expect((text.match(/Langfuse unreachable/g) ?? []).length).toBe(3);
+    expect(text).toMatch(/FAIL {2}fixture ids and content/);
   });
 
-  it("ignores shell keys: with no .env the key check fails", async () => {
-    const { code, out } = await runIn({}, "");
+  it("turns an unexpected error into a FAIL and still prints the verdict", async () => {
+    const out: string[] = [];
+    const path = join(mkdtempSync(join(tmpdir(), "rls-run-")), ".env");
+    writeFileSync(path, ENV_TEXT);
+    const bad = { id: "rls-demo-01", get metadata(): never { throw new Error("boom"); } } as unknown as Fixture;
+    const code = await run({ envPath: path, manifest: MANIFEST, env: { DEMO_APP_URL: APP }, fetch: lf.fetch,
+      fixtures: [bad], out: (l) => out.push(l) });
     expect(code).toBe(1);
-    expect(out.some((l) => l.startsWith("  FAIL  env loaded from"))).toBe(true);
-    expect(out.some((l) => l.startsWith("  FAIL  LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY"))).toBe(true);
+    expect(out).toContain("  FAIL  unexpected error: boom");
+    expect(out.at(-1)).toMatch(/^\nNOT READY/);
   });
 });
