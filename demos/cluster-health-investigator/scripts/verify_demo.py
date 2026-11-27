@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
+import ipaddress
 import json
 import os
 import re
@@ -225,8 +227,36 @@ def prepare_env(environ: Optional[MutableMapping[str, str]] = None, *, container
     missing += [] if base else ["LANGFUSE_BASE_URL"]
     if missing:
         return False, f"{', '.join(missing)} not set in {source}"
+    try:
+        base = validate_base_url(base)
+    except ValueError as e:
+        return False, f"{e} (in {source})"
     env["LANGFUSE_BASE_URL"] = env["LANGFUSE_HOST"] = base
     return True, f"LANGFUSE_* from {source}"
+
+
+def validate_base_url(value: str) -> str:
+    """The Langfuse base URL without a trailing slash, or ValueError saying what is wrong.
+
+    Checked before any request, so a typo in `.env` fails one check instead of raising
+    inside urllib: `http://[::gg]` is not an IPv6 address, and depending on the Python
+    version urllib raises ValueError while building the request or later while opening it.
+    """
+    base = (value or "").strip().rstrip("/")
+    try:
+        parts = urllib.parse.urlsplit(base)
+        host = parts.hostname
+        parts.port  # ValueError for a non-numeric or out-of-range port
+    except ValueError as e:
+        raise ValueError(f"invalid LANGFUSE_BASE_URL {value!r}: {e}") from None
+    if parts.scheme not in ("http", "https") or not host or parts.query or parts.fragment:
+        raise ValueError(f"invalid LANGFUSE_BASE_URL {value!r}: want http(s)://host[:port][/path]")
+    if "[" in parts.netloc:
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            raise ValueError(f"invalid LANGFUSE_BASE_URL {value!r}: [{host}] is not an IPv6 address") from None
+    return base
 
 
 def client_from_env(environ: Optional[MutableMapping[str, str]] = None) -> "Langfuse":
@@ -289,8 +319,11 @@ class Langfuse:
         url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
         data = None if body is None else json.dumps(body).encode()
         headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
+            # Building the request is inside the boundary too: a malformed base URL raises
+            # ValueError here (or in urlopen, by Python version), never past the caller.
+            validate_base_url(self.base)
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
@@ -298,6 +331,8 @@ class Langfuse:
             raise ApiError(e.code, detail or e.reason) from None
         except (urllib.error.URLError, OSError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
+        except (ValueError, http.client.HTTPException) as e:  # InvalidURL is a ValueError
+            raise ApiError(None, f"cannot request {self.base}{path}: {type(e).__name__}: {e}") from None
         try:
             return json.loads(raw) if raw else None
         except ValueError:
@@ -635,35 +670,68 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str], short: bool =
     return state
 
 
+def config_checks() -> Optional[Tuple[str, str, str, Optional[str]]]:
+    """Settle the configuration before any API use: the manifest, the env file, the keys and
+    a well-formed base URL. Returns (base, public key, secret key, expected project), or
+    None after recording the FAIL that stops the Langfuse checks."""
+    print("Config")
+    manifest_path = DEMO_DIR / "demo.yaml"
+    try:
+        manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    except (OSError, UnicodeDecodeError) as e:
+        check(False, f"{manifest_path.name} unreadable: {type(e).__name__}: {e}", hint="restore demo.yaml from git")
+        return None
+    path = env_file(manifest_value(manifest, "", "profile"))
+    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
+    fix = "cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root"
+    try:
+        loaded = load_env(path)  # drops shell LANGFUSE_* before it reads, so they are gone either way
+    except (OSError, UnicodeDecodeError) as e:
+        check(False, f"env file {shown} unreadable: {type(e).__name__}: {e}", hint=f"fix its permissions or encoding, or {fix}")
+        return None
+    check(loaded, f"env loaded from {shown}; shell-exported LANGFUSE_* ignored", hint=fix)
+    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
+    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
+    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
+    if not check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set",
+                 hint="run ./setup.sh at the repo root"):
+        return None
+    try:
+        base = validate_base_url(base)
+    except ValueError as e:
+        check(False, str(e), hint=f"fix LANGFUSE_BASE_URL in {shown}, e.g. http://localhost:3001")
+        return None
+    check(True, f"LANGFUSE_BASE_URL {base} is a valid http(s) URL")
+    return base, pk, sk, expected
+
+
+def run_checks(short: bool, links: bool) -> None:
+    config = config_checks()
+    if config is None:
+        return
+    base, pk, sk, expected = config
+    service_checks()
+    lf = Langfuse(base, pk, sk)
+    state = langfuse_checks(lf, expected, short=short)
+    if links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state):
+            print(f"  {label:<28} {url}")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--links", action="store_true", help="print the link each act opens")
     ap.add_argument("--short", action="store_true",
                     help="require only the short path (Opening, Acts 1-3, Close); Acts 4-6 only warn")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(argv)  # --help and usage errors exit here, as usual
     del RESULTS[:]
-
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
-    path = env_file(manifest_value(manifest, "", "profile"))
     print(f"cluster-health-investigator readiness: {'short path (Acts 1-3)' if args.short else 'full presentation (Acts 1-6)'}")
-    print("Config")
-    shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-          hint="cp .env.example .env and fill it in" if path.parent == DEMO_DIR else "run ./setup.sh at the repo root")
-    expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
-    base = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST") or ""
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", "")
-    if check(bool(base and pk and sk), "LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL set",
-             hint="run ./setup.sh at the repo root"):
-        service_checks()
-        lf = Langfuse(base, pk, sk)
-        state = langfuse_checks(lf, expected, short=args.short)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<28} {url}")
-
+    try:
+        run_checks(args.short, args.links)
+    except Exception as e:  # noqa: BLE001 -- any failure must reach the verdict; KeyboardInterrupt still stops it
+        check(False, f"verify stopped on an unexpected error: {type(e).__name__}: {e}",
+              hint="the checks above still count; this one makes the verdict NOT READY")
     line, code = summary()
     print(f"\n{line}")
     return code

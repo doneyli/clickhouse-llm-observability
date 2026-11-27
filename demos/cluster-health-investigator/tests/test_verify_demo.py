@@ -488,3 +488,135 @@ def test_links_cover_every_act():
     acts = [label.split(" ·")[0] for label, _ in links]
     assert sorted(set(acts)) == ["Act 1", "Act 2", "Act 3", "Act 4", "Act 5", "Act 6"]
     assert all(url.startswith("https://lf.example/project/p1/") for _, url in links)
+
+
+# --- Failure boundary: every configuration and runtime failure reaches the verdict ----------
+# These drive v.main() itself. The URL and env cases use the real Langfuse.request with
+# urlopen guarded, so a request reaching the network fails the test.
+
+def _no_network(monkeypatch):
+    def guard(*a, **k):
+        pytest.fail("no request may reach the network")
+
+    monkeypatch.setattr(v.urllib.request, "urlopen", guard)
+
+
+def _verdict(out):
+    last = out.strip().splitlines()[-1]
+    assert last.startswith("NOT READY (") and "required failed" in last, out
+    return last
+
+
+@pytest.mark.parametrize("url", ["http://[::gg]", "http://[::gg]:3001/", "ftp://lf.example", "http://lf.example:99999",
+                                 "localhost:3001"])
+def test_malformed_base_url_fails_a_check_before_any_request(env, monkeypatch, capsys, url):
+    env.write_text(f"LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL={url}\n")
+    _no_network(monkeypatch)
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  invalid LANGFUSE_BASE_URL" in out and "Traceback" not in out
+    assert "PASS  env loaded from" in out  # the checks already recorded are kept
+    _verdict(out)
+
+
+def test_malformed_url_inside_request_is_an_api_error_not_a_crash(monkeypatch):
+    _no_network(monkeypatch)
+    with pytest.raises(v.ApiError, match="invalid LANGFUSE_BASE_URL"):
+        v.Langfuse("http://[::gg]", "pk", "sk").get("/api/public/projects")
+
+
+def test_url_rejected_while_opening_is_an_api_error_not_a_crash():
+    """http.client rejects a control character in the path (InvalidURL, a ValueError) in
+    putrequest, before it connects: real request construction, no network."""
+    with pytest.raises(v.ApiError, match="InvalidURL"):
+        v.Langfuse("http://lf.example", "pk", "sk").get("/api/public/v2/prompts/a\nb")
+
+
+def test_validate_base_url_accepts_the_stack_urls():
+    assert v.validate_base_url("http://localhost:3001/") == "http://localhost:3001"
+    assert v.validate_base_url("http://langfuse-web:3000") == "http://langfuse-web:3000"
+    assert v.validate_base_url("https://us.cloud.langfuse.com") == "https://us.cloud.langfuse.com"
+    assert v.validate_base_url("http://[::1]:3001") == "http://[::1]:3001"
+
+
+def test_prepare_env_rejects_a_malformed_base_url_before_any_client(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("LANGFUSE_PUBLIC_KEY=pk\nLANGFUSE_SECRET_KEY=sk\nLANGFUSE_BASE_URL=http://[::gg]\n")
+    ok, msg = v.prepare_env({}, container=False, root_env=env)
+    assert not ok and "invalid LANGFUSE_BASE_URL" in msg
+
+
+def test_undecodable_env_file_fails_a_check_and_drops_shell_keys(env, monkeypatch, capsys):
+    env.write_bytes(b"LANGFUSE_PUBLIC_KEY=\xff\xfe\n")
+    _no_network(monkeypatch)
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  env file" in out and "unreadable: UnicodeDecodeError" in out
+    assert not any(k.startswith("LANGFUSE_") for k in os.environ)  # hostile exports gone, not used
+    _verdict(out)
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads any file")
+def test_unreadable_env_file_fails_a_check(env, monkeypatch, capsys):
+    env.chmod(0)
+    _no_network(monkeypatch)
+    try:
+        assert v.main([]) == 1
+    finally:
+        env.chmod(0o600)
+    out = capsys.readouterr().out
+    assert "FAIL  env file" in out and "unreadable: PermissionError" in out
+    _verdict(out)
+
+
+def test_undecodable_manifest_fails_a_check(env, monkeypatch, capsys, tmp_path):
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    (demo / "demo.yaml").write_bytes(b"profile: \xff\n")
+    monkeypatch.setattr(v, "DEMO_DIR", demo)
+    _no_network(monkeypatch)
+    assert v.main([]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  demo.yaml unreadable: UnicodeDecodeError" in out
+    _verdict(out)
+
+
+def test_unexpected_response_shape_reaches_the_verdict(env, monkeypatch, capsys):
+    """The latest run's worker_count is not a number: int() raises ValueError deep in the
+    Act 1 checks. The earlier rows stay and the run still ends NOT READY."""
+    fake = ready_fake()
+    wc = [s for s in fake.scores if s["name"] == "worker_count" and v.score_trace_id(s) == "t1"]
+    assert wc
+    wc[0]["value"] = "n/a"
+    code, out = run(monkeypatch, capsys, fake)
+    assert code == 1
+    assert "PASS  keys map to project 'LLM Observability Demo'" in out and "PASS  prompt " in out
+    assert "PASS  latest run has" in out
+    assert "FAIL  verify stopped on an unexpected error: ValueError: invalid literal for int()" in out
+    _verdict(out)
+
+
+def test_malformed_projects_payload_reaches_the_verdict(env, monkeypatch, capsys):
+    fake = ready_fake()
+    fake.projects = "not a list"
+    code, out = run(monkeypatch, capsys, fake)
+    assert code == 1 and "FAIL  verify stopped on an unexpected error: AttributeError" in out
+    _verdict(out)
+
+
+def test_keyboard_interrupt_is_not_swallowed(env, monkeypatch):
+    def interrupt():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(v, "service_checks", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])
+
+
+def test_help_and_usage_errors_keep_argparse_behaviour(capsys):
+    with pytest.raises(SystemExit) as e:
+        v.main(["--help"])
+    assert e.value.code == 0 and "--short" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        v.main(["--no-such-flag"])
+    assert e.value.code == 2
