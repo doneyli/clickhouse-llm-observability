@@ -108,7 +108,9 @@ def test_only_one_production_label_per_prompt():
 
 # ----------------------------------------------------------------- reviewer + guardrail
 def _state(*calls, **kw):
-    s = RunState(calls=[{"name": n, "input": {}} for n in calls])
+    s = RunState(calls=[{"name": n, "input": {}, "started_at": i * 2,
+                         "completed_at": i * 2 + 1, "succeeded": True}
+                        for i, n in enumerate(calls)])
     for k, v in kw.items():
         setattr(s, k, v)
     return s

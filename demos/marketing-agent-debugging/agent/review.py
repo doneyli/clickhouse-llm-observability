@@ -36,15 +36,15 @@ def medical_claim(text: str):
 
 
 def unchecked_publishes(state: RunState) -> List[str]:
-    """Publishing calls that happened before any check_claims call in the run."""
-    seen_check = False
-    out = []
-    for call in state.calls:
-        if call["name"] == "check_claims":
-            seen_check = True
-        elif call["name"] in PUBLISHING_TOOLS and not seen_check:
-            out.append(call["name"])
-    return out
+    """Publishing calls started before a successful fact-check completed.
+
+    An attempted check can fail, and parallel tool calls can finish in a different
+    order than they were requested. Neither counts as a prior completed check.
+    """
+    checks = [c["completed_at"] for c in state.calls if c["name"] == "check_claims"
+              and c.get("succeeded") and "completed_at" in c]
+    return [c["name"] for c in state.calls if c["name"] in PUBLISHING_TOOLS
+            and not any(end <= c.get("started_at", -1) for end in checks)]
 
 
 def policy_check(state: RunState, step_limit_hit: bool) -> dict:
@@ -56,7 +56,8 @@ def policy_check(state: RunState, step_limit_hit: bool) -> dict:
         violations.append("step limit reached before the agent finished")
     return {"passed": not violations, "violations": violations,
             "published_items": len(state.staged_drafts) + len(state.corrections),
-            "fact_checks_run": sum(1 for c in state.calls if c["name"] == "check_claims")}
+            "fact_checks_run": sum(1 for c in state.calls if c["name"] == "check_claims"
+                                   and c.get("succeeded"))}
 
 
 def review(customer: str, state: RunState, final_text: str, *, step_limit_hit: bool,
