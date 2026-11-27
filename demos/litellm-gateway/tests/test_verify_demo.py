@@ -230,8 +230,9 @@ class FailureBoundaryTests(VerifyHarness):
         fake = FakeLangfuse(observations=fresh_trace())
         code, out = self.run_main(fake, GOOD_ENV.replace("http://lf:3001", "http://[::gg]"))
         self.assertEqual(code, 1, out)
+        # The reason after the colon is urllib's or ipaddress's wording, which varies by Python.
         self.assertIn("FAIL  Langfuse keys and base URL set: base URL 'http://[::gg]' is not a usable "
-                      "http(s) URL: invalid IPv6 host [::gg]", out)
+                      "http(s) URL: ", out)
         self.assertIn("PASS  env loaded from .env", out)
         self.assertEqual(self.verdict_line(out), "NOT READY (3/4 checks passed, 1 required failed)")
         self.assertEqual(fake.requests, [])
@@ -302,8 +303,10 @@ class FailureBoundaryTests(VerifyHarness):
     def test_cli_malformed_url_reaches_a_counted_verdict(self):
         r = self.cli(env_text=GOOD_ENV.replace("http://lf:3001", "http://[::gg]"))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("invalid IPv6 host [::gg]", r.stdout)
+        self.assertIn("FAIL  Langfuse keys and base URL set: base URL 'http://[::gg]' is not a usable "
+                      "http(s) URL: ", r.stdout)
         self.assertEqual(self.verdict_line(r.stdout), "NOT READY (3/4 checks passed, 1 required failed)")
+        self.assertNotIn("Services", r.stdout)  # stopped in Config: no probe or API request was made
         self.assertNotIn("Traceback", r.stderr)
 
     def test_cli_help_and_usage_errors_behave_normally(self):
