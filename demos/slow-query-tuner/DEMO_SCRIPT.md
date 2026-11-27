@@ -360,7 +360,7 @@ that is the input of a late `plan-next-action`.
 `finalize` writes the five trace scores; `semantics_preserved` (`agent_loop.py:364`) and
 `improvement_delta` (`agent_loop.py:376`) go on the spans they judge.
 
-**13 · Readiness counts real rows — `scripts/verify_demo.py:374`**
+**13 · Readiness counts real rows — `scripts/verify_demo.py:404`**
 `latest_root` reads Observations v2 and falls back to the v1 read only when v2 answers 404 and
 the health endpoint reports a server below v4 (the pinned self-hosted stack). The check then counts
 the trace's observations, reads its scores through Scores v3, and compares every seeded prompt

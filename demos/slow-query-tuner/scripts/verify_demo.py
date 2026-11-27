@@ -14,6 +14,8 @@ because a trace can exist before its observations land.
 Standard library only, so it runs in any Python 3.9+ without the demo's dependencies. No model
 calls and no writes: Langfuse GETs and read-only ClickHouse GETs, done in seconds. The final line
 is the full presentation's verdict; the line above it is the short path's (Acts 1, 2, 4).
+A malformed URL, an unreadable `.env`, a failed or unparseable read, or any unexpected error is
+one more FAIL: the checks already recorded stand, and the counted verdict still prints.
 
 Reads use the current APIs: health, projects, prompts v2, datasets v2 and dataset items,
 experiments, Observations v2 and Scores v3. The root stack pins a Langfuse v3 server, which
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import re
@@ -219,19 +222,22 @@ class Langfuse:
 
     def request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
                 body: Optional[Any] = None) -> Any:
-        query = {k: (str(v).lower() if isinstance(v, bool) else v)
-                 for k, v in (params or {}).items() if v is not None}
-        url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
-        data = None if body is None else json.dumps(body).encode()
-        headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            query = {k: (str(v).lower() if isinstance(v, bool) else v)
+                     for k, v in (params or {}).items() if v is not None}
+            url = self.base + path + ("?" + urllib.parse.urlencode(query) if query else "")
+            data = None if body is None else json.dumps(body).encode()
+            headers = dict(self.headers, **({"Content-Type": "application/json"} if data else {}))
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        except (ValueError, TypeError) as e:   # a malformed base URL fails here, before any I/O
+            raise ApiError(None, f"cannot build a request to {self.base}{path}: {e}") from None
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 raw = r.read()
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
             raise ApiError(e.code, detail or e.reason) from None
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, ValueError) as e:
             raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
         try:
             return json.loads(raw) if raw else None
@@ -296,20 +302,47 @@ def server_major(version: str) -> int:
     return int(digits) if digits.isdigit() else 0
 
 
+def url_problem(url: str) -> Optional[str]:
+    """Why `url` cannot be a service base URL, or None when it can: http(s), a host, a valid
+    port, and a bracketed host that is a real IPv6 address. Python 3.9's urlsplit accepts
+    http://[::gg] that 3.11 rejects, so the IPv6 check is explicit."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+        parts.port  # noqa: B018 — raises ValueError on a non-numeric or out-of-range port
+        if "[" in parts.netloc:
+            ipaddress.IPv6Address((host or "").split("%")[0])
+    except ValueError as e:
+        return str(e)
+    if parts.scheme not in ("http", "https"):
+        return f"scheme must be http or https, not {parts.scheme or 'none'}"
+    if not host:
+        return "no host"
+    return None
+
+
+def lab_url() -> str:
+    port = os.environ.get("CLICKHOUSE_TUNING_HTTP_PORT") or "8126"
+    return os.environ.get("TUNING_CH_URL") or f"http://localhost:{port}"
+
+
 # --- The tuning lab -----------------------------------------------------------------------
 
 def clickhouse_query(url: str, user: str, password: str, sql: str, timeout: float = TIMEOUT_S) -> str:
     """Run one read-only statement over ClickHouse's HTTP interface and return the TSV body.
     A GET request is read-only on the server side as well."""
-    req = urllib.request.Request(url.rstrip("/") + "/?" + urllib.parse.urlencode({"query": sql}),
-                                 headers={"X-ClickHouse-User": user, "X-ClickHouse-Key": password})
+    try:
+        req = urllib.request.Request(url.rstrip("/") + "/?" + urllib.parse.urlencode({"query": sql}),
+                                     headers={"X-ClickHouse-User": user, "X-ClickHouse-Key": password})
+    except (ValueError, TypeError) as e:   # a malformed lab URL fails here, before any I/O
+        raise ApiError(None, f"cannot build a request to {url}: {e}") from None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
         raise ApiError(e.code, detail.strip() or str(e.reason)) from None
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, ValueError) as e:
         raise ApiError(None, f"{type(e).__name__}: {getattr(e, 'reason', e)}") from None
 
 
@@ -327,8 +360,7 @@ def lab_shape(ddl_tsv: str) -> Tuple[bool, str]:
 
 
 def lab_checks() -> None:
-    port = os.environ.get("CLICKHOUSE_TUNING_HTTP_PORT") or "8126"
-    url = os.environ.get("TUNING_CH_URL") or f"http://localhost:{port}"
+    url = lab_url()
     user = os.environ.get("TUNING_CH_AGENT_USER") or "tuner_agent"
     password = os.environ.get("TUNING_CH_AGENT_PASSWORD") or "tuner_agent123"
     admin = os.environ.get("TUNING_CH_ADMIN_USER") or "tuner_admin"
@@ -533,6 +565,8 @@ def langfuse_checks(lf: Langfuse, expected_project: Optional[str]) -> Dict[str, 
                   hint="python demos/slow-query-tuner/scripts/seed_all.py prints their fields")
     except ApiError as e:
         check(False, f"Langfuse read failed: {e}")
+    except (ValueError, KeyError, TypeError) as e:   # a response this check cannot parse
+        check(False, f"Langfuse returned data the check cannot parse: {type(e).__name__}: {e}")
     return state
 
 
@@ -541,15 +575,45 @@ def config_checks(manifest: str) -> Tuple[bool, Optional[str]]:
     Returns (complete, expected project). Nothing touches the network before this passes."""
     path = env_file(manifest_value(manifest, "", "profile"))
     shown = path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path
-    ok = check(load_env(path), f"env loaded from {shown}; shell-exported LANGFUSE_* ignored",
-               hint="run ./setup.sh at the repo root")
+    try:
+        loaded, why = load_env(path), ""
+    except (OSError, UnicodeDecodeError) as e:   # unreadable: permissions, a directory, not UTF-8
+        loaded, why = False, f": {type(e).__name__}: {e}"
+    ok = check(loaded, f"env loaded from {shown}; shell-exported LANGFUSE_* ignored{why}",
+               hint="fix the file's permissions or encoding" if why else "run ./setup.sh at the repo root")
     for key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL"):
         ok &= check(bool(os.environ.get(key)), f"{key} set in {shown}", hint="run ./setup.sh at the repo root")
+    for name, url in (("LANGFUSE_BASE_URL", os.environ.get("LANGFUSE_BASE_URL")),
+                      ("tuning lab URL (TUNING_CH_URL / CLICKHOUSE_TUNING_HTTP_PORT)", lab_url())):
+        if url:
+            problem = url_problem(url)
+            ok &= check(problem is None, f"{name} {url} is a usable http(s) URL" + (f": {problem}" if problem else ""),
+                        hint=f"fix it in {shown}")
     ok &= check(bool(os.environ.get("ANTHROPIC_API_KEY")), "ANTHROPIC_API_KEY set (the agent's planner)",
                 hint="add it to the root .env")
     expected = os.environ.get("DEMO_LANGFUSE_PROJECT") or manifest_value(manifest, "langfuse", "project")
     ok &= check(bool(expected), f"expected project '{expected}' (langfuse.project in demo.yaml)")
     return bool(ok), expected
+
+
+def run_checks(links: bool) -> None:
+    """Every check, in order. main() is the failure boundary around it: whatever this raises
+    becomes one more FAIL, and the results already recorded are kept for the verdict."""
+    manifest_path = DEMO_DIR / "demo.yaml"
+    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    print("Config")
+    complete, expected = config_checks(manifest)
+    if not complete:
+        print("  (lab and Langfuse checks skipped until the config is complete)")
+        return
+    lab_checks()
+    checkpoint_checks()
+    lf = Langfuse(os.environ["LANGFUSE_BASE_URL"], os.environ["LANGFUSE_PUBLIC_KEY"], os.environ["LANGFUSE_SECRET_KEY"])
+    state = langfuse_checks(lf, expected)
+    if links and state.get("project_id"):
+        print("\nLinks")
+        for label, url in act_links(lf.base, state):
+            print(f"  {label:<28} {url}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -559,22 +623,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     del RESULTS[:]
     del ACTS[:]
 
-    manifest_path = DEMO_DIR / "demo.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
     print("slow-query-tuner readiness")
-    print("Config")
-    complete, expected = config_checks(manifest)
-    if not complete:
-        print("  (lab and Langfuse checks skipped until the config is complete)")
-    else:
-        lab_checks()
-        checkpoint_checks()
-        lf = Langfuse(os.environ["LANGFUSE_BASE_URL"], os.environ["LANGFUSE_PUBLIC_KEY"], os.environ["LANGFUSE_SECRET_KEY"])
-        state = langfuse_checks(lf, expected)
-        if args.links and state.get("project_id"):
-            print("\nLinks")
-            for label, url in act_links(lf.base, state):
-                print(f"  {label:<28} {url}")
+    try:
+        run_checks(args.links)
+    except ApiError as e:
+        check(False, f"verify stopped on a read error: {e}")
+    except Exception as e:  # noqa: BLE001 — anything else is still a counted FAIL, never a bare traceback
+        check(False, f"verify stopped by an unexpected error: {type(e).__name__}: {e}",
+              hint="the results above still stand; report this with the line above")
 
     line, code = summary()
     print(f"\n{short_path_summary()}")

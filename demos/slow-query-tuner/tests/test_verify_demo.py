@@ -285,3 +285,89 @@ def test_links_follow_the_act_order():
     links = v.act_links("http://lf", {"project_id": "p1", "trace_id": "t1", "dataset_id": "d1"})
     acts = [int(label.split(" ·")[0].split()[1]) for label, _ in links]
     assert acts == sorted(acts) and acts[0] == 1 and acts[-1] == 6
+
+
+# --- failure boundary: every failure is a counted FAIL and a NOT READY verdict ---------------
+
+def last_line(out):
+    return out.rstrip().splitlines()[-1]
+
+
+@pytest.mark.parametrize("line,needle", [
+    ("LANGFUSE_BASE_URL=http://[::gg]", "LANGFUSE_BASE_URL http://[::gg] is a usable http(s) URL: "),
+    ("LANGFUSE_BASE_URL=localhost:3001", "scheme must be http or https"),
+    ("TUNING_CH_URL=http://localhost:99999", "tuning lab URL"),
+])
+def test_malformed_url_in_the_env_is_a_failed_check_without_any_request(monkeypatch, tmp_path, capsys, line, needle):
+    env = GOOD_ENV.replace("LANGFUSE_BASE_URL=http://localhost:3001", line) if line.startswith("LANGFUSE") \
+        else GOOD_ENV + line + "\n"
+    server = setup(monkeypatch, tmp_path, FakeServer().seed_ready(), env=env)
+    code, out = run(capsys)
+    assert code == 1 and needle in out
+    assert last_line(out).startswith("NOT READY (") and "required failed" in last_line(out)
+    assert server.requests == []
+
+
+@pytest.mark.parametrize("url", ["http://[::gg]", ""])
+def test_request_construction_errors_become_api_errors(monkeypatch, url):
+    """Real Request construction, no stubbed client: a bad base URL is an ApiError, not a ValueError."""
+    monkeypatch.setattr(v.urllib.request, "urlopen", FakeServer().seed_ready())
+    with pytest.raises(v.ApiError):
+        v.Langfuse(url, "pk", "sk").get("/api/public/health")
+    with pytest.raises(v.ApiError):
+        v.clickhouse_query(url, "tuner_agent", "x", "SELECT 1")
+
+
+def test_unreadable_env_is_not_ready_without_any_request(monkeypatch, tmp_path, capsys):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root reads a mode-000 file")
+    server = setup(monkeypatch, tmp_path, FakeServer().seed_ready())
+    (tmp_path / ".env").chmod(0)
+    try:
+        code, out = run(capsys)
+    finally:
+        (tmp_path / ".env").chmod(0o600)
+    assert code == 1 and "FAIL  env loaded from .env; shell-exported LANGFUSE_* ignored: PermissionError" in out
+    assert last_line(out).startswith("NOT READY (")
+    assert server.requests == []
+
+
+def test_non_utf8_env_is_not_ready_without_any_request(monkeypatch, tmp_path, capsys):
+    server = setup(monkeypatch, tmp_path, FakeServer().seed_ready())
+    (tmp_path / ".env").write_bytes(b"LANGFUSE_PUBLIC_KEY=\xff\xfe\n")
+    code, out = run(capsys)
+    assert code == 1 and "UnicodeDecodeError" in out and last_line(out).startswith("NOT READY (")
+    assert server.requests == []
+
+
+def test_unparseable_response_is_a_failed_check(v4, capsys):
+    for o in v4.observations:
+        o["startTime"] = "yesterday"
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  Langfuse returned data the check cannot parse: ValueError" in out
+    assert last_line(out).startswith("NOT READY (")
+
+
+def test_unexpected_error_keeps_earlier_results_and_reaches_the_verdict(v4, capsys):
+    v4.projects = ["not-a-project-object"]          # a response shape no check expects
+    code, out = run(capsys)
+    assert code == 1 and "FAIL  verify stopped by an unexpected error: AttributeError" in out
+    assert "PASS  env loaded from .env" in out and "PASS  Act 5: tuner_admin authenticates" in out
+    line = last_line(out)
+    assert line.startswith("NOT READY (") and "1 required failed" in line
+    passed = int(line.split("(")[1].split("/")[0])
+    assert passed == sum(1 for s, _, _ in v.RESULTS if s == "PASS") > 0
+
+
+def test_keyboard_interrupt_and_help_are_not_swallowed(monkeypatch, tmp_path, capsys):
+    def interrupt(req, timeout=None):
+        raise KeyboardInterrupt
+    setup(monkeypatch, tmp_path, interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        v.main([])
+    with pytest.raises(SystemExit) as e:
+        v.main(["--help"])
+    assert e.value.code == 0 and "--links" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as e:
+        v.main(["--no-such-flag"])
+    assert e.value.code == 2
