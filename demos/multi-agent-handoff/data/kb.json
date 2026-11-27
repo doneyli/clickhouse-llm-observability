@@ -1,0 +1,18 @@
+[
+ {"id": "KB-101", "category": "faq", "title": "Store and support hours", "body": "Chat support is open 24/7. Stores open 9am-8pm Monday to Saturday, 10am-6pm Sunday."},
+ {"id": "KB-102", "category": "faq", "title": "Paying your bill", "body": "Pay in the app, online, by autopay, or in a store. Bills are issued on the 1st and due on the 21st."},
+ {"id": "KB-103", "category": "faq", "title": "Autopay discount", "body": "Autopay with a bank account takes $5 off each line per month. Card autopay has no discount."},
+ {"id": "KB-104", "category": "faq", "title": "International roaming", "body": "Mobile Unlimited and Unlimited Plus include roaming in 30 countries. Essentials needs the $10/day travel pass."},
+ {"id": "KB-105", "category": "faq", "title": "Changing plans", "body": "Plan changes take effect on the next bill. Billing can change a plan and pro-rate the difference."},
+ {"id": "KB-106", "category": "faq", "title": "Outage credits", "body": "Customers affected by a confirmed outage of 4 hours or more get a credit once the outage is resolved. Tech support confirms the outage; billing applies the credit to the next bill."},
+ {"id": "KB-107", "category": "faq", "title": "Returning a device", "body": "Devices can be returned within 14 days in original condition. Device damage claims go to the device protection partner."},
+ {"id": "KB-201", "category": "troubleshooting", "title": "Router offline", "body": "If the router light is red: power-cycle it for 30 seconds, check the fiber cable is seated, then run line diagnostics. Persistent red after reset needs a technician."},
+ {"id": "KB-202", "category": "troubleshooting", "title": "Slow home internet", "body": "Run a wired speed test. Wi-Fi speeds below plan are usually interference; move the router or use 5 GHz. A throttled line shows 'speed-throttled' in diagnostics and is fixed by billing if it is a plan cap."},
+ {"id": "KB-203", "category": "troubleshooting", "title": "No mobile data (APN)", "body": "If calls work but data does not, the APN may be wrong. Set APN to 'nwmobile' in settings, then restart the phone."},
+ {"id": "KB-204", "category": "troubleshooting", "title": "SIM not provisioned", "body": "A new SIM that shows 'no service' may not be provisioned. Tech support can re-push provisioning; it takes up to 15 minutes."},
+ {"id": "KB-205", "category": "troubleshooting", "title": "eSIM transfer", "body": "Transfer an eSIM in phone settings with the QR code from the app. The old device loses service when the transfer completes."},
+ {"id": "KB-206", "category": "troubleshooting", "title": "Area outages", "body": "Check the outage feed by zip code before troubleshooting a device. During a confirmed outage, do not book a technician; service returns when the outage is fixed."},
+ {"id": "KB-207", "category": "troubleshooting", "title": "Booking a technician", "body": "Book a technician only when diagnostics show a fault at the customer's address and there is no area outage."},
+ {"id": "KB-301", "category": "billing", "title": "Disputing a charge", "body": "Billing reviews disputed charges on the open invoice. Paid invoices older than 60 days cannot be disputed."},
+ {"id": "KB-302", "category": "billing", "title": "How outage credits are calculated", "body": "Credit = whole days of outage (rounded up) x the line's daily rate (monthly price / days in month). Only the affected service's line. Capped at one month."}
+]

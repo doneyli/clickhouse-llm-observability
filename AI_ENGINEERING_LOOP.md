@@ -37,6 +37,7 @@ it across the whole stack.
 | `librechat/` | Shared chat frontend | LibreChat native Langfuse tracing |
 | `demos/real-estate/` | Self-contained agentic concierge — the loop shown end-to-end in one place | Langfuse SDK |
 | `demos/brand-promo-multi-agent/` | Multi-agent promo-planning assistant (standalone): synthetic history, online + offline evals, persona dashboards | LangGraph + CrewAI + Langfuse `CallbackHandler` |
+| `demos/multi-agent-handoff/` | Agents handing work to each other over A2A 1.0: a concierge plus tech-support and billing as separate services, one trace and one session across them, and the loop on one shipped misroute bug | Anthropic API + a2a-sdk + Langfuse SDK v5 |
 | `demos/slow-query-tuner/` | Autonomous agent loop: open-ended query optimization against a live ClickHouse lab (Pattern #7) | Raw Anthropic tool-use + Langfuse SDK (typed observations) |
 | `demos/analytics-agentic-speed/` | Analytics agent at machine speed: one SQL template + a lever grid from the model, hundreds of scenario queries per round on a 231.6M-row ClickHouse Cloud table, DB server time on every query span | Anthropic API (asyncio) + Langfuse SDK (typed observations) |
 
@@ -191,6 +192,25 @@ scale of queries, not calls:
 - **Deploy** — planner and analyst prompts are Langfuse-managed and fetched by label;
   `scripts/prompt_gate.py` runs the dataset on a candidate label and blocks it below
   `cicd/thresholds.json`.
+
+## The loop on a multi-agent handoff — `demos/multi-agent-handoff/`
+
+The bug: a "skip a hop" edit to the concierge's routing prompt sends outage credits straight to
+billing. Billing passes them on, so every outcome metric stays green. One live pass
+([docs/LOOP_RUN.md](demos/multi-agent-handoff/docs/LOOP_RUN.md)):
+- **Trace:** `scripts/loop.py ship-bug` makes the bug production, and simulated customers drive the
+  traffic.
+- **Monitor:** the `handoff-appropriate` judge flags the misroutes on the **Handoffs — quality**
+  dashboard, split by the prompt versions each turn ran.
+- **Datasets:** the flagged handoffs, plus a control sample, go to an `OBSERVATION` review queue. The
+  reviewer's labels become `handoff-routing` items (`scripts/promote_to_dataset.py`).
+- **Experiment and Evaluate:** the fix runs as concierge `@candidate`, and `scripts/judge_calibration.py`
+  checks the judge against the reviewer.
+- **Deploy:** `scripts/prompt_gate.py` blocks the bug and passes the fix on deterministic routing and
+  loop metrics. `.github/workflows/handoff-prompt-gate.yml` is the CI version, and
+  `scripts/loop.py promote` moves the label.
+
+The concierge's flagged first handoffs fell from 13 of 37 turns to 1 of 38.
 
 ## Honest scope (what's live vs documented)
 
