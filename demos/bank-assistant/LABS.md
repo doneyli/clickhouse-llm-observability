@@ -64,6 +64,29 @@ the room writes the rubric.
    evaluator with a target of experiments — show it on
    `northwind-golden-qa-v1` if time allows.
 
+## Lab 2b — the same evaluator as a decision model (optional, 4 min) · EVA-03, EVA-04
+
+The `complaint-escalation` criterion is a yes or a no. Build it again as a
+decision model and compare the two in the test panel
+([background](docs/DECISION_MODELS.md)).
+
+1. **Evaluators → + New evaluator → New decision model evaluator.** Pick the
+   TypeSafe connection (Jev), or OpenAI with `gpt-6-luna`.
+2. State: `customer_message` → observation **input**, `assistant_reply` →
+   **output**.
+3. One **Yes / no** question, score name `complaint-escalation-missed`:
+
+   > Did `customer_message` show distress, anger or a wish to complain while
+   > `assistant_reply` offered neither a human call-back nor the complaint process?
+
+   Write the **true** and **false** criteria with the room, in English, even for
+   Spanish traffic. High means the escalation was missed.
+4. Test it on three observations: a complaint (*"I want to complain about how long
+   my last dispute took"*), a fee question, and an angry follow-up. Read the
+   probability, the cost and the latency next to Lab 2's judge.
+5. Discuss: which one would you run on 100% of traffic? Which one would you show
+   an auditor? *(→ Act 2.5: both, for different jobs.)*
+
 ## Lab 3 — Prompt experiment in the UI (5 min, optional) · EXP-02, EXP-04
 
 1. **Prompts → `northwind-assistant-system`** → compare the versions currently

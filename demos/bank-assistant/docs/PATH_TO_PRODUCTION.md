@@ -71,7 +71,7 @@ How to use this document. Each gate lists its pass criteria, the evidence to col
 | PostgreSQL | Users, prompts, datasets, configs (small) | Right-size the instance; Multi-AZ is required |
 | Redis / Valkey | Peak events per minute (~1 GB per 100k/min) | Node size; cluster mode only when needed |
 | S3 | Raw-event replay window, media (voice audio), exports | Events lifecycle; retention deletes media; export field groups |
-| **LLM-judge tokens** | Traces × sampling rate × judges × tokens per eval | **Often the largest variable cost.** Evaluator sampling %, narrow filters (root observation only, production only), cheaper judge models where calibration allows |
+| **LLM-judge tokens** | Traces × sampling rate × judges × tokens per eval | **Often the largest variable cost.** Evaluator sampling %, narrow filters (root observation only, production only), cheaper judge models where calibration allows. Move yes/no and one-of-N criteria to a **decision-model evaluator** (input tokens only, all questions in one call); keep LLM judges for what needs a rationale ([DECISION_MODELS.md](DECISION_MODELS.md)) |
 | People and ops | Number of teams and projects, upgrade cadence, SME annotation hours | Golden-path templates; evaluators and dashboards as code; support contract |
 
 ### Estimation worksheet
@@ -124,7 +124,14 @@ GROUP BY table ORDER BY sum(data_compressed_bytes) DESC;
 
 To get P, divide the bytes of all tables that hold observations (v4: `events_full` and `events_core`) by the observation count. On a replicated operator cluster, run the query on one replica and multiply by Rep.
 
-**Why judges dominate:** with illustrative inputs of T = 50,000 traces/day, s = 10%, J = 3 judges and Ti + To = 2,200 tokens, that is 15,000 evaluations and ~33M judge tokens **per day**, before any experiments. Storage for the same traffic is bounded by retention, but judge spend grows linearly with traffic and with every judge added. Control it with sampling rules and filters first.
+**Why judges dominate:** with illustrative inputs of T = 50,000 traces/day, s = 10%, J = 3 judges and Ti + To = 2,200 tokens, that is 15,000 evaluations and ~33M judge tokens **per day**, before any experiments. Storage for the same traffic is bounded by retention, but judge spend grows linearly with traffic and with every judge added. Control it with sampling rules and filters first. Then move typed criteria to a
+decision model. On this demo project, measured: an LLM-judge call costs $0.0027–0.0042, while
+`customer-signals` + `conduct-screen`, 13 scores together, cost about $0.0003 per turn on
+`gpt-6-luna`, and Jev lists at 0.42× that price per input token. At 1M turns that is
+about $330 for 13 signals, against about $35,000 as 13 one-score judges
+([DECISION_MODELS.md](DECISION_MODELS.md#where-it-fits-in-this-demo)). That makes 100%
+coverage affordable for the typed signals, and keeps sampling for the judges that
+explain.
 
 ### Enterprise support model
 
