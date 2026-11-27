@@ -81,8 +81,29 @@ def write_json(path, value):
 
 
 def load_state(directory):
-    path = Path(directory) / "state.json"
-    return json.loads(path.read_text()) if path.exists() else {"applications": {}, "users": {}, "organizationId": None}
+    directory = Path(directory).resolve()
+    path = directory / "state.json"
+    state = json.loads(path.read_text()) if path.exists() else {"applications": {}, "users": {}, "organizationId": None}
+    # The demo rename moves private/, but older manifests contain absolute paths.
+    # Rebase only credentials from this checkout's former default state directory.
+    # Keep reads side-effect free; the next workflow save persists the migration.
+    legacy_directory = ROOT.parent / "langfuse-operations" / "private"
+    records = [*state.get("applications", {}).values(),
+               *state.get("organizations", {}).values(),
+               *state.get("governance", {}).get("personas", {}).values()]
+    for record in records:
+        for field in ("envFile", "previousEnvFile"):
+            value = record.get(field)
+            if not isinstance(value, str):
+                continue
+            try:
+                relative = Path(value).relative_to(legacy_directory)
+            except ValueError:
+                continue
+            relocated = directory / relative
+            if relocated.is_file() and relocated.resolve().is_relative_to(directory):
+                record[field] = str(relocated)
+    return state
 
 
 def public_state(state):

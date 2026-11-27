@@ -21,6 +21,8 @@ chmod 600 private/org.env
 
 Open [the portal](http://127.0.0.1:8091). Use `--port`, `--state-dir /absolute/private/path`, or `--org-env /absolute/path/org.env` when needed. The target is intentionally restricted to a local HTTP instance. No cloud configuration is silently substituted.
 
+When upgrading from `demos/langfuse-operations`, move its ignored `private/` directory into `demos/langfuse-enterprise-operations/` before starting the portal. On load, saved application, previous-key, persona, and child organization credential paths under the former default directory are rebased to matching files in the active state directory. The next workflow save persists those paths. Custom credential paths stay unchanged, and missing files are not substituted. If the root `.env` sets `LANGFUSE_INSTANCE_ENV_FILE` to the old directory, update that setting too.
+
 The vendored `scripts/langfuse-connect.sh` passes credential paths to the CLI's own env loader. Python never reads credential files. The wrapper uses a global CLI if present or a pinned-major npx/bunx fallback. For a fixed rehearsal environment install `npm install -g @langfuse/cli@1.2.4` first. `./scripts/langfuse-connect.sh --env-file "$PWD/private/org.env" --host http://localhost:3001 --check` verifies host and authentication.
 
 ## Enable organization creation
