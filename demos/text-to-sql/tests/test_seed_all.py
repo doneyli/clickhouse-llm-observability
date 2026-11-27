@@ -215,3 +215,33 @@ def test_the_prompt_seeder_covers_every_text_to_sql_prompt_the_app_fetches():
     assert {"text-to-sql-analysis", "text-to-sql-response", "text-to-sql-gate-grounding",
             "text-to-sql-generator", "text-to-sql-critic"} <= names
     assert all(sp["type"] == "text" and isinstance(sp["config"], dict) for sp in SPECS)
+
+
+# --- With the real root prompt seeder --------------------------------------------------------
+
+class RealPromptSeeder(Runner):
+    """Runs scripts/seed-app-prompts.py's own main() in-process against the fake server, with
+    the environment seed_all hands it, instead of a subprocess."""
+
+    def __init__(self, lf, server):
+        super().__init__(lf)
+        self.server = server
+
+    def __call__(self, cmd, env):
+        name = cmd[-1].rsplit("/", 1)[-1]
+        self.cmds.append(name)
+        if name != "seed-app-prompts.py":
+            return 0
+        return PROMPT_MOD.main([], environ=env, opener=self.server.urlopen)
+
+
+@pytest.mark.parametrize("field,change", [("config", {"model": "claude-old", "temperature": 0.7}),
+                                          ("type", "chat")])
+def test_the_real_seeder_fixes_drift_that_used_to_pass_as_unchanged(server, lf, field, change):
+    served(server, "text-to-sql-response", "production")[field] = change
+    env = s.child_env("http://lf.test")
+    env.update(LANGFUSE_PUBLIC_KEY="pk", LANGFUSE_SECRET_KEY="sk")
+    t = s.seed(lf, env, False, runner=RealPromptSeeder(lf, server), prompt_module=PROMPT_MOD)
+    assert (t.counts["updated"], t.counts["failed"]) == (1, 0)
+    assert s.prompt_plan(lf, SPECS) == [(sp, []) for sp in SPECS]
+    assert [b["name"] for p, b in server.writes() if p == "/api/public/v2/prompts"] == ["text-to-sql-response"]
